@@ -20,7 +20,7 @@ import (
 	"reflect"
 
 	predictorv1 "github.com/kserve/modelmesh-serving/apis/serving/v1alpha1"
-	virtualservicev1 "istio.io/client-go/pkg/apis/networking/v1alpha3"
+	virtualservicev1 "istio.io/client-go/pkg/apis/networking/v1beta1"
 	apierrs "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
