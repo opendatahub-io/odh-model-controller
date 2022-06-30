@@ -44,7 +44,7 @@ func NewPredictorVirtualService(predictor *predictorv1.Predictor) *virtualservic
 }
 
 // ComparePredictorVirtualServices checks if two VirtualServices are equal, if not return false
-func ComparePredictorVirtualServices(vs1 virtualservicev1.VirtualService, vs2 virtualservicev1.VirtualService) bool {
+func ComparePredictorVirtualServices(vs1 *virtualservicev1.VirtualService, vs2 *virtualservicev1.VirtualService) bool {
 	// Two VirtualServices will be equal if the labels and spec are identical
 	return reflect.DeepEqual(vs1.ObjectMeta.Labels, vs2.ObjectMeta.Labels) &&
 		reflect.DeepEqual(vs1.Spec.Hosts, vs2.Spec.Hosts)
@@ -91,7 +91,7 @@ func (r *OpenshiftPredictorReconciler) reconcileVirtualService(predictor *predic
 	}
 
 	// Reconcile the VirtualService spec if it has been manually modified
-	if !justCreated && !ComparePredictorVirtualServices(*desiredVirtualService, *foundVirtualService) {
+	if !justCreated && !ComparePredictorVirtualServices(desiredVirtualService, foundVirtualService) {
 		log.Info("Reconciling VirtualService")
 		// Retry the update operation when the ingress controller eventually
 		// updates the resource version field
@@ -104,7 +104,7 @@ func (r *OpenshiftPredictorReconciler) reconcileVirtualService(predictor *predic
 				return err
 			}
 			// Reconcile labels and spec field
-			foundVirtualService.Spec = desiredVirtualService.Spec
+			foundVirtualService.Spec = *desiredVirtualService.Spec.DeepCopy()
 			foundVirtualService.ObjectMeta.Labels = desiredVirtualService.ObjectMeta.Labels
 			return r.Update(ctx, foundVirtualService)
 		})

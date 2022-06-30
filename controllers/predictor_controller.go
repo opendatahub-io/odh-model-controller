@@ -21,6 +21,7 @@ import (
 
 	"github.com/go-logr/logr"
 	predictorv1 "github.com/kserve/modelmesh-serving/apis/serving/v1alpha1"
+	virtualservicev1 "istio.io/client-go/pkg/apis/networking/v1beta1"
 	corev1 "k8s.io/api/core/v1"
 	apierrs "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -44,17 +45,6 @@ type OpenshiftPredictorReconciler struct {
 // +kubebuilder:rbac:groups=serving.kserve.io,resources=predictors,verbs=get;list;watch
 // +kubebuilder:rbac:groups="",resources=services;serviceaccounts;secrets,verbs=get;list;watch;create;update;patch
 
-// OAuthInjectionIsEnabled returns true if the oauth sidecar injection
-// annotation is present in the Predictor
-// func OAuthInjectionIsEnabled(Predictor nbv1.Predictor) bool {
-// 	if Predictor.Annotations[AnnotationInjectOAuth] != "" {
-// 		result, _ := strconv.ParseBool(Predictor.Annotations[AnnotationInjectOAuth])
-// 		return result
-// 	} else {
-// 		return false
-// 	}
-// }
-
 // ComparePredictors checks if two predictors are equal, if not return false
 func ComparePredictors(pr1 predictorv1.Predictor, pr2 predictorv1.Predictor) bool {
 	return reflect.DeepEqual(pr1.ObjectMeta.Labels, pr2.ObjectMeta.Labels) &&
@@ -70,8 +60,8 @@ func (r *OpenshiftPredictorReconciler) Reconcile(ctx context.Context, req ctrl.R
 
 	// Get the Predictor object when a reconciliation event is triggered (create,
 	// update, delete)
-	Predictor := &predictorv1.Predictor{}
-	err := r.Get(ctx, req.NamespacedName, Predictor)
+	predictor := &predictorv1.Predictor{}
+	err := r.Get(ctx, req.NamespacedName, predictor)
 	if err != nil && apierrs.IsNotFound(err) {
 		log.Info("Stop Predictor reconciliation")
 		return ctrl.Result{}, nil
@@ -81,39 +71,10 @@ func (r *OpenshiftPredictorReconciler) Reconcile(ctx context.Context, req ctrl.R
 	}
 	log.Info("Noticed a predictor")
 
-	// // Create the objects required by the OAuth proxy sidecar (see
-	// // Predictor_oauth.go file)
-	// if OAuthInjectionIsEnabled(*Predictor) {
-	// 	// Call the OAuth Service Account reconciler
-	// 	err = r.ReconcileOAuthServiceAccount(Predictor, ctx)
-	// 	if err != nil {
-	// 		return ctrl.Result{}, err
-	// 	}
-
-	// 	// Call the OAuth Service reconciler
-	// 	err = r.ReconcileOAuthService(Predictor, ctx)
-	// 	if err != nil {
-	// 		return ctrl.Result{}, err
-	// 	}
-
-	// 	// Call the OAuth Secret reconciler
-	// 	err = r.ReconcileOAuthSecret(Predictor, ctx)
-	// 	if err != nil {
-	// 		return ctrl.Result{}, err
-	// 	}
-
-	// 	// Call the OAuth Route reconciler
-	// 	err = r.ReconcileOAuthRoute(Predictor, ctx)
-	// 	if err != nil {
-	// 		return ctrl.Result{}, err
-	// 	}
-	// } else {
-	// 	// Call the route reconciler (see Predictor_route.go file)
-	// 	err = r.ReconcileRoute(Predictor, ctx)
-	// 	if err != nil {
-	// 		return ctrl.Result{}, err
-	// 	}
-	// }
+	err = r.ReconcileVirtualService(predictor, ctx)
+	if err != nil {
+		return ctrl.Result{}, err
+	}
 
 	return ctrl.Result{}, nil
 }
@@ -122,7 +83,7 @@ func (r *OpenshiftPredictorReconciler) Reconcile(ctx context.Context, req ctrl.R
 func (r *OpenshiftPredictorReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	builder := ctrl.NewControllerManagedBy(mgr).
 		For(&predictorv1.Predictor{}).
-		//		Owns(&routev1.Route{}).
+		Owns(&virtualservicev1.VirtualService{}).
 		Owns(&corev1.ServiceAccount{}).
 		Owns(&corev1.Service{}).
 		Owns(&corev1.Secret{})
