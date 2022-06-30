@@ -48,9 +48,6 @@ external-manifests:
 	$(CONTROLLER_GEN) crd \
 		paths=${GOPATH}/pkg/mod/github.com/kserve/modelmesh-serving@v0.8.0/apis/serving/v1alpha1 \
 		output:crd:artifacts:config=config/crd/external
-	
-	wget https://github.com/maistra/istio-operator/blob/6e03b831f41c03110cb91908e886b5430fe1073e/resources/helm/v2.1/istio-init/files/virtualservices.networking.istio.io.crd.yaml -O config/crd/external/virtualservices.networking.istio.io.crd.yaml
-
 
 .PHONY: generate
 generate: controller-gen ## Generate code containing DeepCopy, DeepCopyInto, and DeepCopyObject method implementations.
