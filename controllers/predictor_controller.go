@@ -21,7 +21,7 @@ import (
 
 	"github.com/go-logr/logr"
 	predictorv1 "github.com/kserve/modelmesh-serving/apis/serving/v1alpha1"
-	virtualservicev1 "istio.io/client-go/pkg/apis/networking/v1beta1"
+	virtualservicev1 "istio.io/client-go/pkg/apis/networking/v1alpha3"
 	corev1 "k8s.io/api/core/v1"
 	apierrs "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -43,6 +43,9 @@ type OpenshiftPredictorReconciler struct {
 // ClusterRole permissions
 
 // +kubebuilder:rbac:groups=serving.kserve.io,resources=predictors,verbs=get;list;watch
+// +kubebuilder:rbac:groups=serving.kserve.io,resources=predictors/finalizers,verbs=get;list;watch;update
+// +kubebuilder:rbac:groups=networking.istio.io,resources=virtualservices,verbs=get;list;watch;create;update;patch;delete
+// +kubebuilder:rbac:groups=networking.istio.io,resources=virtualservices/finalizers,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups="",resources=services;serviceaccounts;secrets,verbs=get;list;watch;create;update;patch
 
 // ComparePredictors checks if two predictors are equal, if not return false

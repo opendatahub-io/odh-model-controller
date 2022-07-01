@@ -33,7 +33,7 @@ import (
 
 	"github.com/crobby/odh-model-controller/controllers"
 	predictorv1 "github.com/kserve/modelmesh-serving/apis/serving/v1alpha1"
-	virtualservicev1 "istio.io/client-go/pkg/apis/networking/v1beta1"
+	virtualservicev1 "istio.io/client-go/pkg/apis/networking/v1alpha3"
 	//+kubebuilder:scaffold:imports
 )
 

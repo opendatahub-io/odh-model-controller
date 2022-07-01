@@ -20,7 +20,9 @@ import (
 	"reflect"
 
 	predictorv1 "github.com/kserve/modelmesh-serving/apis/serving/v1alpha1"
-	virtualservicev1 "istio.io/client-go/pkg/apis/networking/v1beta1"
+	"istio.io/api/meta/v1alpha1"
+	"istio.io/api/networking/v1alpha3"
+	virtualservicev1 "istio.io/client-go/pkg/apis/networking/v1alpha3"
 	apierrs "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
@@ -31,15 +33,22 @@ import (
 // NewPredictorVirtualService defines the desired VirtualService object
 func NewPredictorVirtualService(predictor *predictorv1.Predictor) *virtualservicev1.VirtualService {
 	return &virtualservicev1.VirtualService{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:      predictor.Name,
-			Namespace: predictor.Namespace,
-			Labels: map[string]string{
-				"predictor-name": predictor.Name,
-			},
+		TypeMeta:   metav1.TypeMeta{},
+		ObjectMeta: metav1.ObjectMeta{Name: predictor.Name, Namespace: predictor.Namespace, Labels: map[string]string{"predictor-name": predictor.Name}},
+		Spec: v1alpha3.VirtualService{
+			Gateways: []string{"opendatahub/odh-gateway"}, //TODO get actual gateway to be used
+			Hosts:    []string{"*"},
+			Http: []*v1alpha3.HTTPRoute{{
+				Match: []*v1alpha3.HTTPMatchRequest{{
+					Uri: &v1alpha3.StringMatch{
+						MatchType: &v1alpha3.StringMatch_Prefix{
+							Prefix: "/" + predictor.Namespace + "/" + predictor.Name,
+						},
+					},
+				}},
+			}},
 		},
-		// TODO Spec:
-		// TODO Status:
+		Status: v1alpha1.IstioStatus{},
 	}
 }
 
