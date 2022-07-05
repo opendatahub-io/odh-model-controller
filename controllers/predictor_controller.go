@@ -30,10 +30,6 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
-// const (
-// 	AnnotationInjectOAuth = "Predictors.opendatahub.io/inject-oauth"
-// )
-
 // OpenshiftPredictorReconciler holds the controller configuration.
 type OpenshiftPredictorReconciler struct {
 	client.Client
@@ -77,7 +73,6 @@ func (r *OpenshiftPredictorReconciler) Reconcile(ctx context.Context, req ctrl.R
 		log.Error(err, "Unable to fetch the Predictor")
 		return ctrl.Result{}, err
 	}
-	log.Info("Noticed a predictor")
 
 	err = r.ReconcileVirtualService(predictor, ctx)
 	if err != nil {
