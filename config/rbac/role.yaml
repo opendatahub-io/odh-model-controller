@@ -8,11 +8,48 @@ rules:
 - apiGroups:
   - ""
   resources:
+  - pods
   - secrets
   - serviceaccounts
   - services
   verbs:
   - create
+  - get
+  - list
+  - patch
+  - update
+  - watch
+- apiGroups:
+  - maistra.io
+  resources:
+  - servicemeshcontrolplanes
+  verbs:
+  - create
+  - get
+  - list
+  - patch
+  - update
+  - use
+  - watch
+- apiGroups:
+  - maistra.io
+  resources:
+  - servicemeshmembers
+  verbs:
+  - create
+  - delete
+  - get
+  - list
+  - patch
+  - update
+  - watch
+- apiGroups:
+  - maistra.io
+  resources:
+  - servicemeshmembers/finalizers
+  verbs:
+  - create
+  - delete
   - get
   - list
   - patch

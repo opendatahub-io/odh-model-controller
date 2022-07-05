@@ -10,6 +10,7 @@ require (
 	k8s.io/api v0.24.2
 	k8s.io/apimachinery v0.24.2
 	k8s.io/client-go v0.24.2
+	maistra.io/api v0.0.0-20220301154558-8f6a12a9464b
 	sigs.k8s.io/controller-runtime v0.12.2
 )
 
