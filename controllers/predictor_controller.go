@@ -51,7 +51,7 @@ type OpenshiftPredictorReconciler struct {
 // +kubebuilder:rbac:groups=maistra.io,resources=servicemeshmembers/finalizers,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups=maistra.io,resources=servicemeshcontrolplanes,verbs=get;list;watch;create;update;patch;use
 
-// +kubebuilder:rbac:groups="",resources=pods;services;serviceaccounts;secrets,verbs=get;list;watch;create;update;patch
+// +kubebuilder:rbac:groups="",resources=namespaces;pods;services;serviceaccounts;secrets,verbs=get;list;watch;create;update;patch
 
 // ComparePredictors checks if two predictors are equal, if not return false
 func ComparePredictors(pr1 predictorv1.Predictor, pr2 predictorv1.Predictor) bool {
@@ -89,6 +89,11 @@ func (r *OpenshiftPredictorReconciler) Reconcile(ctx context.Context, req ctrl.R
 		return ctrl.Result{}, err
 	}
 
+	err = r.ReconcileNamespace(predictor, ctx)
+	if err != nil {
+		return ctrl.Result{}, err
+	}
+
 	return ctrl.Result{}, nil
 }
 
@@ -98,6 +103,7 @@ func (r *OpenshiftPredictorReconciler) SetupWithManager(mgr ctrl.Manager) error 
 		For(&predictorv1.Predictor{}).
 		Owns(&virtualservicev1.VirtualService{}).
 		Owns(&maistrav1.ServiceMeshMember{}).
+		Owns(&corev1.Namespace{}).
 		Owns(&corev1.ServiceAccount{}).
 		Owns(&corev1.Service{}).
 		Owns(&corev1.Secret{})

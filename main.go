@@ -34,6 +34,7 @@ import (
 	"github.com/crobby/odh-model-controller/controllers"
 	predictorv1 "github.com/kserve/modelmesh-serving/apis/serving/v1alpha1"
 	virtualservicev1 "istio.io/client-go/pkg/apis/networking/v1alpha3"
+	corev1 "k8s.io/api/core/v1"
 	maistrav1 "maistra.io/api/core/v1"
 	//+kubebuilder:scaffold:imports
 )
@@ -49,6 +50,7 @@ func init() {
 	utilruntime.Must(predictorv1.AddToScheme(scheme))
 	utilruntime.Must(virtualservicev1.AddToScheme(scheme))
 	utilruntime.Must(maistrav1.AddToScheme(scheme))
+	utilruntime.Must(corev1.AddToScheme(scheme))
 
 	//+kubebuilder:scaffold:scheme
 }
