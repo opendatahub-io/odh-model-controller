@@ -78,7 +78,7 @@ func main() {
 		Port:                   9443,
 		HealthProbeBindAddress: probeAddr,
 		LeaderElection:         enableLeaderElection,
-		LeaderElectionID:       "96790088.opendatahub.io",
+		LeaderElectionID:       "odh-model-controller",
 	})
 	if err != nil {
 		setupLog.Error(err, "unable to start manager")
