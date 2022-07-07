@@ -41,6 +41,8 @@ type OpenshiftPredictorReconciler struct {
 
 // +kubebuilder:rbac:groups=serving.kserve.io,resources=predictors,verbs=get;list;watch
 // +kubebuilder:rbac:groups=serving.kserve.io,resources=predictors/finalizers,verbs=get;list;watch;update
+// +kubebuilder:rbac:groups=serving.kserve.io,resources=servingruntimes,verbs=get;list;watch;create;update
+// +kubebuilder:rbac:groups=serving.kserve.io,resources=servingruntimes/finalizers,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups=networking.istio.io,resources=virtualservices,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups=networking.istio.io,resources=virtualservices/finalizers,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups=maistra.io,resources=servicemeshmembers,verbs=get;list;watch;create;update;patch;delete
@@ -89,6 +91,11 @@ func (r *OpenshiftPredictorReconciler) Reconcile(ctx context.Context, req ctrl.R
 		return ctrl.Result{}, err
 	}
 
+	err = r.ReconcileServingRuntimes(predictor, ctx)
+	if err != nil {
+		return ctrl.Result{}, err
+	}
+
 	return ctrl.Result{}, nil
 }
 
@@ -96,6 +103,7 @@ func (r *OpenshiftPredictorReconciler) Reconcile(ctx context.Context, req ctrl.R
 func (r *OpenshiftPredictorReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	builder := ctrl.NewControllerManagedBy(mgr).
 		For(&predictorv1.Predictor{}).
+		Owns(&predictorv1.ServingRuntime{}).
 		Owns(&virtualservicev1.VirtualService{}).
 		Owns(&maistrav1.ServiceMeshMember{}).
 		Owns(&corev1.Namespace{}).
