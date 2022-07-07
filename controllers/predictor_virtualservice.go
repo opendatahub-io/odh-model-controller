@@ -42,7 +42,18 @@ func NewPredictorVirtualService(predictor *predictorv1.Predictor) *virtualservic
 				Match: []*v1alpha3.HTTPMatchRequest{{
 					Uri: &v1alpha3.StringMatch{
 						MatchType: &v1alpha3.StringMatch_Prefix{
-							Prefix: "/" + predictor.Namespace + "/" + predictor.Name,
+							Prefix: "/modelmesh/" + predictor.Namespace + "/",
+						},
+					},
+				}},
+				Rewrite: &v1alpha3.HTTPRewrite{
+					Uri: "/",
+				},
+				Route: []*v1alpha3.HTTPRouteDestination{{
+					Destination: &v1alpha3.Destination{
+						Host: "modelmesh-serving." + predictor.Namespace + ".svc.cluster.local",
+						Port: &v1alpha3.PortSelector{
+							Number: 8008,
 						},
 					},
 				}},

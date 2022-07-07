@@ -101,7 +101,7 @@ func (r *OpenshiftPredictorReconciler) reconcileServingRuntimes(predictor *predi
 
 	// Reconcile the ServingRuntimes spec if it has been manually modified
 	if !justCreated && !ComparePredictorServingRuntimess(desiredServingRuntimes, foundServingRuntimes) {
-		log.Info("Reconciling ServiceServingRuntimes")
+		log.Info("Reconciling ServingRuntimes")
 		err := retry.RetryOnConflict(retry.DefaultRetry, func() error {
 			listOptions := client.ListOptions{
 				Namespace: predictor.Namespace,

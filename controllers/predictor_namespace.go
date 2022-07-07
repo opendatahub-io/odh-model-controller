@@ -27,15 +27,17 @@ import (
 )
 
 const (
-	requiredNamespaceLabel      = "modelmesh-enabled"
-	requiredNamespaceLabelValue = "true"
+	meshNamespaceLabel       = "modelmesh-enabled"
+	meshNamespaceLabelValue  = "true"
+	istioNamespaceLabel      = "sidecar.istio.io/inject"
+	istioNamespaceLabelValue = "true"
 )
 
 // NewPredictorNamespace defines the desired Namespace object
 func NewPredictorNamespace(predictor *predictorv1.Predictor) *corev1.Namespace {
 	return &corev1.Namespace{
 		TypeMeta:   metav1.TypeMeta{},
-		ObjectMeta: metav1.ObjectMeta{Name: predictor.Namespace, Namespace: predictor.Namespace, Labels: map[string]string{"predictor-name": predictor.Name, "modelmesh-enabled": "true"}},
+		ObjectMeta: metav1.ObjectMeta{Name: predictor.Namespace, Namespace: predictor.Namespace, Labels: map[string]string{"predictor-name": predictor.Name, "modelmesh-enabled": "true", istioNamespaceLabel: istioNamespaceLabelValue}},
 	}
 }
 
@@ -75,7 +77,8 @@ func (r *OpenshiftPredictorReconciler) reconcileNamespace(predictor *predictorv1
 	}
 
 	// Reconcile the Namespace spec if it has been manually modified
-	if !CheckForNamespaceLabel(requiredNamespaceLabel, requiredNamespaceLabelValue, foundNamespace) {
+	if !CheckForNamespaceLabel(meshNamespaceLabel, meshNamespaceLabelValue, foundNamespace) ||
+		!CheckForNamespaceLabel(istioNamespaceLabel, istioNamespaceLabelValue, foundNamespace) {
 		// Retry the update operation when the ingress controller eventually
 		// updates the resource version field
 		err := retry.RetryOnConflict(retry.DefaultRetry, func() error {
@@ -88,7 +91,8 @@ func (r *OpenshiftPredictorReconciler) reconcileNamespace(predictor *predictorv1
 				return err
 			}
 			// Reconcile labels and spec field
-			foundNamespace.ObjectMeta.Labels[requiredNamespaceLabel] = requiredNamespaceLabelValue
+			foundNamespace.ObjectMeta.Labels[meshNamespaceLabel] = meshNamespaceLabelValue
+			foundNamespace.ObjectMeta.Labels[istioNamespaceLabel] = istioNamespaceLabelValue
 			return r.Update(ctx, foundNamespace)
 		})
 		if err != nil {

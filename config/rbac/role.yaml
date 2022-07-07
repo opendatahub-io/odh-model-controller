@@ -8,6 +8,7 @@ rules:
 - apiGroups:
   - ""
   resources:
+  - configmaps
   - namespaces
   - pods
   - secrets
@@ -95,5 +96,27 @@ rules:
   verbs:
   - get
   - list
+  - update
+  - watch
+- apiGroups:
+  - serving.kserve.io
+  resources:
+  - servingruntimes
+  verbs:
+  - create
+  - get
+  - list
+  - update
+  - watch
+- apiGroups:
+  - serving.kserve.io
+  resources:
+  - servingruntimes/finalizers
+  verbs:
+  - create
+  - delete
+  - get
+  - list
+  - patch
   - update
   - watch

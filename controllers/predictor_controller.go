@@ -49,7 +49,7 @@ type OpenshiftPredictorReconciler struct {
 // +kubebuilder:rbac:groups=maistra.io,resources=servicemeshmembers/finalizers,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups=maistra.io,resources=servicemeshcontrolplanes,verbs=get;list;watch;create;update;patch;use
 
-// +kubebuilder:rbac:groups="",resources=namespaces;pods;services;serviceaccounts;secrets,verbs=get;list;watch;create;update;patch
+// +kubebuilder:rbac:groups="",resources=configmaps;namespaces;pods;services;serviceaccounts;secrets,verbs=get;list;watch;create;update;patch
 
 // ComparePredictors checks if two predictors are equal, if not return false
 func ComparePredictors(pr1 predictorv1.Predictor, pr2 predictorv1.Predictor) bool {
@@ -76,7 +76,7 @@ func (r *OpenshiftPredictorReconciler) Reconcile(ctx context.Context, req ctrl.R
 		return ctrl.Result{}, err
 	}
 
-	err = r.ReconcileVirtualService(predictor, ctx)
+	err = r.ReconcileNamespace(predictor, ctx)
 	if err != nil {
 		return ctrl.Result{}, err
 	}
@@ -86,12 +86,12 @@ func (r *OpenshiftPredictorReconciler) Reconcile(ctx context.Context, req ctrl.R
 		return ctrl.Result{}, err
 	}
 
-	err = r.ReconcileNamespace(predictor, ctx)
+	err = r.ReconcileServingRuntimes(predictor, ctx)
 	if err != nil {
 		return ctrl.Result{}, err
 	}
 
-	err = r.ReconcileServingRuntimes(predictor, ctx)
+	err = r.ReconcileVirtualService(predictor, ctx)
 	if err != nil {
 		return ctrl.Result{}, err
 	}
