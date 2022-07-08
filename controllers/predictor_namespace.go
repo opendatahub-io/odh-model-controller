@@ -29,8 +29,8 @@ import (
 const (
 	meshNamespaceLabel       = "modelmesh-enabled"
 	meshNamespaceLabelValue  = "true"
-	istioNamespaceLabel      = "sidecar.istio.io/inject"
-	istioNamespaceLabelValue = "true"
+	istioNamespaceLabel      = "istio-injection"
+	istioNamespaceLabelValue = "enabled"
 )
 
 // NewPredictorNamespace defines the desired Namespace object

@@ -17,6 +17,9 @@ package controllers
 
 import (
 	"context"
+	"io/ioutil"
+	"os"
+	"strings"
 
 	predictorv1 "github.com/kserve/modelmesh-serving/apis/serving/v1alpha1"
 	corev1 "k8s.io/api/core/v1"
@@ -26,16 +29,40 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
+const (
+	defaultNamespace  = "odh-model-controller-system"
+	runtimesConfigMap = "odh-model-controller-servingruntimes-config"
+	runtimesConfigKey = "servingruntimes_config.yaml"
+)
+
+// GetOperatorNamespace returns the namespace the operator should be running in.
+func GetOperatorNamespace() (string, error) {
+	nsBytes, err := ioutil.ReadFile("/var/run/secrets/kubernetes.io/serviceaccount/namespace")
+	if err != nil {
+		if os.IsNotExist(err) {
+			return defaultNamespace, nil
+		}
+		return "", err
+	}
+	ns := strings.TrimSpace(string(nsBytes))
+	return ns, nil
+}
+
 // NewPredictorServingRuntimes defines the desired ServingRuntimes object
 func NewPredictorServingRuntimes(predictor *predictorv1.Predictor, ctx context.Context, r *OpenshiftPredictorReconciler) *predictorv1.ServingRuntimeList {
+	log := r.Log.WithValues("Predictor", predictor.Name, "namespace", predictor.Namespace)
 	srList := &predictorv1.ServingRuntimeList{}
+	operatorns, err := GetOperatorNamespace()
+	if err != nil {
+		log.Error(err, "Could not determine operator namespace")
+	}
 	// Read the configmap to see the list of servingruntimes we need
 	configmap := &corev1.ConfigMap{}
 	r.Get(ctx, types.NamespacedName{
-		Name:      "odh-model-controller-servingruntimes-config",
-		Namespace: "odh-model-controller-system", // TODO get actaul live namespace
+		Name:      runtimesConfigMap,
+		Namespace: operatorns,
 	}, configmap)
-	runtimes := configmap.Data["servingruntimes_config.yaml"]
+	runtimes := configmap.Data[runtimesConfigKey]
 
 	decode := serializer.NewCodecFactory(r.Scheme).UniversalDeserializer().Decode
 	obj, _, _ := decode([]byte(runtimes), nil, nil)
