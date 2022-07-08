@@ -23,6 +23,7 @@ import (
 
 	predictorv1 "github.com/kserve/modelmesh-serving/apis/serving/v1alpha1"
 	corev1 "k8s.io/api/core/v1"
+	apierrs "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/runtime/serializer"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/util/retry"
@@ -79,7 +80,7 @@ func NewPredictorServingRuntimes(predictor *predictorv1.Predictor, ctx context.C
 }
 
 // ComparePredictorServingRuntimess checks if two ServingRuntimess are equal, if not return false
-func ComparePredictorServingRuntimess(srl1 *predictorv1.ServingRuntimeList, srl2 *predictorv1.ServingRuntimeList) bool {
+func ComparePredictorServingRuntimes(srl1 *predictorv1.ServingRuntimeList, srl2 *predictorv1.ServingRuntimeList) bool {
 	// Two ServingRuntimess will be equal if they have the same names
 	// listonekeys := srl1.Items
 
@@ -93,10 +94,10 @@ func (r *OpenshiftPredictorReconciler) reconcileServingRuntimes(predictor *predi
 	// Initialize logger format
 	log := r.Log.WithValues("Predictor", predictor.Name, "namespace", predictor.Namespace)
 
-	// Generate the desired ServiceServingRuntimes
+	// Generate the desired ServingRuntimes
 	desiredServingRuntimes := newServingRuntimes(predictor, ctx, r)
 
-	// Create the ServiceServingRuntimes if it does not already exist
+	// Create the ServingRuntimes if it does not already exist
 	foundServingRuntimes := &predictorv1.ServingRuntimeList{}
 	justCreated := false
 	listOptions := client.ListOptions{
@@ -104,30 +105,24 @@ func (r *OpenshiftPredictorReconciler) reconcileServingRuntimes(predictor *predi
 	}
 	err := r.List(ctx, foundServingRuntimes, &listOptions)
 	if err != nil {
-		// if apierrs.IsNotFound(err) {
-		// 	log.Info("Creating ServiceServingRuntimes")
-		// 	// Add .metatada.ownerReferences to the ServingRuntimes to be deleted by the
-		// 	// Kubernetes garbage collector if the Predictor is deleted
-		// 	err = ctrl.SetControllerReference(predictor, desiredServingRuntimes, r.Scheme)
-		// 	if err != nil {
-		// 		log.Error(err, "Unable to add OwnerReference to the ServingRuntimes")
-		// 		return err
-		// 	}
-		// 	// Create the ServiceServingRuntimes in the Openshift cluster
-		// 	err = r.Create(ctx, desiredServingRuntimes)
-		// 	if err != nil && !apierrs.IsAlreadyExists(err) {
-		// 		log.Error(err, "Unable to create the ServiceServingRuntimes")
-		// 		return err
-		// 	}
-		// 	justCreated = true
-		// } else {
-		// 	log.Error(err, "Unable to fetch the ServiceServingRuntimes")
-		// 	return err
-		// }
+		if apierrs.IsNotFound(err) {
+			// Normally, we would set an ownerreference here, but we don't want
+			// to delete the servingruntimes when a predictor is deleted since
+			// there may be several predictors using the same servingruntime
+			// Create the ServingRuntimes in the Openshift cluster
+			for key := range desiredServingRuntimes.Items {
+				sr := desiredServingRuntimes.Items[key]
+				r.Create(ctx, &sr)
+			}
+			justCreated = true
+		} else {
+			log.Error(err, "Unable to fetch the ServingRuntimes")
+			return err
+		}
 	}
 
-	// Reconcile the ServingRuntimes spec if it has been manually modified
-	if !justCreated && !ComparePredictorServingRuntimess(desiredServingRuntimes, foundServingRuntimes) {
+	// Reconcile the ServingRuntimes
+	if !justCreated && !ComparePredictorServingRuntimes(desiredServingRuntimes, foundServingRuntimes) {
 		log.Info("Reconciling ServingRuntimes")
 		err := retry.RetryOnConflict(retry.DefaultRetry, func() error {
 			listOptions := client.ListOptions{
@@ -139,15 +134,12 @@ func (r *OpenshiftPredictorReconciler) reconcileServingRuntimes(predictor *predi
 			// Reconcile ServingRuntimes by adding them as needed, updating the list isn't possible
 			for key := range desiredServingRuntimes.Items {
 				sr := desiredServingRuntimes.Items[key]
-				r.Create(ctx, &sr) // TODO...not ready yet
-				// if err != nil {
-				// 	log.Error(err, "problem updating SR")
-				// }
+				r.Create(ctx, &sr)
 			}
 			return nil
 		})
 		if err != nil {
-			log.Error(err, "Unable to reconcile the ServiceServingRuntimes")
+			log.Error(err, "Unable to reconcile the ServingRuntimes")
 			return err
 		}
 	}
