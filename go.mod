@@ -5,11 +5,13 @@ go 1.17
 require (
 	github.com/go-logr/logr v1.2.3
 	github.com/kserve/modelmesh-serving v0.8.0
+	github.com/openshift/api v3.9.0+incompatible
 	istio.io/api v0.0.0-20220630134407-25925643fdb3
 	istio.io/client-go v1.14.0
 	k8s.io/api v0.24.2
 	k8s.io/apimachinery v0.24.2
 	k8s.io/client-go v0.24.2
+	k8s.io/utils v0.0.0-20220210201930-3a6ce19ff2f9
 	maistra.io/api v0.0.0-20220301154558-8f6a12a9464b
 	sigs.k8s.io/controller-runtime v0.12.2
 )
@@ -75,7 +77,6 @@ require (
 	k8s.io/component-base v0.24.2 // indirect
 	k8s.io/klog/v2 v2.70.0 // indirect
 	k8s.io/kube-openapi v0.0.0-20220627174259-011e075b9cb8 // indirect
-	k8s.io/utils v0.0.0-20220210201930-3a6ce19ff2f9 // indirect
 	sigs.k8s.io/json v0.0.0-20220525155127-227cbc7cc124 // indirect
 	sigs.k8s.io/structured-merge-diff/v4 v4.2.1 // indirect
 	sigs.k8s.io/yaml v1.3.0 // indirect

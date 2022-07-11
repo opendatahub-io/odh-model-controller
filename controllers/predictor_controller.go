@@ -21,6 +21,7 @@ import (
 
 	"github.com/go-logr/logr"
 	predictorv1 "github.com/kserve/modelmesh-serving/apis/serving/v1alpha1"
+	routev1 "github.com/openshift/api/route/v1"
 	virtualservicev1 "istio.io/client-go/pkg/apis/networking/v1alpha3"
 	corev1 "k8s.io/api/core/v1"
 	apierrs "k8s.io/apimachinery/pkg/api/errors"
@@ -48,7 +49,7 @@ type OpenshiftPredictorReconciler struct {
 // +kubebuilder:rbac:groups=maistra.io,resources=servicemeshmembers,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups=maistra.io,resources=servicemeshmembers/finalizers,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups=maistra.io,resources=servicemeshcontrolplanes,verbs=get;list;watch;create;update;patch;use
-
+// +kubebuilder:rbac:groups=route.openshift.io,resources=routes,verbs=get;list;watch;create;update;patch
 // +kubebuilder:rbac:groups="",resources=configmaps;namespaces;pods;services;serviceaccounts;secrets,verbs=get;list;watch;create;update;patch
 
 // ComparePredictors checks if two predictors are equal, if not return false
@@ -96,6 +97,11 @@ func (r *OpenshiftPredictorReconciler) Reconcile(ctx context.Context, req ctrl.R
 		return ctrl.Result{}, err
 	}
 
+	err = r.ReconcileRoute(predictor, ctx)
+	if err != nil {
+		return ctrl.Result{}, err
+	}
+
 	return ctrl.Result{}, nil
 }
 
@@ -107,6 +113,7 @@ func (r *OpenshiftPredictorReconciler) SetupWithManager(mgr ctrl.Manager) error 
 		Owns(&virtualservicev1.VirtualService{}).
 		Owns(&maistrav1.ServiceMeshMember{}).
 		Owns(&corev1.Namespace{}).
+		Owns(&routev1.Route{}).
 		Owns(&corev1.ServiceAccount{}).
 		Owns(&corev1.Service{}).
 		Owns(&corev1.Secret{})
