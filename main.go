@@ -19,6 +19,7 @@ package main
 import (
 	"flag"
 	"os"
+	"strconv"
 
 	// Import all Kubernetes client auth plugins (e.g. Azure, GCP, OIDC, etc.)
 	// to ensure that exec-entrypoint and run can make use of them.
@@ -57,6 +58,14 @@ func init() {
 	//+kubebuilder:scaffold:scheme
 }
 
+func getEnvAsBool(name string, defaultValue bool) bool {
+	valStr := os.Getenv(name)
+	if val, err := strconv.ParseBool(valStr); err == nil {
+		return val
+	}
+	return defaultValue
+}
+
 func main() {
 	var metricsAddr string
 	var enableLeaderElection bool
@@ -89,9 +98,10 @@ func main() {
 
 	// Setup Predictor controller
 	if err = (&controllers.OpenshiftPredictorReconciler{
-		Client: mgr.GetClient(),
-		Log:    ctrl.Log.WithName("controllers").WithName("Predictor"),
-		Scheme: mgr.GetScheme(),
+		Client:       mgr.GetClient(),
+		Log:          ctrl.Log.WithName("controllers").WithName("Predictor"),
+		Scheme:       mgr.GetScheme(),
+		MeshDisabled: getEnvAsBool("MESH_DISABLED", false),
 	}).SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "unable to create controller", "controller", "Predictor")
 		os.Exit(1)

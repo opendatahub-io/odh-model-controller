@@ -34,8 +34,9 @@ import (
 // OpenshiftPredictorReconciler holds the controller configuration.
 type OpenshiftPredictorReconciler struct {
 	client.Client
-	Scheme *runtime.Scheme
-	Log    logr.Logger
+	Scheme       *runtime.Scheme
+	Log          logr.Logger
+	MeshDisabled bool
 }
 
 // ClusterRole permissions
@@ -82,17 +83,7 @@ func (r *OpenshiftPredictorReconciler) Reconcile(ctx context.Context, req ctrl.R
 		return ctrl.Result{}, err
 	}
 
-	err = r.ReconcileMeshMember(predictor, ctx)
-	if err != nil {
-		return ctrl.Result{}, err
-	}
-
 	err = r.ReconcileServingRuntimes(predictor, ctx)
-	if err != nil {
-		return ctrl.Result{}, err
-	}
-
-	err = r.ReconcileVirtualService(predictor, ctx)
 	if err != nil {
 		return ctrl.Result{}, err
 	}
@@ -101,6 +92,32 @@ func (r *OpenshiftPredictorReconciler) Reconcile(ctx context.Context, req ctrl.R
 	if err != nil {
 		return ctrl.Result{}, err
 	}
+
+	err = r.ReconcileMeshMember(predictor, ctx)
+	if err != nil {
+		return ctrl.Result{}, err
+	}
+	err = r.ReconcileVirtualService(predictor, ctx)
+	if err != nil {
+		return ctrl.Result{}, err
+	}
+
+	// if r.MeshDisabled {
+	// 	log.Info("Mesh is disabled, generating route instead")
+	// 	err = r.ReconcileRoute(predictor, ctx)
+	// 	if err != nil {
+	// 		return ctrl.Result{}, err
+	// 	}
+	// } else {
+	// 	err = r.ReconcileMeshMember(predictor, ctx)
+	// 	if err != nil {
+	// 		return ctrl.Result{}, err
+	// 	}
+	// 	err = r.ReconcileVirtualService(predictor, ctx)
+	// 	if err != nil {
+	// 		return ctrl.Result{}, err
+	// 	}
+	// }
 
 	return ctrl.Result{}, nil
 }
