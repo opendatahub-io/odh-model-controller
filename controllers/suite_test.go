@@ -34,7 +34,6 @@ import (
 	. "github.com/onsi/gomega"
 	routev1 "github.com/openshift/api/route/v1"
 	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
-	"k8s.io/client-go/rest"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/envtest"
 	"sigs.k8s.io/controller-runtime/pkg/envtest/printer"
@@ -49,7 +48,6 @@ import (
 // +kubebuilder:docs-gen:collapse=Imports
 
 var (
-	cfg     *rest.Config
 	cli     client.Client
 	envTest *envtest.Environment
 	ctx     context.Context
