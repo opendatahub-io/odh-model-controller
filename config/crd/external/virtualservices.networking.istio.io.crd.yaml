@@ -12,7 +12,6 @@ metadata:
     maistra-version: 2.0.10
     release: istio
   name: virtualservices.networking.istio.io
-  resourceVersion: "23751080"
   uid: 677109e1-b2a2-4790-80e7-5f88d0cd8e69
 spec:
   conversion:

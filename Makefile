@@ -48,6 +48,16 @@ external-manifests:
 	$(CONTROLLER_GEN) crd \
 		paths=${GOPATH}/pkg/mod/github.com/kserve/modelmesh-serving@v0.8.0/apis/serving/v1alpha1 \
 		output:crd:artifacts:config=config/crd/external
+		
+	go get github.com/openshift/api
+	$(CONTROLLER_GEN) crd \
+		paths=${GOPATH}/pkg/mod/github.com/openshift/api@v3.9.0+incompatible/route/v1 \
+		output:crd:artifacts:config=config/crd/external
+# go get maistra.io/api/core/v1
+# $(CONTROLLER_GEN) crd \
+# 	paths=${GOPATH}/pkg/mod/maistra.io/api \
+# 	output:crd:artifacts:config=config/crd/external
+## https://raw.githubusercontent.com/maistra/api/maistra-2.2/manifests/maistra.io_servicemeshmembers.yaml
 
 .PHONY: generate
 generate: controller-gen ## Generate code containing DeepCopy, DeepCopyInto, and DeepCopyObject method implementations.

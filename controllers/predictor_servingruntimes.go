@@ -67,15 +67,17 @@ func NewPredictorServingRuntimes(predictor *predictorv1.Predictor, ctx context.C
 
 	decode := serializer.NewCodecFactory(r.Scheme).UniversalDeserializer().Decode
 	obj, _, _ := decode([]byte(runtimes), nil, nil)
-	cm := obj.(*corev1.ConfigMap)
-
-	for key := range cm.Data {
-		sr := cm.Data[key]
-		obj, _, _ := decode([]byte(sr), nil, nil)
-		srobject := obj.(*predictorv1.ServingRuntime)
-		srobject.ObjectMeta.Namespace = predictor.Namespace
-		srList.Items = append(srList.Items, *srobject)
+	if obj != nil {
+		cm := obj.(*corev1.ConfigMap)
+		for key := range cm.Data {
+			sr := cm.Data[key]
+			obj, _, _ := decode([]byte(sr), nil, nil)
+			srobject := obj.(*predictorv1.ServingRuntime)
+			srobject.ObjectMeta.Namespace = predictor.Namespace
+			srList.Items = append(srList.Items, *srobject)
+		}
 	}
+
 	return srList
 }
 
