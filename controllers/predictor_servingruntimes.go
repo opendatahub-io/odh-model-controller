@@ -32,7 +32,7 @@ import (
 
 const (
 	defaultNamespace  = "odh-model-controller-system"
-	runtimesConfigMap = "odh-model-controller-servingruntimes-config"
+	runtimesConfigMap = "servingruntimes-config"
 	runtimesConfigKey = "servingruntimes_config.yaml"
 )
 
