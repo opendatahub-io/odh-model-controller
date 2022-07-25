@@ -17,8 +17,6 @@ package controllers
 
 import (
 	"context"
-	"reflect"
-
 	"github.com/go-logr/logr"
 	predictorv1 "github.com/kserve/modelmesh-serving/apis/serving/v1alpha1"
 	routev1 "github.com/openshift/api/route/v1"
@@ -50,13 +48,6 @@ type OpenshiftPredictorReconciler struct {
 // +kubebuilder:rbac:groups=maistra.io,resources=servicemeshcontrolplanes,verbs=get;list;watch;create;update;patch;use
 // +kubebuilder:rbac:groups=route.openshift.io,resources=routes,verbs=get;list;watch;create;update;patch
 // +kubebuilder:rbac:groups="",resources=configmaps;namespaces;pods;services;serviceaccounts;secrets,verbs=get;list;watch;create;update;patch
-
-// ComparePredictors checks if two predictors are equal, if not return false
-func ComparePredictors(pr1 predictorv1.Predictor, pr2 predictorv1.Predictor) bool {
-	return reflect.DeepEqual(pr1.ObjectMeta.Labels, pr2.ObjectMeta.Labels) &&
-		reflect.DeepEqual(pr1.ObjectMeta.Annotations, pr2.ObjectMeta.Annotations) &&
-		reflect.DeepEqual(pr1.Spec, pr2.Spec)
-}
 
 // Reconcile performs the reconciling of the Openshift objects for a Kubeflow
 // Predictor.
