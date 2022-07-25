@@ -35,9 +35,7 @@ import (
 	"github.com/crobby/odh-model-controller/controllers"
 	predictorv1 "github.com/kserve/modelmesh-serving/apis/serving/v1alpha1"
 	routev1 "github.com/openshift/api/route/v1"
-	virtualservicev1 "istio.io/client-go/pkg/apis/networking/v1alpha3"
 	corev1 "k8s.io/api/core/v1"
-	maistrav1 "maistra.io/api/core/v1"
 	//+kubebuilder:scaffold:imports
 )
 
@@ -50,10 +48,13 @@ func init() {
 	utilruntime.Must(clientgoscheme.AddToScheme(scheme))
 
 	utilruntime.Must(predictorv1.AddToScheme(scheme))
-	utilruntime.Must(virtualservicev1.AddToScheme(scheme))
-	utilruntime.Must(maistrav1.AddToScheme(scheme))
 	utilruntime.Must(corev1.AddToScheme(scheme))
 	utilruntime.Must(routev1.AddToScheme(scheme))
+
+	// The following are related to Service Mesh, uncomment this and other
+	// similar blocks to use with Service Mesh
+	//utilruntime.Must(virtualservicev1.AddToScheme(scheme))
+	//utilruntime.Must(maistrav1.AddToScheme(scheme))
 
 	//+kubebuilder:scaffold:scheme
 }
