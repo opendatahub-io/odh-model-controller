@@ -18,6 +18,8 @@ package main
 
 import (
 	"flag"
+	virtualservicev1 "istio.io/client-go/pkg/apis/networking/v1alpha3"
+	maistrav1 "maistra.io/api/core/v1"
 	"os"
 	"strconv"
 
@@ -50,11 +52,8 @@ func init() {
 	utilruntime.Must(predictorv1.AddToScheme(scheme))
 	utilruntime.Must(corev1.AddToScheme(scheme))
 	utilruntime.Must(routev1.AddToScheme(scheme))
-
-	// The following are related to Service Mesh, uncomment this and other
-	// similar blocks to use with Service Mesh
-	//utilruntime.Must(virtualservicev1.AddToScheme(scheme))
-	//utilruntime.Must(maistrav1.AddToScheme(scheme))
+	utilruntime.Must(virtualservicev1.AddToScheme(scheme))
+	utilruntime.Must(maistrav1.AddToScheme(scheme))
 
 	//+kubebuilder:scaffold:scheme
 }

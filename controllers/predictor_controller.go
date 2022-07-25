@@ -20,9 +20,11 @@ import (
 	"github.com/go-logr/logr"
 	predictorv1 "github.com/kserve/modelmesh-serving/apis/serving/v1alpha1"
 	routev1 "github.com/openshift/api/route/v1"
+	virtualservicev1 "istio.io/client-go/pkg/apis/networking/v1alpha3"
 	corev1 "k8s.io/api/core/v1"
 	apierrs "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/runtime"
+	maistrav1 "maistra.io/api/core/v1"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
@@ -82,15 +84,14 @@ func (r *OpenshiftPredictorReconciler) Reconcile(ctx context.Context, req ctrl.R
 		return ctrl.Result{}, err
 	}
 
-	// Service Mesh related...uncomment to activate
-	//err = r.ReconcileMeshMember(predictor, ctx)
-	//if err != nil {
-	//		return ctrl.Result{}, err
-	//	}
-	//err = r.ReconcileVirtualService(predictor, ctx)
-	//if err != nil {
-	//		return ctrl.Result{}, err
-	//	}
+	err = r.ReconcileMeshMember(predictor, ctx)
+	if err != nil {
+		return ctrl.Result{}, err
+	}
+	err = r.ReconcileVirtualService(predictor, ctx)
+	if err != nil {
+		return ctrl.Result{}, err
+	}
 
 	return ctrl.Result{}, nil
 }
@@ -100,9 +101,8 @@ func (r *OpenshiftPredictorReconciler) SetupWithManager(mgr ctrl.Manager) error 
 	builder := ctrl.NewControllerManagedBy(mgr).
 		For(&predictorv1.Predictor{}).
 		Owns(&predictorv1.ServingRuntime{}).
-		// Service Mesh related functionality
-		//Owns(&virtualservicev1.VirtualService{}).
-		//Owns(&maistrav1.ServiceMeshMember{}).
+		Owns(&virtualservicev1.VirtualService{}).
+		Owns(&maistrav1.ServiceMeshMember{}).
 		Owns(&corev1.Namespace{}).
 		Owns(&routev1.Route{}).
 		Owns(&corev1.ServiceAccount{}).
