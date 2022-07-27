@@ -91,8 +91,10 @@ func (r *OpenshiftPredictorReconciler) reconcileNamespace(predictor *predictorv1
 				return err
 			}
 			// Reconcile labels and spec field
-			foundNamespace.ObjectMeta.Labels[meshNamespaceLabel] = meshNamespaceLabelValue
-			foundNamespace.ObjectMeta.Labels[istioNamespaceLabel] = istioNamespaceLabelValue
+			labels := make(map[string]string)
+			labels[meshNamespaceLabel] = meshNamespaceLabelValue
+			labels[istioNamespaceLabel] = istioNamespaceLabelValue
+			foundNamespace.ObjectMeta.Labels = labels
 			return r.Update(ctx, foundNamespace)
 		})
 		if err != nil {

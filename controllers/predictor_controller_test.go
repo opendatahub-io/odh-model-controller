@@ -17,6 +17,7 @@ package controllers
 
 import (
 	"context"
+	corev1 "k8s.io/api/core/v1"
 	"time"
 
 	. "github.com/onsi/ginkgo"
@@ -101,6 +102,18 @@ var _ = Describe("The Openshift model controller", func() {
 				return cli.Get(ctx, key, route)
 			}, timeout, interval).ShouldNot(HaveOccurred())
 			Expect(ComparePredictorRoutes(*route, expectedRoute)).Should(BeTrue())
+		})
+
+		namespace := &corev1.Namespace{}
+		It("Should add appropriate labels to the namespace", func() {
+			ctx := context.Background()
+
+			By("By checking that the controller has created the Route")
+			Eventually(func() error {
+				key := types.NamespacedName{Name: Namespace, Namespace: Namespace}
+				return cli.Get(ctx, key, namespace)
+			}, timeout, interval).ShouldNot(HaveOccurred())
+			Expect(CheckForNamespaceLabel("modelmesh-enabled", "true", namespace)).Should(BeTrue())
 		})
 
 		// It("Should reconcile the Route when modified", func() {
