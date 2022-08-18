@@ -95,7 +95,7 @@ rules:
 - apiGroups:
   - serving.kserve.io
   resources:
-  - predictors
+  - inferenceservices
   verbs:
   - get
   - list
@@ -103,7 +103,7 @@ rules:
 - apiGroups:
   - serving.kserve.io
   resources:
-  - predictors/finalizers
+  - inferenceservices/finalizers
   verbs:
   - get
   - list

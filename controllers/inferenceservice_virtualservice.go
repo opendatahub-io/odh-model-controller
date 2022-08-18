@@ -19,7 +19,7 @@ import (
 	"context"
 	"reflect"
 
-	predictorv1 "github.com/kserve/modelmesh-serving/apis/serving/v1alpha1"
+	inferenceservicev1 "github.com/kserve/modelmesh-serving/apis/serving/v1beta1"
 	"istio.io/api/meta/v1alpha1"
 	"istio.io/api/networking/v1alpha3"
 	virtualservicev1 "istio.io/client-go/pkg/apis/networking/v1alpha3"
@@ -30,11 +30,11 @@ import (
 	ctrl "sigs.k8s.io/controller-runtime"
 )
 
-// NewPredictorVirtualService defines the desired VirtualService object
-func NewPredictorVirtualService(predictor *predictorv1.Predictor) *virtualservicev1.VirtualService {
+// NewInferenceServiceVirtualService defines the desired VirtualService object
+func NewInferenceServiceVirtualService(inferenceservice *inferenceservicev1.InferenceService) *virtualservicev1.VirtualService {
 	return &virtualservicev1.VirtualService{
 		TypeMeta:   metav1.TypeMeta{},
-		ObjectMeta: metav1.ObjectMeta{Name: predictor.Name, Namespace: predictor.Namespace, Labels: map[string]string{"predictor-name": predictor.Name}},
+		ObjectMeta: metav1.ObjectMeta{Name: inferenceservice.Name, Namespace: inferenceservice.Namespace, Labels: map[string]string{"inferenceservice-name": inferenceservice.Name}},
 		Spec: v1alpha3.VirtualService{
 			Gateways: []string{"opendatahub/odh-gateway"}, //TODO get actual gateway to be used
 			Hosts:    []string{"*"},
@@ -42,7 +42,7 @@ func NewPredictorVirtualService(predictor *predictorv1.Predictor) *virtualservic
 				Match: []*v1alpha3.HTTPMatchRequest{{
 					Uri: &v1alpha3.StringMatch{
 						MatchType: &v1alpha3.StringMatch_Prefix{
-							Prefix: "/modelmesh/" + predictor.Namespace + "/",
+							Prefix: "/modelmesh/" + inferenceservice.Namespace + "/",
 						},
 					},
 				}},
@@ -51,7 +51,7 @@ func NewPredictorVirtualService(predictor *predictorv1.Predictor) *virtualservic
 				},
 				Route: []*v1alpha3.HTTPRouteDestination{{
 					Destination: &v1alpha3.Destination{
-						Host: "modelmesh-serving." + predictor.Namespace + ".svc.cluster.local",
+						Host: "modelmesh-serving." + inferenceservice.Namespace + ".svc.cluster.local",
 						Port: &v1alpha3.PortSelector{
 							Number: 8008,
 						},
@@ -63,8 +63,8 @@ func NewPredictorVirtualService(predictor *predictorv1.Predictor) *virtualservic
 	}
 }
 
-// ComparePredictorVirtualServices checks if two VirtualServices are equal, if not return false
-func ComparePredictorVirtualServices(vs1 *virtualservicev1.VirtualService, vs2 *virtualservicev1.VirtualService) bool {
+// CompareInferenceServiceVirtualServices checks if two VirtualServices are equal, if not return false
+func CompareInferenceServiceVirtualServices(vs1 *virtualservicev1.VirtualService, vs2 *virtualservicev1.VirtualService) bool {
 	// Two VirtualServices will be equal if the labels and spec are identical
 	return reflect.DeepEqual(vs1.ObjectMeta.Labels, vs2.ObjectMeta.Labels) &&
 		reflect.DeepEqual(vs1.Spec.Hosts, vs2.Spec.Hosts)
@@ -72,27 +72,27 @@ func ComparePredictorVirtualServices(vs1 *virtualservicev1.VirtualService, vs2 *
 
 // Reconcile will manage the creation, update and deletion of the VirtualService returned
 // by the newVirtualService function
-func (r *OpenshiftPredictorReconciler) reconcileVirtualService(predictor *predictorv1.Predictor,
-	ctx context.Context, newVirtualService func(*predictorv1.Predictor) *virtualservicev1.VirtualService) error {
+func (r *OpenshiftInferenceServiceReconciler) reconcileVirtualService(inferenceservice *inferenceservicev1.InferenceService,
+	ctx context.Context, newVirtualService func(service *inferenceservicev1.InferenceService) *virtualservicev1.VirtualService) error {
 	// Initialize logger format
-	log := r.Log.WithValues("Predictor", predictor.Name, "namespace", predictor.Namespace)
+	log := r.Log.WithValues("inferenceservice", inferenceservice.Name, "namespace", inferenceservice.Namespace)
 
 	// Generate the desired VirtualService
-	desiredVirtualService := newVirtualService(predictor)
+	desiredVirtualService := newVirtualService(inferenceservice)
 
 	// Create the VirtualService if it does not already exist
 	foundVirtualService := &virtualservicev1.VirtualService{}
 	justCreated := false
 	err := r.Get(ctx, types.NamespacedName{
 		Name:      desiredVirtualService.Name,
-		Namespace: predictor.Namespace,
+		Namespace: inferenceservice.Namespace,
 	}, foundVirtualService)
 	if err != nil {
 		if apierrs.IsNotFound(err) {
 			log.Info("Creating VirtualService")
 			// Add .metatada.ownerReferences to the VirtualService to be deleted by the
 			// Kubernetes garbage collector if the Predictor is deleted
-			err = ctrl.SetControllerReference(predictor, desiredVirtualService, r.Scheme)
+			err = ctrl.SetControllerReference(inferenceservice, desiredVirtualService, r.Scheme)
 			if err != nil {
 				log.Error(err, "Unable to add OwnerReference to the VirtualService")
 				return err
@@ -111,7 +111,7 @@ func (r *OpenshiftPredictorReconciler) reconcileVirtualService(predictor *predic
 	}
 
 	// Reconcile the VirtualService spec if it has been manually modified
-	if !justCreated && !ComparePredictorVirtualServices(desiredVirtualService, foundVirtualService) {
+	if !justCreated && !CompareInferenceServiceVirtualServices(desiredVirtualService, foundVirtualService) {
 		log.Info("Reconciling VirtualService")
 		// Retry the update operation when the ingress controller eventually
 		// updates the resource version field
@@ -119,7 +119,7 @@ func (r *OpenshiftPredictorReconciler) reconcileVirtualService(predictor *predic
 			// Get the last VirtualService revision
 			if err := r.Get(ctx, types.NamespacedName{
 				Name:      desiredVirtualService.Name,
-				Namespace: predictor.Namespace,
+				Namespace: inferenceservice.Namespace,
 			}, foundVirtualService); err != nil {
 				return err
 			}
@@ -139,7 +139,7 @@ func (r *OpenshiftPredictorReconciler) reconcileVirtualService(predictor *predic
 
 // ReconcileVirtualService will manage the creation, update and deletion of the
 // VirtualService when the Predictor is reconciled
-func (r *OpenshiftPredictorReconciler) ReconcileVirtualService(
-	predictor *predictorv1.Predictor, ctx context.Context) error {
-	return r.reconcileVirtualService(predictor, ctx, NewPredictorVirtualService)
+func (r *OpenshiftInferenceServiceReconciler) ReconcileVirtualService(
+	inferenceservice *inferenceservicev1.InferenceService, ctx context.Context) error {
+	return r.reconcileVirtualService(inferenceservice, ctx, NewInferenceServiceVirtualService)
 }

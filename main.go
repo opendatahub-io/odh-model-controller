@@ -97,13 +97,13 @@ func main() {
 	}
 
 	// Setup Predictor controller
-	if err = (&controllers.OpenshiftPredictorReconciler{
+	if err = (&controllers.OpenshiftInferenceServiceReconciler{
 		Client:       mgr.GetClient(),
-		Log:          ctrl.Log.WithName("controllers").WithName("Predictor"),
+		Log:          ctrl.Log.WithName("controllers").WithName("InferenceService"),
 		Scheme:       mgr.GetScheme(),
 		MeshDisabled: getEnvAsBool("MESH_DISABLED", false),
 	}).SetupWithManager(mgr); err != nil {
-		setupLog.Error(err, "unable to create controller", "controller", "Predictor")
+		setupLog.Error(err, "unable to create controller", "controller", "InferenceService")
 		os.Exit(1)
 	}
 
