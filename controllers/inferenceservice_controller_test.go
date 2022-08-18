@@ -17,6 +17,7 @@ package controllers
 
 import (
 	"context"
+	"github.com/kserve/modelmesh-serving/apis/serving/common"
 	corev1 "k8s.io/api/core/v1"
 	"time"
 
@@ -28,7 +29,7 @@ import (
 	"k8s.io/apimachinery/pkg/util/intstr"
 	"k8s.io/utils/pointer"
 
-	predictorv1 "github.com/kserve/modelmesh-serving/apis/serving/v1alpha1"
+	inferenceservicev1 "github.com/kserve/modelmesh-serving/apis/serving/v1beta1"
 )
 
 var _ = Describe("The Openshift model controller", func() {
@@ -38,21 +39,31 @@ var _ = Describe("The Openshift model controller", func() {
 		interval = time.Second * 2
 	)
 
-	Context("When creating a Predictor", func() {
+	Context("When creating a InferenceService", func() {
 		const (
-			Name      = "test-predictor"
+			Name      = "test-inferenceservice"
 			Namespace = "default"
 		)
 
-		predictor := &predictorv1.Predictor{
+		var storagePath = "/testpath/test"
+		var storageKey = "testkey"
+		inferenceservice := &inferenceservicev1.InferenceService{
 			ObjectMeta: metav1.ObjectMeta{
 				Name:      Name,
 				Namespace: Namespace,
 			},
-			Spec: predictorv1.PredictorSpec{
-				Model: predictorv1.Model{
-					Type: predictorv1.ModelType{
-						Name: Name,
+			Spec: inferenceservicev1.InferenceServiceSpec{
+				Predictor: inferenceservicev1.InferenceServicePredictorSpec{
+					Model: &inferenceservicev1.ModelSpec{
+						ModelFormat: inferenceservicev1.ModelFormat{
+							Name: Name,
+						},
+						PredictorExtensionSpec: inferenceservicev1.PredictorExtensionSpec{
+							Storage: &common.StorageSpec{
+								Path:       &storagePath,
+								StorageKey: &storageKey,
+							},
+						},
 					},
 				},
 			},
@@ -63,7 +74,7 @@ var _ = Describe("The Openshift model controller", func() {
 				Name:      Name,
 				Namespace: Namespace,
 				Labels: map[string]string{
-					"predictor-name": Name,
+					"inferenceservice-name": Name,
 				},
 			},
 			Spec: routev1.RouteSpec{
@@ -93,7 +104,7 @@ var _ = Describe("The Openshift model controller", func() {
 			ctx := context.Background()
 
 			By("By creating a new predictor")
-			Expect(cli.Create(ctx, predictor)).Should(Succeed())
+			Expect(cli.Create(ctx, inferenceservice)).Should(Succeed())
 			time.Sleep(interval)
 
 			By("By checking that the controller has created the Route")
@@ -101,7 +112,7 @@ var _ = Describe("The Openshift model controller", func() {
 				key := types.NamespacedName{Name: Name, Namespace: Namespace}
 				return cli.Get(ctx, key, route)
 			}, timeout, interval).ShouldNot(HaveOccurred())
-			Expect(ComparePredictorRoutes(*route, expectedRoute)).Should(BeTrue())
+			Expect(CompareInferenceServiceRoutes(*route, expectedRoute)).Should(BeTrue())
 		})
 
 		namespace := &corev1.Namespace{}

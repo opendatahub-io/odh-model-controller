@@ -18,7 +18,7 @@ package controllers
 import (
 	"context"
 
-	predictorv1 "github.com/kserve/modelmesh-serving/apis/serving/v1alpha1"
+	inferenceservicev1 "github.com/kserve/modelmesh-serving/apis/serving/v1beta1"
 	corev1 "k8s.io/api/core/v1"
 	apierrs "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -33,15 +33,15 @@ const (
 	istioNamespaceLabelValue = "enabled"
 )
 
-// NewPredictorNamespace defines the desired Namespace object
-func NewPredictorNamespace(predictor *predictorv1.Predictor) *corev1.Namespace {
+// NewInferenceServiceNamespace defines the desired Namespace object
+func NewInferenceServiceNamespace(inferenceservice *inferenceservicev1.InferenceService) *corev1.Namespace {
 	return &corev1.Namespace{
 		TypeMeta:   metav1.TypeMeta{},
-		ObjectMeta: metav1.ObjectMeta{Name: predictor.Namespace, Namespace: predictor.Namespace, Labels: map[string]string{"predictor-name": predictor.Name, "modelmesh-enabled": "true", istioNamespaceLabel: istioNamespaceLabelValue}},
+		ObjectMeta: metav1.ObjectMeta{Name: inferenceservice.Namespace, Namespace: inferenceservice.Namespace, Labels: map[string]string{"inferenceservice-name": inferenceservice.Name, "modelmesh-enabled": "true", istioNamespaceLabel: istioNamespaceLabelValue}},
 	}
 }
 
-// Make sure our desired label/value is there
+// CheckForNamespaceLabel Make sure our desired label/value is there
 func CheckForNamespaceLabel(searchlabel string, searchValue string, ns *corev1.Namespace) bool {
 	if value, found := ns.ObjectMeta.Labels[searchlabel]; found {
 		if value == searchValue {
@@ -56,16 +56,16 @@ func CheckForNamespaceLabel(searchlabel string, searchValue string, ns *corev1.N
 
 // Reconcile will manage the creation, update and deletion of the Namespace returned
 // by the newNamespace function
-func (r *OpenshiftPredictorReconciler) reconcileNamespace(predictor *predictorv1.Predictor,
-	ctx context.Context, newPredictorNamespace func(*predictorv1.Predictor) *corev1.Namespace) error {
+func (r *OpenshiftInferenceServiceReconciler) reconcileNamespace(inferenceservice *inferenceservicev1.InferenceService,
+	ctx context.Context, newPredictorNamespace func(service *inferenceservicev1.InferenceService) *corev1.Namespace) error {
 	// Initialize logger format
-	log := r.Log.WithValues("Predictor", predictor.Name, "namespace", predictor.Namespace)
+	log := r.Log.WithValues("InferenceService", inferenceservice.Name, "namespace", inferenceservice.Namespace)
 
 	// Create the Namespace if it does not already exist
 	foundNamespace := &corev1.Namespace{}
 	err := r.Get(ctx, types.NamespacedName{
-		Name:      predictor.Namespace,
-		Namespace: predictor.Namespace,
+		Name:      inferenceservice.Namespace,
+		Namespace: inferenceservice.Namespace,
 	}, foundNamespace)
 	if err != nil {
 		if apierrs.IsNotFound(err) {
@@ -84,8 +84,8 @@ func (r *OpenshiftPredictorReconciler) reconcileNamespace(predictor *predictorv1
 		err := retry.RetryOnConflict(retry.DefaultRetry, func() error {
 			// Get the last Namespace revision
 			if err := r.Get(ctx, types.NamespacedName{
-				Name:      predictor.Namespace,
-				Namespace: predictor.Namespace,
+				Name:      inferenceservice.Namespace,
+				Namespace: inferenceservice.Namespace,
 			}, foundNamespace); err != nil {
 				log.Error(err, "Unable to reconcile namespace")
 				return err
@@ -107,7 +107,7 @@ func (r *OpenshiftPredictorReconciler) reconcileNamespace(predictor *predictorv1
 
 // ReconcileNamespace will manage the creation, update and deletion of the
 // Namespace when the Predictor is reconciled
-func (r *OpenshiftPredictorReconciler) ReconcileNamespace(
-	predictor *predictorv1.Predictor, ctx context.Context) error {
-	return r.reconcileNamespace(predictor, ctx, NewPredictorNamespace)
+func (r *OpenshiftInferenceServiceReconciler) ReconcileNamespace(
+	inferenceservice *inferenceservicev1.InferenceService, ctx context.Context) error {
+	return r.reconcileNamespace(inferenceservice, ctx, NewInferenceServiceNamespace)
 }
