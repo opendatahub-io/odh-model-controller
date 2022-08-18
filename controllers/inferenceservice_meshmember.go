@@ -19,7 +19,7 @@ import (
 	"context"
 	"reflect"
 
-	predictorv1 "github.com/kserve/modelmesh-serving/apis/serving/v1alpha1"
+	inferenceservicev1 "github.com/kserve/modelmesh-serving/apis/serving/v1beta1"
 	apierrs "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
@@ -28,12 +28,12 @@ import (
 	ctrl "sigs.k8s.io/controller-runtime"
 )
 
-// NewPredictorMeshMember defines the desired MeshMember object
-func NewPredictorMeshMember(predictor *predictorv1.Predictor) *maistrav1.ServiceMeshMember {
+// NewInferenceServiceMeshMember defines the desired MeshMember object
+func NewInferenceServiceMeshMember(inferenceservice *inferenceservicev1.InferenceService) *maistrav1.ServiceMeshMember {
 	return &maistrav1.ServiceMeshMember{
 		TypeMeta: metav1.TypeMeta{},
 		// The name MUST be default, per the maistra docs
-		ObjectMeta: metav1.ObjectMeta{Name: "default", Namespace: predictor.Namespace, Labels: map[string]string{"predictor-name": predictor.Name}},
+		ObjectMeta: metav1.ObjectMeta{Name: "default", Namespace: inferenceservice.Namespace, Labels: map[string]string{"inferenceservice-name": inferenceservice.Name}},
 		Spec: maistrav1.ServiceMeshMemberSpec{
 			ControlPlaneRef: maistrav1.ServiceMeshControlPlaneRef{
 				Name:      "odh",
@@ -43,35 +43,35 @@ func NewPredictorMeshMember(predictor *predictorv1.Predictor) *maistrav1.Service
 	}
 }
 
-// ComparePredictorMeshMembers checks if two MeshMembers are equal, if not return false
-func ComparePredictorMeshMembers(mm1 *maistrav1.ServiceMeshMember, mm2 *maistrav1.ServiceMeshMember) bool {
+// CompareInferenceServiceMeshMembers checks if two MeshMembers are equal, if not return false
+func CompareInferenceServiceMeshMembers(mm1 *maistrav1.ServiceMeshMember, mm2 *maistrav1.ServiceMeshMember) bool {
 	// Two MeshMembers will be equal if the labels and spec are identical
 	return reflect.DeepEqual(mm1.ObjectMeta.Labels, mm2.ObjectMeta.Labels)
 }
 
 // Reconcile will manage the creation, update and deletion of the MeshMember returned
 // by the newMeshMember function
-func (r *OpenshiftPredictorReconciler) reconcileMeshMember(predictor *predictorv1.Predictor,
-	ctx context.Context, newMeshMember func(*predictorv1.Predictor) *maistrav1.ServiceMeshMember) error {
+func (r *OpenshiftInferenceServiceReconciler) reconcileMeshMember(inferenceservice *inferenceservicev1.InferenceService,
+	ctx context.Context, newMeshMember func(*inferenceservicev1.InferenceService) *maistrav1.ServiceMeshMember) error {
 	// Initialize logger format
-	log := r.Log.WithValues("Predictor", predictor.Name, "namespace", predictor.Namespace)
+	log := r.Log.WithValues("InferenceService", inferenceservice.Name, "namespace", inferenceservice.Namespace)
 
 	// Generate the desired ServiceMeshMember
-	desiredMeshMember := newMeshMember(predictor)
+	desiredMeshMember := newMeshMember(inferenceservice)
 
 	// Create the ServiceMeshMember if it does not already exist
 	foundMeshMember := &maistrav1.ServiceMeshMember{}
 	justCreated := false
 	err := r.Get(ctx, types.NamespacedName{
 		Name:      desiredMeshMember.Name,
-		Namespace: predictor.Namespace,
+		Namespace: inferenceservice.Namespace,
 	}, foundMeshMember)
 	if err != nil {
 		if apierrs.IsNotFound(err) {
 			log.Info("Creating ServiceMeshMember")
 			// Add .metatada.ownerReferences to the MeshMember to be deleted by the
 			// Kubernetes garbage collector if the Predictor is deleted
-			err = ctrl.SetControllerReference(predictor, desiredMeshMember, r.Scheme)
+			err = ctrl.SetControllerReference(inferenceservice, desiredMeshMember, r.Scheme)
 			if err != nil {
 				log.Error(err, "Unable to add OwnerReference to the MeshMember")
 				return err
@@ -90,7 +90,7 @@ func (r *OpenshiftPredictorReconciler) reconcileMeshMember(predictor *predictorv
 	}
 
 	// Reconcile the MeshMember spec if it has been manually modified
-	if !justCreated && !ComparePredictorMeshMembers(desiredMeshMember, foundMeshMember) {
+	if !justCreated && !CompareInferenceServiceMeshMembers(desiredMeshMember, foundMeshMember) {
 		log.Info("Reconciling ServiceMeshMember")
 		// Retry the update operation when the ingress controller eventually
 		// updates the resource version field
@@ -98,7 +98,7 @@ func (r *OpenshiftPredictorReconciler) reconcileMeshMember(predictor *predictorv
 			// Get the last MeshMember revision
 			if err := r.Get(ctx, types.NamespacedName{
 				Name:      desiredMeshMember.Name,
-				Namespace: predictor.Namespace,
+				Namespace: inferenceservice.Namespace,
 			}, foundMeshMember); err != nil {
 				return err
 			}
@@ -118,7 +118,7 @@ func (r *OpenshiftPredictorReconciler) reconcileMeshMember(predictor *predictorv
 
 // ReconcileMeshMember will manage the creation, update and deletion of the
 // MeshMember when the Predictor is reconciled
-func (r *OpenshiftPredictorReconciler) ReconcileMeshMember(
-	predictor *predictorv1.Predictor, ctx context.Context) error {
-	return r.reconcileMeshMember(predictor, ctx, NewPredictorMeshMember)
+func (r *OpenshiftInferenceServiceReconciler) ReconcileMeshMember(
+	inferenceservice *inferenceservicev1.InferenceService, ctx context.Context) error {
+	return r.reconcileMeshMember(inferenceservice, ctx, NewInferenceServiceMeshMember)
 }

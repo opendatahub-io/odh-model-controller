@@ -17,9 +17,9 @@ package controllers
 
 import (
 	"context"
+	inferenceservicev1 "github.com/kserve/modelmesh-serving/apis/serving/v1beta1"
 	"reflect"
 
-	predictorv1 "github.com/kserve/modelmesh-serving/apis/serving/v1alpha1"
 	routev1 "github.com/openshift/api/route/v1"
 	apierrs "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -35,14 +35,14 @@ const (
 	modelmeshServicePort = 8008
 )
 
-// NewpredictorRoute defines the desired route object
-func NewpredictorRoute(predictor *predictorv1.Predictor) *routev1.Route {
+// NewInferenceServiceRoute defines the desired route object
+func NewInferenceServiceRoute(inferenceservice *inferenceservicev1.InferenceService) *routev1.Route {
 	return &routev1.Route{
 		ObjectMeta: metav1.ObjectMeta{
-			Name:      predictor.Name,
-			Namespace: predictor.Namespace,
+			Name:      inferenceservice.Name,
+			Namespace: inferenceservice.Namespace,
 			Labels: map[string]string{
-				"predictor-name": predictor.Name,
+				"inferenceservice-name": inferenceservice.Name,
 			},
 		},
 		Spec: routev1.RouteSpec{
@@ -59,7 +59,7 @@ func NewpredictorRoute(predictor *predictorv1.Predictor) *routev1.Route {
 				InsecureEdgeTerminationPolicy: routev1.InsecureEdgeTerminationPolicyRedirect,
 			},
 			WildcardPolicy: routev1.WildcardPolicyNone,
-			Path:           "/v2/models/" + predictor.Name,
+			Path:           "/v2/models/" + inferenceservice.Name,
 		},
 		Status: routev1.RouteStatus{
 			Ingress: []routev1.RouteIngress{},
@@ -67,8 +67,8 @@ func NewpredictorRoute(predictor *predictorv1.Predictor) *routev1.Route {
 	}
 }
 
-// ComparepredictorRoutes checks if two routes are equal, if not return false
-func ComparePredictorRoutes(r1 routev1.Route, r2 routev1.Route) bool {
+// CompareInferenceServiceRoutes checks if two routes are equal, if not return false
+func CompareInferenceServiceRoutes(r1 routev1.Route, r2 routev1.Route) bool {
 	// Omit the host field since it is reconciled by the ingress controller
 	r1.Spec.Host, r2.Spec.Host = "", ""
 
@@ -79,27 +79,27 @@ func ComparePredictorRoutes(r1 routev1.Route, r2 routev1.Route) bool {
 
 // Reconcile will manage the creation, update and deletion of the route returned
 // by the newRoute function
-func (r *OpenshiftPredictorReconciler) reconcileRoute(predictor *predictorv1.Predictor,
-	ctx context.Context, newRoute func(*predictorv1.Predictor) *routev1.Route) error {
+func (r *OpenshiftInferenceServiceReconciler) reconcileRoute(inferenceservice *inferenceservicev1.InferenceService,
+	ctx context.Context, newRoute func(service *inferenceservicev1.InferenceService) *routev1.Route) error {
 	// Initialize logger format
-	log := r.Log.WithValues("predictor", predictor.Name, "namespace", predictor.Namespace)
+	log := r.Log.WithValues("inferenceservice", inferenceservice.Name, "namespace", inferenceservice.Namespace)
 
 	// Generate the desired route
-	desiredRoute := newRoute(predictor)
+	desiredRoute := newRoute(inferenceservice)
 
 	// Create the route if it does not already exist
 	foundRoute := &routev1.Route{}
 	justCreated := false
 	err := r.Get(ctx, types.NamespacedName{
 		Name:      desiredRoute.Name,
-		Namespace: predictor.Namespace,
+		Namespace: inferenceservice.Namespace,
 	}, foundRoute)
 	if err != nil {
 		if apierrs.IsNotFound(err) {
 			log.Info("Creating Route")
 			// Add .metatada.ownerReferences to the route to be deleted by the
 			// Kubernetes garbage collector if the predictor is deleted
-			err = ctrl.SetControllerReference(predictor, desiredRoute, r.Scheme)
+			err = ctrl.SetControllerReference(inferenceservice, desiredRoute, r.Scheme)
 			if err != nil {
 				log.Error(err, "Unable to add OwnerReference to the Route")
 				return err
@@ -118,7 +118,7 @@ func (r *OpenshiftPredictorReconciler) reconcileRoute(predictor *predictorv1.Pre
 	}
 
 	// Reconcile the route spec if it has been manually modified
-	if !justCreated && !ComparePredictorRoutes(*desiredRoute, *foundRoute) {
+	if !justCreated && !CompareInferenceServiceRoutes(*desiredRoute, *foundRoute) {
 		log.Info("Reconciling Route")
 		// Retry the update operation when the ingress controller eventually
 		// updates the resource version field
@@ -126,7 +126,7 @@ func (r *OpenshiftPredictorReconciler) reconcileRoute(predictor *predictorv1.Pre
 			// Get the last route revision
 			if err := r.Get(ctx, types.NamespacedName{
 				Name:      desiredRoute.Name,
-				Namespace: predictor.Namespace,
+				Namespace: inferenceservice.Namespace,
 			}, foundRoute); err != nil {
 				return err
 			}
@@ -146,7 +146,7 @@ func (r *OpenshiftPredictorReconciler) reconcileRoute(predictor *predictorv1.Pre
 
 // ReconcileRoute will manage the creation, update and deletion of the
 // TLS route when the predictor is reconciled
-func (r *OpenshiftPredictorReconciler) ReconcileRoute(
-	predictor *predictorv1.Predictor, ctx context.Context) error {
-	return r.reconcileRoute(predictor, ctx, NewpredictorRoute)
+func (r *OpenshiftInferenceServiceReconciler) ReconcileRoute(
+	inferenceservice *inferenceservicev1.InferenceService, ctx context.Context) error {
+	return r.reconcileRoute(inferenceservice, ctx, NewInferenceServiceRoute)
 }

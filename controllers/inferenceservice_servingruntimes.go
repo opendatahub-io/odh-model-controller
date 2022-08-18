@@ -22,6 +22,7 @@ import (
 	"strings"
 
 	predictorv1 "github.com/kserve/modelmesh-serving/apis/serving/v1alpha1"
+	inferenceservicev1 "github.com/kserve/modelmesh-serving/apis/serving/v1beta1"
 	corev1 "k8s.io/api/core/v1"
 	apierrs "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/runtime/serializer"
@@ -49,9 +50,9 @@ func GetOperatorNamespace() (string, error) {
 	return ns, nil
 }
 
-// NewPredictorServingRuntimes defines the desired ServingRuntimes object
-func NewPredictorServingRuntimes(predictor *predictorv1.Predictor, ctx context.Context, r *OpenshiftPredictorReconciler) *predictorv1.ServingRuntimeList {
-	log := r.Log.WithValues("Predictor", predictor.Name, "namespace", predictor.Namespace)
+// NewInferenceServiceServingRuntimes defines the desired ServingRuntimes object
+func NewInferenceServiceServingRuntimes(inferenceservice *inferenceservicev1.InferenceService, ctx context.Context, r *OpenshiftInferenceServiceReconciler) *predictorv1.ServingRuntimeList {
+	log := r.Log.WithValues("inferenceservice", inferenceservice.Name, "namespace", inferenceservice.Namespace)
 	srList := &predictorv1.ServingRuntimeList{}
 	operatorns, err := GetOperatorNamespace()
 	if err != nil {
@@ -73,7 +74,7 @@ func NewPredictorServingRuntimes(predictor *predictorv1.Predictor, ctx context.C
 			sr := cm.Data[key]
 			obj, _, _ := decode([]byte(sr), nil, nil)
 			srobject := obj.(*predictorv1.ServingRuntime)
-			srobject.ObjectMeta.Namespace = predictor.Namespace
+			srobject.ObjectMeta.Namespace = inferenceservice.Namespace
 			srList.Items = append(srList.Items, *srobject)
 		}
 	}
@@ -81,8 +82,8 @@ func NewPredictorServingRuntimes(predictor *predictorv1.Predictor, ctx context.C
 	return srList
 }
 
-// ComparePredictorServingRuntimess checks if two ServingRuntimess are equal, if not return false
-func ComparePredictorServingRuntimes(srl1 *predictorv1.ServingRuntimeList, srl2 *predictorv1.ServingRuntimeList) bool {
+// CompareInferenceServiceServingRuntimes checks if two ServingRuntimess are equal, if not return false
+func CompareInferenceServiceServingRuntimes(srl1 *predictorv1.ServingRuntimeList, srl2 *predictorv1.ServingRuntimeList) bool {
 	// Two ServingRuntimess will be equal if they have the same names
 	// listonekeys := srl1.Items
 
@@ -91,19 +92,19 @@ func ComparePredictorServingRuntimes(srl1 *predictorv1.ServingRuntimeList, srl2 
 
 // Reconcile will manage the creation, update and deletion of the ServingRuntimes returned
 // by the newServingRuntimes function
-func (r *OpenshiftPredictorReconciler) reconcileServingRuntimes(predictor *predictorv1.Predictor,
-	ctx context.Context, newServingRuntimes func(*predictorv1.Predictor, context.Context, *OpenshiftPredictorReconciler) *predictorv1.ServingRuntimeList) error {
+func (r *OpenshiftInferenceServiceReconciler) reconcileServingRuntimes(inferenceservice *inferenceservicev1.InferenceService,
+	ctx context.Context, newServingRuntimes func(*inferenceservicev1.InferenceService, context.Context, *OpenshiftInferenceServiceReconciler) *predictorv1.ServingRuntimeList) error {
 	// Initialize logger format
-	log := r.Log.WithValues("Predictor", predictor.Name, "namespace", predictor.Namespace)
+	log := r.Log.WithValues("InferenceService", inferenceservice.Name, "namespace", inferenceservice.Namespace)
 
 	// Generate the desired ServingRuntimes
-	desiredServingRuntimes := newServingRuntimes(predictor, ctx, r)
+	desiredServingRuntimes := newServingRuntimes(inferenceservice, ctx, r)
 
 	// Create the ServingRuntimes if it does not already exist
 	foundServingRuntimes := &predictorv1.ServingRuntimeList{}
 	justCreated := false
 	listOptions := client.ListOptions{
-		Namespace: predictor.Namespace,
+		Namespace: inferenceservice.Namespace,
 	}
 	err := r.List(ctx, foundServingRuntimes, &listOptions)
 	if err != nil {
@@ -124,11 +125,11 @@ func (r *OpenshiftPredictorReconciler) reconcileServingRuntimes(predictor *predi
 	}
 
 	// Reconcile the ServingRuntimes
-	if !justCreated && !ComparePredictorServingRuntimes(desiredServingRuntimes, foundServingRuntimes) {
+	if !justCreated && !CompareInferenceServiceServingRuntimes(desiredServingRuntimes, foundServingRuntimes) {
 		log.Info("Reconciling ServingRuntimes")
 		err := retry.RetryOnConflict(retry.DefaultRetry, func() error {
 			listOptions := client.ListOptions{
-				Namespace: predictor.Namespace,
+				Namespace: inferenceservice.Namespace,
 			}
 			if err := r.List(ctx, foundServingRuntimes, &listOptions); err != nil {
 				return err
@@ -151,7 +152,7 @@ func (r *OpenshiftPredictorReconciler) reconcileServingRuntimes(predictor *predi
 
 // ReconcileServingRuntimes will manage the creation, update and deletion of the
 // ServingRuntimes when the Predictor is reconciled
-func (r *OpenshiftPredictorReconciler) ReconcileServingRuntimes(
-	predictor *predictorv1.Predictor, ctx context.Context) error {
-	return r.reconcileServingRuntimes(predictor, ctx, NewPredictorServingRuntimes)
+func (r *OpenshiftInferenceServiceReconciler) ReconcileServingRuntimes(
+	inferenceservice *inferenceservicev1.InferenceService, ctx context.Context) error {
+	return r.reconcileServingRuntimes(inferenceservice, ctx, NewInferenceServiceServingRuntimes)
 }
