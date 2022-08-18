@@ -17,6 +17,7 @@ package controllers
 
 import (
 	"context"
+	inferenceservicev1 "github.com/kserve/modelmesh-serving/apis/serving/v1beta1"
 	"path/filepath"
 	"testing"
 	"time"
@@ -88,6 +89,7 @@ var _ = BeforeSuite(func() {
 	scheme := runtime.NewScheme()
 	utilruntime.Must(clientgoscheme.AddToScheme(scheme))
 	utilruntime.Must(predictorv1.AddToScheme(scheme))
+	utilruntime.Must(inferenceservicev1.AddToScheme(scheme))
 	utilruntime.Must(routev1.AddToScheme(scheme))
 	utilruntime.Must(virtualservicev1.AddToScheme(scheme))
 	utilruntime.Must(maistrav1.AddToScheme(scheme))
@@ -107,9 +109,9 @@ var _ = BeforeSuite(func() {
 	Expect(err).NotTo(HaveOccurred())
 
 	// Setup predictor controller
-	err = (&OpenshiftPredictorReconciler{
+	err = (&OpenshiftInferenceServiceReconciler{
 		Client:       mgr.GetClient(),
-		Log:          ctrl.Log.WithName("controllers").WithName("predictor-controller"),
+		Log:          ctrl.Log.WithName("controllers").WithName("inferenceservice-controller"),
 		Scheme:       mgr.GetScheme(),
 		MeshDisabled: false,
 	}).SetupWithManager(mgr)

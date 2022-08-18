@@ -18,6 +18,7 @@ package main
 
 import (
 	"flag"
+	inferenceservicev1 "github.com/kserve/modelmesh-serving/apis/serving/v1beta1"
 	"os"
 	"strconv"
 
@@ -47,6 +48,7 @@ var (
 func init() {
 	utilruntime.Must(clientgoscheme.AddToScheme(scheme))
 
+	utilruntime.Must(inferenceservicev1.AddToScheme(scheme))
 	utilruntime.Must(predictorv1.AddToScheme(scheme))
 	utilruntime.Must(corev1.AddToScheme(scheme))
 	utilruntime.Must(routev1.AddToScheme(scheme))
@@ -97,14 +99,14 @@ func main() {
 		os.Exit(1)
 	}
 
-	// Setup Predictor controller
-	if err = (&controllers.OpenshiftPredictorReconciler{
+	// Setup InferenceService controller
+	if err = (&controllers.OpenshiftInferenceServiceReconciler{
 		Client:       mgr.GetClient(),
-		Log:          ctrl.Log.WithName("controllers").WithName("Predictor"),
+		Log:          ctrl.Log.WithName("controllers").WithName("InferenceService"),
 		Scheme:       mgr.GetScheme(),
 		MeshDisabled: getEnvAsBool("MESH_DISABLED", false),
 	}).SetupWithManager(mgr); err != nil {
-		setupLog.Error(err, "unable to create controller", "controller", "Predictor")
+		setupLog.Error(err, "unable to create controller", "controller", "InferenceService")
 		os.Exit(1)
 	}
 

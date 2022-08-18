@@ -19,6 +19,7 @@ import (
 	"context"
 	"github.com/go-logr/logr"
 	predictorv1 "github.com/kserve/modelmesh-serving/apis/serving/v1alpha1"
+	inferenceservicev1 "github.com/kserve/modelmesh-serving/apis/serving/v1beta1"
 	routev1 "github.com/openshift/api/route/v1"
 	corev1 "k8s.io/api/core/v1"
 	apierrs "k8s.io/apimachinery/pkg/api/errors"
@@ -27,8 +28,8 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
-// OpenshiftPredictorReconciler holds the controller configuration.
-type OpenshiftPredictorReconciler struct {
+// OpenshiftInferenceServiceReconciler holds the controller configuration.
+type OpenshiftInferenceServiceReconciler struct {
 	client.Client
 	Scheme       *runtime.Scheme
 	Log          logr.Logger
@@ -37,8 +38,8 @@ type OpenshiftPredictorReconciler struct {
 
 // ClusterRole permissions
 
-// +kubebuilder:rbac:groups=serving.kserve.io,resources=predictors,verbs=get;list;watch
-// +kubebuilder:rbac:groups=serving.kserve.io,resources=predictors/finalizers,verbs=get;list;watch;update
+// +kubebuilder:rbac:groups=serving.kserve.io,resources=inferenceservices,verbs=get;list;watch
+// +kubebuilder:rbac:groups=serving.kserve.io,resources=inferenceservices/finalizers,verbs=get;list;watch;update
 // +kubebuilder:rbac:groups=serving.kserve.io,resources=servingruntimes,verbs=get;list;watch;create;update
 // +kubebuilder:rbac:groups=serving.kserve.io,resources=servingruntimes/finalizers,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups=networking.istio.io,resources=virtualservices,verbs=get;list;watch;create;update;patch;delete
@@ -50,44 +51,44 @@ type OpenshiftPredictorReconciler struct {
 // +kubebuilder:rbac:groups="",resources=configmaps;namespaces;pods;services;serviceaccounts;secrets,verbs=get;list;watch;create;update;patch
 
 // Reconcile performs the reconciling of the Openshift objects for a Kubeflow
-// Predictor.
-func (r *OpenshiftPredictorReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
+// InferenceService.
+func (r *OpenshiftInferenceServiceReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
 	// Initialize logger format
-	log := r.Log.WithValues("Predictor", req.Name, "namespace", req.Namespace)
+	log := r.Log.WithValues("InferenceService", req.Name, "namespace", req.Namespace)
 
-	// Get the Predictor object when a reconciliation event is triggered (create,
+	// Get the InferenceService object when a reconciliation event is triggered (create,
 	// update, delete)
-	predictor := &predictorv1.Predictor{}
-	err := r.Get(ctx, req.NamespacedName, predictor)
+	inferenceservice := &inferenceservicev1.InferenceService{}
+	err := r.Get(ctx, req.NamespacedName, inferenceservice)
 	if err != nil && apierrs.IsNotFound(err) {
-		log.Info("Stop Predictor reconciliation")
+		log.Info("Stop InferenceService reconciliation")
 		return ctrl.Result{}, nil
 	} else if err != nil {
-		log.Error(err, "Unable to fetch the Predictor")
+		log.Error(err, "Unable to fetch the InferenceService")
 		return ctrl.Result{}, err
 	}
 
-	err = r.ReconcileNamespace(predictor, ctx)
+	err = r.ReconcileNamespace(inferenceservice, ctx)
 	if err != nil {
 		return ctrl.Result{}, err
 	}
 
-	err = r.ReconcileServingRuntimes(predictor, ctx)
+	err = r.ReconcileServingRuntimes(inferenceservice, ctx)
 	if err != nil {
 		return ctrl.Result{}, err
 	}
 
-	err = r.ReconcileRoute(predictor, ctx)
+	err = r.ReconcileRoute(inferenceservice, ctx)
 	if err != nil {
 		return ctrl.Result{}, err
 	}
 
 	// Service Mesh related...uncomment to activate
-	//err = r.ReconcileMeshMember(predictor, ctx)
+	//err = r.ReconcileMeshMember(inferenceservice, ctx)
 	//if err != nil {
 	//		return ctrl.Result{}, err
 	//	}
-	//err = r.ReconcileVirtualService(predictor, ctx)
+	//err = r.ReconcileVirtualService(inferenceservice, ctx)
 	//if err != nil {
 	//		return ctrl.Result{}, err
 	//	}
@@ -96,9 +97,9 @@ func (r *OpenshiftPredictorReconciler) Reconcile(ctx context.Context, req ctrl.R
 }
 
 // SetupWithManager sets up the controller with the Manager.
-func (r *OpenshiftPredictorReconciler) SetupWithManager(mgr ctrl.Manager) error {
+func (r *OpenshiftInferenceServiceReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	builder := ctrl.NewControllerManagedBy(mgr).
-		For(&predictorv1.Predictor{}).
+		For(&inferenceservicev1.InferenceService{}).
 		Owns(&predictorv1.ServingRuntime{}).
 		// Service Mesh related functionality
 		//Owns(&virtualservicev1.VirtualService{}).
