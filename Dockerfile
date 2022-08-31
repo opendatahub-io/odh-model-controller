@@ -1,5 +1,5 @@
 # Build the manager binary
-FROM golang:1.17 as builder
+FROM registry.redhat.io/ubi8/go-toolset:1.17 as builder
 
 WORKDIR /workspace
 # Copy the Go Modules manifests
@@ -15,6 +15,7 @@ COPY main.go main.go
 COPY controllers/ controllers/
 
 # Build
+USER root
 RUN CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -a -o manager main.go
 
 # Use distroless as minimal base image to package the manager binary
