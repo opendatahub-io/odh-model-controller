@@ -1,4 +1,4 @@
-module github.com/crobby/odh-model-controller
+module github.com/opendatahub-io/odh-model-controller
 
 go 1.17
 

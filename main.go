@@ -33,8 +33,8 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/healthz"
 	"sigs.k8s.io/controller-runtime/pkg/log/zap"
 
-	"github.com/crobby/odh-model-controller/controllers"
 	predictorv1 "github.com/kserve/modelmesh-serving/apis/serving/v1alpha1"
+	"github.com/opendatahub-io/odh-model-controller/controllers"
 	routev1 "github.com/openshift/api/route/v1"
 	corev1 "k8s.io/api/core/v1"
 	//+kubebuilder:scaffold:imports
