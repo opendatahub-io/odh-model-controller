@@ -32,7 +32,7 @@ import (
 
 const (
 	modelmeshServiceName = "modelmesh-serving"
-	modelmeshServicePort = 8008
+	modelmeshServicePort = 8443
 )
 
 // NewInferenceServiceRoute defines the desired route object
@@ -55,7 +55,7 @@ func NewInferenceServiceRoute(inferenceservice *inferenceservicev1.InferenceServ
 				TargetPort: intstr.FromInt(modelmeshServicePort),
 			},
 			TLS: &routev1.TLSConfig{
-				Termination:                   routev1.TLSTerminationEdge,
+				Termination:                   routev1.TLSTerminationReencrypt,
 				InsecureEdgeTerminationPolicy: routev1.InsecureEdgeTerminationPolicyRedirect,
 			},
 			WildcardPolicy: routev1.WildcardPolicyNone,
