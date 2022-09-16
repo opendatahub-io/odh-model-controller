@@ -22,6 +22,7 @@ import (
 	inferenceservicev1 "github.com/kserve/modelmesh-serving/apis/serving/v1beta1"
 	routev1 "github.com/openshift/api/route/v1"
 	corev1 "k8s.io/api/core/v1"
+	authv1 "k8s.io/api/rbac/v1"
 	apierrs "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/runtime"
 	ctrl "sigs.k8s.io/controller-runtime"
@@ -48,6 +49,7 @@ type OpenshiftInferenceServiceReconciler struct {
 // +kubebuilder:rbac:groups=maistra.io,resources=servicemeshmembers/finalizers,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups=maistra.io,resources=servicemeshcontrolplanes,verbs=get;list;watch;create;update;patch;use
 // +kubebuilder:rbac:groups=route.openshift.io,resources=routes,verbs=get;list;watch;create;update;patch
+// +kubebuilder:rbac:groups=rbac.authorization.k8s.io,resources=clusterrolebindings,verbs=get;list;watch;create;update;patch;watch;delete
 // +kubebuilder:rbac:groups="",resources=configmaps;namespaces;pods;services;serviceaccounts;secrets,verbs=get;list;watch;create;update;patch
 
 // Reconcile performs the reconciling of the Openshift objects for a Kubeflow
@@ -83,6 +85,11 @@ func (r *OpenshiftInferenceServiceReconciler) Reconcile(ctx context.Context, req
 		return ctrl.Result{}, err
 	}
 
+	err = r.ReconcileSA(inferenceservice, ctx)
+	if err != nil {
+		return ctrl.Result{}, err
+	}
+
 	// Service Mesh related...uncomment to activate
 	//err = r.ReconcileMeshMember(inferenceservice, ctx)
 	//if err != nil {
@@ -108,7 +115,8 @@ func (r *OpenshiftInferenceServiceReconciler) SetupWithManager(mgr ctrl.Manager)
 		Owns(&routev1.Route{}).
 		Owns(&corev1.ServiceAccount{}).
 		Owns(&corev1.Service{}).
-		Owns(&corev1.Secret{})
+		Owns(&corev1.Secret{}).
+		Owns(&authv1.ClusterRoleBinding{})
 
 	err := builder.Complete(r)
 	if err != nil {
