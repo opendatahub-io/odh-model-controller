@@ -21,13 +21,16 @@ import (
 	predictorv1 "github.com/kserve/modelmesh-serving/apis/serving/v1alpha1"
 	inferenceservicev1 "github.com/kserve/modelmesh-serving/apis/serving/v1beta1"
 	routev1 "github.com/openshift/api/route/v1"
-	virtualservicev1 "istio.io/client-go/pkg/apis/networking/v1alpha3"
 	corev1 "k8s.io/api/core/v1"
+	authv1 "k8s.io/api/rbac/v1"
 	apierrs "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/runtime"
-	maistrav1 "maistra.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/types"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/handler"
+	"sigs.k8s.io/controller-runtime/pkg/reconcile"
+	"sigs.k8s.io/controller-runtime/pkg/source"
 )
 
 // OpenshiftInferenceServiceReconciler holds the controller configuration.
@@ -50,6 +53,7 @@ type OpenshiftInferenceServiceReconciler struct {
 // +kubebuilder:rbac:groups=maistra.io,resources=servicemeshmembers/finalizers,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups=maistra.io,resources=servicemeshcontrolplanes,verbs=get;list;watch;create;update;patch;use
 // +kubebuilder:rbac:groups=route.openshift.io,resources=routes,verbs=get;list;watch;create;update;patch
+// +kubebuilder:rbac:groups=rbac.authorization.k8s.io,resources=clusterrolebindings,verbs=get;list;watch;create;update;patch;watch;delete
 // +kubebuilder:rbac:groups="",resources=configmaps;namespaces;pods;services;serviceaccounts;secrets,verbs=get;list;watch;create;update;patch
 
 // Reconcile performs the reconciling of the Openshift objects for a Kubeflow
@@ -70,29 +74,25 @@ func (r *OpenshiftInferenceServiceReconciler) Reconcile(ctx context.Context, req
 		return ctrl.Result{}, err
 	}
 
-	err = r.ReconcileNamespace(inferenceservice, ctx)
-	if err != nil {
-		return ctrl.Result{}, err
-	}
-
-	err = r.ReconcileServingRuntimes(inferenceservice, ctx)
-	if err != nil {
-		return ctrl.Result{}, err
-	}
-
 	err = r.ReconcileRoute(inferenceservice, ctx)
 	if err != nil {
 		return ctrl.Result{}, err
 	}
 
-	err = r.ReconcileMeshMember(inferenceservice, ctx)
+	err = r.ReconcileSA(inferenceservice, ctx)
 	if err != nil {
 		return ctrl.Result{}, err
 	}
-	err = r.ReconcileVirtualService(inferenceservice, ctx)
-	if err != nil {
-		return ctrl.Result{}, err
-	}
+
+	// Service Mesh related...uncomment to activate
+	//err = r.ReconcileMeshMember(inferenceservice, ctx)
+	//if err != nil {
+	//		return ctrl.Result{}, err
+	//	}
+	//err = r.ReconcileVirtualService(inferenceservice, ctx)
+	//if err != nil {
+	//		return ctrl.Result{}, err
+	//	}
 
 	return ctrl.Result{}, nil
 }
@@ -102,14 +102,44 @@ func (r *OpenshiftInferenceServiceReconciler) SetupWithManager(mgr ctrl.Manager)
 	builder := ctrl.NewControllerManagedBy(mgr).
 		For(&inferenceservicev1.InferenceService{}).
 		Owns(&predictorv1.ServingRuntime{}).
-		Owns(&virtualservicev1.VirtualService{}).
-		Owns(&maistrav1.ServiceMeshMember{}).
+		// Service Mesh related functionality
+		//Owns(&virtualservicev1.VirtualService{}).
+		//Owns(&maistrav1.ServiceMeshMember{}).
 		Owns(&corev1.Namespace{}).
 		Owns(&routev1.Route{}).
 		Owns(&corev1.ServiceAccount{}).
 		Owns(&corev1.Service{}).
-		Owns(&corev1.Secret{})
+		Owns(&corev1.Secret{}).
+		Owns(&authv1.ClusterRoleBinding{}).
+		Watches(&source.Kind{Type: &predictorv1.ServingRuntime{}},
+			handler.EnqueueRequestsFromMapFunc(func(o client.Object) []reconcile.Request {
+				r.Log.Info("Reconcile event triggered by serving runtime: " + o.GetName())
+				inferenceServicesList := &inferenceservicev1.InferenceServiceList{}
+				opts := []client.ListOption{client.InNamespace(o.GetNamespace())}
 
+				// Todo: Get only Inference Services that are deploying on the specific serving runtime
+				err := r.List(context.TODO(), inferenceServicesList, opts...)
+				if err != nil {
+					r.Log.Info("Error getting list of inference services for namespace")
+					return []reconcile.Request{}
+				}
+
+				if len(inferenceServicesList.Items) == 0 {
+					r.Log.Info("No InferenceServices found for Serving Runtime: " + o.GetName())
+					return []reconcile.Request{}
+				}
+
+				reconcileRequests := make([]reconcile.Request, 0, len(inferenceServicesList.Items))
+				for _, inferenceService := range inferenceServicesList.Items {
+					reconcileRequests = append(reconcileRequests, reconcile.Request{
+						NamespacedName: types.NamespacedName{
+							Name:      inferenceService.Name,
+							Namespace: inferenceService.Namespace,
+						},
+					})
+				}
+				return reconcileRequests
+			}))
 	err := builder.Complete(r)
 	if err != nil {
 		return err

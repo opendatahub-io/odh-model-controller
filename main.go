@@ -18,8 +18,7 @@ package main
 
 import (
 	"flag"
-	virtualservicev1 "istio.io/client-go/pkg/apis/networking/v1alpha3"
-	maistrav1 "maistra.io/api/core/v1"
+	inferenceservicev1 "github.com/kserve/modelmesh-serving/apis/serving/v1beta1"
 	"os"
 	"strconv"
 
@@ -35,10 +34,10 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/log/zap"
 
 	predictorv1 "github.com/kserve/modelmesh-serving/apis/serving/v1alpha1"
-	inferencev1 "github.com/kserve/modelmesh-serving/apis/serving/v1beta1"
 	"github.com/opendatahub-io/odh-model-controller/controllers"
 	routev1 "github.com/openshift/api/route/v1"
 	corev1 "k8s.io/api/core/v1"
+	authv1 "k8s.io/api/rbac/v1"
 	//+kubebuilder:scaffold:imports
 )
 
@@ -50,12 +49,16 @@ var (
 func init() {
 	utilruntime.Must(clientgoscheme.AddToScheme(scheme))
 
+	utilruntime.Must(inferenceservicev1.AddToScheme(scheme))
 	utilruntime.Must(predictorv1.AddToScheme(scheme))
 	utilruntime.Must(corev1.AddToScheme(scheme))
 	utilruntime.Must(routev1.AddToScheme(scheme))
-	utilruntime.Must(virtualservicev1.AddToScheme(scheme))
-	utilruntime.Must(maistrav1.AddToScheme(scheme))
-	utilruntime.Must(inferencev1.AddToScheme(scheme))
+	utilruntime.Must(authv1.AddToScheme(scheme))
+
+	// The following are related to Service Mesh, uncomment this and other
+	// similar blocks to use with Service Mesh
+	//utilruntime.Must(virtualservicev1.AddToScheme(scheme))
+	//utilruntime.Must(maistrav1.AddToScheme(scheme))
 
 	//+kubebuilder:scaffold:scheme
 }
@@ -98,7 +101,7 @@ func main() {
 		os.Exit(1)
 	}
 
-	// Setup Predictor controller
+	//Setup InferenceService controller
 	if err = (&controllers.OpenshiftInferenceServiceReconciler{
 		Client:       mgr.GetClient(),
 		Log:          ctrl.Log.WithName("controllers").WithName("InferenceService"),
@@ -106,6 +109,15 @@ func main() {
 		MeshDisabled: getEnvAsBool("MESH_DISABLED", false),
 	}).SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "unable to create controller", "controller", "InferenceService")
+		os.Exit(1)
+	}
+
+	if err = (&controllers.StorageSecretReconciler{
+		Client: mgr.GetClient(),
+		Log:    ctrl.Log.WithName("controllers").WithName("StorageSecret"),
+		Scheme: mgr.GetScheme(),
+	}).SetupWithManager(mgr); err != nil {
+		setupLog.Error(err, "unable to create controller", "controller", "StorageSecret")
 		os.Exit(1)
 	}
 
