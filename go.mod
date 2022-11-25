@@ -8,6 +8,7 @@ require (
 	github.com/onsi/ginkgo v1.16.5
 	github.com/onsi/gomega v1.19.0
 	github.com/openshift/api v3.9.0+incompatible
+	github.com/prometheus-operator/prometheus-operator/pkg/apis/monitoring v0.52.0
 	go.uber.org/zap v1.21.0
 	istio.io/api v0.0.0-20220630134407-25925643fdb3
 	istio.io/client-go v1.14.0
