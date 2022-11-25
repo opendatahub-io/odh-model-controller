@@ -19,6 +19,7 @@ package main
 import (
 	"flag"
 	inferenceservicev1 "github.com/kserve/modelmesh-serving/apis/serving/v1beta1"
+	monitoringv1 "github.com/prometheus-operator/prometheus-operator/pkg/apis/monitoring/v1"
 	"os"
 	"strconv"
 
@@ -54,6 +55,7 @@ func init() {
 	utilruntime.Must(corev1.AddToScheme(scheme))
 	utilruntime.Must(routev1.AddToScheme(scheme))
 	utilruntime.Must(authv1.AddToScheme(scheme))
+	utilruntime.Must(monitoringv1.AddToScheme(scheme))
 
 	// The following are related to Service Mesh, uncomment this and other
 	// similar blocks to use with Service Mesh
@@ -74,12 +76,18 @@ func getEnvAsBool(name string, defaultValue bool) bool {
 func main() {
 	var metricsAddr string
 	var enableLeaderElection bool
+	var monitoringNS string
 	var probeAddr string
 	flag.StringVar(&metricsAddr, "metrics-bind-address", ":8080", "The address the metric endpoint binds to.")
 	flag.StringVar(&probeAddr, "health-probe-bind-address", ":8081", "The address the probe endpoint binds to.")
 	flag.BoolVar(&enableLeaderElection, "leader-elect", false,
 		"Enable leader election for controller manager. "+
 			"Enabling this will ensure there is only one active controller manager.")
+	flag.StringVar(&monitoringNS, "monitoring-namespace", "",
+		"The Namespace where the monitoring stack's Prometheus resides.")
+	flag.StringVar(&monitoringNS, "apps-namespace", "",
+		"The Namespace where odh apps reside.")
+
 	opts := zap.Options{
 		Development: true,
 	}
@@ -119,6 +127,22 @@ func main() {
 	}).SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "unable to create controller", "controller", "StorageSecret")
 		os.Exit(1)
+	}
+
+	if monitoringNS != "" {
+		setupLog.Info("Monitoring namespace provided, setting up monitoring controller.")
+		if err = (&controllers.MonitoringReconciler{
+			Client:       mgr.GetClient(),
+			Log:          ctrl.Log.WithName("controllers").WithName("MonitoringReconciler"),
+			Scheme:       mgr.GetScheme(),
+			MonitoringNS: monitoringNS,
+		}).SetupWithManager(mgr); err != nil {
+			setupLog.Error(err, "unable to create controller", "controller", "MonitoringReconciler")
+			os.Exit(1)
+		}
+	} else {
+		setupLog.Info("Monitoring namespace not provided, skipping setup of monitoring controller. To enable " +
+			"monitoring for ModelServing, please provide a monitoring namespace via the (--monitoring-namespace) flag.")
 	}
 
 	//+kubebuilder:scaffold:builder

@@ -5,9 +5,12 @@ go 1.17
 require (
 	github.com/go-logr/logr v1.2.3
 	github.com/kserve/modelmesh-serving v0.8.0
+	github.com/manifestival/controller-runtime-client v0.4.0
+	github.com/manifestival/manifestival v0.7.1
 	github.com/onsi/ginkgo v1.16.5
 	github.com/onsi/gomega v1.19.0
 	github.com/openshift/api v3.9.0+incompatible
+	github.com/prometheus-operator/prometheus-operator/pkg/apis/monitoring v0.52.0
 	go.uber.org/zap v1.21.0
 	istio.io/api v0.0.0-20220630134407-25925643fdb3
 	istio.io/client-go v1.14.0
@@ -32,6 +35,7 @@ require (
 	github.com/davecgh/go-spew v1.1.1 // indirect
 	github.com/emicklei/go-restful/v3 v3.8.0 // indirect
 	github.com/evanphx/json-patch v5.6.0+incompatible // indirect
+	github.com/evanphx/json-patch/v5 v5.2.0 // indirect
 	github.com/fsnotify/fsnotify v1.5.4 // indirect
 	github.com/go-logr/zapr v1.2.3 // indirect
 	github.com/go-openapi/jsonpointer v0.19.5 // indirect

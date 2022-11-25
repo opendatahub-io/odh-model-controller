@@ -99,7 +99,6 @@ rules:
   - routes
   verbs:
   - create
-  - delete
   - get
   - list
   - patch
