@@ -73,6 +73,11 @@ func NewInferenceServiceRoute(inferenceservice *inferenceservicev1.InferenceServ
 			Termination:                   routev1.TLSTerminationReencrypt,
 			InsecureEdgeTerminationPolicy: routev1.InsecureEdgeTerminationPolicyRedirect,
 		}
+	} else {
+		finalRoute.Spec.TLS = &routev1.TLSConfig{
+			Termination:                   routev1.TLSTerminationEdge,
+			InsecureEdgeTerminationPolicy: routev1.InsecureEdgeTerminationPolicyRedirect,
+		}
 	}
 
 	return finalRoute
