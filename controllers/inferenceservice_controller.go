@@ -84,16 +84,6 @@ func (r *OpenshiftInferenceServiceReconciler) Reconcile(ctx context.Context, req
 		return ctrl.Result{}, err
 	}
 
-	// Service Mesh related...uncomment to activate
-	//err = r.ReconcileMeshMember(inferenceservice, ctx)
-	//if err != nil {
-	//		return ctrl.Result{}, err
-	//	}
-	//err = r.ReconcileVirtualService(inferenceservice, ctx)
-	//if err != nil {
-	//		return ctrl.Result{}, err
-	//	}
-
 	return ctrl.Result{}, nil
 }
 
@@ -102,9 +92,6 @@ func (r *OpenshiftInferenceServiceReconciler) SetupWithManager(mgr ctrl.Manager)
 	builder := ctrl.NewControllerManagedBy(mgr).
 		For(&inferenceservicev1.InferenceService{}).
 		Owns(&predictorv1.ServingRuntime{}).
-		// Service Mesh related functionality
-		//Owns(&virtualservicev1.VirtualService{}).
-		//Owns(&maistrav1.ServiceMeshMember{}).
 		Owns(&corev1.Namespace{}).
 		Owns(&routev1.Route{}).
 		Owns(&corev1.ServiceAccount{}).

@@ -17,24 +17,28 @@ package controllers
 
 import (
 	"context"
+	mmv1alpha1 "github.com/kserve/modelmesh-serving/apis/serving/v1alpha1"
 	inferenceservicev1 "github.com/kserve/modelmesh-serving/apis/serving/v1beta1"
+	mf "github.com/manifestival/manifestival"
+	monitoringv1 "github.com/prometheus-operator/prometheus-operator/pkg/apis/monitoring/v1"
+	k8srbacv1 "k8s.io/api/rbac/v1"
 	"path/filepath"
 	"testing"
 	"time"
 
 	"go.uber.org/zap/zapcore"
-	"k8s.io/apimachinery/pkg/runtime"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
 	ctrl "sigs.k8s.io/controller-runtime"
 
 	predictorv1 "github.com/kserve/modelmesh-serving/apis/serving/v1alpha1"
-	virtualservicev1 "istio.io/client-go/pkg/apis/networking/v1alpha3"
-	maistrav1 "maistra.io/api/core/v1"
-
+	"github.com/manifestival/manifestival"
 	. "github.com/onsi/ginkgo"
 	. "github.com/onsi/gomega"
 	routev1 "github.com/openshift/api/route/v1"
+	virtualservicev1 "istio.io/client-go/pkg/apis/networking/v1alpha3"
+	"k8s.io/client-go/kubernetes/scheme"
 	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
+	maistrav1 "maistra.io/api/core/v1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/envtest"
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
@@ -54,6 +58,18 @@ var (
 	cancel  context.CancelFunc
 )
 
+const (
+	WorkingNamespace    = "default"
+	MonitoringNS        = "monitoring-ns"
+	RoleBindingPath     = "./testdata/results/model-server-ns-role.yaml"
+	ServingRuntimePath1 = "./testdata/deploy/test-openvino-serving-runtime-1.yaml"
+	ServingRuntimePath2 = "./testdata/deploy/test-openvino-serving-runtime-2.yaml"
+	InferenceService1   = "./testdata/deploy/openvino-inference-service-1.yaml"
+	ExpectedRoutePath   = "./testdata/results/example-onnx-mnist-route.yaml"
+	timeout             = time.Second * 20
+	interval            = time.Millisecond * 10
+)
+
 func TestAPIs(t *testing.T) {
 	RegisterFailHandler(Fail)
 
@@ -70,8 +86,7 @@ var _ = BeforeSuite(func() {
 	}
 	logf.SetLogger(zap.New(zap.WriteTo(GinkgoWriter), zap.UseFlagOptions(&opts)))
 
-	// Initiliaze test environment:
-	// https://pkg.go.dev/sigs.k8s.io/controller-runtime/pkg/envtest#Environment.Start
+	// Initialize test environment:
 	By("Bootstrapping test environment")
 	envTest = &envtest.Environment{
 		CRDInstallOptions: envtest.CRDInstallOptions{
@@ -86,34 +101,51 @@ var _ = BeforeSuite(func() {
 	Expect(cfg).NotTo(BeNil())
 
 	// Register API objects
-	scheme := runtime.NewScheme()
-	utilruntime.Must(clientgoscheme.AddToScheme(scheme))
-	utilruntime.Must(predictorv1.AddToScheme(scheme))
-	utilruntime.Must(inferenceservicev1.AddToScheme(scheme))
-	utilruntime.Must(routev1.AddToScheme(scheme))
-	utilruntime.Must(virtualservicev1.AddToScheme(scheme))
-	utilruntime.Must(maistrav1.AddToScheme(scheme))
+	utilruntime.Must(clientgoscheme.AddToScheme(scheme.Scheme))
+	utilruntime.Must(predictorv1.AddToScheme(scheme.Scheme))
+	utilruntime.Must(inferenceservicev1.AddToScheme(scheme.Scheme))
+	utilruntime.Must(routev1.AddToScheme(scheme.Scheme))
+	utilruntime.Must(virtualservicev1.AddToScheme(scheme.Scheme))
+	utilruntime.Must(maistrav1.AddToScheme(scheme.Scheme))
+	utilruntime.Must(monitoringv1.AddToScheme(scheme.Scheme))
+	utilruntime.Must(mmv1alpha1.AddToScheme(scheme.Scheme))
+
 	// +kubebuilder:scaffold:scheme
 
-	// Initiliaze Kubernetes client
-	cli, err = client.New(cfg, client.Options{Scheme: scheme})
+	// Initialize Kubernetes client
+	cli, err = client.New(cfg, client.Options{Scheme: scheme.Scheme})
 	Expect(err).NotTo(HaveOccurred())
 	Expect(cli).NotTo(BeNil())
 
 	// Setup controller manager
 	mgr, err := ctrl.NewManager(cfg, ctrl.Options{
-		Scheme:             scheme,
+		Scheme:             scheme.Scheme,
 		LeaderElection:     false,
 		MetricsBindAddress: "0",
 	})
+
 	Expect(err).NotTo(HaveOccurred())
 
-	// Setup predictor controller
 	err = (&OpenshiftInferenceServiceReconciler{
-		Client:       mgr.GetClient(),
+		Client:       cli,
 		Log:          ctrl.Log.WithName("controllers").WithName("inferenceservice-controller"),
-		Scheme:       mgr.GetScheme(),
+		Scheme:       scheme.Scheme,
 		MeshDisabled: false,
+	}).SetupWithManager(mgr)
+	Expect(err).ToNot(HaveOccurred())
+
+	err = (&MonitoringReconciler{
+		Client:       cli,
+		Log:          ctrl.Log.WithName("controllers").WithName("monitoring-controller"),
+		Scheme:       scheme.Scheme,
+		MonitoringNS: MonitoringNS,
+	}).SetupWithManager(mgr)
+	Expect(err).ToNot(HaveOccurred())
+
+	err = (&StorageSecretReconciler{
+		Client: cli,
+		Log:    ctrl.Log.WithName("controllers").WithName("Storage-Secret-Controller"),
+		Scheme: scheme.Scheme,
 	}).SetupWithManager(mgr)
 	Expect(err).ToNot(HaveOccurred())
 
@@ -124,16 +156,39 @@ var _ = BeforeSuite(func() {
 		Expect(err).ToNot(HaveOccurred(), "Failed to run manager")
 	}()
 
-	// Verify kubernetes client is working
-	cli = mgr.GetClient()
-	Expect(cli).ToNot(BeNil())
-
 }, 60)
 
 var _ = AfterSuite(func() {
 	cancel()
 	By("Tearing down the test environment")
-	// TODO: Stop cert controller-runtime.certwatcher before manager
 	err := envTest.Stop()
 	Expect(err).NotTo(HaveOccurred())
 })
+
+// Cleanup resources to not contaminate between tests
+var _ = AfterEach(func() {
+	inNamespace := client.InNamespace(WorkingNamespace)
+	Expect(cli.DeleteAllOf(context.TODO(), &mmv1alpha1.ServingRuntime{}, inNamespace)).ToNot(HaveOccurred())
+	Expect(cli.DeleteAllOf(context.TODO(), &inferenceservicev1.InferenceService{}, inNamespace)).ToNot(HaveOccurred())
+	Expect(cli.DeleteAllOf(context.TODO(), &routev1.Route{}, inNamespace)).ToNot(HaveOccurred())
+	Expect(cli.DeleteAllOf(context.TODO(), &mmv1alpha1.ServingRuntime{}, inNamespace)).ToNot(HaveOccurred())
+	Expect(cli.DeleteAllOf(context.TODO(), &monitoringv1.ServiceMonitor{}, inNamespace)).ToNot(HaveOccurred())
+	Expect(cli.DeleteAllOf(context.TODO(), &k8srbacv1.RoleBinding{}, inNamespace)).ToNot(HaveOccurred())
+
+})
+
+func convertToStructuredResource(path string, out interface{}, opts manifestival.Option) error {
+	m, err := mf.ManifestFrom(mf.Recursive(path), opts)
+	m, err = m.Transform(mf.InjectNamespace(WorkingNamespace))
+	if err != nil {
+		return err
+	}
+	if err != nil {
+		return err
+	}
+	err = scheme.Scheme.Convert(&m.Resources()[0], out, nil)
+	if err != nil {
+		return err
+	}
+	return nil
+}
