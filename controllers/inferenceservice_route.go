@@ -35,10 +35,18 @@ const (
 	modelmeshServiceName     = "modelmesh-serving"
 	modelmeshAuthServicePort = 8443
 	modelmeshServicePort     = 8008
+	modelmeshGrpcPort        = 8033
+)
+
+type RouteOptions int8
+const (
+	DEFAULT        RouteOptions = iota
+	ENABLE_AUTH
+	ENABLE_GRPC
 )
 
 // NewInferenceServiceRoute defines the desired route object
-func NewInferenceServiceRoute(inferenceservice *inferenceservicev1.InferenceService, enableAuth bool) *routev1.Route {
+func NewInferenceServiceRoute(inferenceservice *inferenceservicev1.InferenceService, routeOptions RouteOptions) *routev1.Route {
 
 	finalRoute := &routev1.Route{
 		ObjectMeta: metav1.ObjectMeta{
@@ -65,18 +73,29 @@ func NewInferenceServiceRoute(inferenceservice *inferenceservicev1.InferenceServ
 		},
 	}
 
-	if enableAuth {
-		finalRoute.Spec.Port = &routev1.RoutePort{
-			TargetPort: intstr.FromInt(modelmeshAuthServicePort),
-		}
-		finalRoute.Spec.TLS = &routev1.TLSConfig{
-			Termination:                   routev1.TLSTerminationReencrypt,
-			InsecureEdgeTerminationPolicy: routev1.InsecureEdgeTerminationPolicyRedirect,
-		}
-	} else {
+	if routeOptions.DEFAULT {
 		finalRoute.Spec.TLS = &routev1.TLSConfig{
 			Termination:                   routev1.TLSTerminationEdge,
 			InsecureEdgeTerminationPolicy: routev1.InsecureEdgeTerminationPolicyRedirect,
+		}
+	} else {
+		if routeOptions.ENABLE_AUTH {
+			finalRoute.Spec.Port = &routev1.RoutePort{
+				TargetPort: intstr.FromInt(modelmeshAuthServicePort),
+			}
+			finalRoute.Spec.TLS = &routev1.TLSConfig{
+				Termination:                   routev1.TLSTerminationReencrypt,
+				InsecureEdgeTerminationPolicy: routev1.InsecureEdgeTerminationPolicyRedirect,
+			}
+		} else if routeOptions.ENABLE_GRPC {
+			finalRoute.Spec.Port = &routev1.RoutePort{
+				TargetPort: intstr.FromInt(modelmeshGrpcPort),
+			}
+			// INFO: Does gRPC need to enable TLS? 
+			finalRoute.Spec.TLS = &routev1.TLSConfig{
+				Termination:                   routev1.TLSTerminationReencrypt,
+				InsecureEdgeTerminationPolicy: routev1.InsecureEdgeTerminationPolicyRedirect,
+			}
 		}
 	}
 
@@ -93,14 +112,85 @@ func CompareInferenceServiceRoutes(r1 routev1.Route, r2 routev1.Route) bool {
 		reflect.DeepEqual(r1.Spec, r2.Spec)
 }
 
+// Find existing route or create a new one
+func FindOrCreateRoute(
+	desiredRoute *routev1.Route,
+	ctx context.Context,
+	inferenceservice *inferenceservicev1.InferenceService,
+	reconciler *OpenshiftInferenceServiceReconciler
+) (bool, error) {
+	justCreated := false
+	if apierrs.IsNotFound(err) {
+		// FIXME: Add logger back at some point
+		// --
+		// log.Info("Creating Route")
+
+		// Add .metatada.ownerReferences to the route to be deleted by the
+		// Kubernetes garbage collector if the predictor is deleted
+		err = ctrl.SetControllerReference(inferenceservice, desiredRoute, reconciler.Scheme)
+		if err != nil {
+			// FIXME
+			// log.Error(err, "Unable to add OwnerReference to the Route")
+
+			return false, err
+		}
+
+		// Create the route in the Openshift cluster
+		err = reconciler.Create(ctx, desiredRoute)
+		if err != nil && !apierrs.IsAlreadyExists(err) {
+			// FIXME
+			// log.Error(err, "Unable to create the Route")
+
+			return false, err
+		}
+		justCreated = true
+	} else {
+		// FIXME
+		// log.Error(err, "Unable to fetch the Route")
+
+		return false, err
+	}
+
+	return justCreated, nil
+}
+
+// Reconcile a route if it's been manually modified
+func UpdateRouteIfModified(
+	desiredRoute *routev1.Route,
+	ctx context.Context,
+	inferenceservice *inferenceservicev1.InferenceService,
+	reconciler *OpenshiftInferenceServiceReconciler
+) error {
+	err := retry.RetryOnConflict(retry.DefaultRetry, func() error {
+		// Get the last route revision
+		if err := r.Get(ctx, types.NamespacedName{
+			Name:      desiredRoute.Name,
+			Namespace: inferenceservice.Namespace,
+		}, foundRoute); err != nil {
+			return err
+		}
+		// Reconcile labels and spec field
+		foundRoute.Spec = desiredRoute.Spec
+		foundRoute.ObjectMeta.Labels = desiredRoute.ObjectMeta.Labels
+		return r.Update(ctx, foundRoute)
+	})
+	if err != nil {
+		log.Error(err, "Unable to reconcile the Route")
+		return err
+	}
+	return nil
+}
+
 // Reconcile will manage the creation, update and deletion of the route returned
 // by the newRoute function
-func (r *OpenshiftInferenceServiceReconciler) reconcileRoute(inferenceservice *inferenceservicev1.InferenceService,
-	ctx context.Context, newRoute func(service *inferenceservicev1.InferenceService, enableAuth bool) *routev1.Route) error {
+func (r *OpenshiftInferenceServiceReconciler) reconcileRoute(
+	inferenceservice *inferenceservicev1.InferenceService,
+	ctx context.Context,
+	newRoute func(service *inferenceservicev1.InferenceService, routeOptions RouteOptions) *routev1.Route
+) error {
 	// Initialize logger format
 	log := r.Log.WithValues("inferenceservice", inferenceservice.Name, "namespace", inferenceservice.Namespace)
-
-	enableAuth := true
+	
 	desiredServingRuntime := &predictorv1.ServingRuntime{}
 	err := r.Get(ctx, types.NamespacedName{
 		Name:      *inferenceservice.Spec.Predictor.Model.Runtime,
@@ -112,8 +202,13 @@ func (r *OpenshiftInferenceServiceReconciler) reconcileRoute(inferenceservice *i
 		}
 	}
 
+	enableAuth := true
 	if desiredServingRuntime.Annotations["enable-auth"] != "true" {
 		enableAuth = false
+	}
+	enableGrpc := true
+	if desiredServingRuntime.Annotations["enable-grpc"] != "true" {
+		enableGrpc = false
 	}
 	createRoute := true
 	if desiredServingRuntime.Annotations["enable-route"] != "true" {
@@ -121,9 +216,13 @@ func (r *OpenshiftInferenceServiceReconciler) reconcileRoute(inferenceservice *i
 	}
 
 	// Generate the desired route
-	desiredRoute := newRoute(inferenceservice, enableAuth)
+	if enableAuth {
+		desiredRoute := newRoute(inferenceservice, RouteOptions.ENABLE_AUTH)
+	} else {
+		desiredRoute := newRoute(inferenceservice, RouteOptions.DEFAULT)
+	}
 
-	// Create the route if it does not already exist
+	// Create the default route (possible with auth enable) if it does not already exist
 	foundRoute := &routev1.Route{}
 	justCreated := false
 	err = r.Get(ctx, types.NamespacedName{
@@ -135,24 +234,10 @@ func (r *OpenshiftInferenceServiceReconciler) reconcileRoute(inferenceservice *i
 			log.Info("Serving runtime does not have 'enable-route' annotation set to 'True'. Skipping route creation")
 			return nil
 		}
-		if apierrs.IsNotFound(err) {
-			log.Info("Creating Route")
-			// Add .metatada.ownerReferences to the route to be deleted by the
-			// Kubernetes garbage collector if the predictor is deleted
-			err = ctrl.SetControllerReference(inferenceservice, desiredRoute, r.Scheme)
-			if err != nil {
-				log.Error(err, "Unable to add OwnerReference to the Route")
-				return err
-			}
-			// Create the route in the Openshift cluster
-			err = r.Create(ctx, desiredRoute)
-			if err != nil && !apierrs.IsAlreadyExists(err) {
-				log.Error(err, "Unable to create the Route")
-				return err
-			}
-			justCreated = true
-		} else {
-			log.Error(err, "Unable to fetch the Route")
+
+		justCreated, err := FindOrCreateRoute(desiredRoute, ctx, inferenceservice, r)
+		if err != nil {
+			log.Error(err, "Unable to find/create the route")
 			return err
 		}
 	}
@@ -166,22 +251,50 @@ func (r *OpenshiftInferenceServiceReconciler) reconcileRoute(inferenceservice *i
 		log.Info("Reconciling Route")
 		// Retry the update operation when the ingress controller eventually
 		// updates the resource version field
-		err := retry.RetryOnConflict(retry.DefaultRetry, func() error {
-			// Get the last route revision
-			if err := r.Get(ctx, types.NamespacedName{
-				Name:      desiredRoute.Name,
-				Namespace: inferenceservice.Namespace,
-			}, foundRoute); err != nil {
-				return err
-			}
-			// Reconcile labels and spec field
-			foundRoute.Spec = desiredRoute.Spec
-			foundRoute.ObjectMeta.Labels = desiredRoute.ObjectMeta.Labels
-			return r.Update(ctx, foundRoute)
-		})
+		err := UpdateRouteIfModified(desiredRoute, ctx, inferenceservice, r)
 		if err != nil {
 			log.Error(err, "Unable to reconcile the Route")
 			return err
+		}
+	}
+
+	if enableGrpc {
+		desiredRouteWithGrpc := newRoute(inferenceservice, RouteOptions.ENABLE_GRPC)
+
+		// Create the gRPC-enabled route if it does not already exist
+		foundGrpcRoute := &routev1.Route{}
+		justCreated := false
+		err = r.Get(ctx, types.NamespacedName{
+			Name:      desiredRouteWithGrpc.Name,
+			Namespace: inferenceservice.Namespace,
+		}, foundGrpcRoute)
+		if err != nil {
+			if !createRoute {
+				log.Info("Serving runtime does not have 'enable-route' annotation set to 'True'. Skipping route creation")
+				return nil
+			}
+
+			justCreated, err := FindOrCreateRoute(desiredRouteWithGrpc, ctx, inferenceservice, r)
+			if err != nil {
+				log.Error(err, "Unable to find/create the route")
+				return err
+			}
+		}
+
+		if !createRoute {
+			log.Info("Serving Runtime does not have 'enable-route' annotation set to 'True'. Deleting existing route")
+			return r.Delete(ctx, foundGrpcRoute)
+		}
+		// Reconcile the route spec if it has been manually modified
+		if !justCreated && !CompareInferenceServiceRoutes(*desiredRouteWithGrpc, *foundGrpcRoute) {
+			log.Info("Reconciling Route")
+			// Retry the update operation when the ingress controller eventually
+			// updates the resource version field
+			err := UpdateRouteIfModified(desiredRouteWithGrpc, ctx, inferenceservice, r)
+			if err != nil {
+				log.Error(err, "Unable to reconcile the Route")
+				return err
+			}
 		}
 	}
 
