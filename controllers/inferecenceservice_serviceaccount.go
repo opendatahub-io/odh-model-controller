@@ -59,7 +59,7 @@ func (r *OpenshiftInferenceServiceReconciler) reconcileSA(inferenceService *infe
 	// Initialize logger format
 	log := r.Log.WithValues("inferenceservice", inferenceService.Name, "namespace", inferenceService.Namespace)
 
-	// TODO: Get the 'serviceAccountName' from the default ConfigMap and
+	// Get the 'serviceAccountName' from the default ConfigMap and
 	// 		 substitute 'modelMeshServiceAccountName' with the one found from the ConfigMap.
 	customConfigMap := &corev1.ConfigMap{}
 	err := r.Get(ctx, types.NamespacedName{
@@ -73,20 +73,14 @@ func (r *OpenshiftInferenceServiceReconciler) reconcileSA(inferenceService *infe
 		if apierrs.IsNotFound(err) {
 			log.Info("Custom ConfigMap 'model-serving-config' not found. Using the default ServiceAccountName.")
 		} else {
-			log.Error(err, "Error trying to find 'model-serving-config' custom configmap.")
+			log.Error(err, "Unable to fetch 'model-serving-config' custom configmap.")
 			return err
 		}
 	} else {
-		// Overwrite the serviceAccountName with the one from the ConfigMap
-		data := customConfigMap.Data
-
 		// Extract the serviceAccountName key from the data
-		customServiceAccountName, exists := data["serviceAccountName"]
-		if !exists {
-			// Handle the case when the key is not present in the ConfigMap
-			log.Error("serviceAccountName key not found in 'model-serving-config' ConfigMap. Keeping default value.")
-		} else {
+		if customServiceAccountName, exist := customConfigMap.Data["serviceAccountName"]; exist {
 			modelMeshServiceAccountName = customServiceAccountName
+			log.Info("custom serviceAccountName is set:", customServiceAccountName)
 		}
 	}
 
@@ -114,8 +108,7 @@ func (r *OpenshiftInferenceServiceReconciler) reconcileSA(inferenceService *infe
 				return err
 			}
 			// Create the SA in the Openshift cluster
-			err = r.Create(ctx, desiredSA)
-			if err != nil && !apierrs.IsAlreadyExists(err) {
+			if err := r.Create(ctx, desiredSA); err != nil {
 				log.Error(err, "Unable to create the Auth Delegation Service Account")
 				return err
 			}
