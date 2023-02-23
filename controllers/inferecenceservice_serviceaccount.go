@@ -31,17 +31,8 @@ import (
 )
 
 const (
-	modelMeshServiceAccountName = "modelmesh-serving-sa"
+	modelServingConfigMapName = "model-serving-config"
 )
-
-func newInferenceServiceSA(inferenceservice *inferenceservicev1.InferenceService) *corev1.ServiceAccount {
-	return &corev1.ServiceAccount{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:      modelMeshServiceAccountName,
-			Namespace: inferenceservice.Namespace,
-		},
-	}
-}
 
 func createDelegateClusterRoleBinding(serviceAccountName string, serviceAccountNamespace string) *authv1.ClusterRoleBinding {
 	return &authv1.ClusterRoleBinding{
@@ -63,15 +54,51 @@ func createDelegateClusterRoleBinding(serviceAccountName string, serviceAccountN
 	}
 }
 
-func (r *OpenshiftInferenceServiceReconciler) reconcileSA(inferenceService *inferenceservicev1.InferenceService, ctx context.Context, newSA func(service *inferenceservicev1.InferenceService) *corev1.ServiceAccount) error {
+func (r *OpenshiftInferenceServiceReconciler) reconcileSA(inferenceService *inferenceservicev1.InferenceService, ctx context.Context) error {
 
 	// Initialize logger format
 	log := r.Log.WithValues("inferenceservice", inferenceService.Name, "namespace", inferenceService.Namespace)
 
-	desiredSA := newSA(inferenceService)
+	// TODO: Get the 'serviceAccountName' from the default ConfigMap and
+	// 		 substitute 'modelMeshServiceAccountName' with the one found from the ConfigMap.
+	customConfigMap := &corev1.ConfigMap{}
+	err := r.Get(ctx, types.NamespacedName{
+		Name:      modelServingConfigMapName,
+		Namespace: inferenceService.Namespace,
+	}, customConfigMap)
+
+	modelMeshServiceAccountName := "modelmesh-serving-sa"
+
+	if err != nil {
+		if apierrs.IsNotFound(err) {
+			log.Info("Custom ConfigMap 'model-serving-config' not found. Using the default ServiceAccountName.")
+		} else {
+			log.Error(err, "Error trying to find 'model-serving-config' custom configmap.")
+			return err
+		}
+	} else {
+		// Overwrite the serviceAccountName with the one from the ConfigMap
+		data := customConfigMap.Data
+
+		// Extract the serviceAccountName key from the data
+		customServiceAccountName, exists := data["serviceAccountName"]
+		if !exists {
+			// Handle the case when the key is not present in the ConfigMap
+			log.Error("serviceAccountName key not found in 'model-serving-config' ConfigMap. Keeping default value.")
+		} else {
+			modelMeshServiceAccountName = customServiceAccountName
+		}
+	}
+
+	desiredSA := &corev1.ServiceAccount{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      modelMeshServiceAccountName,
+			Namespace: inferenceService.Namespace,
+		},
+	}
 	foundSA := &corev1.ServiceAccount{}
 
-	err := r.Get(ctx, types.NamespacedName{
+	err = r.Get(ctx, types.NamespacedName{
 		Name:      desiredSA.Name,
 		Namespace: inferenceService.Namespace,
 	}, foundSA)
@@ -160,7 +187,7 @@ func (r *OpenshiftInferenceServiceReconciler) reconcileSA(inferenceService *infe
 // ReconcileSA will manage the creation, update and deletion of the auth delegation SA + RBAC
 func (r *OpenshiftInferenceServiceReconciler) ReconcileSA(
 	inferenceservice *inferenceservicev1.InferenceService, ctx context.Context) error {
-	return r.reconcileSA(inferenceservice, ctx, newInferenceServiceSA)
+	return r.reconcileSA(inferenceservice, ctx)
 }
 
 // CompareInferenceServiceCRBs checks if two service accounts are equal, if not return false
