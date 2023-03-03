@@ -18,12 +18,14 @@ package controllers
 import (
 	"context"
 	"reflect"
+	"strings"
 
 	authv1 "k8s.io/api/rbac/v1"
 	apierrs "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/types"
 
 	inferenceservicev1 "github.com/kserve/modelmesh-serving/apis/serving/v1beta1"
+	"github.com/spf13/viper"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/util/retry"
@@ -33,6 +35,32 @@ import (
 const (
 	modelServingConfigMapName = "model-serving-config"
 )
+
+type Config struct {
+	ServiceAccountName string
+}
+
+func getCustomConfigMap(configString string) (*Config, error) {
+
+	var err error
+
+	// Set up viper for unmarshalling
+	v := viper.NewWithOptions(viper.KeyDelimiter("::"))
+	v.SetConfigType("yaml")
+
+	configStringReader := strings.NewReader(configString)
+	if err = v.ReadConfig(configStringReader); err != nil {
+		return nil, err
+	}
+
+	// Unmarshal the config into a Config struct
+	var configYAML Config
+	if err = v.Unmarshal(&configYAML); err != nil {
+		return nil, err
+	}
+
+	return &configYAML, nil
+}
 
 func createDelegateClusterRoleBinding(serviceAccountName string, serviceAccountNamespace string) *authv1.ClusterRoleBinding {
 	return &authv1.ClusterRoleBinding{
@@ -61,11 +89,11 @@ func (r *OpenshiftInferenceServiceReconciler) reconcileSA(inferenceService *infe
 
 	// Get the 'serviceAccountName' from the default ConfigMap and
 	// 		 substitute 'modelMeshServiceAccountName' with the one found from the ConfigMap.
-	customConfigMap := &corev1.ConfigMap{}
+	customConfigMap := corev1.ConfigMap{}
 	err := r.Get(ctx, types.NamespacedName{
 		Name:      modelServingConfigMapName,
 		Namespace: inferenceService.Namespace,
-	}, customConfigMap)
+	}, &customConfigMap)
 
 	modelMeshServiceAccountName := "modelmesh-serving-sa"
 
@@ -77,10 +105,18 @@ func (r *OpenshiftInferenceServiceReconciler) reconcileSA(inferenceService *infe
 			return err
 		}
 	} else {
-		// Extract the serviceAccountName key from the data
-		if customServiceAccountName, exist := customConfigMap.Data["serviceAccountName"]; exist {
-			modelMeshServiceAccountName = customServiceAccountName
-			log.Info("custom serviceAccountName is set:", customServiceAccountName)
+		// Parse the config Data into a yaml format and store in Config struct
+		if customConfigMapString, exist := customConfigMap.Data["config.yaml"]; exist {
+			customConfig, err := getCustomConfigMap(customConfigMapString)
+			if err != nil {
+				log.Error(err, "Unable to fetch ServiceAccountName from the custom configmap.")
+				return err
+			} else if customConfig.ServiceAccountName != "" {
+				modelMeshServiceAccountName = customConfig.ServiceAccountName
+				log.Info("Custom ServiceAccountName is set")
+			} else {
+				log.Info("Default ServiceAccountName is used, since custom ConfigMap does not contain one")
+			}
 		}
 	}
 
