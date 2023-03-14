@@ -59,15 +59,17 @@ var (
 )
 
 const (
-	WorkingNamespace    = "default"
-	MonitoringNS        = "monitoring-ns"
-	RoleBindingPath     = "./testdata/results/model-server-ns-role.yaml"
-	ServingRuntimePath1 = "./testdata/deploy/test-openvino-serving-runtime-1.yaml"
-	ServingRuntimePath2 = "./testdata/deploy/test-openvino-serving-runtime-2.yaml"
-	InferenceService1   = "./testdata/deploy/openvino-inference-service-1.yaml"
-	ExpectedRoutePath   = "./testdata/results/example-onnx-mnist-route.yaml"
-	timeout             = time.Second * 20
-	interval            = time.Millisecond * 10
+	WorkingNamespace           = "default"
+	MonitoringNS               = "monitoring-ns"
+	RoleBindingPath            = "./testdata/results/model-server-ns-role.yaml"
+	ServingRuntimePath1        = "./testdata/deploy/test-openvino-serving-runtime-1.yaml"
+	ServingRuntimePath2        = "./testdata/deploy/test-openvino-serving-runtime-2.yaml"
+	InferenceService1          = "./testdata/deploy/openvino-inference-service-1.yaml"
+	InferenceServiceNoRuntime  = "./testdata/deploy/openvino-inference-service-no-runtime.yaml"
+	ExpectedRoutePath          = "./testdata/results/example-onnx-mnist-route.yaml"
+	ExpectedRouteNoRuntimePath = "./testdata/results/example-onnx-mnist-no-runtime-route.yaml"
+	timeout                    = time.Second * 20
+	interval                   = time.Millisecond * 10
 )
 
 func TestAPIs(t *testing.T) {

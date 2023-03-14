@@ -30,20 +30,28 @@ import (
 
 var _ = Describe("The Openshift model controller", func() {
 
-	Context("When creating a ServiceRuntime & InferenceService with 'enable-route' enabled", func() {
+	When("creating a ServiceRuntime & InferenceService with 'enable-route' enabled", func() {
+		var opts mf.Option
 
-		It("Should create a Route to expose the traffic externally", func() {
+		BeforeEach(func() {
 			client := mfc.NewClient(cli)
-			opts := mf.UseClient(client)
+			opts = mf.UseClient(client)
 			ctx := context.Background()
 
-			servingRuntime := &mmv1alpha1.ServingRuntime{}
-			err := convertToStructuredResource(ServingRuntimePath1, servingRuntime, opts)
+			servingRuntime1 := &mmv1alpha1.ServingRuntime{}
+			err := convertToStructuredResource(ServingRuntimePath1, servingRuntime1, opts)
 			Expect(err).NotTo(HaveOccurred())
-			Expect(cli.Create(ctx, servingRuntime)).Should(Succeed())
+			Expect(cli.Create(ctx, servingRuntime1)).Should(Succeed())
 
+			servingRuntime2 := &mmv1alpha1.ServingRuntime{}
+			err = convertToStructuredResource(ServingRuntimePath2, servingRuntime2, opts)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(cli.Create(ctx, servingRuntime2)).Should(Succeed())
+		})
+
+		It("when InferenceService specifies a runtime, should create a Route to expose the traffic externally", func() {
 			inferenceService := &inferenceservicev1.InferenceService{}
-			err = convertToStructuredResource(InferenceService1, inferenceService, opts)
+			err := convertToStructuredResource(InferenceService1, inferenceService, opts)
 			Expect(err).NotTo(HaveOccurred())
 			Expect(cli.Create(ctx, inferenceService)).Should(Succeed())
 
@@ -57,6 +65,25 @@ var _ = Describe("The Openshift model controller", func() {
 
 			expectedRoute := &routev1.Route{}
 			err = convertToStructuredResource(ExpectedRoutePath, expectedRoute, opts)
+			Expect(err).NotTo(HaveOccurred())
+
+			Expect(CompareInferenceServiceRoutes(*route, *expectedRoute)).Should(BeTrue())
+		})
+
+		It("when InferenceService does not specifies a runtime, should automatically pick a runtime and create a Route", func() {
+			inferenceService := &inferenceservicev1.InferenceService{}
+			err := convertToStructuredResource(InferenceServiceNoRuntime, inferenceService, opts)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(cli.Create(ctx, inferenceService)).Should(Succeed())
+
+			route := &routev1.Route{}
+			Eventually(func() error {
+				key := types.NamespacedName{Name: inferenceService.Name, Namespace: inferenceService.Namespace}
+				return cli.Get(ctx, key, route)
+			}, timeout, interval).ShouldNot(HaveOccurred())
+
+			expectedRoute := &routev1.Route{}
+			err = convertToStructuredResource(ExpectedRouteNoRuntimePath, expectedRoute, opts)
 			Expect(err).NotTo(HaveOccurred())
 
 			Expect(CompareInferenceServiceRoutes(*route, *expectedRoute)).Should(BeTrue())
