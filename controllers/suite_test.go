@@ -17,14 +17,15 @@ package controllers
 
 import (
 	"context"
+	"path/filepath"
+	"testing"
+	"time"
+
 	mmv1alpha1 "github.com/kserve/modelmesh-serving/apis/serving/v1alpha1"
 	inferenceservicev1 "github.com/kserve/modelmesh-serving/apis/serving/v1beta1"
 	mf "github.com/manifestival/manifestival"
 	monitoringv1 "github.com/prometheus-operator/prometheus-operator/pkg/apis/monitoring/v1"
 	k8srbacv1 "k8s.io/api/rbac/v1"
-	"path/filepath"
-	"testing"
-	"time"
 
 	"go.uber.org/zap/zapcore"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
@@ -65,6 +66,10 @@ const (
 	ServingRuntimePath1 = "./testdata/deploy/test-openvino-serving-runtime-1.yaml"
 	ServingRuntimePath2 = "./testdata/deploy/test-openvino-serving-runtime-2.yaml"
 	InferenceService1   = "./testdata/deploy/openvino-inference-service-1.yaml"
+	CustomConfigPath    = "./testdata/deploy/test-custom-cm-no-sa.yaml"
+	CustomConfigSAPath  = "./testdata/deploy/test-custom-cm-sa.yaml"
+	ExpectedCrbPath     = "./testdata/results/crb-no-sa.yaml"
+	ExpectedCrbSAPath   = "./testdata/results/crb-sa.yaml"
 	ExpectedRoutePath   = "./testdata/results/example-onnx-mnist-route.yaml"
 	timeout             = time.Second * 20
 	interval            = time.Millisecond * 10

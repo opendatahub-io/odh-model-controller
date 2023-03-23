@@ -1,0 +1,13 @@
+kind: ClusterRoleBinding
+apiVersion: rbac.authorization.k8s.io/v1
+metadata:
+  name: mesh-test-modelmesh-serving-sa-auth-delegator
+subjects:
+  - kind: ServiceAccount
+    name: modelmesh-serving-sa
+    namespace: mesh-test
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: 'system:auth-delegator'
+  
