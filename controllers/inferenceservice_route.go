@@ -17,10 +17,12 @@ package controllers
 
 import (
 	"context"
+	"reflect"
+	"sort"
+
+	"github.com/go-logr/logr"
 	predictorv1 "github.com/kserve/modelmesh-serving/apis/serving/v1alpha1"
 	inferenceservicev1 "github.com/kserve/modelmesh-serving/apis/serving/v1beta1"
-	"reflect"
-
 	routev1 "github.com/openshift/api/route/v1"
 	apierrs "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -29,6 +31,7 @@ import (
 	"k8s.io/client-go/util/retry"
 	"k8s.io/utils/pointer"
 	ctrl "sigs.k8s.io/controller-runtime"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
 const (
@@ -93,6 +96,64 @@ func CompareInferenceServiceRoutes(r1 routev1.Route, r2 routev1.Route) bool {
 		reflect.DeepEqual(r1.Spec, r2.Spec)
 }
 
+func (r *OpenshiftInferenceServiceReconciler) findSupportingRuntimeForISvc(ctx context.Context, log logr.Logger, inferenceservice *inferenceservicev1.InferenceService) *predictorv1.ServingRuntime {
+	desiredServingRuntime := predictorv1.ServingRuntime{}
+
+	if inferenceservice.Spec.Predictor.Model.Runtime != nil {
+		err := r.Get(ctx, types.NamespacedName{
+			Name:      *inferenceservice.Spec.Predictor.Model.Runtime,
+			Namespace: inferenceservice.Namespace,
+		}, &desiredServingRuntime)
+		if err != nil {
+			if apierrs.IsNotFound(err) {
+				log.Info("Runtime specified in InferenceService does not exist", "runtime", *inferenceservice.Spec.Predictor.Model.Runtime)
+			}
+		}
+		return &desiredServingRuntime
+	} else {
+		runtimes := &predictorv1.ServingRuntimeList{}
+		err := r.List(ctx, runtimes, client.InNamespace(inferenceservice.Namespace))
+		if err != nil {
+			log.Error(err, "Listing ServingRuntimes failed")
+			return nil
+		}
+
+		// Sort by creation date, to be somewhat deterministic
+		sort.Slice(runtimes.Items, func(i, j int) bool {
+			// Sorting descending by creation time leads to picking the most recently created runtimes first
+			if runtimes.Items[i].CreationTimestamp.Before(&runtimes.Items[j].CreationTimestamp) {
+				return false
+			}
+			if runtimes.Items[i].CreationTimestamp.Equal(&runtimes.Items[j].CreationTimestamp) {
+				// For Runtimes created at the same time, use alphabetical order.
+				return runtimes.Items[i].Name < runtimes.Items[j].Name
+			}
+			return true
+		})
+
+		for _, runtime := range runtimes.Items {
+			if runtime.Spec.Disabled != nil && *runtime.Spec.Disabled == true {
+				continue
+			}
+
+			if runtime.Spec.MultiModel != nil && *runtime.Spec.MultiModel == false {
+				continue
+			}
+
+			for _, supportedFormat := range runtime.Spec.SupportedModelFormats {
+				if supportedFormat.AutoSelect != nil && *supportedFormat.AutoSelect == true && supportedFormat.Name == inferenceservice.Spec.Predictor.Model.ModelFormat.Name {
+					desiredServingRuntime = runtime
+					log.Info("Automatic runtime selection for InferenceService", "runtime", desiredServingRuntime.Name)
+					return &desiredServingRuntime
+				}
+			}
+		}
+
+		log.Info("No suitable Runtime available for InferenceService")
+		return &desiredServingRuntime
+	}
+}
+
 // Reconcile will manage the creation, update and deletion of the route returned
 // by the newRoute function
 func (r *OpenshiftInferenceServiceReconciler) reconcileRoute(inferenceservice *inferenceservicev1.InferenceService,
@@ -100,18 +161,9 @@ func (r *OpenshiftInferenceServiceReconciler) reconcileRoute(inferenceservice *i
 	// Initialize logger format
 	log := r.Log.WithValues("inferenceservice", inferenceservice.Name, "namespace", inferenceservice.Namespace)
 
-	enableAuth := true
-	desiredServingRuntime := &predictorv1.ServingRuntime{}
-	err := r.Get(ctx, types.NamespacedName{
-		Name:      *inferenceservice.Spec.Predictor.Model.Runtime,
-		Namespace: inferenceservice.Namespace,
-	}, desiredServingRuntime)
-	if err != nil {
-		if apierrs.IsNotFound(err) {
-			log.Info("Serving Runtime ", *inferenceservice.Spec.Predictor.Model.Runtime, " desired by ", inferenceservice.Name, "was not found in namespace")
-		}
-	}
+	desiredServingRuntime := r.findSupportingRuntimeForISvc(ctx, log, inferenceservice)
 
+	enableAuth := true
 	if desiredServingRuntime.Annotations["enable-auth"] != "true" {
 		enableAuth = false
 	}
@@ -126,7 +178,7 @@ func (r *OpenshiftInferenceServiceReconciler) reconcileRoute(inferenceservice *i
 	// Create the route if it does not already exist
 	foundRoute := &routev1.Route{}
 	justCreated := false
-	err = r.Get(ctx, types.NamespacedName{
+	err := r.Get(ctx, types.NamespacedName{
 		Name:      desiredRoute.Name,
 		Namespace: inferenceservice.Namespace,
 	}, foundRoute)
