@@ -18,6 +18,7 @@ package controllers
 import (
 	"context"
 	"errors"
+
 	mmv1alpha1 "github.com/kserve/modelmesh-serving/apis/serving/v1alpha1"
 	mfc "github.com/manifestival/controller-runtime-client"
 	mf "github.com/manifestival/manifestival"
@@ -29,16 +30,16 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 )
 
-func deployServingRuntime(path string, opts mf.Option, ctx context.Context) {
+func deployServingRuntime(path string, namespaceName string, opts mf.Option, ctx context.Context) {
 	servingRuntime := &mmv1alpha1.ServingRuntime{}
-	err := convertToStructuredResource(path, servingRuntime, opts)
+	err := convertToStructuredResource(path, namespaceName, servingRuntime, opts)
 	Expect(err).NotTo(HaveOccurred())
 	Expect(cli.Create(ctx, servingRuntime)).Should(Succeed())
 }
 
-func deleteServingRuntime(path string, opts mf.Option, ctx context.Context) {
+func deleteServingRuntime(path string, namespaceName string, opts mf.Option, ctx context.Context) {
 	servingRuntime := &mmv1alpha1.ServingRuntime{}
-	err := convertToStructuredResource(path, servingRuntime, opts)
+	err := convertToStructuredResource(path, namespaceName, servingRuntime, opts)
 	Expect(err).NotTo(HaveOccurred())
 	Expect(cli.Delete(ctx, servingRuntime)).Should(Succeed())
 }
@@ -50,9 +51,17 @@ var _ = Describe("ODH Controller's Monitoring Controller", func() {
 	ctx := context.Background()
 
 	Context("In a modelmesh enabled namespace", func() {
+		var namespaceName string
+
 		BeforeEach(func() {
+			namespaceName = "ns-" + RandStringRunes(5)
+			namespace := &corev1.Namespace{}
+			err := convertToStructuredResource(NamespacePath1, namespaceName, namespace, opts)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(cli.Create(ctx, namespace)).Should(Succeed())
+
 			ns := &corev1.Namespace{}
-			Expect(cli.Get(ctx, types.NamespacedName{Name: WorkingNamespace}, ns)).NotTo(HaveOccurred())
+			Expect(cli.Get(ctx, types.NamespacedName{Name: namespaceName}, ns)).NotTo(HaveOccurred())
 			ns.Labels["modelmesh-enabled"] = "true"
 			Eventually(func() error {
 				return cli.Update(ctx, ns)
@@ -63,15 +72,15 @@ var _ = Describe("ODH Controller's Monitoring Controller", func() {
 
 			By("create a Rolebinding if a Serving Runtime exists.")
 
-			deployServingRuntime(ServingRuntimePath1, opts, ctx)
+			deployServingRuntime(ServingRuntimePath1, namespaceName, opts, ctx)
 
 			expectedRB := &k8srbacv1.RoleBinding{}
-			Expect(convertToStructuredResource(RoleBindingPath, expectedRB, opts)).NotTo(HaveOccurred())
+			Expect(convertToStructuredResource(RoleBindingPath, namespaceName, expectedRB, opts)).NotTo(HaveOccurred())
 			expectedRB.Subjects[0].Namespace = MonitoringNS
 
 			actualRB := &k8srbacv1.RoleBinding{}
 			Eventually(func() error {
-				namespacedNamed := types.NamespacedName{Name: expectedRB.Name, Namespace: WorkingNamespace}
+				namespacedNamed := types.NamespacedName{Name: expectedRB.Name, Namespace: namespaceName}
 				return cli.Get(ctx, namespacedNamed, actualRB)
 			}, timeout, interval).ShouldNot(HaveOccurred())
 
@@ -81,26 +90,26 @@ var _ = Describe("ODH Controller's Monitoring Controller", func() {
 
 			Expect(cli.Delete(ctx, actualRB)).Should(Succeed())
 			Eventually(func() error {
-				namespacedNamed := types.NamespacedName{Name: expectedRB.Name, Namespace: WorkingNamespace}
+				namespacedNamed := types.NamespacedName{Name: expectedRB.Name, Namespace: namespaceName}
 				return cli.Get(ctx, namespacedNamed, actualRB)
 			}, timeout, interval).ShouldNot(HaveOccurred())
 			Expect(RoleBindingsAreEqual(*expectedRB, *actualRB)).Should(BeTrue())
 
 			By("do not remove the Monitoring RB if at least one Serving Runtime Remains.")
 
-			deployServingRuntime(ServingRuntimePath2, opts, ctx)
-			deleteServingRuntime(ServingRuntimePath1, opts, ctx)
+			deployServingRuntime(ServingRuntimePath2, namespaceName, opts, ctx)
+			deleteServingRuntime(ServingRuntimePath1, namespaceName, opts, ctx)
 			Eventually(func() error {
-				namespacedNamed := types.NamespacedName{Name: expectedRB.Name, Namespace: WorkingNamespace}
+				namespacedNamed := types.NamespacedName{Name: expectedRB.Name, Namespace: namespaceName}
 				return cli.Get(ctx, namespacedNamed, actualRB)
 			}, timeout, interval).ShouldNot(HaveOccurred())
 			Expect(RoleBindingsAreEqual(*expectedRB, *actualRB)).Should(BeTrue())
 
 			By("remove the Monitoring RB if no Serving Runtime exists.")
 
-			deleteServingRuntime(ServingRuntimePath2, opts, ctx)
+			deleteServingRuntime(ServingRuntimePath2, namespaceName, opts, ctx)
 			Eventually(func() error {
-				namespacedNamed := types.NamespacedName{Name: expectedRB.Name, Namespace: WorkingNamespace}
+				namespacedNamed := types.NamespacedName{Name: expectedRB.Name, Namespace: namespaceName}
 				err := cli.Get(ctx, namespacedNamed, actualRB)
 				if apierrs.IsNotFound(err) {
 					return nil

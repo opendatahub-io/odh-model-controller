@@ -19,6 +19,7 @@ import (
 	"context"
 	"reflect"
 
+	predictorv1 "github.com/kserve/modelmesh-serving/apis/serving/v1alpha1"
 	inferenceservicev1 "github.com/kserve/modelmesh-serving/apis/serving/v1beta1"
 	"istio.io/api/meta/v1alpha1"
 	"istio.io/api/networking/v1alpha3"
@@ -36,8 +37,7 @@ func NewInferenceServiceVirtualService(inferenceservice *inferenceservicev1.Infe
 		TypeMeta:   metav1.TypeMeta{},
 		ObjectMeta: metav1.ObjectMeta{Name: inferenceservice.Name, Namespace: inferenceservice.Namespace, Labels: map[string]string{"inferenceservice-name": inferenceservice.Name}},
 		Spec: v1alpha3.VirtualService{
-			Gateways: []string{"opendatahub/odh-gateway"}, //TODO get actual gateway to be used
-			Hosts:    []string{"*"},
+			Hosts: []string{"*"},
 			Http: []*v1alpha3.HTTPRoute{{
 				Match: []*v1alpha3.HTTPMatchRequest{{
 					Uri: &v1alpha3.StringMatch{
@@ -66,8 +66,67 @@ func NewInferenceServiceVirtualService(inferenceservice *inferenceservicev1.Infe
 // CompareInferenceServiceVirtualServices checks if two VirtualServices are equal, if not return false
 func CompareInferenceServiceVirtualServices(vs1 *virtualservicev1.VirtualService, vs2 *virtualservicev1.VirtualService) bool {
 	// Two VirtualServices will be equal if the labels and spec are identical
-	return reflect.DeepEqual(vs1.ObjectMeta.Labels, vs2.ObjectMeta.Labels) &&
-		reflect.DeepEqual(vs1.Spec.Hosts, vs2.Spec.Hosts)
+	return DeepCompare(&vs1.Labels, &vs2.Labels) && DeepCompare(&vs1.Spec, &vs2.Spec)
+}
+
+// DeepCompare compares only Exported field recursivly
+func DeepCompare(a, b interface{}) bool {
+	va, vb := reflect.ValueOf(a), reflect.ValueOf(b)
+	if va.Kind() != vb.Kind() {
+		return false
+	}
+	switch va.Kind() {
+	case reflect.Struct:
+		if va.Type() != vb.Type() {
+			return false
+		}
+		for i := 0; i < va.NumField(); i++ {
+			field := va.Type().Field(i)
+			if field.PkgPath != "" { // field is unexported
+				continue
+			}
+			if !DeepCompare(va.Field(i).Interface(), vb.Field(i).Interface()) {
+				return false
+			}
+		}
+		return true
+	case reflect.Slice, reflect.Array:
+		if va.Len() != vb.Len() {
+			return false
+		}
+		for i := 0; i < va.Len(); i++ {
+			if !DeepCompare(va.Index(i).Interface(), vb.Index(i).Interface()) {
+				return false
+			}
+		}
+		return true
+	case reflect.Map:
+		if va.Len() != vb.Len() {
+			return false
+		}
+		keysA, keysB := va.MapKeys(), vb.MapKeys()
+		for _, key := range keysA {
+			if !DeepCompare(va.MapIndex(key).Interface(), vb.MapIndex(key).Interface()) {
+				return false
+			}
+		}
+		for _, key := range keysB {
+			if !DeepCompare(va.MapIndex(key).Interface(), vb.MapIndex(key).Interface()) {
+				return false
+			}
+		}
+		return true
+	case reflect.Ptr:
+		if va.IsNil() != vb.IsNil() {
+			return false
+		}
+		if va.IsNil() && vb.IsNil() {
+			return true
+		}
+		return DeepCompare(va.Elem().Interface(), vb.Elem().Interface())
+	default:
+		return reflect.DeepEqual(a, b)
+	}
 }
 
 // Reconcile will manage the creation, update and deletion of the VirtualService returned
@@ -77,13 +136,27 @@ func (r *OpenshiftInferenceServiceReconciler) reconcileVirtualService(inferences
 	// Initialize logger format
 	log := r.Log.WithValues("inferenceservice", inferenceservice.Name, "namespace", inferenceservice.Namespace)
 
-	// Generate the desired VirtualService
+	desiredServingRuntime := &predictorv1.ServingRuntime{}
+	err := r.Get(ctx, types.NamespacedName{
+		Name:      *inferenceservice.Spec.Predictor.Model.Runtime,
+		Namespace: inferenceservice.Namespace,
+	}, desiredServingRuntime)
+	if err != nil {
+		if apierrs.IsNotFound(err) {
+			log.Info("Serving Runtime ", *inferenceservice.Spec.Predictor.Model.Runtime, " desired by ", inferenceservice.Name, "was not found in namespace")
+		}
+	}
+
+	// Generate the desired VirtualService and expose externally if enabled
 	desiredVirtualService := newVirtualService(inferenceservice)
+	if desiredServingRuntime.Annotations["enable-route"] == "true" {
+		desiredVirtualService.Spec.Gateways = []string{"opendatahub/odh-gateway"} //TODO get actual gateway to be used
+	}
 
 	// Create the VirtualService if it does not already exist
 	foundVirtualService := &virtualservicev1.VirtualService{}
 	justCreated := false
-	err := r.Get(ctx, types.NamespacedName{
+	err = r.Get(ctx, types.NamespacedName{
 		Name:      desiredVirtualService.Name,
 		Namespace: inferenceservice.Namespace,
 	}, foundVirtualService)

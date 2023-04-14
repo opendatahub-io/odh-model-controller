@@ -18,10 +18,11 @@ package main
 
 import (
 	"flag"
-	inferenceservicev1 "github.com/kserve/modelmesh-serving/apis/serving/v1beta1"
-	monitoringv1 "github.com/prometheus-operator/prometheus-operator/pkg/apis/monitoring/v1"
 	"os"
 	"strconv"
+
+	inferenceservicev1 "github.com/kserve/modelmesh-serving/apis/serving/v1beta1"
+	monitoringv1 "github.com/prometheus-operator/prometheus-operator/pkg/apis/monitoring/v1"
 
 	// Import all Kubernetes client auth plugins (e.g. Azure, GCP, OIDC, etc.)
 	// to ensure that exec-entrypoint and run can make use of them.
@@ -37,6 +38,7 @@ import (
 	predictorv1 "github.com/kserve/modelmesh-serving/apis/serving/v1alpha1"
 	"github.com/opendatahub-io/odh-model-controller/controllers"
 	routev1 "github.com/openshift/api/route/v1"
+	virtualservicev1 "istio.io/client-go/pkg/apis/networking/v1alpha3"
 	corev1 "k8s.io/api/core/v1"
 	authv1 "k8s.io/api/rbac/v1"
 	//+kubebuilder:scaffold:imports
@@ -59,7 +61,7 @@ func init() {
 
 	// The following are related to Service Mesh, uncomment this and other
 	// similar blocks to use with Service Mesh
-	//utilruntime.Must(virtualservicev1.AddToScheme(scheme))
+	utilruntime.Must(virtualservicev1.AddToScheme(scheme))
 	//utilruntime.Must(maistrav1.AddToScheme(scheme))
 
 	//+kubebuilder:scaffold:scheme
@@ -111,10 +113,9 @@ func main() {
 
 	//Setup InferenceService controller
 	if err = (&controllers.OpenshiftInferenceServiceReconciler{
-		Client:       mgr.GetClient(),
-		Log:          ctrl.Log.WithName("controllers").WithName("InferenceService"),
-		Scheme:       mgr.GetScheme(),
-		MeshDisabled: getEnvAsBool("MESH_DISABLED", false),
+		Client: mgr.GetClient(),
+		Log:    ctrl.Log.WithName("controllers").WithName("InferenceService"),
+		Scheme: mgr.GetScheme(),
 	}).SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "unable to create controller", "controller", "InferenceService")
 		os.Exit(1)

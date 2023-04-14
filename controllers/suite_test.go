@@ -17,16 +17,21 @@ package controllers
 
 import (
 	"context"
+	"errors"
+	"math/rand"
+	"path/filepath"
+	"reflect"
+	"strings"
+	"testing"
+	"time"
+
 	mmv1alpha1 "github.com/kserve/modelmesh-serving/apis/serving/v1alpha1"
 	inferenceservicev1 "github.com/kserve/modelmesh-serving/apis/serving/v1beta1"
 	mf "github.com/manifestival/manifestival"
 	monitoringv1 "github.com/prometheus-operator/prometheus-operator/pkg/apis/monitoring/v1"
-	k8srbacv1 "k8s.io/api/rbac/v1"
-	"path/filepath"
-	"testing"
-	"time"
 
 	"go.uber.org/zap/zapcore"
+	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
 	ctrl "sigs.k8s.io/controller-runtime"
 
@@ -59,18 +64,26 @@ var (
 )
 
 const (
-	WorkingNamespace           = "default"
-	MonitoringNS               = "monitoring-ns"
-	RoleBindingPath            = "./testdata/results/model-server-ns-role.yaml"
-	ServingRuntimePath1        = "./testdata/deploy/test-openvino-serving-runtime-1.yaml"
-	ServingRuntimePath2        = "./testdata/deploy/test-openvino-serving-runtime-2.yaml"
-	InferenceService1          = "./testdata/deploy/openvino-inference-service-1.yaml"
-	InferenceServiceNoRuntime  = "./testdata/deploy/openvino-inference-service-no-runtime.yaml"
-	ExpectedRoutePath          = "./testdata/results/example-onnx-mnist-route.yaml"
-	ExpectedRouteNoRuntimePath = "./testdata/results/example-onnx-mnist-no-runtime-route.yaml"
-	timeout                    = time.Second * 20
-	interval                   = time.Millisecond * 10
+	MonitoringNS                      = "monitoring-ns"
+	RoleBindingPath                   = "./testdata/results/model-server-ns-role.yaml"
+	NamespacePath1                    = "./testdata/deploy/test-namespace.yaml"
+	NamespaceServiceMeshPath1         = "./testdata/deploy/test-namespace-servicemesh.yaml"
+	ServingRuntimePath1               = "./testdata/deploy/test-openvino-serving-runtime-1.yaml"
+	ServingRuntimePath2               = "./testdata/deploy/test-openvino-serving-runtime-2.yaml"
+	ServingRuntimeNoRoutePath1        = "./testdata/deploy/test-openvino-serving-runtime-1-no-route.yaml"
+	InferenceService1                 = "./testdata/deploy/openvino-inference-service-1.yaml"
+	InferenceServiceNoRuntime         = "./testdata/deploy/openvino-inference-service-no-runtime.yaml"
+	ExpectedRoutePath                 = "./testdata/results/example-onnx-mnist-route.yaml"
+	ExpectedRouteNoRuntimePath        = "./testdata/results/example-onnx-mnist-no-runtime-route.yaml"
+	ExpectedVirtualServiceRoutePath   = "./testdata/results/example-onnx-mnist-virtualservice-route.yaml"
+	ExpectedVirtualServiceNoRoutePath = "./testdata/results/example-onnx-mnist-virtualservice-no-route.yaml"
+	timeout                           = time.Second * 5
+	interval                          = time.Millisecond * 10
 )
+
+func init() {
+	rand.Seed(time.Now().UnixNano())
+}
 
 func TestAPIs(t *testing.T) {
 	RegisterFailHandler(Fail)
@@ -129,10 +142,9 @@ var _ = BeforeSuite(func() {
 	Expect(err).NotTo(HaveOccurred())
 
 	err = (&OpenshiftInferenceServiceReconciler{
-		Client:       cli,
-		Log:          ctrl.Log.WithName("controllers").WithName("inferenceservice-controller"),
-		Scheme:       scheme.Scheme,
-		MeshDisabled: false,
+		Client: cli,
+		Log:    ctrl.Log.WithName("controllers").WithName("inferenceservice-controller"),
+		Scheme: scheme.Scheme,
 	}).SetupWithManager(mgr)
 	Expect(err).ToNot(HaveOccurred())
 
@@ -167,24 +179,29 @@ var _ = AfterSuite(func() {
 	Expect(err).NotTo(HaveOccurred())
 })
 
-// Cleanup resources to not contaminate between tests
-var _ = AfterEach(func() {
-	inNamespace := client.InNamespace(WorkingNamespace)
-	Expect(cli.DeleteAllOf(context.TODO(), &mmv1alpha1.ServingRuntime{}, inNamespace)).ToNot(HaveOccurred())
-	Expect(cli.DeleteAllOf(context.TODO(), &inferenceservicev1.InferenceService{}, inNamespace)).ToNot(HaveOccurred())
-	Expect(cli.DeleteAllOf(context.TODO(), &routev1.Route{}, inNamespace)).ToNot(HaveOccurred())
-	Expect(cli.DeleteAllOf(context.TODO(), &mmv1alpha1.ServingRuntime{}, inNamespace)).ToNot(HaveOccurred())
-	Expect(cli.DeleteAllOf(context.TODO(), &monitoringv1.ServiceMonitor{}, inNamespace)).ToNot(HaveOccurred())
-	Expect(cli.DeleteAllOf(context.TODO(), &k8srbacv1.RoleBinding{}, inNamespace)).ToNot(HaveOccurred())
+/*
+Cleanup resources to not contaminate between tests
 
-})
+	var _ = AfterEach(func() {
+		inNamespace := client.InNamespace(WorkingNamespace)
+		Expect(cli.DeleteAllOf(context.TODO(), &mmv1alpha1.ServingRuntime{}, inNamespace)).ToNot(HaveOccurred())
+		Expect(cli.DeleteAllOf(context.TODO(), &inferenceservicev1.InferenceService{}, inNamespace)).ToNot(HaveOccurred())
+		Expect(cli.DeleteAllOf(context.TODO(), &routev1.Route{}, inNamespace)).ToNot(HaveOccurred())
+		Expect(cli.DeleteAllOf(context.TODO(), &mmv1alpha1.ServingRuntime{}, inNamespace)).ToNot(HaveOccurred())
+		Expect(cli.DeleteAllOf(context.TODO(), &monitoringv1.ServiceMonitor{}, inNamespace)).ToNot(HaveOccurred())
+		Expect(cli.DeleteAllOf(context.TODO(), &k8srbacv1.RoleBinding{}, inNamespace)).ToNot(HaveOccurred())
+		Expect(cli.DeleteAllOf(context.TODO(), &virtualservicev1.VirtualService{}, inNamespace)).ToNot(HaveOccurred())
+	})
+*/
 
-func convertToStructuredResource(path string, out interface{}, opts manifestival.Option) error {
+func convertToStructuredResource(path string, namespace string, out interface{}, opts manifestival.Option) error {
 	m, err := mf.ManifestFrom(mf.Recursive(path), opts)
-	m, err = m.Transform(mf.InjectNamespace(WorkingNamespace))
 	if err != nil {
 		return err
 	}
+
+	transformers := []manifestival.Transformer{InjectNewNamespaceInValues(namespace), mf.InjectNamespace(namespace)}
+	m, err = m.Transform(transformers...)
 	if err != nil {
 		return err
 	}
@@ -193,4 +210,62 @@ func convertToStructuredResource(path string, out interface{}, opts manifestival
 		return err
 	}
 	return nil
+}
+
+var letterRunes = []rune("abcdefghijklmnopqrstuvwxyz")
+
+func RandStringRunes(n int) string {
+	b := make([]rune, n)
+	for i := range b {
+		b[i] = letterRunes[rand.Intn(len(letterRunes))]
+	}
+	return string(b)
+}
+
+// InjectNewNamespaceInValues injects the current metadata.namespace in all strings where current namespace is found and updates the value with the new namespace.
+// Should be first in the Transformer chain to detect the old used "current" namespace pattern to replace.
+func InjectNewNamespaceInValues(namespace string) mf.Transformer {
+	updateValue := func(val, newns, oldns string) string {
+		return strings.ReplaceAll(val, oldns, newns)
+	}
+	var update func(obj interface{}, newns, oldns string) error
+	update = func(obj interface{}, newns, oldns string) error {
+		v := reflect.ValueOf(obj)
+		switch v.Kind() {
+		case reflect.Slice:
+			if child, ok := obj.([]interface{}); ok {
+				for _, c := range child {
+					update(c, newns, oldns)
+				}
+			}
+			return nil
+		case reflect.Map:
+			if m, ok := obj.(map[string]interface{}); ok {
+				for key := range m {
+					cv := m[key]
+					if value, ok := cv.(string); ok {
+						m[key] = updateValue(value, newns, oldns)
+					} else {
+						update(cv, newns, oldns)
+					}
+				}
+			}
+		}
+		return nil
+	}
+
+	return func(u *unstructured.Unstructured) error {
+		switch strings.ToLower(u.GetKind()) {
+		case "virtualservice", "route":
+			oldns, exists, err := unstructured.NestedFieldNoCopy(u.Object, "metadata", "namespace")
+			if err != nil {
+				return err
+			}
+			if !exists {
+				return errors.New("Can not transform VirtualService fields without original namespace set")
+			}
+			return update(u.Object, namespace, oldns.(string))
+		}
+		return nil
+	}
 }

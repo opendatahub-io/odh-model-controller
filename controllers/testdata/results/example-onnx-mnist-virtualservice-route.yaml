@@ -1,0 +1,23 @@
+apiVersion: networking.istio.io/v1alpha3
+kind: VirtualService
+metadata:
+    name: example-onnx-mnist
+    namespace: ns-dssnm
+    labels:
+        inferenceservice-name: example-onnx-mnist
+spec:
+  gateways:
+  - opendatahub/odh-gateway
+  hosts:
+  - '*'
+  http:
+  - match:
+    - uri:
+        prefix: /modelmesh/ns-dssnm/
+    rewrite:
+      uri: /
+    route:
+    - destination:
+        host: modelmesh-serving.ns-dssnm.svc.cluster.local
+        port:
+          number: 8008
