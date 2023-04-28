@@ -12,10 +12,23 @@ spec:
   - '*'
   http:
   - match:
+    - method:
+        exact: POST
+      headers:
+        content-type:
+          prefix: application/grpc
+        mm-vmodel-id:
+          exact: example-onnx-mnist
+    route:
+    - destination:
+        host: modelmesh-serving.ns-dssnm.svc.cluster.local
+        port:
+          number: 8033
+  - match:
     - uri:
-        prefix: /modelmesh/ns-dssnm/
+        exact: /modelmesh/ns-dssnm/v2/models/example-onnx-mnist/infer
     rewrite:
-      uri: /
+      uri: /v2/models/example-onnx-mnist/infer
     route:
     - destination:
         host: modelmesh-serving.ns-dssnm.svc.cluster.local
