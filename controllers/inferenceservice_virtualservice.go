@@ -87,7 +87,7 @@ func NewInferenceServiceVirtualService(inferenceservice *inferenceservicev1.Infe
 	}
 }
 
-func buildTrafficSplittingGrpcRoute(vmodel string, validISvcs []inferenceservicev1.InferenceService) (*v1alpha3.HTTPRoute, error) {
+func buildTrafficSplittingGrpcRoute(modelTag string, validISvcs []inferenceservicev1.InferenceService) (*v1alpha3.HTTPRoute, error) {
 	servingNamespace := validISvcs[0].Namespace
 
 	grpcDestinations := make([]*v1alpha3.HTTPRouteDestination, len(validISvcs), len(validISvcs))
@@ -123,14 +123,14 @@ func buildTrafficSplittingGrpcRoute(vmodel string, validISvcs []inferenceservice
 			Method: &v1alpha3.StringMatch{MatchType: &v1alpha3.StringMatch_Exact{Exact: "POST"}},
 			Headers: map[string]*v1alpha3.StringMatch{
 				"content-type": {MatchType: &v1alpha3.StringMatch_Prefix{Prefix: "application/grpc"}},
-				"mm-vmodel-id": {MatchType: &v1alpha3.StringMatch_Exact{Exact: vmodel}},
+				"mm-vmodel-id": {MatchType: &v1alpha3.StringMatch_Exact{Exact: modelTag}},
 			},
 		}},
 		Route: grpcDestinations,
 	}, nil
 }
 
-func buildTrafficSplittingHttpRoute(vmodel string, validISvcs []inferenceservicev1.InferenceService) (*v1alpha3.HTTPRoute, error) {
+func buildTrafficSplittingHttpRoute(modelTag string, validISvcs []inferenceservicev1.InferenceService) (*v1alpha3.HTTPRoute, error) {
 	servingNamespace := validISvcs[0].Namespace
 
 	splitRoutes := make([]*v1alpha3.HTTPRouteDestination, len(validISvcs), len(validISvcs))
@@ -164,18 +164,18 @@ func buildTrafficSplittingHttpRoute(vmodel string, validISvcs []inferenceservice
 		Match: []*v1alpha3.HTTPMatchRequest{{
 			Uri: &v1alpha3.StringMatch{
 				MatchType: &v1alpha3.StringMatch_Exact{
-					Exact: "/modelmesh/" + servingNamespace + "/v2/models/" + vmodel + "/infer",
+					Exact: "/modelmesh/" + servingNamespace + "/v2/models/" + modelTag + "/infer",
 				},
 			},
 		}},
 		Rewrite: &v1alpha3.HTTPRewrite{
-			Uri: "/vmodel-route/" + servingNamespace + "/" + vmodel + "/infer",
+			Uri: "/vmodel-route/" + servingNamespace + "/" + modelTag + "/infer",
 		},
 		Route: splitRoutes,
 	}, nil
 }
 
-func buildHttpRedirectionRoutes(vmodel string, validISvcs []inferenceservicev1.InferenceService) []*v1alpha3.HTTPRoute {
+func buildHttpRedirectionRoutes(modelTag string, validISvcs []inferenceservicev1.InferenceService) []*v1alpha3.HTTPRoute {
 	servingNamespace := validISvcs[0].Namespace
 
 	splitRedirectionRoutes := make([]*v1alpha3.HTTPRoute, len(validISvcs), len(validISvcs))
@@ -184,7 +184,7 @@ func buildHttpRedirectionRoutes(vmodel string, validISvcs []inferenceservicev1.I
 			Match: []*v1alpha3.HTTPMatchRequest{{
 				Uri: &v1alpha3.StringMatch{
 					MatchType: &v1alpha3.StringMatch_Exact{
-						Exact: "/vmodel-route/" + servingNamespace + "/" + vmodel + "/infer",
+						Exact: "/vmodel-route/" + servingNamespace + "/" + modelTag + "/infer",
 					},
 				},
 				Headers: map[string]*v1alpha3.StringMatch{
@@ -210,18 +210,18 @@ func buildHttpRedirectionRoutes(vmodel string, validISvcs []inferenceservicev1.I
 	return splitRedirectionRoutes
 }
 
-func buildTrafficSplittingVirtualService(vmodel string, validISvcs []inferenceservicev1.InferenceService) (*virtualservicev1.VirtualService, error) {
-	grpcRoute, err := buildTrafficSplittingGrpcRoute(vmodel, validISvcs)
+func buildTrafficSplittingVirtualService(modelTag string, validISvcs []inferenceservicev1.InferenceService) (*virtualservicev1.VirtualService, error) {
+	grpcRoute, err := buildTrafficSplittingGrpcRoute(modelTag, validISvcs)
 	if err != nil {
 		return nil, err
 	}
 
-	httpSplitRoute, err := buildTrafficSplittingHttpRoute(vmodel, validISvcs)
+	httpSplitRoute, err := buildTrafficSplittingHttpRoute(modelTag, validISvcs)
 	if err != nil {
 		return nil, err
 	}
 
-	httpRedirectionRoutes := buildHttpRedirectionRoutes(vmodel, validISvcs)
+	httpRedirectionRoutes := buildHttpRedirectionRoutes(modelTag, validISvcs)
 
 	allVsRoutes := []*v1alpha3.HTTPRoute{grpcRoute, httpSplitRoute}
 	allVsRoutes = append(allVsRoutes, httpRedirectionRoutes...)
@@ -229,10 +229,10 @@ func buildTrafficSplittingVirtualService(vmodel string, validISvcs []inferencese
 	return &virtualservicev1.VirtualService{
 		TypeMeta: metav1.TypeMeta{},
 		ObjectMeta: metav1.ObjectMeta{
-			Name:      vmodel + "-splitting",
+			Name:      modelTag + "-splitting",
 			Namespace: validISvcs[0].Namespace,
 			Annotations: map[string]string{
-				"serving.kserve.io/model-tag": vmodel,
+				"serving.kserve.io/model-tag": modelTag,
 			},
 		},
 		Spec: v1alpha3.VirtualService{
@@ -309,11 +309,11 @@ func DeepCompare(a, b interface{}) bool {
 	}
 }
 
-func (r *OpenshiftInferenceServiceReconciler) updateTrafficSplitVirtualService(namespace, vmodel string, existentVs *virtualservicev1.VirtualService, ctx context.Context) (*virtualservicev1.VirtualService, error) {
+func (r *OpenshiftInferenceServiceReconciler) updateTrafficSplitVirtualService(namespace, modelTag string, existentVs *virtualservicev1.VirtualService, ctx context.Context) (*virtualservicev1.VirtualService, error) {
 
 	// Get list of InferenceServices tagged with `model-tag`
 	taggedISvcs := &inferenceservicev1.InferenceServiceList{}
-	err := r.List(ctx, taggedISvcs, client.InNamespace(namespace), client.MatchingLabels{"serving.kserve.io/model-tag": vmodel})
+	err := r.List(ctx, taggedISvcs, client.InNamespace(namespace), client.MatchingLabels{"serving.kserve.io/model-tag": modelTag})
 	if err != nil {
 		return nil, err
 	}
@@ -347,17 +347,17 @@ func (r *OpenshiftInferenceServiceReconciler) updateTrafficSplitVirtualService(n
 				}
 				canarySum += percent
 			} else {
-				return nil, fmt.Errorf("cannot configure traffic splitting for model-tag <%s> because InferenceService <%s> does not have the serving.kserve.io/canaryTrafficPercent annotation", vmodel, isvc.Name)
+				return nil, fmt.Errorf("cannot configure traffic splitting for model-tag <%s> because InferenceService <%s> does not have the serving.kserve.io/canaryTrafficPercent annotation", modelTag, isvc.Name)
 			}
 		}
 
 		if canarySum != 100 {
-			return nil, fmt.Errorf("cannot configure traffic splitting for model-tag <%s> because split percentages of the group does not sum 100", vmodel)
+			return nil, fmt.Errorf("cannot configure traffic splitting for model-tag <%s> because split percentages of the group does not sum 100", modelTag)
 		}
 	}
 
 	// Build the VirtualService for traffic splitting
-	desiredVirtualService, err := buildTrafficSplittingVirtualService(vmodel, validISvcs)
+	desiredVirtualService, err := buildTrafficSplittingVirtualService(modelTag, validISvcs)
 	if err != nil {
 		return nil, err
 	}
