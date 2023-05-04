@@ -23,7 +23,10 @@ import (
 	routev1 "github.com/openshift/api/route/v1"
 	virtualservicev1 "istio.io/client-go/pkg/apis/networking/v1alpha3"
 	corev1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/api/errors"
+	v1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	mfc "github.com/manifestival/controller-runtime-client"
 	mf "github.com/manifestival/manifestival"
@@ -90,6 +93,124 @@ var _ = Describe("The Openshift model controller", func() {
 				// Namespace (mesh or not)
 				//  ServerRuntime (enable-route or not)
 				//    InferenceService (with or without SA)
+			})
+
+			It("when an InferenceService with a model-tag is created or deleted, should create or delete a traffic splitting VirtualService", func() {
+				By("Creating an InferenceService with a model-tag")
+				isvc := &inferenceservicev1.InferenceService{}
+				err = convertToStructuredResource(InferenceServiceWithTag1, namespace.Name, isvc, opts)
+				Expect(err).NotTo(HaveOccurred())
+				Expect(cli.Create(ctx, isvc)).Should(Succeed())
+
+				By("A VirtualService should be created")
+				virtualService := &virtualservicev1.VirtualService{}
+				Eventually(func() error {
+					key := types.NamespacedName{Name: "onnx-mnist-splitting", Namespace: namespace.Name}
+					return cli.Get(ctx, key, virtualService)
+				}, timeout, interval).ShouldNot(HaveOccurred())
+
+				expectedVirtualService := &virtualservicev1.VirtualService{}
+				err = convertToStructuredResource(ExpectedVsSplitV1, namespace.Name, expectedVirtualService, opts)
+				Expect(err).NotTo(HaveOccurred())
+
+				Expect(CompareInferenceServiceVirtualServices(virtualService, expectedVirtualService)).Should(BeTrue())
+
+				By("Deleting the InferenceService should delete the VirtualService")
+				err = cli.Delete(ctx, isvc, client.PropagationPolicy(v1.DeletePropagationForeground))
+				Expect(err).ToNot(HaveOccurred())
+
+				Eventually(func() error {
+					key := types.NamespacedName{Name: "onnx-mnist-splitting", Namespace: namespace.Name}
+					return cli.Get(ctx, key, virtualService)
+				}, timeout, interval).Should(Satisfy(errors.IsNotFound))
+			})
+
+			It("when two InferenceServices are grouped with a model-tag, should create a traffic splitting VirtualService", func() {
+				isvc := &inferenceservicev1.InferenceService{}
+				err = convertToStructuredResource(InferenceServiceWithTag1, namespace.Name, isvc, opts)
+				Expect(err).NotTo(HaveOccurred())
+				Expect(cli.Create(ctx, isvc)).Should(Succeed())
+
+				err = convertToStructuredResource(InferenceServiceWithTag2, namespace.Name, isvc, opts)
+				Expect(err).NotTo(HaveOccurred())
+				Expect(cli.Create(ctx, isvc)).Should(Succeed())
+
+				virtualService := &virtualservicev1.VirtualService{}
+				Eventually(func() error {
+					key := types.NamespacedName{Name: "onnx-mnist-splitting", Namespace: namespace.Name}
+					return cli.Get(ctx, key, virtualService)
+				}, timeout, interval).ShouldNot(HaveOccurred())
+
+				expectedVirtualService := &virtualservicev1.VirtualService{}
+				err = convertToStructuredResource(ExpectedVsSplitV1V2, namespace.Name, expectedVirtualService, opts)
+				Expect(err).NotTo(HaveOccurred())
+
+				Expect(CompareInferenceServiceVirtualServices(virtualService, expectedVirtualService)).Should(BeTrue())
+			})
+
+			It("when an InferenceService is re-tagged, should delete old traffic-splitting VirtualService and create a new one", func() {
+				By("Creating an InferenceService with a model-tag")
+				isvc := &inferenceservicev1.InferenceService{}
+				err = convertToStructuredResource(InferenceServiceWithTag1, namespace.Name, isvc, opts)
+				Expect(err).NotTo(HaveOccurred())
+				Expect(cli.Create(ctx, isvc)).Should(Succeed())
+
+				By("A VirtualService should be created")
+				virtualService := &virtualservicev1.VirtualService{}
+				Eventually(func() error {
+					key := types.NamespacedName{Name: "onnx-mnist-splitting", Namespace: namespace.Name}
+					return cli.Get(ctx, key, virtualService)
+				}, timeout, interval).ShouldNot(HaveOccurred())
+
+				By("Re-tag the InferenceService")
+				err = cli.Get(ctx, types.NamespacedName{Name: isvc.Name, Namespace: namespace.Name}, isvc)
+				Expect(err).ToNot(HaveOccurred())
+
+				isvc.Labels["serving.kserve.io/model-tag"] = "onnx-second"
+				err = cli.Update(ctx, isvc)
+				Expect(err).ToNot(HaveOccurred())
+
+				By("Should delete the old traffic-splitting VirtualService")
+				Eventually(func() error {
+					key := types.NamespacedName{Name: "onnx-mnist-splitting", Namespace: namespace.Name}
+					return cli.Get(ctx, key, virtualService)
+				}, timeout, interval).Should(Satisfy(errors.IsNotFound))
+
+				By("Should create a new traffic-splitting VirtualService")
+				Eventually(func() error {
+					key := types.NamespacedName{Name: "onnx-second-splitting", Namespace: namespace.Name}
+					return cli.Get(ctx, key, virtualService)
+				}, timeout, interval).ShouldNot(HaveOccurred())
+			})
+
+			It("when two InferenceServices are grouped and canary percentages do not sum 100, should fail creating traffic splitting VirtualService", func() {
+				// Create first InferenceService
+				isvc := &inferenceservicev1.InferenceService{}
+				err = convertToStructuredResource(InferenceServiceWithTag1, namespace.Name, isvc, opts)
+				Expect(err).NotTo(HaveOccurred())
+				Expect(cli.Create(ctx, isvc)).Should(Succeed())
+
+				// Wait for the VirtualService to be created
+				virtualService := &virtualservicev1.VirtualService{}
+				Eventually(func() error {
+					key := types.NamespacedName{Name: "onnx-mnist-splitting", Namespace: namespace.Name}
+					return cli.Get(ctx, key, virtualService)
+				}, timeout, interval).ShouldNot(HaveOccurred())
+
+				// Create second InferenceService with bad canary traffic percentage
+				err = convertToStructuredResource(InferenceServiceWithTag2, namespace.Name, isvc, opts)
+				isvc.Annotations["serving.kserve.io/canaryTrafficPercent"] = "10"
+				Expect(err).NotTo(HaveOccurred())
+				Expect(cli.Create(ctx, isvc)).Should(Succeed())
+
+				Consistently(func() *virtualservicev1.VirtualService {
+					updatedVirtualService := &virtualservicev1.VirtualService{}
+					key := types.NamespacedName{Name: "onnx-mnist-splitting", Namespace: namespace.Name}
+					_ = cli.Get(ctx, key, updatedVirtualService)
+					return updatedVirtualService
+				}, timeout, interval).Should(Satisfy(func(vs *virtualservicev1.VirtualService) bool {
+					return vs.ResourceVersion == virtualService.ResourceVersion
+				}))
 			})
 		})
 

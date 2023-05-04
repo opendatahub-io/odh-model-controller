@@ -17,6 +17,7 @@ package controllers
 
 import (
 	"context"
+	"fmt"
 	"reflect"
 	"strconv"
 
@@ -335,6 +336,26 @@ func (r *OpenshiftInferenceServiceReconciler) updateTrafficSplitVirtualService(n
 		return nil, nil
 	}
 
+	// Validate that canary traffic percentages sum up 100
+	if len(validISvcs) > 1 {
+		canarySum := int64(0)
+		for _, isvc := range validISvcs {
+			if percentStr, ok := isvc.Annotations["serving.kserve.io/canaryTrafficPercent"]; ok {
+				percent, parseErr := strconv.ParseInt(percentStr, 10, 32)
+				if parseErr != nil {
+					return nil, parseErr
+				}
+				canarySum += percent
+			} else {
+				return nil, fmt.Errorf("cannot configure traffic splitting for model-tag <%s> because InferenceService <%s> does not have the serving.kserve.io/canaryTrafficPercent annotation", vmodel, isvc.Name)
+			}
+		}
+
+		if canarySum != 100 {
+			return nil, fmt.Errorf("cannot configure traffic splitting for model-tag <%s> because split percentages of the group does not sum 100", vmodel)
+		}
+	}
+
 	// Build the VirtualService for traffic splitting
 	desiredVirtualService, err := buildTrafficSplittingVirtualService(vmodel, validISvcs)
 	if err != nil {
@@ -532,7 +553,9 @@ func (r *OpenshiftInferenceServiceReconciler) ReconcileTrafficSplitting(
 			return err
 		}
 
-		vsNameToAssociate = resultingVs.Name
+		if resultingVs != nil {
+			vsNameToAssociate = resultingVs.Name
+		}
 	}
 
 	// Update annotation of the InferenceService to store/remove the virtual service name for traffic splitting
@@ -545,6 +568,8 @@ func (r *OpenshiftInferenceServiceReconciler) ReconcileTrafficSplitting(
 		if updateIsvcErr != nil {
 			return updateIsvcErr
 		}
+
+		log.Info("VirtualService for traffic splitting set in an annotation of the InferenceService", "virtualService", vsNameToAssociate)
 	}
 
 	return nil
