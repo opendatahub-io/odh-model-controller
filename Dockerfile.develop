@@ -43,6 +43,7 @@ RUN microdnf install \
     vim \
     git \
     findutils \
+    jq \
     python38 \
     nodejs && \
     pip3 install pre-commit && \
