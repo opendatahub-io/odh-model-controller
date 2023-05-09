@@ -73,10 +73,14 @@ const (
 	ServingRuntimeNoRoutePath1        = "./testdata/deploy/test-openvino-serving-runtime-1-no-route.yaml"
 	InferenceService1                 = "./testdata/deploy/openvino-inference-service-1.yaml"
 	InferenceServiceNoRuntime         = "./testdata/deploy/openvino-inference-service-no-runtime.yaml"
+	InferenceServiceWithTag1          = "./testdata/deploy/openvino-inference-service-with-model-tag-1.yaml"
+	InferenceServiceWithTag2          = "./testdata/deploy/openvino-inference-service-with-model-tag-2.yaml"
 	ExpectedRoutePath                 = "./testdata/results/example-onnx-mnist-route.yaml"
 	ExpectedRouteNoRuntimePath        = "./testdata/results/example-onnx-mnist-no-runtime-route.yaml"
 	ExpectedVirtualServiceRoutePath   = "./testdata/results/example-onnx-mnist-virtualservice-route.yaml"
 	ExpectedVirtualServiceNoRoutePath = "./testdata/results/example-onnx-mnist-virtualservice-no-route.yaml"
+	ExpectedVsSplitV1                 = "./testdata/results/example-onnx-mnist-virtualservice-split-v1.yaml"
+	ExpectedVsSplitV1V2               = "./testdata/results/example-onnx-mnist-virtualservice-split-v1v2.yaml"
 	timeout                           = time.Second * 5
 	interval                          = time.Millisecond * 10
 )

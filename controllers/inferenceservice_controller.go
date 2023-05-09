@@ -31,6 +31,7 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 	"sigs.k8s.io/controller-runtime/pkg/handler"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 	"sigs.k8s.io/controller-runtime/pkg/source"
@@ -49,7 +50,7 @@ type OpenshiftInferenceServiceReconciler struct {
 
 // ClusterRole permissions
 
-// +kubebuilder:rbac:groups=serving.kserve.io,resources=inferenceservices,verbs=get;list;watch
+// +kubebuilder:rbac:groups=serving.kserve.io,resources=inferenceservices,verbs=get;list;watch;update
 // +kubebuilder:rbac:groups=serving.kserve.io,resources=inferenceservices/finalizers,verbs=get;list;watch;update
 // +kubebuilder:rbac:groups=serving.kserve.io,resources=servingruntimes,verbs=get;list;watch;create;update
 // +kubebuilder:rbac:groups=serving.kserve.io,resources=servingruntimes/finalizers,verbs=get;list;watch;create;update;patch;delete
@@ -90,10 +91,60 @@ func (r *OpenshiftInferenceServiceReconciler) Reconcile(ctx context.Context, req
 	}
 
 	isServiceMeshEnabled, _ := strconv.ParseBool(namespace.Labels[OpendataHubServiceMesh])
+
+	// Finalizer, to delete VS for traffic splitting
+	myFinalizerName := "serving.opendatahub.io/finalizer"
+	if inferenceservice.ObjectMeta.DeletionTimestamp.IsZero() {
+		log.Info("Add finalizer", "isvc", inferenceservice.Name)
+		// The object is not being deleted, so if it does not have our finalizer,
+		// then lets add the finalizer and update the object. This is equivalent
+		// registering our finalizer.
+		if !controllerutil.ContainsFinalizer(inferenceservice, myFinalizerName) {
+			controllerutil.AddFinalizer(inferenceservice, myFinalizerName)
+			if err := r.Update(ctx, inferenceservice); err != nil {
+				return ctrl.Result{}, err
+			}
+		}
+	} else {
+		// The object is being deleted
+		if controllerutil.ContainsFinalizer(inferenceservice, myFinalizerName) {
+			// our finalizer is present, so lets handle any external dependency
+			log.Info("isServiceMeshEnabled", "is", isServiceMeshEnabled)
+			if isServiceMeshEnabled {
+				log.Info("model-tag", "model-tag", inferenceservice.Labels["serving.kserve.io/model-tag"])
+				if tag, ok := inferenceservice.Labels["serving.kserve.io/model-tag"]; ok && len(tag) != 0 {
+					err := r.ReconcileTrafficSplitting(inferenceservice, ctx)
+					if err != nil {
+						return ctrl.Result{}, err
+					}
+				}
+			}
+
+			// remove our finalizer from the list and update it.
+			log.Info("Remove finalizer", "isvc", inferenceservice.Name)
+			controllerutil.RemoveFinalizer(inferenceservice, myFinalizerName)
+			if err := r.Update(ctx, inferenceservice); err != nil {
+				return ctrl.Result{}, err
+			}
+		}
+
+		// Stop reconciliation as the item is being deleted
+		return ctrl.Result{}, nil
+	}
+
 	if isServiceMeshEnabled {
 		err = r.ReconcileVirtualService(inferenceservice, ctx)
 		if err != nil {
 			return ctrl.Result{}, err
+		}
+
+		tag, tagOk := inferenceservice.Labels["serving.kserve.io/model-tag"]
+		vsName, vsNameOk := inferenceservice.Annotations["serving.opendatahub.io/vs-traffic-splitting"]
+		if (tagOk && len(tag) != 0) || (vsNameOk && len(vsName) != 0) {
+			err := r.ReconcileTrafficSplitting(inferenceservice, ctx)
+			if err != nil {
+				return ctrl.Result{}, err
+			}
 		}
 	} else {
 		err = r.ReconcileRoute(inferenceservice, ctx)
