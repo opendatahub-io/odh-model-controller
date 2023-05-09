@@ -47,7 +47,7 @@ func NewInferenceServiceRoute(inferenceservice *inferenceservicev1.InferenceServ
 	// create a http route
 	finalRoute := &routev1.Route{
 		ObjectMeta: metav1.ObjectMeta{
-			Name:      inferenceservice.Name + "-http",
+			Name:      inferenceservice.Name,
 			Namespace: inferenceservice.Namespace,
 			Labels: map[string]string{
 				"inferenceservice-name": inferenceservice.Name,
@@ -76,7 +76,6 @@ func NewInferenceServiceRoute(inferenceservice *inferenceservicev1.InferenceServ
 
 	// if secure route is selected, create the https route
 	if enableAuth {
-		finalRoute.ObjectMeta.Name = inferenceservice.Name + "-https"
 		finalRoute.Spec.Port = &routev1.RoutePort{
 			TargetPort: intstr.FromInt(modelmeshAuthServicePort),
 		}
