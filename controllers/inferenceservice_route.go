@@ -178,25 +178,23 @@ func (r *OpenshiftInferenceServiceReconciler) reconcileRoute(inferenceservice *i
 
 	desiredServingRuntime := r.findSupportingRuntimeForISvc(ctx, log, inferenceservice)
 
-	// optionsList allows for creation of both grpc and http/s routes if desired
+	// optionsList allows for creation of both grpc and http/s routes as desired
 	var optionsList [2]string
 
 	createRoute, enableAuth, enableGrpc := false, false, false
+
+	// If routes need to be exposed, then enable both grpc and http/s
 	if desiredServingRuntime.Annotations["enable-route"] == "true" {
 		createRoute = true
-	}
-	if desiredServingRuntime.Annotations["enable-http"] == "true" {
+		enableGrpc = true
+		optionsList[1] = "grpc"
+
 		if desiredServingRuntime.Annotations["enable-auth"] == "true" {
 			enableAuth = true
 			optionsList[0] = "https"
 		} else {
 			optionsList[0] = "http"
 		}
-	}
-
-	if desiredServingRuntime.Annotations["enable-grpc"] == "true" {
-		enableGrpc = true
-		optionsList[1] = "grpc"
 	}
 
 	for _, v := range optionsList {
