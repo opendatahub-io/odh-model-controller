@@ -18,10 +18,11 @@ package main
 
 import (
 	"flag"
-	inferenceservicev1 "github.com/kserve/modelmesh-serving/apis/serving/v1beta1"
-	monitoringv1 "github.com/prometheus-operator/prometheus-operator/pkg/apis/monitoring/v1"
 	"os"
 	"strconv"
+
+	inferenceservicev1 "github.com/kserve/modelmesh-serving/apis/serving/v1beta1"
+	monitoringv1 "github.com/prometheus-operator/prometheus-operator/pkg/apis/monitoring/v1"
 
 	// Import all Kubernetes client auth plugins (e.g. Azure, GCP, OIDC, etc.)
 	// to ensure that exec-entrypoint and run can make use of them.
@@ -143,6 +144,16 @@ func main() {
 	} else {
 		setupLog.Info("Monitoring namespace not provided, skipping setup of monitoring controller. To enable " +
 			"monitoring for ModelServing, please provide a monitoring namespace via the (--monitoring-namespace) flag.")
+	}
+
+	if err = (&controllers.ServingRuntimeRouteReconciler{
+		Client:       mgr.GetClient(),
+		Log:          ctrl.Log.WithName("controllers").WithName("ServingRuntimeRoute"),
+		Scheme:       mgr.GetScheme(),
+		MeshDisabled: getEnvAsBool("MESH_DISABLED", false),
+	}).SetupWithManager(mgr); err != nil {
+		setupLog.Error(err, "unable to create controller", "controller", "InferenceService")
+		os.Exit(1)
 	}
 
 	//+kubebuilder:scaffold:builder
