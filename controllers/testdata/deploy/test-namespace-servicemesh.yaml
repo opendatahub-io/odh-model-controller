@@ -4,5 +4,8 @@ metadata:
   labels:
     modelmesh-enabled: "true"
     opendatahub.io/service-mesh: "true"
+  annotations:
+    maistra.io/gateway-namespace: "opendatahub"
+    maistra.io/gateway-name: "odh-gateway"
   name: test
 spec:

@@ -22,21 +22,19 @@ At the moment, the Service Mesh control plane must be installed in the
 `istio-system` namespace. In this same namespace you must deploy an Ingress 
 Gateway named `istio-ingressgateway`.
 
-Once you have the Service Mesh installed, you must create a namespace named
-`opendatahub`. This namespace must be part of the Service Mesh. If you are
-using Istio, the namespace should be part of the Mesh without doing anything
-(you should _not_ enable sidecar auto-injection). If you are using OSSM, 
-make sure that the namespace is included in your `ServiceMeshMemberRoll` 
-resource.
+> :warning: NOTE: Most likely, the `istio-ingressgateway` hard names is going 
+> to be configurable via some mechanism once the traffic splitting feature is
+> stabilized.
 
-In this `opendatahub` namespace you must create the following Gateway:
+Once you have the Service Mesh installed, you must create a Gateway. This is 
+the Gateway that will be used to publicly expose models. The following is an 
+example of a Gateway:
 
 ```yaml
 apiVersion: networking.istio.io/v1beta1
 kind: Gateway
 metadata:
   name: odh-gateway
-  namespace: opendatahub
 spec:
   selector:
     istio: ingressgateway
@@ -49,12 +47,15 @@ spec:
       protocol: HTTP
 ```
 
-> :warning: NOTE: Most likely, the mentioned hard names are going to be 
-> configurable via some mechanism once the traffic splitting feature is 
-> stabilized.
-
-> :bulb: NOTE: Some of these configs may be handled by the 
+> :bulb: NOTE: When installing the whole ODH platform, the Gateway creation 
+> may be handled by the
 > [odh-project-controller](https://github.com/maistra/odh-project-controller).
+
+> :warning: If you are using OSSM, make sure that the namespace where the 
+> Gateway is created is part of the Mesh; i.e. the namespace is included in 
+> your `ServiceMeshMemberRoll` resource. This also may be handled by the 
+> [odh-project-controller](https://github.com/maistra/odh-project-controller)
+> when installing the whole ODH platform.
 
 ## ModelMesh preparation
 
@@ -69,6 +70,17 @@ label with the following command:
 ```shell
 kubectl label ns modelmesh-apps opendatahub.io/service-mesh=true
 ```
+
+Add the following annotations to your namespace to configure the Istio 
+Gateway to use to expose the Inference Services created the namespace:
+
+```shell
+kubectl annotate ns modelmesh-apps maistra.io/gateway-namespace=gateway-namespace-name
+kubectl annotate ns modelmesh-apps maistra.io/gateway-name=gateway-resource-name
+```
+
+> :bulb: When installing the whole ODH platform, these annotations should be 
+> set automatically by the [odh-project-controller](https://github.com/maistra/odh-project-controller).
 
 In this namespace, you can create your ServingRuntimes as normally. The only 
 additional requirement is that all your ServingRuntimes **must** be 

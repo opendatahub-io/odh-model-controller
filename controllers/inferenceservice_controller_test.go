@@ -166,7 +166,7 @@ var _ = Describe("The Openshift model controller", func() {
 				err = cli.Get(ctx, types.NamespacedName{Name: isvc.Name, Namespace: namespace.Name}, isvc)
 				Expect(err).ToNot(HaveOccurred())
 
-				isvc.Labels["serving.kserve.io/model-tag"] = "onnx-second"
+				isvc.Labels[InferenceServiceModelTagLabel] = "onnx-second"
 				err = cli.Update(ctx, isvc)
 				Expect(err).ToNot(HaveOccurred())
 
@@ -199,7 +199,7 @@ var _ = Describe("The Openshift model controller", func() {
 
 				// Create second InferenceService with bad canary traffic percentage
 				err = convertToStructuredResource(InferenceServiceWithTag2, namespace.Name, isvc, opts)
-				isvc.Annotations["serving.kserve.io/canaryTrafficPercent"] = "10"
+				isvc.Annotations[InferenceServiceSplitPercentAnnotation] = "10"
 				Expect(err).NotTo(HaveOccurred())
 				Expect(cli.Create(ctx, isvc)).Should(Succeed())
 

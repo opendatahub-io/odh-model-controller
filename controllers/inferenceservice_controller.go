@@ -37,10 +37,6 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/source"
 )
 
-const (
-	OpendataHubServiceMesh = "opendatahub.io/service-mesh"
-)
-
 // OpenshiftInferenceServiceReconciler holds the controller configuration.
 type OpenshiftInferenceServiceReconciler struct {
 	client.Client
@@ -90,30 +86,26 @@ func (r *OpenshiftInferenceServiceReconciler) Reconcile(ctx context.Context, req
 		return ctrl.Result{}, err
 	}
 
-	isServiceMeshEnabled, _ := strconv.ParseBool(namespace.Labels[OpendataHubServiceMesh])
+	isServiceMeshEnabled, _ := strconv.ParseBool(namespace.Labels[EnableServiceMeshLabel])
 
 	// Finalizer, to delete VS for traffic splitting
-	myFinalizerName := "serving.opendatahub.io/finalizer"
 	if inferenceservice.ObjectMeta.DeletionTimestamp.IsZero() {
-		log.Info("Add finalizer", "isvc", inferenceservice.Name)
 		// The object is not being deleted, so if it does not have our finalizer,
 		// then lets add the finalizer and update the object. This is equivalent
 		// registering our finalizer.
-		if !controllerutil.ContainsFinalizer(inferenceservice, myFinalizerName) {
-			controllerutil.AddFinalizer(inferenceservice, myFinalizerName)
+		if !controllerutil.ContainsFinalizer(inferenceservice, InferenceServiceFinalizerName) {
+			controllerutil.AddFinalizer(inferenceservice, InferenceServiceFinalizerName)
 			if err := r.Update(ctx, inferenceservice); err != nil {
 				return ctrl.Result{}, err
 			}
 		}
 	} else {
 		// The object is being deleted
-		if controllerutil.ContainsFinalizer(inferenceservice, myFinalizerName) {
+		if controllerutil.ContainsFinalizer(inferenceservice, InferenceServiceFinalizerName) {
 			// our finalizer is present, so lets handle any external dependency
-			log.Info("isServiceMeshEnabled", "is", isServiceMeshEnabled)
 			if isServiceMeshEnabled {
-				log.Info("model-tag", "model-tag", inferenceservice.Labels["serving.kserve.io/model-tag"])
-				if tag, ok := inferenceservice.Labels["serving.kserve.io/model-tag"]; ok && len(tag) != 0 {
-					err := r.ReconcileTrafficSplitting(inferenceservice, ctx)
+				if tag, ok := inferenceservice.Labels[InferenceServiceModelTagLabel]; ok && len(tag) != 0 {
+					err := r.ReconcileTrafficSplitting(namespace, inferenceservice, ctx)
 					if err != nil {
 						return ctrl.Result{}, err
 					}
@@ -121,8 +113,7 @@ func (r *OpenshiftInferenceServiceReconciler) Reconcile(ctx context.Context, req
 			}
 
 			// remove our finalizer from the list and update it.
-			log.Info("Remove finalizer", "isvc", inferenceservice.Name)
-			controllerutil.RemoveFinalizer(inferenceservice, myFinalizerName)
+			controllerutil.RemoveFinalizer(inferenceservice, InferenceServiceFinalizerName)
 			if err := r.Update(ctx, inferenceservice); err != nil {
 				return ctrl.Result{}, err
 			}
@@ -133,15 +124,15 @@ func (r *OpenshiftInferenceServiceReconciler) Reconcile(ctx context.Context, req
 	}
 
 	if isServiceMeshEnabled {
-		err = r.ReconcileVirtualService(inferenceservice, ctx)
+		err = r.ReconcileVirtualService(namespace, inferenceservice, ctx)
 		if err != nil {
 			return ctrl.Result{}, err
 		}
 
-		tag, tagOk := inferenceservice.Labels["serving.kserve.io/model-tag"]
-		vsName, vsNameOk := inferenceservice.Annotations["serving.opendatahub.io/vs-traffic-splitting"]
+		tag, tagOk := inferenceservice.Labels[InferenceServiceModelTagLabel]
+		vsName, vsNameOk := inferenceservice.Annotations[VirtualServiceForTrafficSplitAnnotation]
 		if (tagOk && len(tag) != 0) || (vsNameOk && len(vsName) != 0) {
-			err := r.ReconcileTrafficSplitting(inferenceservice, ctx)
+			err := r.ReconcileTrafficSplitting(namespace, inferenceservice, ctx)
 			if err != nil {
 				return ctrl.Result{}, err
 			}
