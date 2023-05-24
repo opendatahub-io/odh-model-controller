@@ -44,30 +44,14 @@ var _ = Describe("The Openshift model controller", func() {
 			Expect(err).NotTo(HaveOccurred())
 			Expect(cli.Create(ctx, servingRuntime1)).Should(Succeed())
 
-			route := &routev1.Route{}
-			Eventually(func() error {
-				key := types.NamespacedName{Name: servingRuntime1.Name, Namespace: servingRuntime1.Namespace}
-				return cli.Get(ctx, key, route)
-			}, timeout, interval).ShouldNot(HaveOccurred())
-			expectedRoute := &routev1.Route{}
-			err = convertToStructuredResource(ExpectedRoutePath, expectedRoute, opts)
-			Expect(err).NotTo(HaveOccurred())
-			Expect(CompareServingRuntimeRoutes(*route, *expectedRoute)).Should(BeTrue())
+			ensureRoute(*servingRuntime1, opts)
 
 			servingRuntime2 := &mmv1alpha1.ServingRuntime{}
 			err = convertToStructuredResource(ServingRuntimePath2, servingRuntime2, opts)
 			Expect(err).NotTo(HaveOccurred())
 			Expect(cli.Create(ctx, servingRuntime2)).Should(Succeed())
 
-			route = &routev1.Route{}
-			Eventually(func() error {
-				key := types.NamespacedName{Name: servingRuntime1.Name, Namespace: servingRuntime1.Namespace}
-				return cli.Get(ctx, key, route)
-			}, timeout, interval).ShouldNot(HaveOccurred())
-			expectedRoute = &routev1.Route{}
-			err = convertToStructuredResource(ExpectedRoutePath, expectedRoute, opts)
-			Expect(err).NotTo(HaveOccurred())
-			Expect(CompareServingRuntimeRoutes(*route, *expectedRoute)).Should(BeTrue())
+			ensureRoute(*servingRuntime2, opts)
 		})
 
 		It("when InferenceService does not specifies a runtime, should automatically pick a runtime", func() {
@@ -79,3 +63,15 @@ var _ = Describe("The Openshift model controller", func() {
 		})
 	})
 })
+
+func ensureRoute(servingRuntime mmv1alpha1.ServingRuntime, opts mf.Option) bool {
+	route := &routev1.Route{}
+	Eventually(func() error {
+		key := types.NamespacedName{Name: servingRuntime.Name, Namespace: servingRuntime.Namespace}
+		return cli.Get(ctx, key, route)
+	}, timeout, interval).ShouldNot(HaveOccurred())
+	expectedRoute := &routev1.Route{}
+	err := convertToStructuredResource(ExpectedRoutePath, expectedRoute, opts)
+	Expect(err).NotTo(HaveOccurred())
+	return Expect(CompareServingRuntimeRoutes(*route, *expectedRoute)).Should(BeTrue())
+}
