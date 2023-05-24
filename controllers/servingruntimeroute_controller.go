@@ -17,6 +17,7 @@ package controllers
 
 import (
 	"context"
+	"reflect"
 
 	"github.com/go-logr/logr"
 	mmv1alpha1 "github.com/kserve/modelmesh-serving/apis/serving/v1alpha1"
@@ -53,6 +54,16 @@ type ServingRuntimeRouteReconciler struct {
 // +kubebuilder:rbac:groups=route.openshift.io,resources=routes,verbs=get;list;watch;create;update;patch
 // +kubebuilder:rbac:groups=rbac.authorization.k8s.io,resources=clusterrolebindings,verbs=get;list;watch;create;update;patch;watch;delete
 // +kubebuilder:rbac:groups="",resources=configmaps;namespaces;pods;services;serviceaccounts;secrets,verbs=get;list;watch;create;update;patch
+
+// CompareInferenceServiceRoutes checks if two routes are equal, if not return false
+func CompareServingRuntimeRoutes(r1 routev1.Route, r2 routev1.Route) bool {
+	// Omit the host field since it is reconciled by the ingress controller
+	r1.Spec.Host, r2.Spec.Host = "", ""
+
+	// Two routes will be equal if the labels and spec are identical
+	return reflect.DeepEqual(r1.ObjectMeta.Labels, r2.ObjectMeta.Labels) &&
+		reflect.DeepEqual(r1.Spec, r2.Spec)
+}
 
 func newRoute(servingruntime *mmv1alpha1.ServingRuntime, enableAuth bool) *routev1.Route {
 
