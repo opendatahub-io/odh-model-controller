@@ -17,6 +17,7 @@ package controllers
 
 import (
 	"context"
+
 	"github.com/go-logr/logr"
 	predictorv1 "github.com/kserve/modelmesh-serving/apis/serving/v1alpha1"
 	inferenceservicev1 "github.com/kserve/modelmesh-serving/apis/serving/v1beta1"
@@ -74,10 +75,10 @@ func (r *OpenshiftInferenceServiceReconciler) Reconcile(ctx context.Context, req
 		return ctrl.Result{}, err
 	}
 
-	err = r.ReconcileRoute(inferenceservice, ctx)
-	if err != nil {
-		return ctrl.Result{}, err
-	}
+	// err = r.ReconcileRoute(inferenceservice, ctx)
+	// if err != nil {
+	// 	return ctrl.Result{}, err
+	// }
 
 	err = r.ReconcileSA(inferenceservice, ctx)
 	if err != nil {
