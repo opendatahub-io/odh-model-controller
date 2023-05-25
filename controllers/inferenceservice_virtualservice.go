@@ -328,10 +328,12 @@ func (r *OpenshiftInferenceServiceReconciler) updateTrafficSplitVirtualService(n
 	}
 
 	// If there are no non-deleted ISVCs, delete the VirtualService for traffic splitting
-	if len(validISvcs) == 0 && len(existentVs.Name) != 0 {
-		err = r.Delete(ctx, existentVs, client.PropagationPolicy(metav1.DeletePropagationBackground))
-		if err != nil {
-			return nil, err
+	if len(validISvcs) == 0 {
+		if len(existentVs.Name) != 0 {
+			err = r.Delete(ctx, existentVs, client.PropagationPolicy(metav1.DeletePropagationBackground))
+			if err != nil {
+				return nil, err
+			}
 		}
 
 		return nil, nil

@@ -86,7 +86,7 @@ func (r *OpenshiftInferenceServiceReconciler) Reconcile(ctx context.Context, req
 		return ctrl.Result{}, err
 	}
 
-	isServiceMeshEnabled, _ := strconv.ParseBool(namespace.Labels[EnableServiceMeshLabel])
+	isServiceMeshEnabled, _ := strconv.ParseBool(namespace.Annotations[EnableServiceMeshAnnotation])
 
 	// Finalizer, to delete VS for traffic splitting
 	if inferenceservice.ObjectMeta.DeletionTimestamp.IsZero() {

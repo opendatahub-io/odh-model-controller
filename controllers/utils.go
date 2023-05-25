@@ -29,13 +29,9 @@ func internalModelMeshFQDN(namespace string) string {
 // getIstioGatewaysForNamespace returns the list of gateways that should be associated to a
 // VirtualService to publicly expose InferenceServices living in the specified namespace.
 func getIstioGatewaysForNamespace(namespace *v1.Namespace) ([]string, error) {
-	if gatewayNamespace, gwNsOk := namespace.Annotations[IstioGatewayNamespaceAnnotation]; gwNsOk {
-		if gatewayName, gwNameOk := namespace.Annotations[IstioGatewayNameAnnotation]; gwNameOk {
-			return []string{gatewayNamespace + "/" + gatewayName}, nil
-		} else {
-			return []string{}, errors.New("the " + IstioGatewayNameAnnotation + " annotation is not set on the namespace")
-		}
+	if gatewayName, gwNameOk := namespace.Annotations[IstioGatewayNameAnnotation]; gwNameOk {
+		return []string{gatewayName}, nil
 	} else {
-		return []string{}, errors.New("the " + IstioGatewayNamespaceAnnotation + " annotation is not set on the namespace")
+		return []string{}, errors.New("the " + IstioGatewayNameAnnotation + " annotation is not set on the namespace")
 	}
 }

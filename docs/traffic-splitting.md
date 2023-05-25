@@ -63,20 +63,19 @@ As usual, you will need a namespace to host your ServingRuntimes, your
 models and your applications. This namespace must be part of the Service
 Mesh, although you should _not_ enable sidecar auto-injection.
 In order to fully enable ODH-managed Service Mesh features,
-you must add the `opendatahub.io/service-mesh=true` label to the namespace.
+you must add the `opendatahub.io/service-mesh=true` annotation to the namespace.
 For example, if your namespace is named `modelmesh-apps` you can add the
 label with the following command:
 
 ```shell
-kubectl label ns modelmesh-apps opendatahub.io/service-mesh=true
+kubectl annotate ns modelmesh-apps opendatahub.io/service-mesh=true
 ```
 
 Add the following annotations to your namespace to configure the Istio 
 Gateway to use to expose the Inference Services created the namespace:
 
 ```shell
-kubectl annotate ns modelmesh-apps maistra.io/gateway-namespace=gateway-namespace-name
-kubectl annotate ns modelmesh-apps maistra.io/gateway-name=gateway-resource-name
+kubectl annotate ns modelmesh-apps opendatahub.io/service-mesh-gw=gateway-namespace-name/gateway-resource-name
 ```
 
 > :bulb: When installing the whole ODH platform, these annotations should be 

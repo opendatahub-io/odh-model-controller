@@ -16,8 +16,8 @@ limitations under the License.
 package controllers
 
 const (
-	// EnableServiceMeshLabel is the Kubernetes label that must be set to "true" in a namespace to enable Service Mesh features.
-	EnableServiceMeshLabel = "opendatahub.io/service-mesh"
+	// EnableServiceMeshAnnotation is the Kubernetes annotation that must be set to "true" in a namespace to enable Service Mesh features.
+	EnableServiceMeshAnnotation = "opendatahub.io/service-mesh"
 
 	// InferenceServiceFinalizerName is the name of the finalizer that is added to InferenceService CRs to do proper clean-up
 	// of objects created by the controller. For now, this is for ensuring that Istio VirtualServices for traffic splitting
@@ -35,14 +35,9 @@ const (
 	InferenceServiceSplitPercentAnnotation = "serving.kserve.io/canaryTrafficPercent"
 
 	// IstioGatewayNameAnnotation is the Kubernetes annotation key set by the end-user on Namespaces
-	// to specify the name (wihtout namespace) of the Istio Gateway resource to use when publicly exposing models/ISVCs.
+	// to specify the Istio Gateway resource to use when publicly exposing models/ISVCs, in `namespace/name` format.
 	// This annotation may be set automatically by the `odh-project-controller`.
-	IstioGatewayNameAnnotation = "maistra.io/gateway-name"
-
-	// IstioGatewayNamespaceAnnotation is the Kubernetes annotation key set by the end-user on Namespaces
-	// to specify the Namespace of the Istio Gateway resource to use when publicly exposing models/ISVCs.
-	// This annotation may be set automatically by the `odh-project-controller`.
-	IstioGatewayNamespaceAnnotation = "maistra.io/gateway-namespace"
+	IstioGatewayNameAnnotation = "opendatahub.io/service-mesh-gw"
 
 	// VirtualServiceForTrafficSplitAnnotation is the Kubernetes annotation set by the controller on InferenceService
 	// resources to record the VirtualService name that is related to an InferenceService group (model-tag) and was
