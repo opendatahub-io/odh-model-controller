@@ -43,9 +43,14 @@ RUN microdnf install \
     vim \
     git \
     findutils \
+    jq \
     python38 \
     nodejs && \
     pip3 install pre-commit && \
+# Install yq 4.x
+    set -eux; \
+    wget https://github.com/mikefarah/yq/releases/download/v4.33.3/yq_linux_amd64.tar.gz -O - |\
+    tar xz && mv yq_linux_amd64 /usr/local/bin/yq && \
 # Install go
     set -eux; \
     wget -qO go.tgz "https://golang.org/dl/go${GOLANG_VERSION}.linux-amd64.tar.gz"; \
