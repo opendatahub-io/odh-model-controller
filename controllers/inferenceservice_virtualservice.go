@@ -25,6 +25,7 @@ import (
 	"istio.io/api/meta/v1alpha1"
 	"istio.io/api/networking/v1alpha3"
 	virtualservicev1 "istio.io/client-go/pkg/apis/networking/v1alpha3"
+	v1 "k8s.io/api/core/v1"
 	apierrs "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
@@ -46,7 +47,7 @@ func NewInferenceServiceVirtualService(inferenceservice *inferenceservicev1.Infe
 		Route: []*v1alpha3.HTTPRouteDestination{
 			{
 				Destination: &v1alpha3.Destination{
-					Host: "modelmesh-serving." + inferenceservice.Namespace + ".svc.cluster.local",
+					Host: internalModelMeshFQDN(inferenceservice.Namespace),
 					Port: &v1alpha3.PortSelector{
 						Number: 8033,
 					},
@@ -68,7 +69,7 @@ func NewInferenceServiceVirtualService(inferenceservice *inferenceservicev1.Infe
 		},
 		Route: []*v1alpha3.HTTPRouteDestination{{
 			Destination: &v1alpha3.Destination{
-				Host: "modelmesh-serving." + inferenceservice.Namespace + ".svc.cluster.local",
+				Host: internalModelMeshFQDN(inferenceservice.Namespace),
 				Port: &v1alpha3.PortSelector{
 					Number: 8008,
 				},
@@ -94,7 +95,7 @@ func buildTrafficSplittingGrpcRoute(modelTag string, validISvcs []inferenceservi
 	for idx, isvc := range validISvcs {
 		grpcDestination := v1alpha3.HTTPRouteDestination{
 			Destination: &v1alpha3.Destination{
-				Host: "modelmesh-serving." + servingNamespace + ".svc.cluster.local",
+				Host: internalModelMeshFQDN(servingNamespace),
 				Port: &v1alpha3.PortSelector{
 					Number: 8033,
 				},
@@ -106,7 +107,7 @@ func buildTrafficSplittingGrpcRoute(modelTag string, validISvcs []inferenceservi
 			},
 		}
 
-		if percentStr, ok := isvc.Annotations["serving.kserve.io/canaryTrafficPercent"]; ok {
+		if percentStr, ok := isvc.Annotations[InferenceServiceSplitPercentAnnotation]; ok {
 			percent, parseErr := strconv.ParseInt(percentStr, 10, 32)
 			if parseErr != nil {
 				return nil, parseErr
@@ -149,7 +150,7 @@ func buildTrafficSplittingHttpRoute(modelTag string, validISvcs []inferenceservi
 			},
 		}
 
-		if percentStr, ok := isvc.Annotations["serving.kserve.io/canaryTrafficPercent"]; ok {
+		if percentStr, ok := isvc.Annotations[InferenceServiceSplitPercentAnnotation]; ok {
 			percent, parseErr := strconv.ParseInt(percentStr, 10, 32)
 			if parseErr != nil {
 				return nil, parseErr
@@ -196,7 +197,7 @@ func buildHttpRedirectionRoutes(modelTag string, validISvcs []inferenceservicev1
 			},
 			Route: []*v1alpha3.HTTPRouteDestination{{
 				Destination: &v1alpha3.Destination{
-					Host: "modelmesh-serving." + servingNamespace + ".svc.cluster.local",
+					Host: internalModelMeshFQDN(servingNamespace),
 					Port: &v1alpha3.PortSelector{
 						Number: 8008,
 					},
@@ -232,7 +233,7 @@ func buildTrafficSplittingVirtualService(modelTag string, validISvcs []inference
 			Name:      modelTag + "-splitting",
 			Namespace: validISvcs[0].Namespace,
 			Annotations: map[string]string{
-				"serving.kserve.io/model-tag": modelTag,
+				InferenceServiceModelTagLabel: modelTag,
 			},
 		},
 		Spec: v1alpha3.VirtualService{
@@ -309,11 +310,11 @@ func DeepCompare(a, b interface{}) bool {
 	}
 }
 
-func (r *OpenshiftInferenceServiceReconciler) updateTrafficSplitVirtualService(namespace, modelTag string, existentVs *virtualservicev1.VirtualService, ctx context.Context) (*virtualservicev1.VirtualService, error) {
+func (r *OpenshiftInferenceServiceReconciler) updateTrafficSplitVirtualService(namespace *v1.Namespace, modelTag string, existentVs *virtualservicev1.VirtualService, ctx context.Context) (*virtualservicev1.VirtualService, error) {
 
 	// Get list of InferenceServices tagged with `model-tag`
 	taggedISvcs := &inferenceservicev1.InferenceServiceList{}
-	err := r.List(ctx, taggedISvcs, client.InNamespace(namespace), client.MatchingLabels{"serving.kserve.io/model-tag": modelTag})
+	err := r.List(ctx, taggedISvcs, client.InNamespace(namespace.Name), client.MatchingLabels{InferenceServiceModelTagLabel: modelTag})
 	if err != nil {
 		return nil, err
 	}
@@ -327,10 +328,12 @@ func (r *OpenshiftInferenceServiceReconciler) updateTrafficSplitVirtualService(n
 	}
 
 	// If there are no non-deleted ISVCs, delete the VirtualService for traffic splitting
-	if len(validISvcs) == 0 && len(existentVs.Name) != 0 {
-		err = r.Delete(ctx, existentVs, client.PropagationPolicy(metav1.DeletePropagationBackground))
-		if err != nil {
-			return nil, err
+	if len(validISvcs) == 0 {
+		if len(existentVs.Name) != 0 {
+			err = r.Delete(ctx, existentVs, client.PropagationPolicy(metav1.DeletePropagationBackground))
+			if err != nil {
+				return nil, err
+			}
 		}
 
 		return nil, nil
@@ -340,14 +343,14 @@ func (r *OpenshiftInferenceServiceReconciler) updateTrafficSplitVirtualService(n
 	if len(validISvcs) > 1 {
 		canarySum := int64(0)
 		for _, isvc := range validISvcs {
-			if percentStr, ok := isvc.Annotations["serving.kserve.io/canaryTrafficPercent"]; ok {
+			if percentStr, ok := isvc.Annotations[InferenceServiceSplitPercentAnnotation]; ok {
 				percent, parseErr := strconv.ParseInt(percentStr, 10, 32)
 				if parseErr != nil {
 					return nil, parseErr
 				}
 				canarySum += percent
 			} else {
-				return nil, fmt.Errorf("cannot configure traffic splitting for model-tag <%s> because InferenceService <%s> does not have the serving.kserve.io/canaryTrafficPercent annotation", modelTag, isvc.Name)
+				return nil, fmt.Errorf("cannot configure traffic splitting for model-tag <%s> because InferenceService <%s> does not have the %s annotation", modelTag, isvc.Name, InferenceServiceSplitPercentAnnotation)
 			}
 		}
 
@@ -363,7 +366,11 @@ func (r *OpenshiftInferenceServiceReconciler) updateTrafficSplitVirtualService(n
 	}
 
 	// TODO: Something should control if the route is created or not. What criteria to use?
-	desiredVirtualService.Spec.Gateways = []string{"opendatahub/odh-gateway"} // TODO get actual gateway to be used
+	var findGatewayErr error
+	desiredVirtualService.Spec.Gateways, findGatewayErr = getIstioGatewaysForNamespace(namespace)
+	if findGatewayErr != nil {
+		return nil, findGatewayErr
+	}
 
 	// Create the VirtualService if it does not already exist
 	if len(existentVs.Name) == 0 {
@@ -382,7 +389,7 @@ func (r *OpenshiftInferenceServiceReconciler) updateTrafficSplitVirtualService(n
 				// Get the last VirtualService revision
 				getLastVSErr := r.Get(ctx, types.NamespacedName{
 					Name:      desiredVirtualService.Name,
-					Namespace: namespace,
+					Namespace: namespace.Name,
 				}, currentVs)
 				if getLastVSErr != nil {
 					return getLastVSErr
@@ -404,7 +411,7 @@ func (r *OpenshiftInferenceServiceReconciler) updateTrafficSplitVirtualService(n
 
 // Reconcile will manage the creation, update and deletion of the VirtualService returned
 // by the newVirtualService function
-func (r *OpenshiftInferenceServiceReconciler) reconcileVirtualService(inferenceservice *inferenceservicev1.InferenceService,
+func (r *OpenshiftInferenceServiceReconciler) reconcileVirtualService(namespace *v1.Namespace, inferenceservice *inferenceservicev1.InferenceService,
 	ctx context.Context, newVirtualService func(service *inferenceservicev1.InferenceService) *virtualservicev1.VirtualService) error {
 	// Initialize logger format
 	log := r.Log.WithValues("inferenceservice", inferenceservice.Name, "namespace", inferenceservice.Namespace)
@@ -414,7 +421,11 @@ func (r *OpenshiftInferenceServiceReconciler) reconcileVirtualService(inferences
 	// Generate the desired VirtualService and expose externally if enabled
 	desiredVirtualService := newVirtualService(inferenceservice)
 	if desiredServingRuntime.Annotations["enable-route"] == "true" {
-		desiredVirtualService.Spec.Gateways = []string{"opendatahub/odh-gateway"} //TODO get actual gateway to be used
+		var findGatewayErr error
+		desiredVirtualService.Spec.Gateways, findGatewayErr = getIstioGatewaysForNamespace(namespace)
+		if findGatewayErr != nil {
+			return findGatewayErr
+		}
 	}
 
 	// Create the VirtualService if it does not already exist
@@ -476,20 +487,20 @@ func (r *OpenshiftInferenceServiceReconciler) reconcileVirtualService(inferences
 
 // ReconcileVirtualService will manage the creation, update and deletion of the
 // VirtualService when the Predictor is reconciled
-func (r *OpenshiftInferenceServiceReconciler) ReconcileVirtualService(
+func (r *OpenshiftInferenceServiceReconciler) ReconcileVirtualService(namespace *v1.Namespace,
 	inferenceservice *inferenceservicev1.InferenceService, ctx context.Context) error {
-	return r.reconcileVirtualService(inferenceservice, ctx, NewInferenceServiceVirtualService)
+	return r.reconcileVirtualService(namespace, inferenceservice, ctx, NewInferenceServiceVirtualService)
 }
 
 func (r *OpenshiftInferenceServiceReconciler) ReconcileTrafficSplitting(
-	inferenceservice *inferenceservicev1.InferenceService, ctx context.Context) error {
+	namespace *v1.Namespace, inferenceservice *inferenceservicev1.InferenceService, ctx context.Context) error {
 	// Initialize logger format
 	log := r.Log.WithValues("inferenceservice", inferenceservice.Name, "namespace", inferenceservice.Namespace)
 	log.Info("Reconciling traffic splitting")
 
 	// Fetch associated VirtualService, if there is one
 	associatedVs := &virtualservicev1.VirtualService{}
-	if vsName, vsOk := inferenceservice.Annotations["serving.opendatahub.io/vs-traffic-splitting"]; vsOk {
+	if vsName, vsOk := inferenceservice.Annotations[VirtualServiceForTrafficSplitAnnotation]; vsOk {
 		err := r.Get(ctx, types.NamespacedName{
 			Name:      vsName,
 			Namespace: inferenceservice.Namespace,
@@ -505,11 +516,11 @@ func (r *OpenshiftInferenceServiceReconciler) ReconcileTrafficSplitting(
 
 	var isvcModelTag, vsModelTag string
 
-	if tag, tagOk := inferenceservice.Labels["serving.kserve.io/model-tag"]; tagOk {
+	if tag, tagOk := inferenceservice.Labels[InferenceServiceModelTagLabel]; tagOk {
 		isvcModelTag = tag
 	}
 
-	if tag, tagOk := associatedVs.Annotations["serving.kserve.io/model-tag"]; tagOk {
+	if tag, tagOk := associatedVs.Annotations[InferenceServiceModelTagLabel]; tagOk {
 		vsModelTag = tag
 	}
 
@@ -521,7 +532,7 @@ func (r *OpenshiftInferenceServiceReconciler) ReconcileTrafficSplitting(
 	//      Here we deal with removing the ISVC from the old group
 	if len(associatedVs.Name) != 0 {
 		if len(isvcModelTag) == 0 || isvcModelTag != vsModelTag {
-			resultingVs, err := r.updateTrafficSplitVirtualService(inferenceservice.Namespace, vsModelTag, associatedVs, ctx)
+			resultingVs, err := r.updateTrafficSplitVirtualService(namespace, vsModelTag, associatedVs, ctx)
 			if err != nil {
 				log.Error(err, "Unable to update associated old VirtualService for traffic splitting", "model-tag", vsModelTag, "virtualService", associatedVs.Name)
 				return err
@@ -547,7 +558,7 @@ func (r *OpenshiftInferenceServiceReconciler) ReconcileTrafficSplitting(
 	//      VirtualService is updated.
 	vsNameToAssociate := ""
 	if len(isvcModelTag) != 0 {
-		resultingVs, err := r.updateTrafficSplitVirtualService(inferenceservice.Namespace, isvcModelTag, associatedVs, ctx)
+		resultingVs, err := r.updateTrafficSplitVirtualService(namespace, isvcModelTag, associatedVs, ctx)
 		if err != nil {
 			log.Error(err, "Unable to create or update the VirtualService for traffic splitting", "model-tag", isvcModelTag, "virtualService", associatedVs.Name)
 			return err
@@ -559,10 +570,10 @@ func (r *OpenshiftInferenceServiceReconciler) ReconcileTrafficSplitting(
 	}
 
 	// Update annotation of the InferenceService to store/remove the virtual service name for traffic splitting
-	if vsName := inferenceservice.Annotations["serving.opendatahub.io/vs-traffic-splitting"]; vsNameToAssociate != vsName {
-		inferenceservice.ObjectMeta.Annotations["serving.opendatahub.io/vs-traffic-splitting"] = vsNameToAssociate
+	if vsName := inferenceservice.Annotations[VirtualServiceForTrafficSplitAnnotation]; vsNameToAssociate != vsName {
+		inferenceservice.ObjectMeta.Annotations[VirtualServiceForTrafficSplitAnnotation] = vsNameToAssociate
 		if len(vsNameToAssociate) == 0 {
-			delete(inferenceservice.ObjectMeta.Annotations, "serving.opendatahub.io/vs-traffic-splitting")
+			delete(inferenceservice.ObjectMeta.Annotations, VirtualServiceForTrafficSplitAnnotation)
 		}
 		updateIsvcErr := r.Update(ctx, inferenceservice)
 		if updateIsvcErr != nil {
