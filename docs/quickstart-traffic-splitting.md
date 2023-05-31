@@ -6,11 +6,11 @@ This `odh-model-controller` quick start demonstrates how to use the ModelMesh fr
 
 - Install ModelMesh as described in the [ModelMesh serving quickstart's installation section](https://github.com/opendatahub-io/modelmesh-serving/blob/main/docs/quickstart.md#1-install-modelmesh-serving). The `odh-model-controller` is a companion controller for [modelmesh-serving](https://github.com/opendatahub-io/modelmesh-serving).
 
-- Install Service Mesh depending on your OpenShift or Kubernetes system.
+- Install Service Mesh on OpenShift by using one of the following installation methods:
 
-  - On OpenShift, use the [deploy.ossm.sh](../scripts/deploy.ossm.sh) script to quickly install OpenShift Service Mesh (OSSM). On Red Hat OpenShift for AWS, you must uncomment a few lines in the `deploy.ossm.sh` script before you run it.
+  - Install OpenShift Service Mesh (OSSM) by running the [`deploy.ossm.sh`](../scripts/deploy.ossm.sh) script. Note that on Red Hat OpenShift for AWS, you must uncomment a few lines in the `deploy.ossm.sh` script before you run it.
 
-  - On another type of OpenShift (or Kubernetes), use [Istio](https://istio.io/) to install OSSM. You must also install the required `istiod` and `istio-ingressgateway` components. For example, if you [install with `istioctl`](https://istio.io/latest/docs/setup/install/istioctl/), use the `istioctl install` command which also installs `istiod` and `istio-ingressgateway`.
+  - Alternatively, install [Istio](https://istio.io/) with the required `istiod` and `istio-ingressgateway` components. For example, if you [install by using the `istioctl` command](https://istio.io/latest/docs/setup/install/istioctl/), it includes the required `istiod` and `istio-ingressgateway` components.
 
 ## Procedure
 
@@ -37,7 +37,7 @@ This `odh-model-controller` quick start demonstrates how to use the ModelMesh fr
         - '*'
         port:
           name: http
-          number: 8
+          number: 80
           protocol: HTTP
     EOF
     ```
@@ -55,7 +55,9 @@ This `odh-model-controller` quick start demonstrates how to use the ModelMesh fr
     make deploy -e IMG=quay.io/edgarhz/odh-model-controller:service-mesh-integration
     ```
 
-1. Enroll both the `opendatahub` and this `modelmesh-serving` namespaces in the mesh:
+1. If you are using Istio, skip to the next step. 
+
+    If you are using OSSM, enroll both the `opendatahub` and this `modelmesh-serving` namespaces in the mesh:
 
     ```shell
     kubectl apply -f - <<EOF
