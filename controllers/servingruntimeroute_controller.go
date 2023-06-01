@@ -40,6 +40,12 @@ type ServingRuntimeRouteReconciler struct {
 	MeshDisabled bool
 }
 
+const (
+	modelmeshServiceName     = "modelmesh-serving"
+	modelmeshAuthServicePort = 8443
+	modelmeshServicePort     = 8008
+)
+
 // ClusterRole permissions
 
 // +kubebuilder:rbac:groups=serving.kserve.io,resources=inferenceservices,verbs=get;list;watch
@@ -165,7 +171,7 @@ func (r *ServingRuntimeRouteReconciler) reconcileRoute(servingruntime *mmv1alpha
 		return r.Delete(ctx, foundRoute)
 	}
 	// Reconcile the route spec if it has been manually modified
-	if !justCreated && !CompareInferenceServiceRoutes(*desiredRoute, *foundRoute) {
+	if !justCreated && !CompareServingRuntimeRoutes(*desiredRoute, *foundRoute) {
 		log.Info("Reconciling Route")
 		// Retry the update operation when the ingress controller eventually
 		// updates the resource version field
