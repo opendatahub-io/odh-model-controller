@@ -66,10 +66,12 @@ const (
 	ServingRuntimePath1 = "./testdata/deploy/test-openvino-serving-runtime-1.yaml"
 	ServingRuntimePath2 = "./testdata/deploy/test-openvino-serving-runtime-2.yaml"
 	InferenceService1   = "./testdata/deploy/openvino-inference-service-1.yaml"
+  InferenceServiceNoRuntime  = "./testdata/deploy/openvino-inference-service-no-runtime.yaml"
 	CustomConfigPath    = "./testdata/deploy/test-custom-cm-no-sa.yaml"
 	CustomConfigSAPath  = "./testdata/deploy/test-custom-cm-sa.yaml"
 	ExpectedCrbPath     = "./testdata/results/crb-no-sa.yaml"
 	ExpectedCrbSAPath   = "./testdata/results/crb-sa.yaml"
+  ExpectedRouteNoRuntimePath = "./testdata/results/example-onnx-mnist-no-runtime-route.yaml"
 	ExpectedRoutePath   = "./testdata/results/example-onnx-mnist-route.yaml"
 	timeout             = time.Second * 20
 	interval            = time.Millisecond * 10

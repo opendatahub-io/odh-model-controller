@@ -1,9 +1,12 @@
 approvers:
-  - anishasthana
-  - Jooho
-reviewers:
-  - anishasthana
   - heyselbi
+  - israel-hdez
   - Jooho
-  - Xaenalt
   - VedantMahabaleshwarkar
+  - Xaenalt
+reviewers:
+  - heyselbi
+  - israel-hdez
+  - Jooho
+  - VedantMahabaleshwarkar
+  - Xaenalt
