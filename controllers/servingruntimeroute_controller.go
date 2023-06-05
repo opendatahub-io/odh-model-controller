@@ -75,7 +75,7 @@ func newRoute(servingruntime *mmv1alpha1.ServingRuntime, enableAuth bool) *route
 
 	finalRoute := &routev1.Route{
 		ObjectMeta: metav1.ObjectMeta{
-			Name:      servingruntime.Namespace + "-model-route",
+			Name:      servingruntime.Namespace + servingruntime.Name + "-model-route",
 			Namespace: servingruntime.Namespace,
 			Labels: map[string]string{
 				"servingruntime-name": servingruntime.Name,

@@ -18,6 +18,8 @@ package controllers
 import (
 	"context"
 
+	"sort"
+
 	"github.com/go-logr/logr"
 	predictorv1 "github.com/kserve/modelmesh-serving/apis/serving/v1alpha1"
 	inferenceservicev1 "github.com/kserve/modelmesh-serving/apis/serving/v1beta1"
@@ -57,6 +59,50 @@ type OpenshiftInferenceServiceReconciler struct {
 // +kubebuilder:rbac:groups=rbac.authorization.k8s.io,resources=clusterrolebindings,verbs=get;list;watch;create;update;patch;watch;delete
 // +kubebuilder:rbac:groups="",resources=configmaps;namespaces;pods;services;serviceaccounts;secrets,verbs=get;list;watch;create;update;patch
 
+func (r *OpenshiftInferenceServiceReconciler) findSupportingRuntimeForISvc(ctx context.Context, log logr.Logger, inferenceservice *inferenceservicev1.InferenceService) *predictorv1.ServingRuntime {
+	desiredServingRuntime := predictorv1.ServingRuntime{}
+	runtimes := &predictorv1.ServingRuntimeList{}
+	err := r.List(ctx, runtimes, client.InNamespace(inferenceservice.Namespace))
+	if err != nil {
+		log.Error(err, "Listing ServingRuntimes failed")
+		return nil
+	}
+
+	// Sort by creation date, to be somewhat deterministic
+	sort.Slice(runtimes.Items, func(i, j int) bool {
+		// Sorting descending by creation time leads to picking the most recently created runtimes first
+		if runtimes.Items[i].CreationTimestamp.Before(&runtimes.Items[j].CreationTimestamp) {
+			return false
+		}
+		if runtimes.Items[i].CreationTimestamp.Equal(&runtimes.Items[j].CreationTimestamp) {
+			// For Runtimes created at the same time, use alphabetical order.
+			return runtimes.Items[i].Name < runtimes.Items[j].Name
+		}
+		return true
+	})
+
+	for _, runtime := range runtimes.Items {
+		if runtime.Spec.Disabled != nil && *runtime.Spec.Disabled == true {
+			continue
+		}
+
+		if runtime.Spec.MultiModel != nil && *runtime.Spec.MultiModel == false {
+			continue
+		}
+
+		for _, supportedFormat := range runtime.Spec.SupportedModelFormats {
+			if supportedFormat.AutoSelect != nil && *supportedFormat.AutoSelect == true && supportedFormat.Name == inferenceservice.Spec.Predictor.Model.ModelFormat.Name {
+				desiredServingRuntime = runtime
+				log.Info("Automatic runtime selection for InferenceService", "runtime", desiredServingRuntime.Name)
+				return &desiredServingRuntime
+			}
+		}
+	}
+
+	log.Info("No suitable Runtime available for InferenceService")
+	return &desiredServingRuntime
+}
+
 // Reconcile performs the reconciling of the Openshift objects for a Kubeflow
 // InferenceService.
 func (r *OpenshiftInferenceServiceReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
@@ -73,6 +119,29 @@ func (r *OpenshiftInferenceServiceReconciler) Reconcile(ctx context.Context, req
 	} else if err != nil {
 		log.Error(err, "Unable to fetch the InferenceService")
 		return ctrl.Result{}, err
+	}
+
+	observedRuntime := predictorv1.ServingRuntime{}
+	desiredRuntime := predictorv1.ServingRuntime{}
+	if inferenceservice.Spec.Predictor.Model.Runtime != nil {
+		err := r.Get(ctx, types.NamespacedName{
+			Name:      *inferenceservice.Spec.Predictor.Model.Runtime,
+			Namespace: inferenceservice.Namespace,
+		}, &observedRuntime)
+		if err != nil {
+			if apierrs.IsNotFound(err) {
+				log.Error(err, "Runtime", *&inferenceservice.Spec.Predictor.Model.Runtime, "specified in InferenceService ", *&inferenceservice.Name, " does not exist")
+			}
+		}
+	} else {
+		desiredRuntime = *r.findSupportingRuntimeForISvc(ctx, log, inferenceservice)
+	}
+	inferenceservice.Spec.Predictor.Model.Runtime = &desiredRuntime.Name
+	err = r.Client.Update(ctx, inferenceservice)
+	if apierrs.IsConflict(err) {
+		r.Log.Error(err, "Failed to autoselect Runtime for =: "+*&inferenceservice.Name+" due to resource conflict")
+	} else if err != nil {
+		r.Log.Error(err, "Failed to autoselect Runtime for: "+*&inferenceservice.Name)
 	}
 
 	err = r.ReconcileSA(inferenceservice, ctx)
