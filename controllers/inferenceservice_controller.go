@@ -20,6 +20,7 @@ import (
 	"github.com/go-logr/logr"
 	predictorv1 "github.com/kserve/modelmesh-serving/apis/serving/v1alpha1"
 	inferenceservicev1 "github.com/kserve/modelmesh-serving/apis/serving/v1beta1"
+	"github.com/kserve/modelmesh-serving/pkg/config"
 	routev1 "github.com/openshift/api/route/v1"
 	corev1 "k8s.io/api/core/v1"
 	authv1 "k8s.io/api/rbac/v1"
@@ -36,9 +37,12 @@ import (
 // OpenshiftInferenceServiceReconciler holds the controller configuration.
 type OpenshiftInferenceServiceReconciler struct {
 	client.Client
-	Scheme       *runtime.Scheme
-	Log          logr.Logger
-	MeshDisabled bool
+	Scheme              *runtime.Scheme
+	Log                 logr.Logger
+	ConfigProvider      *config.ConfigProvider
+	ControllerNamespace string
+	CustomConfigMapName types.NamespacedName
+	MeshDisabled        bool
 }
 
 // ClusterRole permissions
@@ -73,13 +77,14 @@ func (r *OpenshiftInferenceServiceReconciler) Reconcile(ctx context.Context, req
 		log.Error(err, "Unable to fetch the InferenceService")
 		return ctrl.Result{}, err
 	}
+	config := r.ConfigProvider.GetConfig()
 
 	err = r.ReconcileRoute(inferenceservice, ctx)
 	if err != nil {
 		return ctrl.Result{}, err
 	}
 
-	err = r.ReconcileSA(inferenceservice, ctx)
+	err = r.ReconcileSA(inferenceservice, ctx, r.ControllerNamespace, config.ServiceAccountName)
 	if err != nil {
 		return ctrl.Result{}, err
 	}
@@ -126,7 +131,37 @@ func (r *OpenshiftInferenceServiceReconciler) SetupWithManager(mgr ctrl.Manager)
 					})
 				}
 				return reconcileRequests
-			}))
+			})).
+		Watches(&source.Kind{Type: &corev1.ConfigMap{}}, handler.EnqueueRequestsFromMapFunc(func(o client.Object) []reconcile.Request {
+			if o.GetName() == r.CustomConfigMapName.Name && o.GetNamespace() == r.CustomConfigMapName.Namespace {
+				err := r.ConfigProvider.ReloadConfigMap(context.TODO(), r.Client, r.CustomConfigMapName)
+				if err != nil {
+					r.Log.Error(err, "Unable to reload user configuration")
+				}
+				inferenceServicesList := &inferenceservicev1.InferenceServiceList{}
+				err = r.List(context.TODO(), inferenceServicesList)
+				if err != nil {
+					r.Log.Info("Error getting list of inference services in all namespaces")
+					return []reconcile.Request{}
+				}
+				if len(inferenceServicesList.Items) == 0 {
+					r.Log.Info("No InferenceServices found")
+					return []reconcile.Request{}
+				}
+
+				reconcileRequests := make([]reconcile.Request, 0, len(inferenceServicesList.Items))
+				for _, inferenceService := range inferenceServicesList.Items {
+					reconcileRequests = append(reconcileRequests, reconcile.Request{
+						NamespacedName: types.NamespacedName{
+							Name:      inferenceService.Name,
+							Namespace: inferenceService.Namespace,
+						},
+					})
+				}
+			}
+			return []reconcile.Request{}
+		}))
+
 	err := builder.Complete(r)
 	if err != nil {
 		return err
