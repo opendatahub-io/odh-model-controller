@@ -5,6 +5,8 @@ metadata:
     modelmesh-enabled: "true"
   annotations:
     opendatahub.io/service-mesh: "true"
-    opendatahub.io/service-mesh-gw: "opendatahub/odh-gateway"
+    service-mesh.opendatahub.io/public-gateway-name: "opendatahub/odh-gateway"
+    service-mesh.opendatahub.io/public-gateway-host-external: "public.gw.com"
+    service-mesh.opendatahub.io/public-gateway-host-internal: "ingress.istio-system.svc.cluster.local"
   name: test
 spec:

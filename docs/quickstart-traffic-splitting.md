@@ -76,8 +76,15 @@ This `odh-model-controller` quick start demonstrates how to use the ModelMesh fr
 1. Enable ODH Service Mesh features in the `modelmesh-serving` namespace:
 
     ~~~
-    kubectl label namespace modelmesh-serving opendatahub.io/service-mesh=true
+    kubectl annotate namespace modelmesh-serving opendatahub.io/service-mesh=true
     ~~~
+
+1. Annotate the modelmesh-serving namespace to use the Istio Gateway:
+
+   ~~~
+   kubectl annotate namespace modelmesh-serving service-mesh.opendatahub.io/public-gateway-name=opendatahub/odh-gateway
+   kubectl annotate namespace modelmesh-serving service-mesh.opendatahub.io/public-gateway-host-internal=istio-ingressgateway.istio-system.svc.cluster.local
+   ~~~
 
 1. To simulate the deployment of two models, you deploy the SKLearn MNIST sample model twice. 
 

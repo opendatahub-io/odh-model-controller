@@ -46,7 +46,7 @@ spec:
       uri: /vmodel-route/ns-dssnm/onnx-mnist/infer
     route:
     - destination:
-        host: istio-ingressgateway.istio-system.svc.cluster.local
+        host: ingress.istio-system.svc.cluster.local
         port:
           number: 80
       headers:
@@ -55,7 +55,7 @@ spec:
             x-vmodel: example-onnx-mnist-v1
       weight: 50
     - destination:
-        host: istio-ingressgateway.istio-system.svc.cluster.local
+        host: ingress.istio-system.svc.cluster.local
         port:
           number: 80
       headers:

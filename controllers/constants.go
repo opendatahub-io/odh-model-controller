@@ -36,8 +36,15 @@ const (
 
 	// IstioGatewayNameAnnotation is the Kubernetes annotation key set by the end-user on Namespaces
 	// to specify the Istio Gateway resource to use when publicly exposing models/ISVCs, in `namespace/name` format.
+	// Models that are configured to be publicly exposed would be associated with this Istio Gateway.
 	// This annotation may be set automatically by the `odh-project-controller`.
-	IstioGatewayNameAnnotation = "opendatahub.io/service-mesh-gw"
+	IstioGatewayNameAnnotation = "service-mesh.opendatahub.io/public-gateway-name"
+
+	// IstioGatewayInternalHostAnnotation is the Kubernetes annotation key set by the end-user on Namespaces
+	// to specify the hostname of the Istio Ingress Gateway that is publicly exposed. Models that are configured to
+	// be publicly exposed would be associated with this hostname.
+	// This annotation may be set automatically by the `odh-project-controller`.
+	IstioGatewayInternalHostAnnotation = "service-mesh.opendatahub.io/public-gateway-host-internal"
 
 	// VirtualServiceForTrafficSplitAnnotation is the Kubernetes annotation set by the controller on InferenceService
 	// resources to record the VirtualService name that is related to an InferenceService group (model-tag) and was

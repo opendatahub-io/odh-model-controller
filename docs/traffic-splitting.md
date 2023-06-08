@@ -75,7 +75,8 @@ Add the following annotations to your namespace to configure the Istio
 Gateway to use to expose the Inference Services created the namespace:
 
 ```shell
-kubectl annotate ns modelmesh-apps opendatahub.io/service-mesh-gw=gateway-namespace-name/gateway-resource-name
+kubectl annotate ns modelmesh-apps service-mesh.opendatahub.io/public-gateway-name=gateway-namespace-name/gateway-resource-name
+kubectl annotate ns modelmesh-apps service-mesh.opendatahub.io/public-gateway-host-internal=in-cluster-gateway.namespace.svc.cluster.local
 ```
 
 > :bulb: When installing the whole ODH platform, these annotations should be 

@@ -131,14 +131,14 @@ func buildTrafficSplittingGrpcRoute(modelTag string, validISvcs []inferenceservi
 	}, nil
 }
 
-func buildTrafficSplittingHttpRoute(modelTag string, validISvcs []inferenceservicev1.InferenceService) (*v1alpha3.HTTPRoute, error) {
+func buildTrafficSplittingHttpRoute(namespace *v1.Namespace, modelTag string, validISvcs []inferenceservicev1.InferenceService) (*v1alpha3.HTTPRoute, error) {
 	servingNamespace := validISvcs[0].Namespace
 
 	splitRoutes := make([]*v1alpha3.HTTPRouteDestination, len(validISvcs), len(validISvcs))
 	for idx, isvc := range validISvcs {
 		split := v1alpha3.HTTPRouteDestination{
 			Destination: &v1alpha3.Destination{
-				Host: "istio-ingressgateway.istio-system.svc.cluster.local",
+				Host: namespace.Annotations[IstioGatewayInternalHostAnnotation],
 				Port: &v1alpha3.PortSelector{
 					Number: 80,
 				},
@@ -211,13 +211,13 @@ func buildHttpRedirectionRoutes(modelTag string, validISvcs []inferenceservicev1
 	return splitRedirectionRoutes
 }
 
-func buildTrafficSplittingVirtualService(modelTag string, validISvcs []inferenceservicev1.InferenceService) (*virtualservicev1.VirtualService, error) {
+func buildTrafficSplittingVirtualService(namespace *v1.Namespace, modelTag string, validISvcs []inferenceservicev1.InferenceService) (*virtualservicev1.VirtualService, error) {
 	grpcRoute, err := buildTrafficSplittingGrpcRoute(modelTag, validISvcs)
 	if err != nil {
 		return nil, err
 	}
 
-	httpSplitRoute, err := buildTrafficSplittingHttpRoute(modelTag, validISvcs)
+	httpSplitRoute, err := buildTrafficSplittingHttpRoute(namespace, modelTag, validISvcs)
 	if err != nil {
 		return nil, err
 	}
@@ -360,7 +360,7 @@ func (r *OpenshiftInferenceServiceReconciler) updateTrafficSplitVirtualService(n
 	}
 
 	// Build the VirtualService for traffic splitting
-	desiredVirtualService, err := buildTrafficSplittingVirtualService(modelTag, validISvcs)
+	desiredVirtualService, err := buildTrafficSplittingVirtualService(namespace, modelTag, validISvcs)
 	if err != nil {
 		return nil, err
 	}
@@ -497,6 +497,16 @@ func (r *OpenshiftInferenceServiceReconciler) ReconcileTrafficSplitting(
 	// Initialize logger format
 	log := r.Log.WithValues("inferenceservice", inferenceservice.Name, "namespace", inferenceservice.Namespace)
 	log.Info("Reconciling traffic splitting")
+
+	// Ensure that the namespace has the needed annotations to configure traffic splitting
+	if _, gwNameOk := namespace.Annotations[IstioGatewayNameAnnotation]; !gwNameOk {
+		log.Info("Namespace does not have the " + IstioGatewayNameAnnotation + " annotation")
+		return fmt.Errorf("namespace does not have the " + IstioGatewayNameAnnotation + " annotation")
+	}
+	if _, gwHostOk := namespace.Annotations[IstioGatewayInternalHostAnnotation]; !gwHostOk {
+		log.Info("Namespace does not have the " + IstioGatewayInternalHostAnnotation + " annotation")
+		return fmt.Errorf("namespace does not have the " + IstioGatewayInternalHostAnnotation + " annotation")
+	}
 
 	// Fetch associated VirtualService, if there is one
 	associatedVs := &virtualservicev1.VirtualService{}
