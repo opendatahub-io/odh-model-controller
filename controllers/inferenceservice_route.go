@@ -91,6 +91,7 @@ func NewInferenceServiceRoute(inferenceservice *inferenceservicev1.InferenceServ
 		finalRoute.Spec.Port = &routev1.RoutePort{
 			TargetPort: intstr.FromInt(modelmeshGrpcPort),
 		}
+		finalRoute.Spec.Path = ""
 		finalRoute.Spec.TLS = &routev1.TLSConfig{
 			Termination:                   routev1.TLSTerminationPassthrough,
 			InsecureEdgeTerminationPolicy: routev1.InsecureEdgeTerminationPolicyRedirect,
