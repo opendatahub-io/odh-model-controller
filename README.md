@@ -29,36 +29,13 @@ Run the following command to execute them:
 make test
 ```
 
-### Run locally
-
-Install the CRD from the [KServe modelmesh-serving](../modelmesh-serving-controller) repository as a requirement.
-
-When running the controller locally, the [admission webhook](./config/webhook)
-will be running in your local machine. The requests made by the Openshift API
-have to be redirected to the local port.
-
-This will be solved by deploying the [Ktunnel
-application](https://github.com/omrikiei/ktunnel) in your cluster instead of the
-controller manager, it will create a reverse tunnel between the cluster and your
-local machine:
-
-```shell
-make deploy-dev -e K8S_NAMESPACE=<YOUR_NAMESPACE>
-```
-
-Run the controller locally:
-
-```shell
-make run -e K8S_NAMESPACE=<YOUR_NAMESPACE>
-```
-
 ### Deploy local changes
 
 Build a new image with your local changes and push it to `<YOUR_IMAGE>` (by
-default `quay.io/opendatahub/odh-model-controller`).
+default `quay.io/${USER}/odh-model-controller:latest`).
 
 ```shell
-make image -e IMG=<YOUR_IMAGE>
+make -e IMG=<YOUR_IMAGE> docker-build docker-push
 ```
 
 Deploy the manager using the image in your registry:
