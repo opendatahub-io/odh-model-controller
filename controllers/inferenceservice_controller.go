@@ -84,7 +84,7 @@ func (r *OpenshiftInferenceServiceReconciler) Reconcile(ctx context.Context, req
 		return ctrl.Result{}, err
 	}
 
-	err = r.ReconcileSA(inferenceservice, ctx, r.ControllerNamespace, config.ServiceAccountName)
+	err = r.ReconcileSA(inferenceservice, ctx, config.ServiceAccountName, r.ControllerNamespace)
 	if err != nil {
 		return ctrl.Result{}, err
 	}
