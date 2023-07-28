@@ -56,7 +56,7 @@ func newStorageSecret(dataConnectionSecretsList *corev1.SecretList) *corev1.Secr
 		dataConnectionElement["default_bucket"] = string(secret.Data["AWS_S3_BUCKET"])
 		dataConnectionElement["region"] = string(secret.Data["AWS_DEFAULT_REGION"])
 		if secret.Data["AWS_CA_BUNDLE"] != nil {
-			dataConnectionElement["certificate"] = string(secret.Data["AWS_CA_BUNDLE"])			
+			dataConnectionElement["certificate"] = string(secret.Data["AWS_CA_BUNDLE"])
 		}
 		jsonBytes, _ := json.Marshal(dataConnectionElement)
 		storageByteData[secret.Name] = jsonBytes
