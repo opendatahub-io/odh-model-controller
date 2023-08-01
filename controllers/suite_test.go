@@ -17,25 +17,30 @@ package controllers
 
 import (
 	"context"
+	"path/filepath"
+	"testing"
+	"time"
+
 	mmv1alpha1 "github.com/kserve/modelmesh-serving/apis/serving/v1alpha1"
 	inferenceservicev1 "github.com/kserve/modelmesh-serving/apis/serving/v1beta1"
 	mf "github.com/manifestival/manifestival"
 	monitoringv1 "github.com/prometheus-operator/prometheus-operator/pkg/apis/monitoring/v1"
 	k8srbacv1 "k8s.io/api/rbac/v1"
-	"path/filepath"
-	"testing"
-	"time"
 
 	"go.uber.org/zap/zapcore"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
 	ctrl "sigs.k8s.io/controller-runtime"
 
 	predictorv1 "github.com/kserve/modelmesh-serving/apis/serving/v1alpha1"
+	kservev1beta1 "github.com/kserve/modelmesh-serving/apis/serving/v1beta1"
 	"github.com/manifestival/manifestival"
 	. "github.com/onsi/ginkgo"
 	. "github.com/onsi/gomega"
 	routev1 "github.com/openshift/api/route/v1"
 	virtualservicev1 "istio.io/client-go/pkg/apis/networking/v1alpha3"
+	istiosecurityv1beta1 "istio.io/client-go/pkg/apis/security/v1beta1"
+	telemetryv1alpha1 "istio.io/client-go/pkg/apis/telemetry/v1alpha1"
+	corev1 "k8s.io/api/core/v1"
 	"k8s.io/client-go/kubernetes/scheme"
 	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
 	maistrav1 "maistra.io/api/core/v1"
@@ -59,17 +64,19 @@ var (
 )
 
 const (
-	WorkingNamespace           = "default"
-	MonitoringNS               = "monitoring-ns"
-	RoleBindingPath            = "./testdata/results/model-server-ns-role.yaml"
-	ServingRuntimePath1        = "./testdata/deploy/test-openvino-serving-runtime-1.yaml"
-	ServingRuntimePath2        = "./testdata/deploy/test-openvino-serving-runtime-2.yaml"
-	InferenceService1          = "./testdata/deploy/openvino-inference-service-1.yaml"
-	InferenceServiceNoRuntime  = "./testdata/deploy/openvino-inference-service-no-runtime.yaml"
-	ExpectedRoutePath          = "./testdata/results/example-onnx-mnist-route.yaml"
-	ExpectedRouteNoRuntimePath = "./testdata/results/example-onnx-mnist-no-runtime-route.yaml"
-	timeout                    = time.Second * 20
-	interval                   = time.Millisecond * 10
+	WorkingNamespace            = "default"
+	MonitoringNS                = "monitoring-ns"
+	RoleBindingPath             = "./testdata/results/model-server-ns-role.yaml"
+	ServingRuntimePath1         = "./testdata/deploy/test-openvino-serving-runtime-1.yaml"
+	ServingRuntimePath2         = "./testdata/deploy/test-openvino-serving-runtime-2.yaml"
+	InferenceService1           = "./testdata/deploy/openvino-inference-service-1.yaml"
+	InferenceServiceNoRuntime   = "./testdata/deploy/openvino-inference-service-no-runtime.yaml"
+	KserveInferenceServicePath1 = "./testdata/deploy/kserve-inference-service-1.yaml"
+	KserveInferenceServicePath2 = "./testdata/deploy/kserve-inference-service-2.yaml"
+	ExpectedRoutePath           = "./testdata/results/example-onnx-mnist-route.yaml"
+	ExpectedRouteNoRuntimePath  = "./testdata/results/example-onnx-mnist-no-runtime-route.yaml"
+	timeout                     = time.Second * 20
+	interval                    = time.Millisecond * 10
 )
 
 func TestAPIs(t *testing.T) {
@@ -111,7 +118,10 @@ var _ = BeforeSuite(func() {
 	utilruntime.Must(maistrav1.AddToScheme(scheme.Scheme))
 	utilruntime.Must(monitoringv1.AddToScheme(scheme.Scheme))
 	utilruntime.Must(mmv1alpha1.AddToScheme(scheme.Scheme))
-
+	utilruntime.Must(corev1.AddToScheme(scheme.Scheme))
+	utilruntime.Must(istiosecurityv1beta1.AddToScheme(scheme.Scheme))
+	utilruntime.Must(kservev1beta1.AddToScheme(scheme.Scheme))
+	utilruntime.Must(telemetryv1alpha1.AddToScheme(scheme.Scheme))
 	// +kubebuilder:scaffold:scheme
 
 	// Initialize Kubernetes client
