@@ -55,6 +55,9 @@ func newStorageSecret(dataConnectionSecretsList *corev1.SecretList) *corev1.Secr
 		dataConnectionElement["endpoint_url"] = string(secret.Data["AWS_S3_ENDPOINT"])
 		dataConnectionElement["default_bucket"] = string(secret.Data["AWS_S3_BUCKET"])
 		dataConnectionElement["region"] = string(secret.Data["AWS_DEFAULT_REGION"])
+		if secret.Data["AWS_CA_BUNDLE"] != nil {
+			dataConnectionElement["certificate"] = string(secret.Data["AWS_CA_BUNDLE"])
+		}
 		jsonBytes, _ := json.Marshal(dataConnectionElement)
 		storageByteData[secret.Name] = jsonBytes
 	}
@@ -169,9 +172,8 @@ func reconcileOpenDataHubSecrets() predicate.Predicate {
 			return checkOpenDataHubLabel(objectLabels)
 		},
 		UpdateFunc: func(e event.UpdateEvent) bool {
-			objectOldLabels := e.ObjectOld.GetLabels()
 			objectNewLabels := e.ObjectNew.GetLabels()
-			return checkOpenDataHubLabel(objectNewLabels) || checkOpenDataHubLabel(objectOldLabels)
+			return checkOpenDataHubLabel(objectNewLabels)
 		},
 	}
 }
