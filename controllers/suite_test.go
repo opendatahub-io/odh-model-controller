@@ -21,6 +21,7 @@ import (
 	inferenceservicev1 "github.com/kserve/modelmesh-serving/apis/serving/v1beta1"
 	mf "github.com/manifestival/manifestival"
 	monitoringv1 "github.com/prometheus-operator/prometheus-operator/pkg/apis/monitoring/v1"
+	corev1 "k8s.io/api/core/v1"
 	k8srbacv1 "k8s.io/api/rbac/v1"
 	"path/filepath"
 	"testing"
@@ -111,6 +112,7 @@ var _ = BeforeSuite(func() {
 	utilruntime.Must(maistrav1.AddToScheme(scheme.Scheme))
 	utilruntime.Must(monitoringv1.AddToScheme(scheme.Scheme))
 	utilruntime.Must(mmv1alpha1.AddToScheme(scheme.Scheme))
+	utilruntime.Must(corev1.AddToScheme(scheme.Scheme))
 
 	// +kubebuilder:scaffold:scheme
 
@@ -176,6 +178,7 @@ var _ = AfterEach(func() {
 	Expect(cli.DeleteAllOf(context.TODO(), &mmv1alpha1.ServingRuntime{}, inNamespace)).ToNot(HaveOccurred())
 	Expect(cli.DeleteAllOf(context.TODO(), &monitoringv1.ServiceMonitor{}, inNamespace)).ToNot(HaveOccurred())
 	Expect(cli.DeleteAllOf(context.TODO(), &k8srbacv1.RoleBinding{}, inNamespace)).ToNot(HaveOccurred())
+	Expect(cli.DeleteAllOf(context.TODO(), &corev1.Secret{}, inNamespace)).ToNot(HaveOccurred())
 
 })
 
