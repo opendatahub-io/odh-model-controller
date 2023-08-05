@@ -30,15 +30,11 @@ import (
 	ctrl "sigs.k8s.io/controller-runtime"
 )
 
-const (
-	modelMeshServiceAccountName = "modelmesh-serving-sa"
-)
-
-func newInferenceServiceSA(inferenceservice *inferenceservicev1.InferenceService) *corev1.ServiceAccount {
+func newInferenceServiceSA(serviceAccountName string, serviceAccountNamespace string) *corev1.ServiceAccount {
 	return &corev1.ServiceAccount{
 		ObjectMeta: metav1.ObjectMeta{
-			Name:      modelMeshServiceAccountName,
-			Namespace: inferenceservice.Namespace,
+			Name:      serviceAccountName,
+			Namespace: serviceAccountNamespace,
 		},
 	}
 }
@@ -63,17 +59,17 @@ func createDelegateClusterRoleBinding(serviceAccountName string, serviceAccountN
 	}
 }
 
-func (r *OpenshiftInferenceServiceReconciler) reconcileSA(inferenceService *inferenceservicev1.InferenceService, ctx context.Context, newSA func(service *inferenceservicev1.InferenceService) *corev1.ServiceAccount) error {
+func (r *OpenshiftInferenceServiceReconciler) reconcileSA(inferenceService *inferenceservicev1.InferenceService, ctx context.Context, serviceAccountName string, serviceAccountNamespace string, newSA func(serviceAccountName string, serviceAccountNamespace string) *corev1.ServiceAccount) error {
 
 	// Initialize logger format
 	log := r.Log.WithValues("inferenceservice", inferenceService.Name, "namespace", inferenceService.Namespace)
 
-	desiredSA := newSA(inferenceService)
+	desiredSA := newSA(serviceAccountName, serviceAccountNamespace)
 	foundSA := &corev1.ServiceAccount{}
 
 	err := r.Get(ctx, types.NamespacedName{
 		Name:      desiredSA.Name,
-		Namespace: inferenceService.Namespace,
+		Namespace: desiredSA.Namespace,
 	}, foundSA)
 
 	if err != nil {
@@ -99,7 +95,7 @@ func (r *OpenshiftInferenceServiceReconciler) reconcileSA(inferenceService *infe
 	}
 
 	// Create the corresponding auth delegation cluster role binding
-	desiredCRB := createDelegateClusterRoleBinding(modelMeshServiceAccountName, desiredSA.Namespace)
+	desiredCRB := createDelegateClusterRoleBinding(desiredSA.Name, desiredSA.Namespace)
 	foundCRB := &authv1.ClusterRoleBinding{}
 	justCreated := false
 
@@ -159,8 +155,8 @@ func (r *OpenshiftInferenceServiceReconciler) reconcileSA(inferenceService *infe
 
 // ReconcileSA will manage the creation, update and deletion of the auth delegation SA + RBAC
 func (r *OpenshiftInferenceServiceReconciler) ReconcileSA(
-	inferenceservice *inferenceservicev1.InferenceService, ctx context.Context) error {
-	return r.reconcileSA(inferenceservice, ctx, newInferenceServiceSA)
+	inferenceservice *inferenceservicev1.InferenceService, ctx context.Context, serviceAccountName string, serviceAccountNamespace string) error {
+	return r.reconcileSA(inferenceservice, ctx, serviceAccountName, serviceAccountNamespace, newInferenceServiceSA)
 }
 
 // CompareInferenceServiceCRBs checks if two service accounts are equal, if not return false

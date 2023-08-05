@@ -17,10 +17,15 @@ limitations under the License.
 package main
 
 import (
+	"context"
 	"flag"
 	inferenceservicev1 "github.com/kserve/modelmesh-serving/apis/serving/v1beta1"
+	config2 "github.com/kserve/modelmesh-serving/pkg/config"
 	monitoringv1 "github.com/prometheus-operator/prometheus-operator/pkg/apis/monitoring/v1"
+	"k8s.io/apimachinery/pkg/types"
 	"os"
+	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/client/config"
 	"strconv"
 
 	// Import all Kubernetes client auth plugins (e.g. Azure, GCP, OIDC, etc.)
@@ -45,6 +50,13 @@ import (
 var (
 	scheme   = runtime.NewScheme()
 	setupLog = ctrl.Log.WithName("setup")
+)
+
+const (
+	ControllerNamespaceEnvVar  = "NAMESPACE"
+	DefaultControllerNamespace = "model-serving"
+	KubeNamespaceFile          = "/var/run/secrets/kubernetes.io/serviceaccount/namespace"
+	UserConfigMapName          = "model-serving-config"
 )
 
 func init() {
@@ -74,6 +86,22 @@ func getEnvAsBool(name string, defaultValue bool) bool {
 }
 
 func main() {
+
+	// ----- fetch controller namespace -----
+	controllerNamespace := os.Getenv(ControllerNamespaceEnvVar)
+	controllerNamespace = "opendatahub"
+	if controllerNamespace == "" {
+		bytes, err := os.ReadFile(KubeNamespaceFile)
+		if err != nil {
+			//TODO check kube context and retrieve namespace from there
+			setupLog.Info("Error reading Kube-mounted namespace file, reverting to default namespace",
+				"file", KubeNamespaceFile, "err", err, "default", DefaultControllerNamespace)
+			controllerNamespace = DefaultControllerNamespace
+		} else {
+			controllerNamespace = string(bytes)
+		}
+	}
+
 	var metricsAddr string
 	var enableLeaderElection bool
 	var monitoringNS string
@@ -109,12 +137,29 @@ func main() {
 		os.Exit(1)
 	}
 
+	cfg := config.GetConfigOrDie()
+	cl, err := client.New(cfg, client.Options{Scheme: scheme})
+	if err != nil {
+		setupLog.Error(err, "unable to create an api server client")
+		os.Exit(1)
+	}
+
+	customConfigMapName := types.NamespacedName{Name: UserConfigMapName, Namespace: controllerNamespace}
+	cp, err := config2.NewConfigProvider(context.Background(), cl, customConfigMapName)
+	if err != nil {
+		setupLog.Error(err, "Error loading user config from configmap", "ConfigMapName", UserConfigMapName)
+		os.Exit(1)
+	}
+
 	//Setup InferenceService controller
 	if err = (&controllers.OpenshiftInferenceServiceReconciler{
-		Client:       mgr.GetClient(),
-		Log:          ctrl.Log.WithName("controllers").WithName("InferenceService"),
-		Scheme:       mgr.GetScheme(),
-		MeshDisabled: getEnvAsBool("MESH_DISABLED", false),
+		Client:              mgr.GetClient(),
+		Log:                 ctrl.Log.WithName("controllers").WithName("InferenceService"),
+		Scheme:              mgr.GetScheme(),
+		ConfigProvider:      cp,
+		ControllerNamespace: controllerNamespace,
+		CustomConfigMapName: customConfigMapName,
+		MeshDisabled:        getEnvAsBool("MESH_DISABLED", false),
 	}).SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "unable to create controller", "controller", "InferenceService")
 		os.Exit(1)
