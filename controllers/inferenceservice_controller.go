@@ -17,11 +17,17 @@ package controllers
 
 import (
 	"context"
+
 	"github.com/go-logr/logr"
 	predictorv1 "github.com/kserve/modelmesh-serving/apis/serving/v1alpha1"
 	inferenceservicev1 "github.com/kserve/modelmesh-serving/apis/serving/v1beta1"
+	kservev1beta1 "github.com/kserve/modelmesh-serving/apis/serving/v1beta1"
 	routev1 "github.com/openshift/api/route/v1"
+	monitoringv1 "github.com/prometheus-operator/prometheus-operator/pkg/apis/monitoring/v1"
+	istiosecv1beta1 "istio.io/client-go/pkg/apis/security/v1beta1"
+	telemetryv1alpha1 "istio.io/client-go/pkg/apis/telemetry/v1alpha1"
 	corev1 "k8s.io/api/core/v1"
+	networkingv1 "k8s.io/api/networking/v1"
 	authv1 "k8s.io/api/rbac/v1"
 	apierrs "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -41,20 +47,18 @@ type OpenshiftInferenceServiceReconciler struct {
 	MeshDisabled bool
 }
 
-// ClusterRole permissions
+const (
+	inferenceServiceDeploymentModeAnnotation      = "serving.kserve.io/deploymentMode"
+	inferenceServiceDeploymentModeAnnotationValue = "ModelMesh"
+)
 
-// +kubebuilder:rbac:groups=serving.kserve.io,resources=inferenceservices,verbs=get;list;watch
-// +kubebuilder:rbac:groups=serving.kserve.io,resources=inferenceservices/finalizers,verbs=get;list;watch;update
-// +kubebuilder:rbac:groups=serving.kserve.io,resources=servingruntimes,verbs=get;list;watch;create;update
-// +kubebuilder:rbac:groups=serving.kserve.io,resources=servingruntimes/finalizers,verbs=get;list;watch;create;update;patch;delete
-// +kubebuilder:rbac:groups=networking.istio.io,resources=virtualservices,verbs=get;list;watch;create;update;patch;delete
-// +kubebuilder:rbac:groups=networking.istio.io,resources=virtualservices/finalizers,verbs=get;list;watch;create;update;patch;delete
-// +kubebuilder:rbac:groups=maistra.io,resources=servicemeshmembers,verbs=get;list;watch;create;update;patch;delete
-// +kubebuilder:rbac:groups=maistra.io,resources=servicemeshmembers/finalizers,verbs=get;list;watch;create;update;patch;delete
-// +kubebuilder:rbac:groups=maistra.io,resources=servicemeshcontrolplanes,verbs=get;list;watch;create;update;patch;use
-// +kubebuilder:rbac:groups=route.openshift.io,resources=routes,verbs=get;list;watch;create;update;patch
-// +kubebuilder:rbac:groups=rbac.authorization.k8s.io,resources=clusterrolebindings,verbs=get;list;watch;create;update;patch;watch;delete
-// +kubebuilder:rbac:groups="",resources=configmaps;namespaces;pods;services;serviceaccounts;secrets,verbs=get;list;watch;create;update;patch
+func (r *OpenshiftInferenceServiceReconciler) isDeploymentModeForIsvcModelMesh(inferenceservice *inferenceservicev1.InferenceService) bool {
+	value, exists := inferenceservice.Annotations[inferenceServiceDeploymentModeAnnotation]
+	if exists && value == inferenceServiceDeploymentModeAnnotationValue {
+		return true
+	}
+	return false
+}
 
 // Reconcile performs the reconciling of the Openshift objects for a Kubeflow
 // InferenceService.
@@ -64,24 +68,38 @@ func (r *OpenshiftInferenceServiceReconciler) Reconcile(ctx context.Context, req
 
 	// Get the InferenceService object when a reconciliation event is triggered (create,
 	// update, delete)
-	inferenceservice := &inferenceservicev1.InferenceService{}
+	inferenceservice := &kservev1beta1.InferenceService{}
 	err := r.Get(ctx, req.NamespacedName, inferenceservice)
 	if err != nil && apierrs.IsNotFound(err) {
 		log.Info("Stop InferenceService reconciliation")
+		// InferenceService not found, so we check for any other inference services that might be using Kserve
+		// If none are found, we delete the common namespace-scoped resources that were created for Kserve Metrics.
+		err1 := r.DeleteKserveMetricsResourcesIfNoKserveIsvcExists(ctx, req, req.Namespace)
+		if err1 != nil {
+			log.Error(err1, "Unable to clean up resources")
+			return ctrl.Result{}, err1
+		}
 		return ctrl.Result{}, nil
 	} else if err != nil {
 		log.Error(err, "Unable to fetch the InferenceService")
 		return ctrl.Result{}, err
 	}
 
-	err = r.ReconcileRoute(inferenceservice, ctx)
-	if err != nil {
-		return ctrl.Result{}, err
-	}
+	// Check what deployment mode is used by the InferenceService. We have differing reconciliation logic for Kserve and ModelMesh
+	if r.isDeploymentModeForIsvcModelMesh(inferenceservice) {
+		log.Info("Reconciling InferenceService for ModelMesh")
+		err = r.ReconcileRoute(inferenceservice, ctx)
+		if err != nil {
+			return ctrl.Result{}, err
+		}
 
-	err = r.ReconcileSA(inferenceservice, ctx)
-	if err != nil {
-		return ctrl.Result{}, err
+		err = r.ReconcileSA(inferenceservice, ctx)
+		if err != nil {
+			return ctrl.Result{}, err
+		}
+	} else {
+		log.Info("Reconciling InferenceService for Kserve")
+		err = r.ReconcileKserveInference(ctx, req, inferenceservice)
 	}
 
 	return ctrl.Result{}, nil
@@ -90,7 +108,7 @@ func (r *OpenshiftInferenceServiceReconciler) Reconcile(ctx context.Context, req
 // SetupWithManager sets up the controller with the Manager.
 func (r *OpenshiftInferenceServiceReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	builder := ctrl.NewControllerManagedBy(mgr).
-		For(&inferenceservicev1.InferenceService{}).
+		For(&kservev1beta1.InferenceService{}).
 		Owns(&predictorv1.ServingRuntime{}).
 		Owns(&corev1.Namespace{}).
 		Owns(&routev1.Route{}).
@@ -98,6 +116,11 @@ func (r *OpenshiftInferenceServiceReconciler) SetupWithManager(mgr ctrl.Manager)
 		Owns(&corev1.Service{}).
 		Owns(&corev1.Secret{}).
 		Owns(&authv1.ClusterRoleBinding{}).
+		Owns(&istiosecv1beta1.PeerAuthentication{}).
+		Owns(&networkingv1.NetworkPolicy{}).
+		Owns(&monitoringv1.ServiceMonitor{}).
+		Owns(&monitoringv1.PodMonitor{}).
+		Owns(&telemetryv1alpha1.Telemetry{}).
 		Watches(&source.Kind{Type: &predictorv1.ServingRuntime{}},
 			handler.EnqueueRequestsFromMapFunc(func(o client.Object) []reconcile.Request {
 				r.Log.Info("Reconcile event triggered by serving runtime: " + o.GetName())
