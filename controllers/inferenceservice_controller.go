@@ -24,8 +24,6 @@ import (
 	kservev1beta1 "github.com/kserve/modelmesh-serving/apis/serving/v1beta1"
 	routev1 "github.com/openshift/api/route/v1"
 	monitoringv1 "github.com/prometheus-operator/prometheus-operator/pkg/apis/monitoring/v1"
-	istiosecv1beta1 "istio.io/client-go/pkg/apis/security/v1beta1"
-	telemetryv1alpha1 "istio.io/client-go/pkg/apis/telemetry/v1alpha1"
 	corev1 "k8s.io/api/core/v1"
 	networkingv1 "k8s.io/api/networking/v1"
 	authv1 "k8s.io/api/rbac/v1"
@@ -116,11 +114,9 @@ func (r *OpenshiftInferenceServiceReconciler) SetupWithManager(mgr ctrl.Manager)
 		Owns(&corev1.Service{}).
 		Owns(&corev1.Secret{}).
 		Owns(&authv1.ClusterRoleBinding{}).
-		Owns(&istiosecv1beta1.PeerAuthentication{}).
 		Owns(&networkingv1.NetworkPolicy{}).
 		Owns(&monitoringv1.ServiceMonitor{}).
 		Owns(&monitoringv1.PodMonitor{}).
-		Owns(&telemetryv1alpha1.Telemetry{}).
 		Watches(&source.Kind{Type: &predictorv1.ServingRuntime{}},
 			handler.EnqueueRequestsFromMapFunc(func(o client.Object) []reconcile.Request {
 				r.Log.Info("Reconcile event triggered by serving runtime: " + o.GetName())

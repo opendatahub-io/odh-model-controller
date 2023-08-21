@@ -28,6 +28,7 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	networkingv1 "k8s.io/api/networking/v1"
 	k8srbacv1 "k8s.io/api/rbac/v1"
+	apiextv1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
 	"k8s.io/apimachinery/pkg/api/errors"
 	apierrs "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -50,7 +51,36 @@ const (
 	clusterPrometheusAccessRoleBinding = "kserve-prometheus-k8s"
 	clusterPrometheusAccessRole        = "kserve-prometheus-k8s"
 	InferenceSercviceLabelName         = "serving.kserve.io/inferenceservice"
+	TelemetryCRD                       = "telemetries.telemetry.istio.io"
+	PeerAuthCRD                        = "peerauthentications.security.istio.io"
 )
+
+func (r *OpenshiftInferenceServiceReconciler) foundKserveDependenyCRDs(ctx context.Context) bool {
+
+	allCRDsFound := true
+	// Check if CRD for Telemetry is installed
+	crd := &apiextv1.CustomResourceDefinition{}
+	err := r.Client.Get(ctx, client.ObjectKey{Name: TelemetryCRD}, crd)
+	if err != nil {
+		if apierrs.IsNotFound(err) {
+			allCRDsFound = false
+		} else {
+			allCRDsFound = false
+		}
+	}
+
+	// Check if CRD for PeerAuthentication is installed
+	err = r.Client.Get(ctx, client.ObjectKey{Name: PeerAuthCRD}, crd)
+	if err != nil {
+		if apierrs.IsNotFound(err) {
+			allCRDsFound = false
+		} else {
+			allCRDsFound = false
+		}
+	}
+
+	return allCRDsFound
+}
 
 func (r *OpenshiftInferenceServiceReconciler) ensurePrometheusRoleBinding(ctx context.Context, req ctrl.Request, ns string) error {
 	// Initialize logger format
@@ -470,6 +500,12 @@ func (r *OpenshiftInferenceServiceReconciler) DeleteKserveMetricsResourcesIfNoKs
 	// Initialize logger format
 	log := r.Log.WithValues("namespace", ns)
 
+	//Check if the dependent CRDs for Kserve are installed
+	if !r.foundKserveDependenyCRDs(ctx) {
+		log.Info("Missing Istio CRDs")
+		return nil
+	}
+
 	inferenceServiceList := &kservev1beta1.InferenceServiceList{}
 	err := r.List(ctx, inferenceServiceList, client.InNamespace(req.Namespace))
 	if err != nil {
@@ -588,8 +624,13 @@ func (r *OpenshiftInferenceServiceReconciler) ReconcileKserveInference(ctx conte
 	// Initialize logger format
 	log := r.Log.WithValues("InferenceService", inferenceService.Name, "namespace", inferenceService.Namespace)
 
-	//Also create the metrics service and servicemonitor with OwnerReferences, as these are not common namespace-scope resources
-	//Create the metrics service and servicemonitor first, then ensure all namespace-scoped resources exist.
+	//Check if the dependent CRDs for Kserve are installed
+	if !r.foundKserveDependenyCRDs(ctx) {
+		log.Info("Missing Istio CRDs")
+		return nil
+	}
+
+	//Create the metrics service and servicemonitor with OwnerReferences, as these are not common namespace-scope resources
 	log.Info("Reconciling Metrics Service for InferenceSercvice")
 	err := r.createOrUpdateMetricsService(ctx, req, inferenceService)
 	if err != nil {
