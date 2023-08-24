@@ -21,8 +21,8 @@ import (
 	"testing"
 	"time"
 
-	mmv1alpha1 "github.com/kserve/modelmesh-serving/apis/serving/v1alpha1"
-	inferenceservicev1 "github.com/kserve/modelmesh-serving/apis/serving/v1beta1"
+	kservev1alpha1 "github.com/kserve/kserve/pkg/apis/serving/v1alpha1"
+	kservev1beta1 "github.com/kserve/kserve/pkg/apis/serving/v1beta1"
 	mf "github.com/manifestival/manifestival"
 	monitoringv1 "github.com/prometheus-operator/prometheus-operator/pkg/apis/monitoring/v1"
 	"go.uber.org/zap/zapcore"
@@ -30,8 +30,6 @@ import (
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
 	ctrl "sigs.k8s.io/controller-runtime"
 
-	predictorv1 "github.com/kserve/modelmesh-serving/apis/serving/v1alpha1"
-	kservev1beta1 "github.com/kserve/modelmesh-serving/apis/serving/v1beta1"
 	"github.com/manifestival/manifestival"
 	. "github.com/onsi/ginkgo"
 	. "github.com/onsi/gomega"
@@ -110,16 +108,14 @@ var _ = BeforeSuite(func() {
 
 	// Register API objects
 	utilruntime.Must(clientgoscheme.AddToScheme(scheme.Scheme))
-	utilruntime.Must(predictorv1.AddToScheme(scheme.Scheme))
-	utilruntime.Must(inferenceservicev1.AddToScheme(scheme.Scheme))
+	utilruntime.Must(kservev1alpha1.AddToScheme(scheme.Scheme))
+	utilruntime.Must(kservev1beta1.AddToScheme(scheme.Scheme))
 	utilruntime.Must(routev1.AddToScheme(scheme.Scheme))
 	utilruntime.Must(virtualservicev1.AddToScheme(scheme.Scheme))
 	utilruntime.Must(maistrav1.AddToScheme(scheme.Scheme))
 	utilruntime.Must(monitoringv1.AddToScheme(scheme.Scheme))
-	utilruntime.Must(mmv1alpha1.AddToScheme(scheme.Scheme))
 	utilruntime.Must(corev1.AddToScheme(scheme.Scheme))
 	utilruntime.Must(istiosecurityv1beta1.AddToScheme(scheme.Scheme))
-	utilruntime.Must(kservev1beta1.AddToScheme(scheme.Scheme))
 	utilruntime.Must(telemetryv1alpha1.AddToScheme(scheme.Scheme))
 
 	// +kubebuilder:scaffold:scheme
@@ -180,10 +176,9 @@ var _ = AfterSuite(func() {
 // Cleanup resources to not contaminate between tests
 var _ = AfterEach(func() {
 	inNamespace := client.InNamespace(WorkingNamespace)
-	Expect(cli.DeleteAllOf(context.TODO(), &mmv1alpha1.ServingRuntime{}, inNamespace)).ToNot(HaveOccurred())
-	Expect(cli.DeleteAllOf(context.TODO(), &inferenceservicev1.InferenceService{}, inNamespace)).ToNot(HaveOccurred())
+	Expect(cli.DeleteAllOf(context.TODO(), &kservev1alpha1.ServingRuntime{}, inNamespace)).ToNot(HaveOccurred())
+	Expect(cli.DeleteAllOf(context.TODO(), &kservev1beta1.InferenceService{}, inNamespace)).ToNot(HaveOccurred())
 	Expect(cli.DeleteAllOf(context.TODO(), &routev1.Route{}, inNamespace)).ToNot(HaveOccurred())
-	Expect(cli.DeleteAllOf(context.TODO(), &mmv1alpha1.ServingRuntime{}, inNamespace)).ToNot(HaveOccurred())
 	Expect(cli.DeleteAllOf(context.TODO(), &monitoringv1.ServiceMonitor{}, inNamespace)).ToNot(HaveOccurred())
 	Expect(cli.DeleteAllOf(context.TODO(), &k8srbacv1.RoleBinding{}, inNamespace)).ToNot(HaveOccurred())
 	Expect(cli.DeleteAllOf(context.TODO(), &corev1.Secret{}, inNamespace)).ToNot(HaveOccurred())

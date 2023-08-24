@@ -23,7 +23,7 @@ import (
 	apierrs "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/types"
 
-	inferenceservicev1 "github.com/kserve/modelmesh-serving/apis/serving/v1beta1"
+	kservev1beta1 "github.com/kserve/kserve/pkg/apis/serving/v1beta1"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/util/retry"
@@ -34,7 +34,7 @@ const (
 	modelMeshServiceAccountName = "modelmesh-serving-sa"
 )
 
-func newInferenceServiceSA(inferenceservice *inferenceservicev1.InferenceService) *corev1.ServiceAccount {
+func newInferenceServiceSA(inferenceservice *kservev1beta1.InferenceService) *corev1.ServiceAccount {
 	return &corev1.ServiceAccount{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      modelMeshServiceAccountName,
@@ -63,7 +63,7 @@ func createDelegateClusterRoleBinding(serviceAccountName string, serviceAccountN
 	}
 }
 
-func (r *OpenshiftInferenceServiceReconciler) reconcileSA(inferenceService *inferenceservicev1.InferenceService, ctx context.Context, newSA func(service *inferenceservicev1.InferenceService) *corev1.ServiceAccount) error {
+func (r *OpenshiftInferenceServiceReconciler) reconcileSA(inferenceService *kservev1beta1.InferenceService, ctx context.Context, newSA func(service *kservev1beta1.InferenceService) *corev1.ServiceAccount) error {
 
 	// Initialize logger format
 	log := r.Log.WithValues("inferenceservice", inferenceService.Name, "namespace", inferenceService.Namespace)
@@ -159,7 +159,7 @@ func (r *OpenshiftInferenceServiceReconciler) reconcileSA(inferenceService *infe
 
 // ReconcileSA will manage the creation, update and deletion of the auth delegation SA + RBAC
 func (r *OpenshiftInferenceServiceReconciler) ReconcileSA(
-	inferenceservice *inferenceservicev1.InferenceService, ctx context.Context) error {
+	inferenceservice *kservev1beta1.InferenceService, ctx context.Context) error {
 	return r.reconcileSA(inferenceservice, ctx, newInferenceServiceSA)
 }
 

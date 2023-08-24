@@ -18,7 +18,7 @@ package controllers
 import (
 	"context"
 
-	kservev1beta1 "github.com/kserve/modelmesh-serving/apis/serving/v1beta1"
+	kservev1beta1 "github.com/kserve/kserve/pkg/apis/serving/v1beta1"
 	monitoringv1 "github.com/prometheus-operator/prometheus-operator/pkg/apis/monitoring/v1"
 	"istio.io/api/security/v1beta1"
 	"istio.io/api/telemetry/v1alpha1"
