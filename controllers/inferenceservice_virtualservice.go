@@ -19,7 +19,7 @@ import (
 	"context"
 	"reflect"
 
-	inferenceservicev1 "github.com/kserve/modelmesh-serving/apis/serving/v1beta1"
+	kservev1beta1 "github.com/kserve/kserve/pkg/apis/serving/v1beta1"
 	"istio.io/api/meta/v1alpha1"
 	"istio.io/api/networking/v1alpha3"
 	virtualservicev1 "istio.io/client-go/pkg/apis/networking/v1alpha3"
@@ -31,7 +31,7 @@ import (
 )
 
 // NewInferenceServiceVirtualService defines the desired VirtualService object
-func NewInferenceServiceVirtualService(inferenceservice *inferenceservicev1.InferenceService) *virtualservicev1.VirtualService {
+func NewInferenceServiceVirtualService(inferenceservice *kservev1beta1.InferenceService) *virtualservicev1.VirtualService {
 	return &virtualservicev1.VirtualService{
 		TypeMeta:   metav1.TypeMeta{},
 		ObjectMeta: metav1.ObjectMeta{Name: inferenceservice.Name, Namespace: inferenceservice.Namespace, Labels: map[string]string{"inferenceservice-name": inferenceservice.Name}},
@@ -72,8 +72,8 @@ func CompareInferenceServiceVirtualServices(vs1 *virtualservicev1.VirtualService
 
 // Reconcile will manage the creation, update and deletion of the VirtualService returned
 // by the newVirtualService function
-func (r *OpenshiftInferenceServiceReconciler) reconcileVirtualService(inferenceservice *inferenceservicev1.InferenceService,
-	ctx context.Context, newVirtualService func(service *inferenceservicev1.InferenceService) *virtualservicev1.VirtualService) error {
+func (r *OpenshiftInferenceServiceReconciler) reconcileVirtualService(inferenceservice *kservev1beta1.InferenceService,
+	ctx context.Context, newVirtualService func(service *kservev1beta1.InferenceService) *virtualservicev1.VirtualService) error {
 	// Initialize logger format
 	log := r.Log.WithValues("inferenceservice", inferenceservice.Name, "namespace", inferenceservice.Namespace)
 
@@ -140,6 +140,6 @@ func (r *OpenshiftInferenceServiceReconciler) reconcileVirtualService(inferences
 // ReconcileVirtualService will manage the creation, update and deletion of the
 // VirtualService when the Predictor is reconciled
 func (r *OpenshiftInferenceServiceReconciler) ReconcileVirtualService(
-	inferenceservice *inferenceservicev1.InferenceService, ctx context.Context) error {
+	inferenceservice *kservev1beta1.InferenceService, ctx context.Context) error {
 	return r.reconcileVirtualService(inferenceservice, ctx, NewInferenceServiceVirtualService)
 }

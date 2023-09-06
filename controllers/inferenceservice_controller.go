@@ -19,9 +19,8 @@ import (
 	"context"
 
 	"github.com/go-logr/logr"
-	predictorv1 "github.com/kserve/modelmesh-serving/apis/serving/v1alpha1"
-	inferenceservicev1 "github.com/kserve/modelmesh-serving/apis/serving/v1beta1"
-	kservev1beta1 "github.com/kserve/modelmesh-serving/apis/serving/v1beta1"
+	kservev1alpha1 "github.com/kserve/kserve/pkg/apis/serving/v1alpha1"
+	kservev1beta1 "github.com/kserve/kserve/pkg/apis/serving/v1beta1"
 	routev1 "github.com/openshift/api/route/v1"
 	monitoringv1 "github.com/prometheus-operator/prometheus-operator/pkg/apis/monitoring/v1"
 	corev1 "k8s.io/api/core/v1"
@@ -50,7 +49,7 @@ const (
 	inferenceServiceDeploymentModeAnnotationValue = "ModelMesh"
 )
 
-func (r *OpenshiftInferenceServiceReconciler) isDeploymentModeForIsvcModelMesh(inferenceservice *inferenceservicev1.InferenceService) bool {
+func (r *OpenshiftInferenceServiceReconciler) isDeploymentModeForIsvcModelMesh(inferenceservice *kservev1beta1.InferenceService) bool {
 	value, exists := inferenceservice.Annotations[inferenceServiceDeploymentModeAnnotation]
 	if exists && value == inferenceServiceDeploymentModeAnnotationValue {
 		return true
@@ -107,7 +106,7 @@ func (r *OpenshiftInferenceServiceReconciler) Reconcile(ctx context.Context, req
 func (r *OpenshiftInferenceServiceReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	builder := ctrl.NewControllerManagedBy(mgr).
 		For(&kservev1beta1.InferenceService{}).
-		Owns(&predictorv1.ServingRuntime{}).
+		Owns(&kservev1alpha1.ServingRuntime{}).
 		Owns(&corev1.Namespace{}).
 		Owns(&routev1.Route{}).
 		Owns(&corev1.ServiceAccount{}).
@@ -117,10 +116,10 @@ func (r *OpenshiftInferenceServiceReconciler) SetupWithManager(mgr ctrl.Manager)
 		Owns(&networkingv1.NetworkPolicy{}).
 		Owns(&monitoringv1.ServiceMonitor{}).
 		Owns(&monitoringv1.PodMonitor{}).
-		Watches(&source.Kind{Type: &predictorv1.ServingRuntime{}},
+		Watches(&source.Kind{Type: &kservev1alpha1.ServingRuntime{}},
 			handler.EnqueueRequestsFromMapFunc(func(o client.Object) []reconcile.Request {
 				r.Log.Info("Reconcile event triggered by serving runtime: " + o.GetName())
-				inferenceServicesList := &inferenceservicev1.InferenceServiceList{}
+				inferenceServicesList := &kservev1beta1.InferenceServiceList{}
 				opts := []client.ListOption{client.InNamespace(o.GetNamespace())}
 
 				// Todo: Get only Inference Services that are deploying on the specific serving runtime

@@ -17,8 +17,8 @@ package controllers
 
 import (
 	"context"
-	mmv1alpha1 "github.com/kserve/modelmesh-serving/apis/serving/v1alpha1"
-	inferenceservicev1 "github.com/kserve/modelmesh-serving/apis/serving/v1beta1"
+	kservev1alpha1 "github.com/kserve/kserve/pkg/apis/serving/v1alpha1"
+	kservev1beta1 "github.com/kserve/kserve/pkg/apis/serving/v1beta1"
 	routev1 "github.com/openshift/api/route/v1"
 	"k8s.io/apimachinery/pkg/types"
 
@@ -38,19 +38,19 @@ var _ = Describe("The Openshift model controller", func() {
 			opts = mf.UseClient(client)
 			ctx := context.Background()
 
-			servingRuntime1 := &mmv1alpha1.ServingRuntime{}
+			servingRuntime1 := &kservev1alpha1.ServingRuntime{}
 			err := convertToStructuredResource(ServingRuntimePath1, servingRuntime1, opts)
 			Expect(err).NotTo(HaveOccurred())
 			Expect(cli.Create(ctx, servingRuntime1)).Should(Succeed())
 
-			servingRuntime2 := &mmv1alpha1.ServingRuntime{}
+			servingRuntime2 := &kservev1alpha1.ServingRuntime{}
 			err = convertToStructuredResource(ServingRuntimePath2, servingRuntime2, opts)
 			Expect(err).NotTo(HaveOccurred())
 			Expect(cli.Create(ctx, servingRuntime2)).Should(Succeed())
 		})
 
 		It("when InferenceService specifies a runtime, should create a Route to expose the traffic externally", func() {
-			inferenceService := &inferenceservicev1.InferenceService{}
+			inferenceService := &kservev1beta1.InferenceService{}
 			err := convertToStructuredResource(InferenceService1, inferenceService, opts)
 			Expect(err).NotTo(HaveOccurred())
 			Expect(cli.Create(ctx, inferenceService)).Should(Succeed())
@@ -71,7 +71,7 @@ var _ = Describe("The Openshift model controller", func() {
 		})
 
 		It("when InferenceService does not specifies a runtime, should automatically pick a runtime and create a Route", func() {
-			inferenceService := &inferenceservicev1.InferenceService{}
+			inferenceService := &kservev1beta1.InferenceService{}
 			err := convertToStructuredResource(InferenceServiceNoRuntime, inferenceService, opts)
 			Expect(err).NotTo(HaveOccurred())
 			Expect(cli.Create(ctx, inferenceService)).Should(Succeed())
