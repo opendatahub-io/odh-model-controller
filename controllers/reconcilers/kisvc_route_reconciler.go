@@ -8,6 +8,7 @@ import (
 	"github.com/kserve/kserve/pkg/constants"
 	"github.com/kserve/kserve/pkg/utils"
 	"github.com/opendatahub-io/odh-model-controller/controllers/components"
+	constants2 "github.com/opendatahub-io/odh-model-controller/controllers/constants"
 	"github.com/opendatahub-io/odh-model-controller/controllers/processors"
 	v1 "github.com/openshift/api/route/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -18,11 +19,6 @@ import (
 	"knative.dev/pkg/network"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"strings"
-)
-
-const (
-	IstioNamespace      = "istio-system"
-	IstioIngressService = "istio-ingressgateway"
 )
 
 type kserveInferenceServiceRouteReconciler struct {
@@ -79,6 +75,9 @@ func (r *kserveInferenceServiceRouteReconciler) createDesiredResource() (*v1.Rou
 	if disableIstioVirtualHost == false {
 
 		serviceHost := getServiceHost(r.isvc)
+		if serviceHost == "" {
+			return nil, fmt.Errorf("failed to load serviceHost from InferenceService status")
+		}
 		isInternal := false
 		//if service is labelled with cluster local or knative domain is configured as internal
 		if val, ok := r.isvc.Labels[constants.VisibilityLabel]; ok && val == constants.ClusterLocalVisibility {
@@ -101,7 +100,7 @@ func (r *kserveInferenceServiceRouteReconciler) createDesiredResource() (*v1.Rou
 		route := &v1.Route{
 			ObjectMeta: metav1.ObjectMeta{
 				Name:        r.isvc.Name,
-				Namespace:   IstioNamespace,
+				Namespace:   constants2.IstioNamespace,
 				Annotations: annotations,
 				Labels:      r.isvc.Labels,
 			},
@@ -109,7 +108,7 @@ func (r *kserveInferenceServiceRouteReconciler) createDesiredResource() (*v1.Rou
 				Host: serviceHost,
 				To: v1.RouteTargetReference{
 					Kind:   "Service",
-					Name:   IstioIngressService,
+					Name:   constants2.IstioIngressService,
 					Weight: pointer.Int32(100),
 				},
 				Port: &v1.RoutePort{
@@ -121,9 +120,6 @@ func (r *kserveInferenceServiceRouteReconciler) createDesiredResource() (*v1.Rou
 				},
 				WildcardPolicy: v1.WildcardPolicyNone,
 			},
-			Status: v1.RouteStatus{
-				Ingress: []v1.RouteIngress{},
-			},
 		}
 		return route, nil
 	}
@@ -131,7 +127,7 @@ func (r *kserveInferenceServiceRouteReconciler) createDesiredResource() (*v1.Rou
 }
 
 func (r *kserveInferenceServiceRouteReconciler) getExistingResource() (*v1.Route, error) {
-	return r.routeHandler.FetchRoute(types.NamespacedName{Name: r.isvc.Name, Namespace: IstioNamespace})
+	return r.routeHandler.FetchRoute(types.NamespacedName{Name: r.isvc.Name, Namespace: constants2.IstioNamespace})
 }
 
 func (r *kserveInferenceServiceRouteReconciler) processDelta(desiredRoute *v1.Route, existingRoute *v1.Route) (err error) {

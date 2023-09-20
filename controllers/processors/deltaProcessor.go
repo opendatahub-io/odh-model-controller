@@ -6,6 +6,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
+// DeltaProcessor would compare the request to desired resource and return the delta that needs to be process.
 type DeltaProcessor interface {
 	ComputeDelta(comparator comparators.ResourceComparator, requestedResource client.Object, deployedResource client.Object) ResourceDelta
 }

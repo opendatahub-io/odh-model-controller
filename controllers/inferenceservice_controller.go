@@ -83,19 +83,22 @@ func (r *OpenshiftInferenceServiceReconciler) Reconcile(ctx context.Context, req
 	}
 
 	if inferenceservice.GetDeletionTimestamp() != nil {
-		return reconcile.Result{}, r.delete(ctx, inferenceservice)
+		return reconcile.Result{}, r.onDeletion(ctx, inferenceservice)
 	}
 
 	// Check what deployment mode is used by the InferenceService. We have differing reconciliation logic for Kserve and ModelMesh
 	if r.isDeploymentModeForIsvcModelMesh(inferenceservice) {
 		log.Info("Reconciling InferenceService for ModelMesh")
 		err = r.ReconcileModelMeshInference(ctx, req, inferenceservice)
+		if err != nil {
+			return ctrl.Result{}, err
+		}
 	} else {
 		log.Info("Reconciling InferenceService for Kserve")
 		err = r.ReconcileKserveInference(ctx, req, inferenceservice)
 	}
 
-	return ctrl.Result{}, err
+	return ctrl.Result{}, nil
 }
 
 // SetupWithManager sets up the controller with the Manager.
@@ -150,11 +153,13 @@ func (r *OpenshiftInferenceServiceReconciler) SetupWithManager(mgr ctrl.Manager)
 }
 
 // general clean-up, mostly resources in different namespaces from kservev1beta1.InferenceService
-func (r *OpenshiftInferenceServiceReconciler) delete(ctx context.Context, inferenceService *kservev1beta1.InferenceService) error {
+func (r *OpenshiftInferenceServiceReconciler) onDeletion(ctx context.Context, inferenceService *kservev1beta1.InferenceService) error {
 	log := r.Log.WithValues("InferenceService", inferenceService.Name, "namespace", inferenceService.Namespace)
-
 	log.Info("Running cleanup logic")
 
-	log.Info("Deleting kserve inference route")
-	return r.DeleteKserveInferenceServiceRoute(ctx, inferenceService)
+	if !r.isDeploymentModeForIsvcModelMesh(inferenceService) {
+		log.Info("Deleting kserve inference resource")
+		return r.OnDeletionOfKserveInferenceService(ctx, inferenceService)
+	}
+	return nil
 }

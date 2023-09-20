@@ -17,10 +17,10 @@ package controllers
 
 import (
 	"context"
-	"fmt"
 	kservev1beta1 "github.com/kserve/kserve/pkg/apis/serving/v1beta1"
+	"github.com/opendatahub-io/odh-model-controller/controllers/components"
+	"github.com/opendatahub-io/odh-model-controller/controllers/constants"
 	"github.com/opendatahub-io/odh-model-controller/controllers/reconcilers"
-	v1 "github.com/openshift/api/route/v1"
 	monitoringv1 "github.com/prometheus-operator/prometheus-operator/pkg/apis/monitoring/v1"
 	"istio.io/api/security/v1beta1"
 	"istio.io/api/telemetry/v1alpha1"
@@ -470,23 +470,12 @@ func (r *OpenshiftInferenceServiceReconciler) createOrUpdateMetricsServiceMonito
 	return nil
 }
 
-func (r *OpenshiftInferenceServiceReconciler) DeleteKserveInferenceServiceRoute(ctx context.Context, inferenceService *kservev1beta1.InferenceService) error {
-	if r.isDeploymentModeForIsvcModelMesh(inferenceService) {
-		return nil
-	}
-	route := &v1.Route{}
-	err := r.Get(ctx, types.NamespacedName{Name: inferenceService.Name, Namespace: reconcilers.IstioNamespace}, route)
-	if err != nil {
-		if errors.IsNotFound(err) {
-			return nil
-		}
-		return err
-	}
-	if err = r.Delete(ctx, route); err != nil {
-		return fmt.Errorf("failed to delete Kserve Inference route: %w", err)
-	}
+func (r *OpenshiftInferenceServiceReconciler) OnDeletionOfKserveInferenceService(ctx context.Context, inferenceService *kservev1beta1.InferenceService) error {
+	log := r.Log.WithValues("InferenceService", inferenceService.Name, "namespace", inferenceService.Namespace)
 
-	return nil
+	log.Info("Deleting Kserve inference service generic route")
+	routeHandler := components.NewRouteHandler(r.Client, ctx, log)
+	return routeHandler.DeleteRoute(types.NamespacedName{Name: inferenceService.Name, Namespace: constants.IstioNamespace})
 }
 
 func (r *OpenshiftInferenceServiceReconciler) DeleteKserveMetricsResourcesIfNoKserveIsvcExists(ctx context.Context, req ctrl.Request, ns string) error {
