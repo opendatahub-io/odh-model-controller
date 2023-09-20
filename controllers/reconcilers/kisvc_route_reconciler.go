@@ -18,7 +18,6 @@ import (
 	"k8s.io/utils/pointer"
 	"knative.dev/pkg/network"
 	"sigs.k8s.io/controller-runtime/pkg/client"
-	"strings"
 )
 
 type kserveInferenceServiceRouteReconciler struct {
@@ -166,37 +165,9 @@ func (r *kserveInferenceServiceRouteReconciler) processDelta(desiredRoute *v1.Ro
 }
 
 func getServiceHost(isvc *kservev1beta1.InferenceService) string {
-	if isvc.Status.Components == nil {
+	if isvc.Status.URL == nil {
 		return ""
 	}
 	//Derive the ingress service host from underlying service url
-	if isvc.Spec.Transformer != nil {
-		if transformerStatus, ok := isvc.Status.Components[kservev1beta1.TransformerComponent]; !ok {
-			return ""
-		} else if transformerStatus.URL == nil {
-			return ""
-		} else {
-			if strings.Contains(transformerStatus.URL.Host, "-default") {
-				return strings.Replace(transformerStatus.URL.Host, fmt.Sprintf("-%s-default", string(constants.Transformer)), "",
-					1)
-			} else {
-				return strings.Replace(transformerStatus.URL.Host, fmt.Sprintf("-%s", string(constants.Transformer)), "",
-					1)
-			}
-		}
-	}
-
-	if predictorStatus, ok := isvc.Status.Components[kservev1beta1.PredictorComponent]; !ok {
-		return ""
-	} else if predictorStatus.URL == nil {
-		return ""
-	} else {
-		if strings.Contains(predictorStatus.URL.Host, "-default") {
-			return strings.Replace(predictorStatus.URL.Host, fmt.Sprintf("-%s-default", string(constants.Predictor)), "",
-				1)
-		} else {
-			return strings.Replace(predictorStatus.URL.Host, fmt.Sprintf("-%s", string(constants.Predictor)), "",
-				1)
-		}
-	}
+	return isvc.Status.URL.Host
 }
