@@ -98,7 +98,7 @@ func (r *OpenshiftInferenceServiceReconciler) Reconcile(ctx context.Context, req
 		err = r.ReconcileKserveInference(ctx, req, inferenceservice)
 	}
 
-	return ctrl.Result{}, nil
+	return ctrl.Result{}, err
 }
 
 // SetupWithManager sets up the controller with the Manager.

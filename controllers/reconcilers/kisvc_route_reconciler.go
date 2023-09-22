@@ -119,6 +119,9 @@ func (r *kserveInferenceServiceRouteReconciler) createDesiredResource() (*v1.Rou
 				},
 				WildcardPolicy: v1.WildcardPolicyNone,
 			},
+			Status: v1.RouteStatus{
+				Ingress: []v1.RouteIngress{},
+			},
 		}
 		return route, nil
 	}

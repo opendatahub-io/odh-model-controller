@@ -104,7 +104,7 @@ func (r *OpenshiftInferenceServiceReconciler) ensureServiceMeshMemberRollEntry(c
 	// Initialize logger format
 	log := r.Log.WithValues("namespace", ns)
 	observedServiceMeshMemberRoll := &maistrav1.ServiceMeshMemberRoll{}
-	err := r.Client.Get(ctx, types.NamespacedName{Name: serviceMeshMemberRollName, Namespace: "istio-system"}, observedServiceMeshMemberRoll)
+	err := r.Client.Get(ctx, types.NamespacedName{Name: serviceMeshMemberRollName, Namespace: constants.IstioNamespace}, observedServiceMeshMemberRoll)
 	if err != nil {
 		if apierrs.IsNotFound(err) {
 			log.Error(err, "default ServiceMeshMemberRoll not found in namespace: istio-system")
@@ -525,7 +525,7 @@ func (r *OpenshiftInferenceServiceReconciler) DeleteKserveMetricsResourcesIfNoKs
 		}
 
 		serviceMeshMemberRoll := &maistrav1.ServiceMeshMemberRoll{}
-		err = r.Client.Get(ctx, types.NamespacedName{Name: serviceMeshMemberRollName, Namespace: "istio-system"}, serviceMeshMemberRoll)
+		err = r.Client.Get(ctx, types.NamespacedName{Name: serviceMeshMemberRollName, Namespace: constants.IstioNamespace}, serviceMeshMemberRoll)
 		if err != nil {
 			log.Error(err, "Failed to get ServiceMeshMemberRoll.")
 			return err
@@ -600,9 +600,16 @@ func (r *OpenshiftInferenceServiceReconciler) ReconcileKserveInference(ctx conte
 	// Initialize logger format
 	log := r.Log.WithValues("InferenceService", inferenceService.Name, "namespace", inferenceService.Namespace)
 
+	log.Info("Reconciling Generic Route for Kserve InferenceService")
+	kisvcRouteReconciler := reconcilers.NewKserveInferenceServiceRouteReconciler(r.Client, r.Scheme, ctx, log, inferenceService)
+	err := kisvcRouteReconciler.Reconcile()
+	if err != nil {
+		return err
+	}
+
 	//Create the metrics service and servicemonitor with OwnerReferences, as these are not common namespace-scope resources
 	log.Info("Reconciling Metrics Service for InferenceSercvice")
-	err := r.createOrUpdateMetricsService(ctx, req, inferenceService)
+	err = r.createOrUpdateMetricsService(ctx, req, inferenceService)
 	if err != nil {
 		return err
 	}
@@ -651,13 +658,6 @@ func (r *OpenshiftInferenceServiceReconciler) ReconcileKserveInference(ctx conte
 
 	log.Info("Reconciling NetworkPolicy for target namespace")
 	err = r.createOrUpdateNetworkPolicy(ctx, req, inferenceService)
-	if err != nil {
-		return err
-	}
-
-	log.Info("Reconciling Generic Route for Kserve InferenceService")
-	kisvcRouteReconciler := reconcilers.NewKserveInferenceServiceRouteReconciler(r.Client, r.Scheme, ctx, log, inferenceService)
-	err = kisvcRouteReconciler.Reconcile()
 	if err != nil {
 		return err
 	}
