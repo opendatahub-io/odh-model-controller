@@ -104,7 +104,6 @@ func main() {
 	var enableLeaderElection bool
 	var monitoringNS string
 	var probeAddr string
-	var kserveEnabled bool
 	flag.StringVar(&metricsAddr, "metrics-bind-address", ":8080", "The address the metric endpoint binds to.")
 	flag.StringVar(&probeAddr, "health-probe-bind-address", ":8081", "The address the probe endpoint binds to.")
 	flag.BoolVar(&enableLeaderElection, "leader-elect", false,
@@ -112,9 +111,6 @@ func main() {
 			"Enabling this will ensure there is only one active controller manager.")
 	flag.StringVar(&monitoringNS, "monitoring-namespace", "",
 		"The Namespace where the monitoring stack's Prometheus resides.")
-	flag.BoolVar(&kserveEnabled, "kserve-enabled", true,
-		"Enable Kserve Metrics. "+
-			"Enabling will disable modelmesh controllers and only create kserve monitoring controller.")
 
 	opts := zap.Options{
 		Development: true,
@@ -147,32 +143,29 @@ func main() {
 		setupLog.Error(err, "unable to create controller", "controller", "InferenceService")
 		os.Exit(1)
 	}
-	if !kserveEnabled {
-		setupLog.Info("ModelMesh deployment mode, skipping setup of kserve controllers.")
-		if err = (&controllers.StorageSecretReconciler{
-			Client: mgr.GetClient(),
-			Log:    ctrl.Log.WithName("controllers").WithName("StorageSecret"),
-			Scheme: mgr.GetScheme(),
+	if err = (&controllers.StorageSecretReconciler{
+		Client: mgr.GetClient(),
+		Log:    ctrl.Log.WithName("controllers").WithName("StorageSecret"),
+		Scheme: mgr.GetScheme(),
+	}).SetupWithManager(mgr); err != nil {
+		setupLog.Error(err, "unable to create controller", "controller", "StorageSecret")
+		os.Exit(1)
+	}
+
+	if monitoringNS != "" {
+		setupLog.Info("Monitoring namespace provided, setting up monitoring controller.")
+		if err = (&controllers.MonitoringReconciler{
+			Client:       mgr.GetClient(),
+			Log:          ctrl.Log.WithName("controllers").WithName("MonitoringReconciler"),
+			Scheme:       mgr.GetScheme(),
+			MonitoringNS: monitoringNS,
 		}).SetupWithManager(mgr); err != nil {
-			setupLog.Error(err, "unable to create controller", "controller", "StorageSecret")
+			setupLog.Error(err, "unable to create controller", "controller", "MonitoringReconciler")
 			os.Exit(1)
 		}
-
-		if monitoringNS != "" {
-			setupLog.Info("Monitoring namespace provided, setting up monitoring controller.")
-			if err = (&controllers.MonitoringReconciler{
-				Client:       mgr.GetClient(),
-				Log:          ctrl.Log.WithName("controllers").WithName("MonitoringReconciler"),
-				Scheme:       mgr.GetScheme(),
-				MonitoringNS: monitoringNS,
-			}).SetupWithManager(mgr); err != nil {
-				setupLog.Error(err, "unable to create controller", "controller", "MonitoringReconciler")
-				os.Exit(1)
-			}
-		} else {
-			setupLog.Info("Monitoring namespace not provided, skipping setup of monitoring controller. To enable " +
-				"monitoring for ModelServing, please provide a monitoring namespace via the (--monitoring-namespace) flag.")
-		}
+	} else {
+		setupLog.Info("Monitoring namespace not provided, skipping setup of monitoring controller. To enable " +
+			"monitoring for ModelServing, please provide a monitoring namespace via the (--monitoring-namespace) flag.")
 	}
 
 	//+kubebuilder:scaffold:builder
