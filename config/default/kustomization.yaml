@@ -1,8 +1,3 @@
 bases:
   - ../rbac
   - ../manager
-  - ../crd/external
-
-# Adds namespace to all resources.
-namespace: odh-model-controller-system
-
