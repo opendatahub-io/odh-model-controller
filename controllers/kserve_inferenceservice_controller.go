@@ -473,7 +473,7 @@ func (r *OpenshiftInferenceServiceReconciler) createOrUpdateMetricsServiceMonito
 func (r *OpenshiftInferenceServiceReconciler) OnDeletionOfKserveInferenceService(ctx context.Context, inferenceService *kservev1beta1.InferenceService) error {
 	log := r.Log.WithValues("InferenceService", inferenceService.Name, "namespace", inferenceService.Namespace)
 
-	log.Info("Deleting Kserve inference service generic route")
+	log.V(1).Info("Deleting Kserve inference service generic route")
 	routeHandler := components.NewRouteHandler(r.Client, ctx, log)
 	return routeHandler.DeleteRoute(types.NamespacedName{Name: inferenceService.Name, Namespace: constants.IstioNamespace})
 }

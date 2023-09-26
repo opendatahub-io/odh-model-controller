@@ -155,10 +155,10 @@ func (r *OpenshiftInferenceServiceReconciler) SetupWithManager(mgr ctrl.Manager)
 // general clean-up, mostly resources in different namespaces from kservev1beta1.InferenceService
 func (r *OpenshiftInferenceServiceReconciler) onDeletion(ctx context.Context, inferenceService *kservev1beta1.InferenceService) error {
 	log := r.Log.WithValues("InferenceService", inferenceService.Name, "namespace", inferenceService.Namespace)
-	log.Info("Running cleanup logic")
+	log.V(1).Info("Running cleanup logic")
 
 	if !r.isDeploymentModeForIsvcModelMesh(inferenceService) {
-		log.Info("Deleting kserve inference resource")
+		log.V(1).Info("Deleting kserve inference resource")
 		return r.OnDeletionOfKserveInferenceService(ctx, inferenceService)
 	}
 	return nil
