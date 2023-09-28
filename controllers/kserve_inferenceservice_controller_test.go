@@ -22,6 +22,7 @@ import (
 	. "github.com/onsi/ginkgo"
 	. "github.com/onsi/gomega"
 	"github.com/opendatahub-io/odh-model-controller/controllers/constants"
+	"github.com/opendatahub-io/odh-model-controller/controllers/reconcilers"
 	routev1 "github.com/openshift/api/route/v1"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -78,7 +79,7 @@ var _ = Describe("The Openshift Kserve model controller", func() {
 			//time.Sleep(5000 * time.Millisecond)
 			Consistently(func() error {
 				route := &routev1.Route{}
-				key := types.NamespacedName{Name: inferenceService.Name, Namespace: constants.IstioNamespace}
+				key := types.NamespacedName{Name: reconcilers.GetKServeRouteName(inferenceService), Namespace: constants.IstioNamespace}
 				err = cli.Get(ctx, key, route)
 				return err
 			}, time.Second*1, interval).Should(HaveOccurred())
@@ -97,7 +98,7 @@ var _ = Describe("The Openshift Kserve model controller", func() {
 			By("By checking that the controller has created the Route")
 			Eventually(func() error {
 				route := &routev1.Route{}
-				key := types.NamespacedName{Name: inferenceService.Name, Namespace: constants.IstioNamespace}
+				key := types.NamespacedName{Name: reconcilers.GetKServeRouteName(inferenceService), Namespace: constants.IstioNamespace}
 				err = cli.Get(ctx, key, route)
 				return err
 			}, timeout, interval).ShouldNot(HaveOccurred())

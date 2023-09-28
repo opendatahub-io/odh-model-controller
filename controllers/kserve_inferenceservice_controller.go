@@ -475,7 +475,7 @@ func (r *OpenshiftInferenceServiceReconciler) OnDeletionOfKserveInferenceService
 
 	log.V(1).Info("Deleting Kserve inference service generic route")
 	routeHandler := components.NewRouteHandler(r.Client, ctx, log)
-	return routeHandler.DeleteRoute(types.NamespacedName{Name: inferenceService.Name, Namespace: constants.IstioNamespace})
+	return routeHandler.DeleteRoute(types.NamespacedName{Name: reconcilers.GetKServeRouteName(inferenceService), Namespace: constants.IstioNamespace})
 }
 
 func (r *OpenshiftInferenceServiceReconciler) DeleteKserveMetricsResourcesIfNoKserveIsvcExists(ctx context.Context, req ctrl.Request, ns string) error {

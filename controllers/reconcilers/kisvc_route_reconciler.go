@@ -98,7 +98,7 @@ func (r *kserveInferenceServiceRouteReconciler) createDesiredResource() (*v1.Rou
 		})
 		route := &v1.Route{
 			ObjectMeta: metav1.ObjectMeta{
-				Name:        r.isvc.Name,
+				Name:        GetKServeRouteName(r.isvc),
 				Namespace:   constants2.IstioNamespace,
 				Annotations: annotations,
 				Labels:      r.isvc.Labels,
@@ -129,7 +129,7 @@ func (r *kserveInferenceServiceRouteReconciler) createDesiredResource() (*v1.Rou
 }
 
 func (r *kserveInferenceServiceRouteReconciler) getExistingResource() (*v1.Route, error) {
-	return r.routeHandler.FetchRoute(types.NamespacedName{Name: r.isvc.Name, Namespace: constants2.IstioNamespace})
+	return r.routeHandler.FetchRoute(types.NamespacedName{Name: GetKServeRouteName(r.isvc), Namespace: constants2.IstioNamespace})
 }
 
 func (r *kserveInferenceServiceRouteReconciler) processDelta(desiredRoute *v1.Route, existingRoute *v1.Route) (err error) {
@@ -173,4 +173,8 @@ func getServiceHost(isvc *kservev1beta1.InferenceService) string {
 	}
 	//Derive the ingress service host from underlying service url
 	return isvc.Status.URL.Host
+}
+
+func GetKServeRouteName(isvc *kservev1beta1.InferenceService) string {
+	return isvc.Name + "-" + isvc.Namespace
 }
