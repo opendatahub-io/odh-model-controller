@@ -14,5 +14,5 @@ spec:
           image: $(odh-model-controller) 
           env:
             - name: MONITORING_NS
-              value: kserve
+              value: $(monitoring-namespace)
           name: manager
