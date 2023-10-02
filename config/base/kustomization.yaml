@@ -14,13 +14,6 @@ generatorOptions:
 
 vars:
   - fieldref:
-      fieldPath: metadata.namespace
-    name: mesh-namespace
-    objref:
-      apiVersion: v1
-      kind: ConfigMap
-      name: odh-model-controller-parameters
-  - fieldref:
       fieldPath: data.odh-model-controller
     name: odh-model-controller
     objref:
