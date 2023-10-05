@@ -600,9 +600,15 @@ func (r *OpenshiftInferenceServiceReconciler) ReconcileKserveInference(ctx conte
 	// Initialize logger format
 	log := r.Log.WithValues("InferenceService", inferenceService.Name, "namespace", inferenceService.Namespace)
 
+	log.Info("Verifying that the default ServiceMeshMemberRoll has the target namespace")
+	err := r.ensureServiceMeshMemberRollEntry(ctx, req, inferenceService.Namespace)
+	if err != nil {
+		return err
+	}
+
 	log.Info("Reconciling Generic Route for Kserve InferenceService")
 	kisvcRouteReconciler := reconcilers.NewKserveInferenceServiceRouteReconciler(r.Client, r.Scheme, ctx, log, inferenceService)
-	err := kisvcRouteReconciler.Reconcile()
+	err = kisvcRouteReconciler.Reconcile()
 	if err != nil {
 		return err
 	}
@@ -622,12 +628,6 @@ func (r *OpenshiftInferenceServiceReconciler) ReconcileKserveInference(ctx conte
 
 	log.Info("Verifying that the rolebinding to enable prometheus access exists")
 	err = r.ensurePrometheusRoleBinding(ctx, req, inferenceService.Namespace)
-	if err != nil {
-		return err
-	}
-
-	log.Info("Verifying that the default ServiceMeshMemberRoll has the target namespace")
-	err = r.ensureServiceMeshMemberRollEntry(ctx, req, inferenceService.Namespace)
 	if err != nil {
 		return err
 	}
