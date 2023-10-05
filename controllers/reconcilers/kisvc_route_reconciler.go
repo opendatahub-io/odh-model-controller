@@ -96,6 +96,20 @@ func (r *kserveInferenceServiceRouteReconciler) createDesiredResource() (*v1.Rou
 		annotations := utils.Filter(r.isvc.Annotations, func(key string) bool {
 			return !utils.Includes(constants.ServiceAnnotationDisallowedList, key)
 		})
+
+		urlScheme := ingressConfig.UrlScheme
+		var targetPort intstr.IntOrString
+		var tlsConfig *v1.TLSConfig
+		if urlScheme == "http" {
+			targetPort = intstr.FromString(constants2.IstioIngressServiceHTTPPortName)
+		} else {
+			targetPort = intstr.FromString(constants2.IstioIngressServiceHTTPSPortName)
+			tlsConfig = &v1.TLSConfig{
+				Termination:                   v1.TLSTerminationPassthrough,
+				InsecureEdgeTerminationPolicy: v1.InsecureEdgeTerminationPolicyRedirect,
+			}
+		}
+
 		route := &v1.Route{
 			ObjectMeta: metav1.ObjectMeta{
 				Name:        GetKServeRouteName(r.isvc),
@@ -111,12 +125,9 @@ func (r *kserveInferenceServiceRouteReconciler) createDesiredResource() (*v1.Rou
 					Weight: pointer.Int32(100),
 				},
 				Port: &v1.RoutePort{
-					TargetPort: intstr.FromString("https"),
+					TargetPort: targetPort,
 				},
-				TLS: &v1.TLSConfig{
-					Termination:                   v1.TLSTerminationPassthrough,
-					InsecureEdgeTerminationPolicy: v1.InsecureEdgeTerminationPolicyRedirect,
-				},
+				TLS:            tlsConfig,
 				WildcardPolicy: v1.WildcardPolicyNone,
 			},
 			Status: v1.RouteStatus{
