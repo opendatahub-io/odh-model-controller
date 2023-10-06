@@ -5,8 +5,6 @@ go 1.19
 require (
 	github.com/go-logr/logr v1.2.4
 	github.com/kserve/kserve v0.11.0
-	github.com/manifestival/controller-runtime-client v0.4.0
-	github.com/manifestival/manifestival v0.7.2
 	github.com/onsi/ginkgo v1.16.4
 	github.com/onsi/gomega v1.27.6
 	github.com/openshift/api v3.9.0+incompatible
@@ -15,12 +13,13 @@ require (
 	istio.io/api v0.0.0-20230712174848-a2b2de508c88
 	istio.io/client-go v1.17.4
 	k8s.io/api v0.26.4
-	k8s.io/apiextensions-apiserver v0.26.4
 	k8s.io/apimachinery v0.26.4
 	k8s.io/client-go v0.26.4
 	k8s.io/utils v0.0.0-20230505201702-9f6742963106
+	knative.dev/pkg v0.0.0-20230502134655-db8a35330281
 	maistra.io/api v0.0.0-20230417135504-0536f6c22b1c
 	sigs.k8s.io/controller-runtime v0.14.6
+	sigs.k8s.io/yaml v1.3.0
 )
 
 require (
@@ -35,7 +34,6 @@ require (
 	github.com/cespare/xxhash/v2 v2.2.0 // indirect
 	github.com/davecgh/go-spew v1.1.1 // indirect
 	github.com/emicklei/go-restful/v3 v3.10.2 // indirect
-	github.com/evanphx/json-patch v5.6.0+incompatible // indirect
 	github.com/evanphx/json-patch/v5 v5.6.0 // indirect
 	github.com/fsnotify/fsnotify v1.6.0 // indirect
 	github.com/go-logr/zapr v1.2.4 // indirect
@@ -92,13 +90,12 @@ require (
 	gopkg.in/tomb.v1 v1.0.0-20141024135613-dd632973f1e7 // indirect
 	gopkg.in/yaml.v2 v2.4.0 // indirect
 	gopkg.in/yaml.v3 v3.0.1 // indirect
+	k8s.io/apiextensions-apiserver v0.26.4 // indirect
 	k8s.io/component-base v0.26.4 // indirect
 	k8s.io/klog/v2 v2.100.1 // indirect
 	k8s.io/kube-openapi v0.0.0-20230515203736-54b630e78af5 // indirect
 	knative.dev/networking v0.0.0-20230511122402-33636d99d870 // indirect
-	knative.dev/pkg v0.0.0-20230502134655-db8a35330281 // indirect
 	knative.dev/serving v0.37.1 // indirect
 	sigs.k8s.io/json v0.0.0-20221116044647-bc3834ca7abd // indirect
 	sigs.k8s.io/structured-merge-diff/v4 v4.2.3 // indirect
-	sigs.k8s.io/yaml v1.3.0 // indirect
 )

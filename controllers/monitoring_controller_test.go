@@ -19,8 +19,6 @@ import (
 	"context"
 	"errors"
 	kservev1alpha1 "github.com/kserve/kserve/pkg/apis/serving/v1alpha1"
-	mfc "github.com/manifestival/controller-runtime-client"
-	mf "github.com/manifestival/manifestival"
 	. "github.com/onsi/ginkgo"
 	. "github.com/onsi/gomega"
 	corev1 "k8s.io/api/core/v1"
@@ -29,24 +27,22 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 )
 
-func deployServingRuntime(path string, opts mf.Option, ctx context.Context) {
+func deployServingRuntime(path string, ctx context.Context) {
 	servingRuntime := &kservev1alpha1.ServingRuntime{}
-	err := convertToStructuredResource(path, servingRuntime, opts)
+	err := convertToStructuredResource(path, servingRuntime)
 	Expect(err).NotTo(HaveOccurred())
 	Expect(cli.Create(ctx, servingRuntime)).Should(Succeed())
 }
 
-func deleteServingRuntime(path string, opts mf.Option, ctx context.Context) {
+func deleteServingRuntime(path string, ctx context.Context) {
 	servingRuntime := &kservev1alpha1.ServingRuntime{}
-	err := convertToStructuredResource(path, servingRuntime, opts)
+	err := convertToStructuredResource(path, servingRuntime)
 	Expect(err).NotTo(HaveOccurred())
 	Expect(cli.Delete(ctx, servingRuntime)).Should(Succeed())
 }
 
 var _ = Describe("ODH Controller's Monitoring Controller", func() {
 
-	client := mfc.NewClient(cli)
-	opts := mf.UseClient(client)
 	ctx := context.Background()
 
 	Context("In a modelmesh enabled namespace", func() {
@@ -63,10 +59,10 @@ var _ = Describe("ODH Controller's Monitoring Controller", func() {
 
 			By("create a Rolebinding if a Serving Runtime exists.")
 
-			deployServingRuntime(ServingRuntimePath1, opts, ctx)
+			deployServingRuntime(ServingRuntimePath1, ctx)
 
 			expectedRB := &k8srbacv1.RoleBinding{}
-			Expect(convertToStructuredResource(RoleBindingPath, expectedRB, opts)).NotTo(HaveOccurred())
+			Expect(convertToStructuredResource(RoleBindingPath, expectedRB)).NotTo(HaveOccurred())
 			expectedRB.Subjects[0].Namespace = MonitoringNS
 
 			actualRB := &k8srbacv1.RoleBinding{}
@@ -88,8 +84,8 @@ var _ = Describe("ODH Controller's Monitoring Controller", func() {
 
 			By("do not remove the Monitoring RB if at least one Serving Runtime Remains.")
 
-			deployServingRuntime(ServingRuntimePath2, opts, ctx)
-			deleteServingRuntime(ServingRuntimePath1, opts, ctx)
+			deployServingRuntime(ServingRuntimePath2, ctx)
+			deleteServingRuntime(ServingRuntimePath1, ctx)
 			Eventually(func() error {
 				namespacedNamed := types.NamespacedName{Name: expectedRB.Name, Namespace: WorkingNamespace}
 				return cli.Get(ctx, namespacedNamed, actualRB)
@@ -98,7 +94,7 @@ var _ = Describe("ODH Controller's Monitoring Controller", func() {
 
 			By("remove the Monitoring RB if no Serving Runtime exists.")
 
-			deleteServingRuntime(ServingRuntimePath2, opts, ctx)
+			deleteServingRuntime(ServingRuntimePath2, ctx)
 			Eventually(func() error {
 				namespacedNamed := types.NamespacedName{Name: expectedRB.Name, Namespace: WorkingNamespace}
 				err := cli.Get(ctx, namespacedNamed, actualRB)

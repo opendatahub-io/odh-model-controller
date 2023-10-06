@@ -17,8 +17,10 @@ package controllers
 
 import (
 	"context"
-
 	kservev1beta1 "github.com/kserve/kserve/pkg/apis/serving/v1beta1"
+	"github.com/opendatahub-io/odh-model-controller/controllers/components"
+	"github.com/opendatahub-io/odh-model-controller/controllers/constants"
+	"github.com/opendatahub-io/odh-model-controller/controllers/reconcilers"
 	monitoringv1 "github.com/prometheus-operator/prometheus-operator/pkg/apis/monitoring/v1"
 	"istio.io/api/security/v1beta1"
 	"istio.io/api/telemetry/v1alpha1"
@@ -102,7 +104,7 @@ func (r *OpenshiftInferenceServiceReconciler) ensureServiceMeshMemberRollEntry(c
 	// Initialize logger format
 	log := r.Log.WithValues("namespace", ns)
 	observedServiceMeshMemberRoll := &maistrav1.ServiceMeshMemberRoll{}
-	err := r.Client.Get(ctx, types.NamespacedName{Name: serviceMeshMemberRollName, Namespace: "istio-system"}, observedServiceMeshMemberRoll)
+	err := r.Client.Get(ctx, types.NamespacedName{Name: serviceMeshMemberRollName, Namespace: constants.IstioNamespace}, observedServiceMeshMemberRoll)
 	if err != nil {
 		if apierrs.IsNotFound(err) {
 			log.Error(err, "default ServiceMeshMemberRoll not found in namespace: istio-system")
@@ -468,6 +470,14 @@ func (r *OpenshiftInferenceServiceReconciler) createOrUpdateMetricsServiceMonito
 	return nil
 }
 
+func (r *OpenshiftInferenceServiceReconciler) OnDeletionOfKserveInferenceService(ctx context.Context, inferenceService *kservev1beta1.InferenceService) error {
+	log := r.Log.WithValues("InferenceService", inferenceService.Name, "namespace", inferenceService.Namespace)
+
+	log.V(1).Info("Deleting Kserve inference service generic route")
+	routeHandler := components.NewRouteHandler(r.Client, ctx, log)
+	return routeHandler.DeleteRoute(types.NamespacedName{Name: reconcilers.GetKServeRouteName(inferenceService), Namespace: constants.IstioNamespace})
+}
+
 func (r *OpenshiftInferenceServiceReconciler) DeleteKserveMetricsResourcesIfNoKserveIsvcExists(ctx context.Context, req ctrl.Request, ns string) error {
 	// Initialize logger format
 	log := r.Log.WithValues("namespace", ns)
@@ -515,7 +525,7 @@ func (r *OpenshiftInferenceServiceReconciler) DeleteKserveMetricsResourcesIfNoKs
 		}
 
 		serviceMeshMemberRoll := &maistrav1.ServiceMeshMemberRoll{}
-		err = r.Client.Get(ctx, types.NamespacedName{Name: serviceMeshMemberRollName, Namespace: "istio-system"}, serviceMeshMemberRoll)
+		err = r.Client.Get(ctx, types.NamespacedName{Name: serviceMeshMemberRollName, Namespace: constants.IstioNamespace}, serviceMeshMemberRoll)
 		if err != nil {
 			log.Error(err, "Failed to get ServiceMeshMemberRoll.")
 			return err
@@ -590,9 +600,22 @@ func (r *OpenshiftInferenceServiceReconciler) ReconcileKserveInference(ctx conte
 	// Initialize logger format
 	log := r.Log.WithValues("InferenceService", inferenceService.Name, "namespace", inferenceService.Namespace)
 
+	log.Info("Verifying that the default ServiceMeshMemberRoll has the target namespace")
+	err := r.ensureServiceMeshMemberRollEntry(ctx, req, inferenceService.Namespace)
+	if err != nil {
+		return err
+	}
+
+	log.Info("Reconciling Generic Route for Kserve InferenceService")
+	kisvcRouteReconciler := reconcilers.NewKserveInferenceServiceRouteReconciler(r.Client, r.Scheme, ctx, log, inferenceService)
+	err = kisvcRouteReconciler.Reconcile()
+	if err != nil {
+		return err
+	}
+
 	//Create the metrics service and servicemonitor with OwnerReferences, as these are not common namespace-scope resources
 	log.Info("Reconciling Metrics Service for InferenceSercvice")
-	err := r.createOrUpdateMetricsService(ctx, req, inferenceService)
+	err = r.createOrUpdateMetricsService(ctx, req, inferenceService)
 	if err != nil {
 		return err
 	}
@@ -605,12 +628,6 @@ func (r *OpenshiftInferenceServiceReconciler) ReconcileKserveInference(ctx conte
 
 	log.Info("Verifying that the rolebinding to enable prometheus access exists")
 	err = r.ensurePrometheusRoleBinding(ctx, req, inferenceService.Namespace)
-	if err != nil {
-		return err
-	}
-
-	log.Info("Verifying that the default ServiceMeshMemberRoll has the target namespace")
-	err = r.ensureServiceMeshMemberRollEntry(ctx, req, inferenceService.Namespace)
 	if err != nil {
 		return err
 	}
@@ -644,5 +661,6 @@ func (r *OpenshiftInferenceServiceReconciler) ReconcileKserveInference(ctx conte
 	if err != nil {
 		return err
 	}
+
 	return nil
 }
