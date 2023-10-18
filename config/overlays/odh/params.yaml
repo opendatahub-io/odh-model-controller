@@ -1,7 +1,7 @@
 varReference:
   - path: metadata/name
     kind: ClusterRoleBinding
-    apiGroup: authorization.openshift.io
+    apiGroup: rbac.authorization.k8s.io/v1
   - path: spec/template/spec/containers[]/image
     kind: Deployment
     apiVersion: apps/v1
