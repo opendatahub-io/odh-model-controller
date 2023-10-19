@@ -18,7 +18,7 @@ package controllers
 import (
 	"context"
 	"errors"
-	mmv1alpha1 "github.com/kserve/modelmesh-serving/apis/serving/v1alpha1"
+	kservev1alpha1 "github.com/kserve/kserve/pkg/apis/serving/v1alpha1"
 	mfc "github.com/manifestival/controller-runtime-client"
 	mf "github.com/manifestival/manifestival"
 	. "github.com/onsi/ginkgo"
@@ -30,14 +30,14 @@ import (
 )
 
 func deployServingRuntime(path string, opts mf.Option, ctx context.Context) {
-	servingRuntime := &mmv1alpha1.ServingRuntime{}
+	servingRuntime := &kservev1alpha1.ServingRuntime{}
 	err := convertToStructuredResource(path, servingRuntime, opts)
 	Expect(err).NotTo(HaveOccurred())
 	Expect(cli.Create(ctx, servingRuntime)).Should(Succeed())
 }
 
 func deleteServingRuntime(path string, opts mf.Option, ctx context.Context) {
-	servingRuntime := &mmv1alpha1.ServingRuntime{}
+	servingRuntime := &kservev1alpha1.ServingRuntime{}
 	err := convertToStructuredResource(path, servingRuntime, opts)
 	Expect(err).NotTo(HaveOccurred())
 	Expect(cli.Delete(ctx, servingRuntime)).Should(Succeed())

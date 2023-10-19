@@ -18,7 +18,7 @@ package controllers
 import (
 	"context"
 	"github.com/go-logr/logr"
-	mmv1alpha1 "github.com/kserve/modelmesh-serving/apis/serving/v1alpha1"
+	kservev1alpha1 "github.com/kserve/kserve/pkg/apis/serving/v1alpha1"
 	corev1 "k8s.io/api/core/v1"
 	k8srbacv1 "k8s.io/api/rbac/v1"
 	apierrs "k8s.io/apimachinery/pkg/api/errors"
@@ -176,7 +176,7 @@ func (r *MonitoringReconciler) reconcileRoleBinding(ctx context.Context, req ctr
 	}
 
 	// Get ServingRuntimes
-	servingRuntimes := &mmv1alpha1.ServingRuntimeList{}
+	servingRuntimes := &kservev1alpha1.ServingRuntimeList{}
 	listOptions := client.ListOptions{
 		Namespace: req.Namespace,
 	}
@@ -253,7 +253,7 @@ func (r *MonitoringReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 // SetupWithManager sets up the controller with the Manager.
 func (r *MonitoringReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	builder := ctrl.NewControllerManagedBy(mgr).
-		For(&mmv1alpha1.ServingRuntime{}).
+		For(&kservev1alpha1.ServingRuntime{}).
 		// Watch for changes to ModelMesh Enabled namespaces & a select few others
 		Watches(&source.Kind{Type: &corev1.Namespace{}},
 			handler.EnqueueRequestsFromMapFunc(func(o client.Object) []reconcile.Request {
