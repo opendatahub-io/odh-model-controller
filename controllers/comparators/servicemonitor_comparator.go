@@ -13,11 +13,18 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package constants
+package comparators
 
-const (
-	IstioNamespace                   = "istio-system"
-	IstioIngressService              = "istio-ingressgateway"
-	IstioIngressServiceHTTPPortName  = "http2"
-	IstioIngressServiceHTTPSPortName = "https"
+import (
+	v1 "github.com/prometheus-operator/prometheus-operator/pkg/apis/monitoring/v1"
+	"reflect"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 )
+
+func GetServiceMonitorComparator() ResourceComparator {
+	return func(deployed client.Object, requested client.Object) bool {
+		deployedServiceMonitor := deployed.(*v1.ServiceMonitor)
+		requestedServiceMonitor := requested.(*v1.ServiceMonitor)
+		return reflect.DeepEqual(deployedServiceMonitor.Spec, requestedServiceMonitor.Spec)
+	}
+}

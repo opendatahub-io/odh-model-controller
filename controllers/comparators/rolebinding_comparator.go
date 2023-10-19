@@ -13,11 +13,19 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package constants
+package comparators
 
-const (
-	IstioNamespace                   = "istio-system"
-	IstioIngressService              = "istio-ingressgateway"
-	IstioIngressServiceHTTPPortName  = "http2"
-	IstioIngressServiceHTTPSPortName = "https"
+import (
+	v1 "k8s.io/api/rbac/v1"
+	"reflect"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 )
+
+func GetRoleBindingComparator() ResourceComparator {
+	return func(deployed client.Object, requested client.Object) bool {
+		deployedRB := deployed.(*v1.RoleBinding)
+		requestedRB := requested.(*v1.RoleBinding)
+		return reflect.DeepEqual(deployedRB.RoleRef, requestedRB.RoleRef) &&
+			reflect.DeepEqual(deployedRB.Subjects, requestedRB.Subjects)
+	}
+}

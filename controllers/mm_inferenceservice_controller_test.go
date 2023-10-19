@@ -19,6 +19,7 @@ import (
 	"context"
 	kservev1alpha1 "github.com/kserve/kserve/pkg/apis/serving/v1alpha1"
 	kservev1beta1 "github.com/kserve/kserve/pkg/apis/serving/v1beta1"
+	"github.com/opendatahub-io/odh-model-controller/controllers/comparators"
 	routev1 "github.com/openshift/api/route/v1"
 	"k8s.io/apimachinery/pkg/types"
 
@@ -62,7 +63,7 @@ var _ = Describe("The Openshift model controller", func() {
 			err = convertToStructuredResource(ExpectedRoutePath, expectedRoute)
 			Expect(err).NotTo(HaveOccurred())
 
-			Expect(CompareInferenceServiceRoutes(*route, *expectedRoute)).Should(BeTrue())
+			Expect(comparators.GetMMRouteComparator()(route, expectedRoute)).Should(BeTrue())
 		})
 
 		It("when InferenceService does not specifies a runtime, should automatically pick a runtime and create a Route", func() {
@@ -81,7 +82,7 @@ var _ = Describe("The Openshift model controller", func() {
 			err = convertToStructuredResource(ExpectedRouteNoRuntimePath, expectedRoute)
 			Expect(err).NotTo(HaveOccurred())
 
-			Expect(CompareInferenceServiceRoutes(*route, *expectedRoute)).Should(BeTrue())
+			Expect(comparators.GetMMRouteComparator()(route, expectedRoute)).Should(BeTrue())
 		})
 	})
 })
