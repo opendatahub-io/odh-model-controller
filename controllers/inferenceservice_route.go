@@ -21,8 +21,8 @@ import (
 	"sort"
 
 	"github.com/go-logr/logr"
-	predictorv1 "github.com/kserve/modelmesh-serving/apis/serving/v1alpha1"
-	inferenceservicev1 "github.com/kserve/modelmesh-serving/apis/serving/v1beta1"
+	kservev1alpha1 "github.com/kserve/kserve/pkg/apis/serving/v1alpha1"
+	kservev1beta1 "github.com/kserve/kserve/pkg/apis/serving/v1beta1"
 	routev1 "github.com/openshift/api/route/v1"
 	apierrs "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -41,7 +41,7 @@ const (
 )
 
 // NewInferenceServiceRoute defines the desired route object
-func NewInferenceServiceRoute(inferenceservice *inferenceservicev1.InferenceService, enableAuth bool) *routev1.Route {
+func NewInferenceServiceRoute(inferenceservice *kservev1beta1.InferenceService, enableAuth bool) *routev1.Route {
 
 	finalRoute := &routev1.Route{
 		ObjectMeta: metav1.ObjectMeta{
@@ -96,8 +96,8 @@ func CompareInferenceServiceRoutes(r1 routev1.Route, r2 routev1.Route) bool {
 		reflect.DeepEqual(r1.Spec, r2.Spec)
 }
 
-func (r *OpenshiftInferenceServiceReconciler) findSupportingRuntimeForISvc(ctx context.Context, log logr.Logger, inferenceservice *inferenceservicev1.InferenceService) *predictorv1.ServingRuntime {
-	desiredServingRuntime := predictorv1.ServingRuntime{}
+func (r *OpenshiftInferenceServiceReconciler) findSupportingRuntimeForISvc(ctx context.Context, log logr.Logger, inferenceservice *kservev1beta1.InferenceService) *kservev1alpha1.ServingRuntime {
+	desiredServingRuntime := kservev1alpha1.ServingRuntime{}
 
 	if inferenceservice.Spec.Predictor.Model.Runtime != nil {
 		err := r.Get(ctx, types.NamespacedName{
@@ -111,7 +111,7 @@ func (r *OpenshiftInferenceServiceReconciler) findSupportingRuntimeForISvc(ctx c
 		}
 		return &desiredServingRuntime
 	} else {
-		runtimes := &predictorv1.ServingRuntimeList{}
+		runtimes := &kservev1alpha1.ServingRuntimeList{}
 		err := r.List(ctx, runtimes, client.InNamespace(inferenceservice.Namespace))
 		if err != nil {
 			log.Error(err, "Listing ServingRuntimes failed")
@@ -156,8 +156,8 @@ func (r *OpenshiftInferenceServiceReconciler) findSupportingRuntimeForISvc(ctx c
 
 // Reconcile will manage the creation, update and deletion of the route returned
 // by the newRoute function
-func (r *OpenshiftInferenceServiceReconciler) reconcileRoute(inferenceservice *inferenceservicev1.InferenceService,
-	ctx context.Context, newRoute func(service *inferenceservicev1.InferenceService, enableAuth bool) *routev1.Route) error {
+func (r *OpenshiftInferenceServiceReconciler) reconcileRoute(inferenceservice *kservev1beta1.InferenceService,
+	ctx context.Context, newRoute func(service *kservev1beta1.InferenceService, enableAuth bool) *routev1.Route) error {
 	// Initialize logger format
 	log := r.Log.WithValues("inferenceservice", inferenceservice.Name, "namespace", inferenceservice.Namespace)
 
@@ -243,6 +243,6 @@ func (r *OpenshiftInferenceServiceReconciler) reconcileRoute(inferenceservice *i
 // ReconcileRoute will manage the creation, update and deletion of the
 // TLS route when the predictor is reconciled
 func (r *OpenshiftInferenceServiceReconciler) ReconcileRoute(
-	inferenceservice *inferenceservicev1.InferenceService, ctx context.Context) error {
+	inferenceservice *kservev1beta1.InferenceService, ctx context.Context) error {
 	return r.reconcileRoute(inferenceservice, ctx, NewInferenceServiceRoute)
 }

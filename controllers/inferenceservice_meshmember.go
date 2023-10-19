@@ -19,7 +19,7 @@ import (
 	"context"
 	"reflect"
 
-	inferenceservicev1 "github.com/kserve/modelmesh-serving/apis/serving/v1beta1"
+	kservev1beta1 "github.com/kserve/kserve/pkg/apis/serving/v1beta1"
 	apierrs "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
@@ -29,7 +29,7 @@ import (
 )
 
 // NewInferenceServiceMeshMember defines the desired MeshMember object
-func NewInferenceServiceMeshMember(inferenceservice *inferenceservicev1.InferenceService) *maistrav1.ServiceMeshMember {
+func NewInferenceServiceMeshMember(inferenceservice *kservev1beta1.InferenceService) *maistrav1.ServiceMeshMember {
 	return &maistrav1.ServiceMeshMember{
 		TypeMeta: metav1.TypeMeta{},
 		// The name MUST be default, per the maistra docs
@@ -51,8 +51,8 @@ func CompareInferenceServiceMeshMembers(mm1 *maistrav1.ServiceMeshMember, mm2 *m
 
 // Reconcile will manage the creation, update and deletion of the MeshMember returned
 // by the newMeshMember function
-func (r *OpenshiftInferenceServiceReconciler) reconcileMeshMember(inferenceservice *inferenceservicev1.InferenceService,
-	ctx context.Context, newMeshMember func(*inferenceservicev1.InferenceService) *maistrav1.ServiceMeshMember) error {
+func (r *OpenshiftInferenceServiceReconciler) reconcileMeshMember(inferenceservice *kservev1beta1.InferenceService,
+	ctx context.Context, newMeshMember func(*kservev1beta1.InferenceService) *maistrav1.ServiceMeshMember) error {
 	// Initialize logger format
 	log := r.Log.WithValues("InferenceService", inferenceservice.Name, "namespace", inferenceservice.Namespace)
 
@@ -119,6 +119,6 @@ func (r *OpenshiftInferenceServiceReconciler) reconcileMeshMember(inferenceservi
 // ReconcileMeshMember will manage the creation, update and deletion of the
 // MeshMember when the Predictor is reconciled
 func (r *OpenshiftInferenceServiceReconciler) ReconcileMeshMember(
-	inferenceservice *inferenceservicev1.InferenceService, ctx context.Context) error {
+	inferenceservice *kservev1beta1.InferenceService, ctx context.Context) error {
 	return r.reconcileMeshMember(inferenceservice, ctx, NewInferenceServiceMeshMember)
 }
