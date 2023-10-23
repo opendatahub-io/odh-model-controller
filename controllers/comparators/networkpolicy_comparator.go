@@ -13,11 +13,19 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package constants
+package comparators
 
-const (
-	IstioNamespace                   = "istio-system"
-	IstioIngressService              = "istio-ingressgateway"
-	IstioIngressServiceHTTPPortName  = "http2"
-	IstioIngressServiceHTTPSPortName = "https"
+import (
+	"k8s.io/api/networking/v1"
+	"reflect"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 )
+
+func GetNetworkPolicyComparator() ResourceComparator {
+	return func(deployed client.Object, requested client.Object) bool {
+		deployedCRB := deployed.(*v1.NetworkPolicy)
+		requestedCRB := requested.(*v1.NetworkPolicy)
+		return reflect.DeepEqual(deployedCRB.Spec, requestedCRB.Spec) &&
+			reflect.DeepEqual(deployedCRB.Labels, requestedCRB.Labels)
+	}
+}

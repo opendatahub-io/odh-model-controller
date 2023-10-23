@@ -13,11 +13,18 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package constants
+package comparators
 
-const (
-	IstioNamespace                   = "istio-system"
-	IstioIngressService              = "istio-ingressgateway"
-	IstioIngressServiceHTTPPortName  = "http2"
-	IstioIngressServiceHTTPSPortName = "https"
+import (
+	v1 "maistra.io/api/core/v1"
+	"reflect"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 )
+
+func GetServiceMeshMemberRollComparator() ResourceComparator {
+	return func(deployed client.Object, requested client.Object) bool {
+		deployedSMMR := deployed.(*v1.ServiceMeshMemberRoll)
+		requestedSMMR := requested.(*v1.ServiceMeshMemberRoll)
+		return reflect.DeepEqual(deployedSMMR.Spec, requestedSMMR.Spec)
+	}
+}

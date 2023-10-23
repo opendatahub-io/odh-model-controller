@@ -1,3 +1,18 @@
+/*
+
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at
+
+    http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS IS" BASIS,
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+See the License for the specific language governing permissions and
+limitations under the License.
+*/
+
 package reconcilers
 
 import (
@@ -7,9 +22,10 @@ import (
 	kservev1beta1 "github.com/kserve/kserve/pkg/apis/serving/v1beta1"
 	"github.com/kserve/kserve/pkg/constants"
 	"github.com/kserve/kserve/pkg/utils"
-	"github.com/opendatahub-io/odh-model-controller/controllers/components"
+	"github.com/opendatahub-io/odh-model-controller/controllers/comparators"
 	constants2 "github.com/opendatahub-io/odh-model-controller/controllers/constants"
 	"github.com/opendatahub-io/odh-model-controller/controllers/processors"
+	"github.com/opendatahub-io/odh-model-controller/controllers/resources"
 	v1 "github.com/openshift/api/route/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -20,51 +36,44 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
-type kserveInferenceServiceRouteReconciler struct {
+type KserveRouteReconciler struct {
 	client         client.Client
 	scheme         *runtime.Scheme
-	ctx            context.Context
-	isvc           *kservev1beta1.InferenceService
-	log            logr.Logger
-	routeHandler   components.RouteHandler
+	routeHandler   resources.RouteHandler
 	deltaProcessor processors.DeltaProcessor
 }
 
-func NewKserveInferenceServiceRouteReconciler(client client.Client, scheme *runtime.Scheme, ctx context.Context, log logr.Logger, isvc *kservev1beta1.InferenceService) Reconciler {
-	logger := log.WithValues("resource", "KserveInferenceServiceRoute")
-	return &kserveInferenceServiceRouteReconciler{
+func NewKserveRouteReconciler(client client.Client, scheme *runtime.Scheme) *KserveRouteReconciler {
+	return &KserveRouteReconciler{
 		client:         client,
 		scheme:         scheme,
-		ctx:            ctx,
-		isvc:           isvc,
-		log:            logger,
-		routeHandler:   components.NewRouteHandler(client, ctx, logger),
+		routeHandler:   resources.NewRouteHandler(client),
 		deltaProcessor: processors.NewDeltaProcessor(),
 	}
 }
 
-func (r *kserveInferenceServiceRouteReconciler) Reconcile() error {
+func (r *KserveRouteReconciler) Reconcile(ctx context.Context, log logr.Logger, isvc *kservev1beta1.InferenceService) error {
 
 	// Create Desired resource
-	desiredResource, err := r.createDesiredResource()
+	desiredResource, err := r.createDesiredResource(isvc)
 	if err != nil {
 		return err
 	}
 
 	// Get Existing resource
-	existingResource, err := r.getExistingResource()
+	existingResource, err := r.getExistingResource(ctx, log, isvc)
 	if err != nil {
 		return err
 	}
 
 	// Process Delta
-	if err = r.processDelta(desiredResource, existingResource); err != nil {
+	if err = r.processDelta(ctx, log, desiredResource, existingResource); err != nil {
 		return err
 	}
 	return nil
 }
 
-func (r *kserveInferenceServiceRouteReconciler) createDesiredResource() (*v1.Route, error) {
+func (r *KserveRouteReconciler) createDesiredResource(isvc *kservev1beta1.InferenceService) (*v1.Route, error) {
 	ingressConfig, err := kservev1beta1.NewIngressConfig(r.client)
 	if err != nil {
 		return nil, err
@@ -73,16 +82,16 @@ func (r *kserveInferenceServiceRouteReconciler) createDesiredResource() (*v1.Rou
 	disableIstioVirtualHost := ingressConfig.DisableIstioVirtualHost
 	if disableIstioVirtualHost == false {
 
-		serviceHost := getServiceHost(r.isvc)
+		serviceHost := getServiceHost(isvc)
 		if serviceHost == "" {
 			return nil, fmt.Errorf("failed to load serviceHost from InferenceService status")
 		}
 		isInternal := false
 		//if service is labelled with cluster local or knative domain is configured as internal
-		if val, ok := r.isvc.Labels[constants.VisibilityLabel]; ok && val == constants.ClusterLocalVisibility {
+		if val, ok := isvc.Labels[constants.VisibilityLabel]; ok && val == constants.ClusterLocalVisibility {
 			isInternal = true
 		}
-		serviceInternalHostName := network.GetServiceHostname(r.isvc.Name, r.isvc.Namespace)
+		serviceInternalHostName := network.GetServiceHostname(isvc.Name, isvc.Namespace)
 		if serviceHost == serviceInternalHostName {
 			isInternal = true
 		}
@@ -93,7 +102,7 @@ func (r *kserveInferenceServiceRouteReconciler) createDesiredResource() (*v1.Rou
 		if ingressConfig.PathTemplate != "" {
 			serviceHost = ingressConfig.IngressDomain
 		}
-		annotations := utils.Filter(r.isvc.Annotations, func(key string) bool {
+		annotations := utils.Filter(isvc.Annotations, func(key string) bool {
 			return !utils.Includes(constants.ServiceAnnotationDisallowedList, key)
 		})
 
@@ -112,10 +121,10 @@ func (r *kserveInferenceServiceRouteReconciler) createDesiredResource() (*v1.Rou
 
 		route := &v1.Route{
 			ObjectMeta: metav1.ObjectMeta{
-				Name:        GetKServeRouteName(r.isvc),
+				Name:        getKServeRouteName(isvc),
 				Namespace:   constants2.IstioNamespace,
 				Annotations: annotations,
-				Labels:      r.isvc.Labels,
+				Labels:      isvc.Labels,
 			},
 			Spec: v1.RouteSpec{
 				Host: serviceHost,
@@ -139,39 +148,39 @@ func (r *kserveInferenceServiceRouteReconciler) createDesiredResource() (*v1.Rou
 	return nil, nil
 }
 
-func (r *kserveInferenceServiceRouteReconciler) getExistingResource() (*v1.Route, error) {
-	return r.routeHandler.FetchRoute(types.NamespacedName{Name: GetKServeRouteName(r.isvc), Namespace: constants2.IstioNamespace})
+func (r *KserveRouteReconciler) getExistingResource(ctx context.Context, log logr.Logger, isvc *kservev1beta1.InferenceService) (*v1.Route, error) {
+	return r.routeHandler.FetchRoute(ctx, log, types.NamespacedName{Name: getKServeRouteName(isvc), Namespace: constants2.IstioNamespace})
 }
 
-func (r *kserveInferenceServiceRouteReconciler) processDelta(desiredRoute *v1.Route, existingRoute *v1.Route) (err error) {
-	comparator := r.routeHandler.GetComparator()
+func (r *KserveRouteReconciler) processDelta(ctx context.Context, log logr.Logger, desiredRoute *v1.Route, existingRoute *v1.Route) (err error) {
+	comparator := comparators.GetKServeRouteComparator()
 	delta := r.deltaProcessor.ComputeDelta(comparator, desiredRoute, existingRoute)
 
 	if !delta.HasChanges() {
-		r.log.Info("No delta found")
+		log.V(1).Info("No delta found")
 		return nil
 	}
 
 	if delta.IsAdded() {
-		r.log.Info("Will", "create", desiredRoute.GetName())
-		if err = r.client.Create(r.ctx, desiredRoute); err != nil {
+		log.V(1).Info("Delta found", "create", desiredRoute.GetName())
+		if err = r.client.Create(ctx, desiredRoute); err != nil {
 			return
 		}
 	}
 	if delta.IsUpdated() {
-		r.log.Info("Will", "update", existingRoute.GetName())
+		log.V(1).Info("Delta found", "update", existingRoute.GetName())
 		rp := existingRoute.DeepCopy()
 		rp.Labels = desiredRoute.Labels
 		rp.Annotations = desiredRoute.Annotations
 		rp.Spec = desiredRoute.Spec
 
-		if err = r.client.Update(r.ctx, rp); err != nil {
+		if err = r.client.Update(ctx, rp); err != nil {
 			return
 		}
 	}
 	if delta.IsRemoved() {
-		r.log.Info("Will", "delete", existingRoute.GetName())
-		if err = r.client.Delete(r.ctx, existingRoute); err != nil {
+		log.V(1).Info("Delta found", "delete", existingRoute.GetName())
+		if err = r.client.Delete(ctx, existingRoute); err != nil {
 			return
 		}
 	}
@@ -186,6 +195,10 @@ func getServiceHost(isvc *kservev1beta1.InferenceService) string {
 	return isvc.Status.URL.Host
 }
 
-func GetKServeRouteName(isvc *kservev1beta1.InferenceService) string {
+func getKServeRouteName(isvc *kservev1beta1.InferenceService) string {
 	return isvc.Name + "-" + isvc.Namespace
+}
+
+func (r *KserveRouteReconciler) DeleteRoute(ctx context.Context, isvc *kservev1beta1.InferenceService) error {
+	return r.routeHandler.DeleteRoute(ctx, types.NamespacedName{Name: getKServeRouteName(isvc), Namespace: constants2.IstioNamespace})
 }

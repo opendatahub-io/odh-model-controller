@@ -22,18 +22,12 @@ import (
 	. "github.com/onsi/ginkgo"
 	. "github.com/onsi/gomega"
 	"github.com/opendatahub-io/odh-model-controller/controllers/constants"
-	"github.com/opendatahub-io/odh-model-controller/controllers/reconcilers"
 	routev1 "github.com/openshift/api/route/v1"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"knative.dev/pkg/apis"
-	v1 "maistra.io/api/core/v1"
 	"time"
-)
-
-const (
-	InferenceServiceConfigPath1 = "./testdata/configmaps/inferenceservice-config.yaml"
 )
 
 var _ = Describe("The Openshift Kserve model controller", func() {
@@ -48,14 +42,6 @@ var _ = Describe("The Openshift Kserve model controller", func() {
 				},
 			}
 			Expect(cli.Create(ctx, istioNamespace)).Should(Succeed())
-
-			smmr := &v1.ServiceMeshMemberRoll{
-				ObjectMeta: metav1.ObjectMeta{
-					Name:      serviceMeshMemberRollName,
-					Namespace: constants.IstioNamespace,
-				},
-			}
-			Expect(cli.Create(ctx, smmr)).Should(Succeed())
 
 			inferenceServiceConfig := &corev1.ConfigMap{}
 			err := convertToStructuredResource(InferenceServiceConfigPath1, inferenceServiceConfig)
@@ -79,7 +65,7 @@ var _ = Describe("The Openshift Kserve model controller", func() {
 			//time.Sleep(5000 * time.Millisecond)
 			Consistently(func() error {
 				route := &routev1.Route{}
-				key := types.NamespacedName{Name: reconcilers.GetKServeRouteName(inferenceService), Namespace: constants.IstioNamespace}
+				key := types.NamespacedName{Name: getKServeRouteName(inferenceService), Namespace: constants.IstioNamespace}
 				err = cli.Get(ctx, key, route)
 				return err
 			}, time.Second*1, interval).Should(HaveOccurred())
@@ -98,10 +84,14 @@ var _ = Describe("The Openshift Kserve model controller", func() {
 			By("By checking that the controller has created the Route")
 			Eventually(func() error {
 				route := &routev1.Route{}
-				key := types.NamespacedName{Name: reconcilers.GetKServeRouteName(inferenceService), Namespace: constants.IstioNamespace}
+				key := types.NamespacedName{Name: getKServeRouteName(inferenceService), Namespace: constants.IstioNamespace}
 				err = cli.Get(ctx, key, route)
 				return err
 			}, timeout, interval).ShouldNot(HaveOccurred())
 		})
 	})
 })
+
+func getKServeRouteName(isvc *kservev1beta1.InferenceService) string {
+	return isvc.Name + "-" + isvc.Namespace
+}

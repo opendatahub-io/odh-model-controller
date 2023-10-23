@@ -16,8 +16,16 @@ limitations under the License.
 package comparators
 
 import (
+	telemetryv1alpha1 "istio.io/client-go/pkg/apis/telemetry/v1alpha1"
+	"reflect"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
-// ResourceComparator would compare deployed & requested resource. It would retrun `true` if both resource are same else it would return `false`
-type ResourceComparator func(deployed client.Object, requested client.Object) bool
+func GetTelemetryComparator() ResourceComparator {
+	return func(deployed client.Object, requested client.Object) bool {
+		deployedTelemetry := deployed.(*telemetryv1alpha1.Telemetry)
+		requestedTelemetry := requested.(*telemetryv1alpha1.Telemetry)
+		return reflect.DeepEqual(deployedTelemetry.Spec.Selector, requestedTelemetry.Spec.Selector) &&
+			reflect.DeepEqual(deployedTelemetry.Spec.Metrics, requestedTelemetry.Spec.Metrics)
+	}
+}

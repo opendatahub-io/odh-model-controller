@@ -17,10 +17,11 @@ package controllers
 
 import (
 	"context"
-
 	"github.com/go-logr/logr"
 	kservev1alpha1 "github.com/kserve/kserve/pkg/apis/serving/v1alpha1"
 	kservev1beta1 "github.com/kserve/kserve/pkg/apis/serving/v1beta1"
+	"github.com/opendatahub-io/odh-model-controller/controllers/reconcilers"
+	"github.com/opendatahub-io/odh-model-controller/controllers/utils"
 	routev1 "github.com/openshift/api/route/v1"
 	monitoringv1 "github.com/prometheus-operator/prometheus-operator/pkg/apis/monitoring/v1"
 	corev1 "k8s.io/api/core/v1"
@@ -38,40 +39,39 @@ import (
 
 // OpenshiftInferenceServiceReconciler holds the controller configuration.
 type OpenshiftInferenceServiceReconciler struct {
-	client.Client
-	Scheme       *runtime.Scheme
-	Log          logr.Logger
-	MeshDisabled bool
+	client               client.Client
+	scheme               *runtime.Scheme
+	log                  logr.Logger
+	MeshDisabled         bool
+	mmISVCReconciler     *reconcilers.ModelMeshInferenceServiceReconciler
+	kserveISVCReconciler *reconcilers.KserveInferenceServiceReconciler
 }
 
-const (
-	inferenceServiceDeploymentModeAnnotation      = "serving.kserve.io/deploymentMode"
-	inferenceServiceDeploymentModeAnnotationValue = "ModelMesh"
-)
-
-func (r *OpenshiftInferenceServiceReconciler) isDeploymentModeForIsvcModelMesh(inferenceservice *kservev1beta1.InferenceService) bool {
-	value, exists := inferenceservice.Annotations[inferenceServiceDeploymentModeAnnotation]
-	if exists && value == inferenceServiceDeploymentModeAnnotationValue {
-		return true
+func NewOpenshiftInferenceServiceReconciler(client client.Client, scheme *runtime.Scheme, log logr.Logger, meshDisabled bool) *OpenshiftInferenceServiceReconciler {
+	return &OpenshiftInferenceServiceReconciler{
+		client:               client,
+		scheme:               scheme,
+		log:                  log,
+		MeshDisabled:         meshDisabled,
+		mmISVCReconciler:     reconcilers.NewModelMeshInferenceServiceReconciler(client, scheme),
+		kserveISVCReconciler: reconcilers.NewKServeInferenceServiceReconciler(client, scheme),
 	}
-	return false
 }
 
 // Reconcile performs the reconciling of the Openshift objects for a Kubeflow
 // InferenceService.
 func (r *OpenshiftInferenceServiceReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
 	// Initialize logger format
-	log := r.Log.WithValues("InferenceService", req.Name, "namespace", req.Namespace)
-
+	log := r.log.WithValues("InferenceService", req.Name, "namespace", req.Namespace)
 	// Get the InferenceService object when a reconciliation event is triggered (create,
 	// update, delete)
-	inferenceservice := &kservev1beta1.InferenceService{}
-	err := r.Get(ctx, req.NamespacedName, inferenceservice)
+	isvc := &kservev1beta1.InferenceService{}
+	err := r.client.Get(ctx, req.NamespacedName, isvc)
 	if err != nil && apierrs.IsNotFound(err) {
 		log.Info("Stop InferenceService reconciliation")
-		// InferenceService not found, so we check for any other inference services that might be using Kserve
-		// If none are found, we delete the common namespace-scoped resources that were created for Kserve Metrics.
-		err1 := r.DeleteKserveMetricsResourcesIfNoKserveIsvcExists(ctx, req, req.Namespace)
+		// InferenceService not found, so we check for any other inference services that might be using Kserve/ModelMesh
+		// If none are found, we delete the common namespace-scoped resources that were created for Kserve/ModelMesh.
+		err1 := r.DeleteResourcesIfNoIsvcExists(ctx, log, req.Namespace)
 		if err1 != nil {
 			log.Error(err1, "Unable to clean up resources")
 			return ctrl.Result{}, err1
@@ -82,20 +82,17 @@ func (r *OpenshiftInferenceServiceReconciler) Reconcile(ctx context.Context, req
 		return ctrl.Result{}, err
 	}
 
-	if inferenceservice.GetDeletionTimestamp() != nil {
-		return reconcile.Result{}, r.onDeletion(ctx, inferenceservice)
+	if isvc.GetDeletionTimestamp() != nil {
+		return reconcile.Result{}, r.onDeletion(ctx, log, isvc)
 	}
 
 	// Check what deployment mode is used by the InferenceService. We have differing reconciliation logic for Kserve and ModelMesh
-	if r.isDeploymentModeForIsvcModelMesh(inferenceservice) {
+	if utils.IsDeploymentModeForIsvcModelMesh(isvc) {
 		log.Info("Reconciling InferenceService for ModelMesh")
-		err = r.ReconcileModelMeshInference(ctx, req, inferenceservice)
-		if err != nil {
-			return ctrl.Result{}, err
-		}
+		err = r.mmISVCReconciler.Reconcile(ctx, log, isvc)
 	} else {
 		log.Info("Reconciling InferenceService for Kserve")
-		err = r.ReconcileKserveInference(ctx, req, inferenceservice)
+		err = r.kserveISVCReconciler.Reconcile(ctx, log, isvc)
 	}
 
 	return ctrl.Result{}, err
@@ -117,19 +114,19 @@ func (r *OpenshiftInferenceServiceReconciler) SetupWithManager(mgr ctrl.Manager)
 		Owns(&monitoringv1.PodMonitor{}).
 		Watches(&source.Kind{Type: &kservev1alpha1.ServingRuntime{}},
 			handler.EnqueueRequestsFromMapFunc(func(o client.Object) []reconcile.Request {
-				r.Log.Info("Reconcile event triggered by serving runtime: " + o.GetName())
+				r.log.Info("Reconcile event triggered by serving runtime: " + o.GetName())
 				inferenceServicesList := &kservev1beta1.InferenceServiceList{}
 				opts := []client.ListOption{client.InNamespace(o.GetNamespace())}
 
 				// Todo: Get only Inference Services that are deploying on the specific serving runtime
-				err := r.List(context.TODO(), inferenceServicesList, opts...)
+				err := r.client.List(context.TODO(), inferenceServicesList, opts...)
 				if err != nil {
-					r.Log.Info("Error getting list of inference services for namespace")
+					r.log.Info("Error getting list of inference services for namespace")
 					return []reconcile.Request{}
 				}
 
 				if len(inferenceServicesList.Items) == 0 {
-					r.Log.Info("No InferenceServices found for Serving Runtime: " + o.GetName())
+					r.log.Info("No InferenceServices found for Serving Runtime: " + o.GetName())
 					return []reconcile.Request{}
 				}
 
@@ -153,13 +150,22 @@ func (r *OpenshiftInferenceServiceReconciler) SetupWithManager(mgr ctrl.Manager)
 }
 
 // general clean-up, mostly resources in different namespaces from kservev1beta1.InferenceService
-func (r *OpenshiftInferenceServiceReconciler) onDeletion(ctx context.Context, inferenceService *kservev1beta1.InferenceService) error {
-	log := r.Log.WithValues("InferenceService", inferenceService.Name, "namespace", inferenceService.Namespace)
+func (r *OpenshiftInferenceServiceReconciler) onDeletion(ctx context.Context, log logr.Logger, inferenceService *kservev1beta1.InferenceService) error {
 	log.V(1).Info("Running cleanup logic")
 
-	if !r.isDeploymentModeForIsvcModelMesh(inferenceService) {
+	if !utils.IsDeploymentModeForIsvcModelMesh(inferenceService) {
 		log.V(1).Info("Deleting kserve inference resource")
-		return r.OnDeletionOfKserveInferenceService(ctx, inferenceService)
+		return r.kserveISVCReconciler.OnDeletionOfKserveInferenceService(ctx, log, inferenceService)
+	}
+	return nil
+}
+
+func (r *OpenshiftInferenceServiceReconciler) DeleteResourcesIfNoIsvcExists(ctx context.Context, log logr.Logger, isvcNamespace string) error {
+	if err := r.kserveISVCReconciler.DeleteKserveMetricsResourcesIfNoKserveIsvcExists(ctx, log, isvcNamespace); err != nil {
+		return err
+	}
+	if err := r.mmISVCReconciler.DeleteModelMeshResourcesIfNoMMIsvcExists(ctx, log, isvcNamespace); err != nil {
+		return err
 	}
 	return nil
 }

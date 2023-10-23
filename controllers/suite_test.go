@@ -70,6 +70,7 @@ const (
 	InferenceService1           = "./testdata/deploy/openvino-inference-service-1.yaml"
 	InferenceServiceNoRuntime   = "./testdata/deploy/openvino-inference-service-no-runtime.yaml"
 	KserveInferenceServicePath1 = "./testdata/deploy/kserve-openvino-inference-service-1.yaml"
+	InferenceServiceConfigPath1 = "./testdata/configmaps/inferenceservice-config.yaml"
 	ExpectedRoutePath           = "./testdata/results/example-onnx-mnist-route.yaml"
 	ExpectedRouteNoRuntimePath  = "./testdata/results/example-onnx-mnist-no-runtime-route.yaml"
 	timeout                     = time.Second * 20
@@ -134,12 +135,12 @@ var _ = BeforeSuite(func() {
 
 	Expect(err).NotTo(HaveOccurred())
 
-	err = (&OpenshiftInferenceServiceReconciler{
-		Client:       cli,
-		Log:          ctrl.Log.WithName("controllers").WithName("inferenceservice-controller"),
-		Scheme:       scheme.Scheme,
-		MeshDisabled: false,
-	}).SetupWithManager(mgr)
+	err = (NewOpenshiftInferenceServiceReconciler(
+		mgr.GetClient(),
+		scheme.Scheme,
+		ctrl.Log.WithName("controllers").WithName("InferenceService-controller"),
+		false)).
+		SetupWithManager(mgr)
 	Expect(err).ToNot(HaveOccurred())
 
 	err = (&MonitoringReconciler{
