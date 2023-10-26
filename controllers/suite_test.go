@@ -17,20 +17,20 @@ package controllers
 
 import (
 	"context"
+	"os"
 	"path/filepath"
+	"sigs.k8s.io/yaml"
 	"testing"
 	"time"
 
 	kservev1alpha1 "github.com/kserve/kserve/pkg/apis/serving/v1alpha1"
 	kservev1beta1 "github.com/kserve/kserve/pkg/apis/serving/v1beta1"
-	mf "github.com/manifestival/manifestival"
 	monitoringv1 "github.com/prometheus-operator/prometheus-operator/pkg/apis/monitoring/v1"
 	"go.uber.org/zap/zapcore"
 	k8srbacv1 "k8s.io/api/rbac/v1"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
 	ctrl "sigs.k8s.io/controller-runtime"
 
-	"github.com/manifestival/manifestival"
 	. "github.com/onsi/ginkgo"
 	. "github.com/onsi/gomega"
 	routev1 "github.com/openshift/api/route/v1"
@@ -65,11 +65,12 @@ const (
 	MonitoringNS                = "monitoring-ns"
 	RoleBindingPath             = "./testdata/results/model-server-ns-role.yaml"
 	ServingRuntimePath1         = "./testdata/deploy/test-openvino-serving-runtime-1.yaml"
+	KserveServingRuntimePath1   = "./testdata/deploy/kserve-openvino-serving-runtime-1.yaml"
 	ServingRuntimePath2         = "./testdata/deploy/test-openvino-serving-runtime-2.yaml"
 	InferenceService1           = "./testdata/deploy/openvino-inference-service-1.yaml"
 	InferenceServiceNoRuntime   = "./testdata/deploy/openvino-inference-service-no-runtime.yaml"
-	KserveInferenceServicePath1 = "./testdata/deploy/kserve-inference-service-1.yaml"
-	KserveInferenceServicePath2 = "./testdata/deploy/kserve-inference-service-2.yaml"
+	KserveInferenceServicePath1 = "./testdata/deploy/kserve-openvino-inference-service-1.yaml"
+	InferenceServiceConfigPath1 = "./testdata/configmaps/inferenceservice-config.yaml"
 	ExpectedRoutePath           = "./testdata/results/example-onnx-mnist-route.yaml"
 	ExpectedRouteNoRuntimePath  = "./testdata/results/example-onnx-mnist-no-runtime-route.yaml"
 	timeout                     = time.Second * 20
@@ -134,12 +135,12 @@ var _ = BeforeSuite(func() {
 
 	Expect(err).NotTo(HaveOccurred())
 
-	err = (&OpenshiftInferenceServiceReconciler{
-		Client:       cli,
-		Log:          ctrl.Log.WithName("controllers").WithName("inferenceservice-controller"),
-		Scheme:       scheme.Scheme,
-		MeshDisabled: false,
-	}).SetupWithManager(mgr)
+	err = (NewOpenshiftInferenceServiceReconciler(
+		mgr.GetClient(),
+		scheme.Scheme,
+		ctrl.Log.WithName("controllers").WithName("InferenceService-controller"),
+		false)).
+		SetupWithManager(mgr)
 	Expect(err).ToNot(HaveOccurred())
 
 	err = (&MonitoringReconciler{
@@ -185,16 +186,14 @@ var _ = AfterEach(func() {
 
 })
 
-func convertToStructuredResource(path string, out interface{}, opts manifestival.Option) error {
-	m, err := mf.ManifestFrom(mf.Recursive(path), opts)
-	m, err = m.Transform(mf.InjectNamespace(WorkingNamespace))
+func convertToStructuredResource(path string, out interface{}) (err error) {
+	data, err := os.ReadFile(path)
 	if err != nil {
 		return err
 	}
-	if err != nil {
-		return err
-	}
-	err = scheme.Scheme.Convert(&m.Resources()[0], out, nil)
+
+	// Unmarshal the YAML data into the struct
+	err = yaml.Unmarshal(data, out)
 	if err != nil {
 		return err
 	}

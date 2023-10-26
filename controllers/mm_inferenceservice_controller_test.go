@@ -19,11 +19,10 @@ import (
 	"context"
 	kservev1alpha1 "github.com/kserve/kserve/pkg/apis/serving/v1alpha1"
 	kservev1beta1 "github.com/kserve/kserve/pkg/apis/serving/v1beta1"
+	"github.com/opendatahub-io/odh-model-controller/controllers/comparators"
 	routev1 "github.com/openshift/api/route/v1"
 	"k8s.io/apimachinery/pkg/types"
 
-	mfc "github.com/manifestival/controller-runtime-client"
-	mf "github.com/manifestival/manifestival"
 	. "github.com/onsi/ginkgo"
 	. "github.com/onsi/gomega"
 )
@@ -31,27 +30,24 @@ import (
 var _ = Describe("The Openshift model controller", func() {
 
 	When("creating a ServiceRuntime & InferenceService with 'enable-route' enabled", func() {
-		var opts mf.Option
 
 		BeforeEach(func() {
-			client := mfc.NewClient(cli)
-			opts = mf.UseClient(client)
 			ctx := context.Background()
 
 			servingRuntime1 := &kservev1alpha1.ServingRuntime{}
-			err := convertToStructuredResource(ServingRuntimePath1, servingRuntime1, opts)
+			err := convertToStructuredResource(ServingRuntimePath1, servingRuntime1)
 			Expect(err).NotTo(HaveOccurred())
 			Expect(cli.Create(ctx, servingRuntime1)).Should(Succeed())
 
 			servingRuntime2 := &kservev1alpha1.ServingRuntime{}
-			err = convertToStructuredResource(ServingRuntimePath2, servingRuntime2, opts)
+			err = convertToStructuredResource(ServingRuntimePath2, servingRuntime2)
 			Expect(err).NotTo(HaveOccurred())
 			Expect(cli.Create(ctx, servingRuntime2)).Should(Succeed())
 		})
 
 		It("when InferenceService specifies a runtime, should create a Route to expose the traffic externally", func() {
 			inferenceService := &kservev1beta1.InferenceService{}
-			err := convertToStructuredResource(InferenceService1, inferenceService, opts)
+			err := convertToStructuredResource(InferenceService1, inferenceService)
 			Expect(err).NotTo(HaveOccurred())
 			Expect(cli.Create(ctx, inferenceService)).Should(Succeed())
 
@@ -64,15 +60,15 @@ var _ = Describe("The Openshift model controller", func() {
 			}, timeout, interval).ShouldNot(HaveOccurred())
 
 			expectedRoute := &routev1.Route{}
-			err = convertToStructuredResource(ExpectedRoutePath, expectedRoute, opts)
+			err = convertToStructuredResource(ExpectedRoutePath, expectedRoute)
 			Expect(err).NotTo(HaveOccurred())
 
-			Expect(CompareInferenceServiceRoutes(*route, *expectedRoute)).Should(BeTrue())
+			Expect(comparators.GetMMRouteComparator()(route, expectedRoute)).Should(BeTrue())
 		})
 
 		It("when InferenceService does not specifies a runtime, should automatically pick a runtime and create a Route", func() {
 			inferenceService := &kservev1beta1.InferenceService{}
-			err := convertToStructuredResource(InferenceServiceNoRuntime, inferenceService, opts)
+			err := convertToStructuredResource(InferenceServiceNoRuntime, inferenceService)
 			Expect(err).NotTo(HaveOccurred())
 			Expect(cli.Create(ctx, inferenceService)).Should(Succeed())
 
@@ -83,10 +79,10 @@ var _ = Describe("The Openshift model controller", func() {
 			}, timeout, interval).ShouldNot(HaveOccurred())
 
 			expectedRoute := &routev1.Route{}
-			err = convertToStructuredResource(ExpectedRouteNoRuntimePath, expectedRoute, opts)
+			err = convertToStructuredResource(ExpectedRouteNoRuntimePath, expectedRoute)
 			Expect(err).NotTo(HaveOccurred())
 
-			Expect(CompareInferenceServiceRoutes(*route, *expectedRoute)).Should(BeTrue())
+			Expect(comparators.GetMMRouteComparator()(route, expectedRoute)).Should(BeTrue())
 		})
 	})
 })
