@@ -38,7 +38,7 @@ func (d *deltaProcessor) ComputeDelta(comparator comparators.ResourceComparator,
 	var updated bool
 	var removed bool
 
-	if !utils.IsNil(desiredResource) && utils.IsNil(existingResource) {
+	if !(utils.IsNil(desiredResource) && utils.IsNil(existingResource)) {
 		if utils.IsNotNil(desiredResource) && utils.IsNil(existingResource) {
 			added = true
 		} else if utils.IsNil(desiredResource) && utils.IsNotNil(existingResource) {
