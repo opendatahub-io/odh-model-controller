@@ -24,8 +24,6 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
-	mfc "github.com/manifestival/controller-runtime-client"
-	mf "github.com/manifestival/manifestival"
 	. "github.com/onsi/ginkgo"
 	. "github.com/onsi/gomega"
 )
@@ -37,17 +35,14 @@ const (
 )
 
 var _ = Describe("StorageConfig controller", func() {
-	var opts mf.Option
 	ctx := context.Background()
-	client := mfc.NewClient(cli)
-	opts = mf.UseClient(client)
 
 	Context("when a dataconnection secret that has 'opendatahub.io/managed=true' and 'opendatahub.io/dashboard=true' is created", func() {
 		It("should create a storage-config secret", func() {
 			dataconnectionStringSecret := &corev1.Secret{}
 
 			By("creating dataconnection secret")
-			err := convertToStructuredResource(dataconnectionStringPath, dataconnectionStringSecret, opts)
+			err := convertToStructuredResource(dataconnectionStringPath, dataconnectionStringSecret)
 			Expect(err).NotTo(HaveOccurred())
 			Expect(cli.Create(ctx, dataconnectionStringSecret)).Should(Succeed())
 
@@ -55,7 +50,7 @@ var _ = Describe("StorageConfig controller", func() {
 			Expect(err).NotTo(HaveOccurred())
 
 			expectedStorageConfigSecret := &corev1.Secret{}
-			err = convertToStructuredResource(storageconfigEncodedPath, expectedStorageConfigSecret, opts)
+			err = convertToStructuredResource(storageconfigEncodedPath, expectedStorageConfigSecret)
 			Expect(err).NotTo(HaveOccurred())
 
 			Expect(compareSecrets(storegeconfigSecret, expectedStorageConfigSecret)).Should((BeTrue()))
@@ -67,7 +62,7 @@ var _ = Describe("StorageConfig controller", func() {
 			dataconnectionStringSecret := &corev1.Secret{}
 
 			By("creating dataconnection secret")
-			err := convertToStructuredResource(dataconnectionStringPath, dataconnectionStringSecret, opts)
+			err := convertToStructuredResource(dataconnectionStringPath, dataconnectionStringSecret)
 			Expect(err).NotTo(HaveOccurred())
 			Expect(cli.Create(ctx, dataconnectionStringSecret)).Should(Succeed())
 
@@ -87,7 +82,7 @@ var _ = Describe("StorageConfig controller", func() {
 			Expect(err).NotTo(HaveOccurred())
 
 			expectedStorageConfigSecret := &corev1.Secret{}
-			err = convertToStructuredResource(storageconfigEncodedUnmanagedPath, expectedStorageConfigSecret, opts)
+			err = convertToStructuredResource(storageconfigEncodedUnmanagedPath, expectedStorageConfigSecret)
 			Expect(err).NotTo(HaveOccurred())
 
 			Expect(compareSecrets(storageconfigSecret, expectedStorageConfigSecret)).Should((BeTrue()))
