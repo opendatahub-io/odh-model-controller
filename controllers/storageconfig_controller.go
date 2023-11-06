@@ -18,13 +18,14 @@ package controllers
 import (
 	"context"
 	"encoding/json"
+	"reflect"
+
 	"github.com/go-logr/logr"
 	corev1 "k8s.io/api/core/v1"
 	apierrs "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/util/retry"
-	"reflect"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/event"
@@ -53,7 +54,10 @@ func newStorageSecret(dataConnectionSecretsList *corev1.SecretList) *corev1.Secr
 		dataConnectionElement["access_key_id"] = string(secret.Data["AWS_ACCESS_KEY_ID"])
 		dataConnectionElement["secret_access_key"] = string(secret.Data["AWS_SECRET_ACCESS_KEY"])
 		dataConnectionElement["endpoint_url"] = string(secret.Data["AWS_S3_ENDPOINT"])
+		// We add both "default_bucket" and "bucket" because kserve and modelmesh expect different keys for the same value
+		// Once upstream has reconciled to one common key, we should remove the other one.
 		dataConnectionElement["default_bucket"] = string(secret.Data["AWS_S3_BUCKET"])
+		dataConnectionElement["bucket"] = string(secret.Data["AWS_S3_BUCKET"])
 		dataConnectionElement["region"] = string(secret.Data["AWS_DEFAULT_REGION"])
 		if secret.Data["AWS_CA_BUNDLE"] != nil {
 			dataConnectionElement["certificate"] = string(secret.Data["AWS_CA_BUNDLE"])
