@@ -99,3 +99,8 @@ require (
 	sigs.k8s.io/json v0.0.0-20221116044647-bc3834ca7abd // indirect
 	sigs.k8s.io/structured-merge-diff/v4 v4.2.3 // indirect
 )
+
+// remove when upgrade to controller-runtime 0.15.xor apimachinery to 0.27.x
+// Fixes github.com/elazarl/goproxy Denial of Service (DoS)
+// This dependency was remove from apimachinery 0.27.0
+replace k8s.io/apimachinery => k8s.io/apimachinery v0.27.0
