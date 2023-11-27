@@ -21,3 +21,8 @@ const (
 	IstioIngressServiceHTTPPortName  = "http2"
 	IstioIngressServiceHTTPSPortName = "https"
 )
+
+// Model registry serving constants
+const (
+	ModelRegistryInferenceServiceLabel = "model-registry-is-id"
+)

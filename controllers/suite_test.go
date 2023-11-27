@@ -19,12 +19,14 @@ import (
 	"context"
 	"os"
 	"path/filepath"
-	"sigs.k8s.io/yaml"
 	"testing"
 	"time"
 
+	"sigs.k8s.io/yaml"
+
 	kservev1alpha1 "github.com/kserve/kserve/pkg/apis/serving/v1alpha1"
 	kservev1beta1 "github.com/kserve/kserve/pkg/apis/serving/v1beta1"
+	"github.com/opendatahub-io/odh-model-controller/controllers/reconcilers"
 	monitoringv1 "github.com/prometheus-operator/prometheus-operator/pkg/apis/monitoring/v1"
 	"go.uber.org/zap/zapcore"
 	k8srbacv1 "k8s.io/api/rbac/v1"
@@ -155,6 +157,16 @@ var _ = BeforeSuite(func() {
 		Client: cli,
 		Log:    ctrl.Log.WithName("controllers").WithName("Storage-Secret-Controller"),
 		Scheme: scheme.Scheme,
+	}).SetupWithManager(mgr)
+	Expect(err).ToNot(HaveOccurred())
+
+	err = (&ModelRegistryReconciler{
+		Client:         cli,
+		Log:            ctrl.Log.WithName("controllers").WithName("Model-Registry-Controller"),
+		Scheme:         scheme.Scheme,
+		Period:         0, // no periodic checks
+		mrISReconciler: reconcilers.NewModelRegistryInferenceServiceReconciler(cli),
+		mrSEReconciler: reconcilers.NewModelRegistryServingEnvironmentReconciler(cli),
 	}).SetupWithManager(mgr)
 	Expect(err).ToNot(HaveOccurred())
 

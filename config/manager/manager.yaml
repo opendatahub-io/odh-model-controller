@@ -37,6 +37,7 @@ spec:
             - /manager
           args:
             - --leader-elect
+            - --model-registry-enabled
           image: controller:latest
           name: manager
           imagePullPolicy: Always

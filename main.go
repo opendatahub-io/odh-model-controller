@@ -53,7 +53,7 @@ var (
 
 // ClusterRole permissions
 
-// +kubebuilder:rbac:groups=serving.kserve.io,resources=inferenceservices,verbs=get;list;watch
+// +kubebuilder:rbac:groups=serving.kserve.io,resources=inferenceservices,verbs=get;list;watch;create;update;delete
 // +kubebuilder:rbac:groups=serving.kserve.io,resources=inferenceservices/finalizers,verbs=get;list;watch;update
 // +kubebuilder:rbac:groups=serving.kserve.io,resources=servingruntimes,verbs=get;list;watch;create;update
 // +kubebuilder:rbac:groups=serving.kserve.io,resources=servingruntimes/finalizers,verbs=get;list;watch;create;update;patch;delete
@@ -105,6 +105,8 @@ func main() {
 	var enableLeaderElection bool
 	var monitoringNS string
 	var probeAddr string
+	var modelRegistryEnabled bool
+	var modelRegistryPeriod int
 	flag.StringVar(&metricsAddr, "metrics-bind-address", ":8080", "The address the metric endpoint binds to.")
 	flag.StringVar(&probeAddr, "health-probe-bind-address", ":8081", "The address the probe endpoint binds to.")
 	flag.BoolVar(&enableLeaderElection, "leader-elect", false,
@@ -112,6 +114,10 @@ func main() {
 			"Enabling this will ensure there is only one active controller manager.")
 	flag.StringVar(&monitoringNS, "monitoring-namespace", "",
 		"The Namespace where the monitoring stack's Prometheus resides.")
+	flag.BoolVar(&modelRegistryEnabled, "model-registry-enabled", false,
+		"Enable model registry reconciliation.")
+	flag.IntVar(&modelRegistryPeriod, "model-registry-period", 60,
+		"Define the frequency for triggering the model registry serving reconciliation in seconds. Set to 0 to disable the periodic trigger.")
 
 	opts := zap.Options{
 		Development: true,
@@ -167,6 +173,22 @@ func main() {
 	} else {
 		setupLog.Info("Monitoring namespace not provided, skipping setup of monitoring controller. To enable " +
 			"monitoring for ModelServing, please provide a monitoring namespace via the (--monitoring-namespace) flag.")
+	}
+
+	if modelRegistryEnabled {
+		setupLog.Info("Model registry enabled, setting up model registry serving controller.")
+		if err = (controllers.NewModelRegistryReconciler(
+			mgr.GetClient(),
+			mgr.GetScheme(),
+			ctrl.Log.WithName("controllers").WithName("ModelRegistry"),
+			modelRegistryPeriod,
+		)).SetupWithManager(mgr); err != nil {
+			setupLog.Error(err, "unable to create controller", "controller", "NewModelRegistryReconciler")
+			os.Exit(1)
+		}
+	} else {
+		setupLog.Info("Model registry not enabled, skipping setup of model registry controller. To enable " +
+			"model registry reconciliation, please provide (--model-registry-enabled) flag.")
 	}
 
 	//+kubebuilder:scaffold:builder

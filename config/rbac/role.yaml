@@ -167,8 +167,11 @@ rules:
   resources:
   - inferenceservices
   verbs:
+  - create
+  - delete
   - get
   - list
+  - update
   - watch
 - apiGroups:
   - serving.kserve.io
