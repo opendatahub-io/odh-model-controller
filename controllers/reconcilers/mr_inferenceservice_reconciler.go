@@ -185,14 +185,17 @@ func (r *ModelRegistryInferenceServiceReconciler) createDesiredInferenceService(
 	// Right now we assume there is just one artifact for each model version
 	modelArtifact := &modelArtifactList.Items[0]
 
-	// Assemble the desired InferenceService CR
-	desiredInferenceService := r.assembleInferenceService(namespace, isName, *is, *modelArtifact, true)
-
-	return desiredInferenceService, nil
+	// Assemble and return the desired InferenceService CR
+	return r.assembleInferenceService(namespace, isName, *is, *modelArtifact, true)
 }
 
 // assembleInferenceService create a new kservev1beta1.InferenceService CR object based on the provided data
-func (r *ModelRegistryInferenceServiceReconciler) assembleInferenceService(namespace string, isName string, is openapi.InferenceService, modelArtifact openapi.ModelArtifact, isModelMesh bool) *kservev1beta1.InferenceService {
+func (r *ModelRegistryInferenceServiceReconciler) assembleInferenceService(namespace string, isName string, is openapi.InferenceService, modelArtifact openapi.ModelArtifact, isModelMesh bool) (*kservev1beta1.InferenceService, error) {
+	// Ensure modelArtifact.ModelFormatName is provided, otherwise return error
+	if modelArtifact.ModelFormatName == nil {
+		return nil, fmt.Errorf("missing model format name in model artifact metadata")
+	}
+
 	desiredInferenceService := &kservev1beta1.InferenceService{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      isName,
@@ -234,7 +237,7 @@ func (r *ModelRegistryInferenceServiceReconciler) assembleInferenceService(names
 		desiredInferenceService.Annotations["sidecar.istio.io/rewriteAppHTTPProbers"] = "true"
 	}
 
-	return desiredInferenceService
+	return desiredInferenceService, nil
 }
 
 // logServeModel create a new ServeModel instance in NEW state if not already existing for the provided InferenceService,
