@@ -33,19 +33,14 @@ import (
 	"go.uber.org/zap/zapcore"
 	k8srbacv1 "k8s.io/api/rbac/v1"
 	utilrand "k8s.io/apimachinery/pkg/util/rand"
-	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
 	ctrl "sigs.k8s.io/controller-runtime"
 
 	. "github.com/onsi/ginkgo"
 	. "github.com/onsi/gomega"
+	"github.com/opendatahub-io/odh-model-controller/controllers/utils"
 	routev1 "github.com/openshift/api/route/v1"
-	virtualservicev1 "istio.io/client-go/pkg/apis/networking/v1alpha3"
-	istiosecurityv1beta1 "istio.io/client-go/pkg/apis/security/v1beta1"
-	telemetryv1alpha1 "istio.io/client-go/pkg/apis/telemetry/v1alpha1"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/client-go/kubernetes/scheme"
-	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
-	maistrav1 "maistra.io/api/core/v1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/envtest"
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
@@ -113,16 +108,7 @@ var _ = BeforeSuite(func() {
 	Expect(cfg).NotTo(BeNil())
 
 	// Register API objects
-	utilruntime.Must(clientgoscheme.AddToScheme(scheme.Scheme))
-	utilruntime.Must(kservev1alpha1.AddToScheme(scheme.Scheme))
-	utilruntime.Must(kservev1beta1.AddToScheme(scheme.Scheme))
-	utilruntime.Must(routev1.AddToScheme(scheme.Scheme))
-	utilruntime.Must(virtualservicev1.AddToScheme(scheme.Scheme))
-	utilruntime.Must(maistrav1.AddToScheme(scheme.Scheme))
-	utilruntime.Must(monitoringv1.AddToScheme(scheme.Scheme))
-	utilruntime.Must(corev1.AddToScheme(scheme.Scheme))
-	utilruntime.Must(istiosecurityv1beta1.AddToScheme(scheme.Scheme))
-	utilruntime.Must(telemetryv1alpha1.AddToScheme(scheme.Scheme))
+	utils.RegisterSchemes(scheme.Scheme)
 
 	// +kubebuilder:scaffold:scheme
 

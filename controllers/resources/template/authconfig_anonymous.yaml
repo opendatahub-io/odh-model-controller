@@ -1,0 +1,14 @@
+apiVersion: authorino.kuadrant.io/v1beta2
+kind: AuthConfig
+metadata:
+  name: test
+  labels:
+    security.opendatahub.io/authorization-group: default
+spec:
+  hosts:
+  - "example.com"
+  authentication:
+    anonymous-access:
+      anonymous: {}
+      credentials:
+        authorizationHeader: {}
