@@ -24,5 +24,8 @@ const (
 
 // Model registry serving constants
 const (
-	ModelRegistryInferenceServiceLabel = "model-registry-is-id"
+	// model registry InferenceService internal ID
+	ModelRegistryInferenceServiceIDLabel = "model-registry-is-id"
+	// model registry ServeModel internal ID
+	ModelRegistryInferenceServiceSMLabel = "model-registry-sm-id"
 )
