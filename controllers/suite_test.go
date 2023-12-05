@@ -17,6 +17,7 @@ package controllers
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"path/filepath"
 	"testing"
@@ -164,7 +165,7 @@ var _ = BeforeSuite(func() {
 		Client:         cli,
 		Log:            ctrl.Log.WithName("controllers").WithName("Model-Registry-Controller"),
 		Scheme:         scheme.Scheme,
-		Period:         0, // no periodic checks
+		Period:         time.Duration(1) * time.Second,
 		mrISReconciler: reconcilers.NewModelRegistryInferenceServiceReconciler(cli),
 		mrSEReconciler: reconcilers.NewModelRegistryServingEnvironmentReconciler(cli),
 	}).SetupWithManager(mgr)
@@ -181,9 +182,24 @@ var _ = BeforeSuite(func() {
 
 var _ = AfterSuite(func() {
 	cancel()
+
 	By("Tearing down the test environment")
 	err := envTest.Stop()
 	Expect(err).NotTo(HaveOccurred())
+
+	By("Removing all mlmd connection configs")
+	cfgs, err := filepath.Glob(fmt.Sprintf("%s/odh_mlmd_conn_config-*.pb", os.TempDir()))
+	Expect(err).NotTo(HaveOccurred())
+	for _, connConfig := range cfgs {
+		Expect(os.Remove(connConfig)).NotTo(HaveOccurred())
+	}
+
+	By("Removing all mlmd sqlite dbs")
+	dbs, err := filepath.Glob(fmt.Sprintf("%s/odh_metadata.sqlite-*.db", os.TempDir()))
+	Expect(err).NotTo(HaveOccurred())
+	for _, sqlite := range dbs {
+		Expect(os.Remove(sqlite)).NotTo(HaveOccurred())
+	}
 })
 
 // Cleanup resources to not contaminate between tests
@@ -195,7 +211,6 @@ var _ = AfterEach(func() {
 	Expect(cli.DeleteAllOf(context.TODO(), &monitoringv1.ServiceMonitor{}, inNamespace)).ToNot(HaveOccurred())
 	Expect(cli.DeleteAllOf(context.TODO(), &k8srbacv1.RoleBinding{}, inNamespace)).ToNot(HaveOccurred())
 	Expect(cli.DeleteAllOf(context.TODO(), &corev1.Secret{}, inNamespace)).ToNot(HaveOccurred())
-
 })
 
 func convertToStructuredResource(path string, out interface{}) (err error) {
