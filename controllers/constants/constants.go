@@ -24,6 +24,7 @@ const (
 
 // Model registry serving constants
 const (
+	MLMDAddressEnv = "MLMD_ADDRESS"
 	// model registry InferenceService internal ID
 	ModelRegistryInferenceServiceIDLabel = "model-registry-is-id"
 	// model registry ServeModel internal ID
