@@ -29,6 +29,7 @@ type KserveInferenceServiceReconciler struct {
 	routeReconciler                   *KserveRouteReconciler
 	metricsServiceReconciler          *KserveMetricsServiceReconciler
 	metricsServiceMonitorReconciler   *KserveMetricsServiceMonitorReconciler
+	metricsPodMonitorReconciler       *KserveMetricsPodMonitorReconciler
 	prometheusRoleBindingReconciler   *KservePrometheusRoleBindingReconciler
 	istioSMMRReconciler               *KserveIstioSMMRReconciler
 	istioTelemetryReconciler          *KserveIstioTelemetryReconciler
@@ -45,6 +46,7 @@ func NewKServeInferenceServiceReconciler(client client.Client, scheme *runtime.S
 		routeReconciler:                   NewKserveRouteReconciler(client, scheme),
 		metricsServiceReconciler:          NewKServeMetricsServiceReconciler(client, scheme),
 		metricsServiceMonitorReconciler:   NewKServeMetricsServiceMonitorReconciler(client, scheme),
+		metricsPodMonitorReconciler:       NewKServeMetricsPodMonitorReconciler(client, scheme),
 		prometheusRoleBindingReconciler:   NewKServePrometheusRoleBindingReconciler(client, scheme),
 		istioTelemetryReconciler:          NewKServeIstioTelemetryReconciler(client, scheme),
 		istioServiceMonitorReconciler:     NewKServeIstioServiceMonitorReconciler(client, scheme),
@@ -77,6 +79,7 @@ func (r *KserveInferenceServiceReconciler) Reconcile(ctx context.Context, log lo
 		return err
 	}
 
+	// Remove KserveIstioPodMonitorReconciler from subsequent release
 	log.V(1).Info("Creating Istio PodMonitor for target namespace")
 	if err := r.istioPodMonitorReconciler.Reconcile(ctx, log, isvc); err != nil {
 		return err
@@ -105,6 +108,11 @@ func (r *KserveInferenceServiceReconciler) Reconcile(ctx context.Context, log lo
 
 	log.V(1).Info("Reconciling Metrics ServiceMonitor for InferenceService")
 	if err := r.metricsServiceMonitorReconciler.Reconcile(ctx, log, isvc); err != nil {
+		return err
+	}
+
+	log.V(1).Info("Reconciling Metrics PodMonitor for InferenceService")
+	if err := r.metricsPodMonitorReconciler.Reconcile(ctx, log, isvc); err != nil {
 		return err
 	}
 
