@@ -27,7 +27,9 @@ import (
 
 	kservev1alpha1 "github.com/kserve/kserve/pkg/apis/serving/v1alpha1"
 	kservev1beta1 "github.com/kserve/kserve/pkg/apis/serving/v1beta1"
+	"github.com/opendatahub-io/model-registry/pkg/openapi"
 	"github.com/opendatahub-io/odh-model-controller/controllers/reconcilers"
+	"github.com/opendatahub-io/odh-model-controller/controllers/testdata/modelregistry"
 	monitoringv1 "github.com/prometheus-operator/prometheus-operator/pkg/apis/monitoring/v1"
 	"go.uber.org/zap/zapcore"
 	k8srbacv1 "k8s.io/api/rbac/v1"
@@ -57,27 +59,29 @@ import (
 // +kubebuilder:docs-gen:collapse=Imports
 
 var (
-	cli     client.Client
-	envTest *envtest.Environment
-	ctx     context.Context
-	cancel  context.CancelFunc
+	cli               client.Client
+	envTest           *envtest.Environment
+	ctx               context.Context
+	cancel            context.CancelFunc
+	modelRegistryMock *modelregistry.ModelRegistryServiceMocked
 )
 
 const (
-	WorkingNamespace            = "default"
-	MonitoringNS                = "monitoring-ns"
-	RoleBindingPath             = "./testdata/results/model-server-ns-role.yaml"
-	ServingRuntimePath1         = "./testdata/deploy/test-openvino-serving-runtime-1.yaml"
-	KserveServingRuntimePath1   = "./testdata/deploy/kserve-openvino-serving-runtime-1.yaml"
-	ServingRuntimePath2         = "./testdata/deploy/test-openvino-serving-runtime-2.yaml"
-	InferenceService1           = "./testdata/deploy/openvino-inference-service-1.yaml"
-	InferenceServiceNoRuntime   = "./testdata/deploy/openvino-inference-service-no-runtime.yaml"
-	KserveInferenceServicePath1 = "./testdata/deploy/kserve-openvino-inference-service-1.yaml"
-	InferenceServiceConfigPath1 = "./testdata/configmaps/inferenceservice-config.yaml"
-	ExpectedRoutePath           = "./testdata/results/example-onnx-mnist-route.yaml"
-	ExpectedRouteNoRuntimePath  = "./testdata/results/example-onnx-mnist-no-runtime-route.yaml"
-	timeout                     = time.Second * 20
-	interval                    = time.Millisecond * 10
+	WorkingNamespace                   = "default"
+	MonitoringNS                       = "monitoring-ns"
+	RoleBindingPath                    = "./testdata/results/model-server-ns-role.yaml"
+	ServingRuntimePath1                = "./testdata/deploy/test-openvino-serving-runtime-1.yaml"
+	KserveServingRuntimePath1          = "./testdata/deploy/kserve-openvino-serving-runtime-1.yaml"
+	ServingRuntimePath2                = "./testdata/deploy/test-openvino-serving-runtime-2.yaml"
+	InferenceService1                  = "./testdata/deploy/openvino-inference-service-1.yaml"
+	InferenceServiceNoRuntime          = "./testdata/deploy/openvino-inference-service-no-runtime.yaml"
+	KserveInferenceServicePath1        = "./testdata/deploy/kserve-openvino-inference-service-1.yaml"
+	ModelRegistryInferenceServicePath1 = "./testdata/deploy/modelregistry-inference-service-1.yaml"
+	InferenceServiceConfigPath1        = "./testdata/configmaps/inferenceservice-config.yaml"
+	ExpectedRoutePath                  = "./testdata/results/example-onnx-mnist-route.yaml"
+	ExpectedRouteNoRuntimePath         = "./testdata/results/example-onnx-mnist-no-runtime-route.yaml"
+	timeout                            = time.Second * 20
+	interval                           = time.Millisecond * 10
 )
 
 func TestAPIs(t *testing.T) {
@@ -161,11 +165,14 @@ var _ = BeforeSuite(func() {
 	}).SetupWithManager(mgr)
 	Expect(err).ToNot(HaveOccurred())
 
+	modelRegistryMock = &modelregistry.ModelRegistryServiceMocked{}
+
 	err = (&ModelRegistryReconciler{
 		Client:         cli,
 		Log:            ctrl.Log.WithName("controllers").WithName("Model-Registry-Controller"),
 		Scheme:         scheme.Scheme,
 		Period:         time.Duration(1) * time.Second,
+		mrService:      modelRegistryMock,
 		mrISReconciler: reconcilers.NewModelRegistryInferenceServiceReconciler(cli),
 		mrSEReconciler: reconcilers.NewModelRegistryServingEnvironmentReconciler(cli),
 	}).SetupWithManager(mgr)
@@ -200,6 +207,14 @@ var _ = AfterSuite(func() {
 	for _, sqlite := range dbs {
 		Expect(os.Remove(sqlite)).NotTo(HaveOccurred())
 	}
+})
+
+var _ = BeforeEach(func() {
+	// ensure all other tests do not trigger mr reconcilation by forcing to retun empty IS from model registry
+	modelRegistryMock.On("GetInferenceServices").Return(&openapi.InferenceServiceList{
+		Size:  0,
+		Items: []openapi.InferenceService{},
+	}, nil)
 })
 
 // Cleanup resources to not contaminate between tests

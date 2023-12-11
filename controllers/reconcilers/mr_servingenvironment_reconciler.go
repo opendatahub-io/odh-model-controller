@@ -24,7 +24,6 @@ func (r *ModelRegistryServingEnvironmentReconciler) Reconcile(ctx context.Contex
 	_, err := mrClient.GetServingEnvironmentByParams(&namespace, nil)
 	if err != nil {
 		// Create new ServingEnvironment as not already existing
-		// TODO: we could fetch additional custom props from the ServingRuntime CR, needed?
 		log.Info("Creating new ServingEnvironment for " + namespace)
 		_, err = mrClient.UpsertServingEnvironment(&openapi.ServingEnvironment{
 			Name:       &namespace,
