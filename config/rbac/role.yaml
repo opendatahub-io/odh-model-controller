@@ -6,6 +6,18 @@ metadata:
   name: odh-model-controller-role
 rules:
 - apiGroups:
+    - ""
+  resources:
+    - serviceaccounts
+  verbs:
+    - create
+    - get
+    - list
+    - patch
+    - update
+    - watch
+    - delete
+- apiGroups:
   - ""
   resources:
   - configmaps
@@ -13,7 +25,6 @@ rules:
   - namespaces
   - pods
   - secrets
-  - serviceaccounts
   - services
   verbs:
   - create

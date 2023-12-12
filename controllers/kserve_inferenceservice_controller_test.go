@@ -55,6 +55,21 @@ var _ = Describe("The Openshift Kserve model controller", func() {
 
 		})
 
+		//Context("Validate Openshift Monitoring Stack", func() {
+		//	It("Namespace should be added to SMMR", func() {
+		//		smmr := &v1.ServiceMeshMemberRoll{}
+		//		err := cli.Get(ctx, types.NamespacedName{Name: reconcilers.ServiceMeshMemberRollName, Namespace: constants.IstioNamespace}, smmr)
+		//		Expect(err).NotTo(HaveOccurred())
+		//
+		//	})
+		//
+		//	It("Prometheus cluster role binding should be configured", func() {
+		//		smmr := &v1.ServiceMeshMemberRoll{}
+		//		err := cli.Get(ctx, types.NamespacedName{Name: reconcilers.ServiceMeshMemberRollName, Namespace: constants.IstioNamespace}, smmr)
+		//		Expect(err).NotTo(HaveOccurred())
+		//	})
+		//})
+
 		It("With Kserve InferenceService a Route be created", func() {
 			inferenceService := &kservev1beta1.InferenceService{}
 			err := convertToStructuredResource(KserveInferenceServicePath1, inferenceService)

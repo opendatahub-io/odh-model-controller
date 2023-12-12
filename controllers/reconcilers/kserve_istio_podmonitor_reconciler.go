@@ -83,6 +83,10 @@ func (r *KserveIstioPodMonitorReconciler) createDesiredResource(isvc *kservev1be
 						Key:      "istio-prometheus-ignore",
 						Operator: metav1.LabelSelectorOpDoesNotExist,
 					},
+					{
+						Key:      "modelmesh-service",
+						Operator: metav1.LabelSelectorOpDoesNotExist,
+					},
 				},
 			},
 			PodMetricsEndpoints: []v1.PodMetricsEndpoint{

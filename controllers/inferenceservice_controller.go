@@ -115,31 +115,12 @@ func (r *OpenshiftInferenceServiceReconciler) SetupWithManager(mgr ctrl.Manager)
 		Watches(&source.Kind{Type: &kservev1alpha1.ServingRuntime{}},
 			handler.EnqueueRequestsFromMapFunc(func(o client.Object) []reconcile.Request {
 				r.log.Info("Reconcile event triggered by serving runtime: " + o.GetName())
-				inferenceServicesList := &kservev1beta1.InferenceServiceList{}
-				opts := []client.ListOption{client.InNamespace(o.GetNamespace())}
-
-				// Todo: Get only Inference Services that are deploying on the specific serving runtime
-				err := r.client.List(context.TODO(), inferenceServicesList, opts...)
-				if err != nil {
-					r.log.Info("Error getting list of inference services for namespace")
-					return []reconcile.Request{}
-				}
-
-				if len(inferenceServicesList.Items) == 0 {
-					r.log.Info("No InferenceServices found for Serving Runtime: " + o.GetName())
-					return []reconcile.Request{}
-				}
-
-				reconcileRequests := make([]reconcile.Request, 0, len(inferenceServicesList.Items))
-				for _, inferenceService := range inferenceServicesList.Items {
-					reconcileRequests = append(reconcileRequests, reconcile.Request{
-						NamespacedName: types.NamespacedName{
-							Name:      inferenceService.Name,
-							Namespace: inferenceService.Namespace,
-						},
-					})
-				}
-				return reconcileRequests
+				return r.getReconcileRequestsOnUpdateOfServingRuntime(o)
+			})).
+		Watches(&source.Kind{Type: &networkingv1.NetworkPolicy{}},
+			handler.EnqueueRequestsFromMapFunc(func(o client.Object) []reconcile.Request {
+				r.log.Info("Reconcile event triggered by Network Policy: " + o.GetName())
+				return r.getReconcileRequestsOnUpdateOfServingRuntime(o)
 			}))
 	err := builder.Complete(r)
 	if err != nil {
@@ -147,6 +128,61 @@ func (r *OpenshiftInferenceServiceReconciler) SetupWithManager(mgr ctrl.Manager)
 	}
 
 	return nil
+}
+
+func (r *OpenshiftInferenceServiceReconciler) getReconcileRequestsOnUpdateOfServingRuntime(o client.Object) []reconcile.Request {
+	inferenceServicesList := &kservev1beta1.InferenceServiceList{}
+	opts := []client.ListOption{client.InNamespace(o.GetNamespace())}
+
+	// Todo: Get only Inference Services that are deploying on the specific serving runtime
+	err := r.client.List(context.TODO(), inferenceServicesList, opts...)
+	if err != nil {
+		r.log.Info("Error getting list of inference services for namespace")
+		return []reconcile.Request{}
+	}
+
+	if len(inferenceServicesList.Items) == 0 {
+		r.log.Info("No InferenceServices found for Network Policy: " + o.GetName())
+		return []reconcile.Request{}
+	}
+
+	reconcileRequests := make([]reconcile.Request, 0, len(inferenceServicesList.Items))
+	for _, inferenceService := range inferenceServicesList.Items {
+		reconcileRequests = append(reconcileRequests, reconcile.Request{
+			NamespacedName: types.NamespacedName{
+				Name:      inferenceService.Name,
+				Namespace: inferenceService.Namespace,
+			},
+		})
+	}
+	return reconcileRequests
+}
+
+func (r *OpenshiftInferenceServiceReconciler) getReconcileRequestsOnUpdateOfNetworkPolicy(o client.Object) []reconcile.Request {
+	inferenceServicesList := &kservev1beta1.InferenceServiceList{}
+	opts := []client.ListOption{client.InNamespace(o.GetNamespace())}
+
+	err := r.client.List(context.TODO(), inferenceServicesList, opts...)
+	if err != nil {
+		r.log.Info("Error getting list of inference services for namespace")
+		return []reconcile.Request{}
+	}
+
+	if len(inferenceServicesList.Items) == 0 {
+		r.log.Info("No InferenceServices found for Network Policy: " + o.GetName())
+		return []reconcile.Request{}
+	}
+
+	reconcileRequests := make([]reconcile.Request, 0, len(inferenceServicesList.Items))
+	for _, inferenceService := range inferenceServicesList.Items {
+		reconcileRequests = append(reconcileRequests, reconcile.Request{
+			NamespacedName: types.NamespacedName{
+				Name:      inferenceService.Name,
+				Namespace: inferenceService.Namespace,
+			},
+		})
+	}
+	return reconcileRequests
 }
 
 // general clean-up, mostly resources in different namespaces from kservev1beta1.InferenceService
