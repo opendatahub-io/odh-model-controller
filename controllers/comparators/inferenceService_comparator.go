@@ -19,6 +19,7 @@ import (
 	"reflect"
 
 	kservev1beta1 "github.com/kserve/kserve/pkg/apis/serving/v1beta1"
+	"github.com/opendatahub-io/odh-model-controller/controllers/constants"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
@@ -26,6 +27,7 @@ func GetInferenceServiceComparator() ResourceComparator {
 	return func(deployed client.Object, requested client.Object) bool {
 		deployedInferenceService := deployed.(*kservev1beta1.InferenceService)
 		requestedInferenceService := requested.(*kservev1beta1.InferenceService)
-		return reflect.DeepEqual(deployedInferenceService.Spec.Predictor, requestedInferenceService.Spec.Predictor)
+		return reflect.DeepEqual(deployedInferenceService.Spec.Predictor, requestedInferenceService.Spec.Predictor) &&
+			reflect.DeepEqual(deployedInferenceService.Labels[constants.ModelRegistryInferenceServiceSMLabel], requestedInferenceService.Labels[constants.ModelRegistryInferenceServiceSMLabel])
 	}
 }

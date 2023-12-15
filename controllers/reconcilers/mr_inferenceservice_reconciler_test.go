@@ -9,12 +9,12 @@ import (
 func TestIsInferenceServiceDeployed(t *testing.T) {
 	var result bool
 
-	result = isInferenceServiceDeployed(&openapi.InferenceService{State: openapi.INFERENCESERVICESTATE_DEPLOYED.Ptr()})
+	result = isInferenceServiceDeployed(&openapi.InferenceService{DesiredState: openapi.INFERENCESERVICESTATE_DEPLOYED.Ptr()})
 	if !result {
 		t.Errorf("provided inference service should result in DEPLOYED state")
 	}
 
-	result = isInferenceServiceDeployed(&openapi.InferenceService{State: openapi.INFERENCESERVICESTATE_UNDEPLOYED.Ptr()})
+	result = isInferenceServiceDeployed(&openapi.InferenceService{DesiredState: openapi.INFERENCESERVICESTATE_UNDEPLOYED.Ptr()})
 	if result {
 		t.Errorf("provided inference service should result in UNDEPLOYED state")
 	}

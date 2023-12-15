@@ -65,7 +65,7 @@ var _ = Describe("ModelRegistry controller", func() {
 						RegisteredModelId:    registeredModelId,
 						ServingEnvironmentId: servingEnvironmentId,
 						Runtime:              &servingRuntime.Name,
-						State:                openapi.INFERENCESERVICESTATE_DEPLOYED.Ptr(),
+						DesiredState:         openapi.INFERENCESERVICESTATE_DEPLOYED.Ptr(),
 					},
 				},
 			}, nil)
@@ -89,7 +89,7 @@ var _ = Describe("ModelRegistry controller", func() {
 						RegisteredModelId:    registeredModelId,
 						ServingEnvironmentId: servingEnvironmentId,
 						Runtime:              &servingRuntime.Name,
-						State:                openapi.INFERENCESERVICESTATE_UNDEPLOYED.Ptr(),
+						DesiredState:         openapi.INFERENCESERVICESTATE_UNDEPLOYED.Ptr(),
 					},
 				},
 			}, nil)
@@ -126,7 +126,7 @@ var _ = Describe("ModelRegistry controller", func() {
 						RegisteredModelId:    registeredModelId,
 						ServingEnvironmentId: servingEnvironmentId,
 						Runtime:              &servingRuntime.Name,
-						State:                openapi.INFERENCESERVICESTATE_DEPLOYED.Ptr(),
+						DesiredState:         openapi.INFERENCESERVICESTATE_DEPLOYED.Ptr(),
 					},
 				},
 			}, nil)

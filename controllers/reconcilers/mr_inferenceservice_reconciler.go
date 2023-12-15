@@ -97,7 +97,7 @@ func (r *ModelRegistryInferenceServiceReconciler) ReconcileInferenceService(
 		log.Info("ISVC not existing and IS state is DEPLOYED, creating ISVC: " + isName)
 
 		// Create ServeModel
-		sm, err := r.createServeModel(mrClient, is)
+		sm, err := r.createServeModel(mrClient, is, openapi.EXECUTIONSTATE_UNKNOWN)
 		if err != nil {
 			// if something went worng here, do not stop reconciliation
 			log.Error(err, "something went wrong creating desired ServeModel")
@@ -172,7 +172,7 @@ func (r *ModelRegistryInferenceServiceReconciler) ReconcileInferenceService(
 		}
 
 		// TODO: we could check ISVC.Status.Conditions
-		_, err = r.updateServeModelState(mrClient, is, sm, openapi.EXECUTIONSTATE_RUNNING)
+		sm, err = r.updateServeModelState(mrClient, is, sm, openapi.EXECUTIONSTATE_RUNNING)
 		if err != nil {
 			log.Error(err, "Error updating ServeModel")
 		}
@@ -231,6 +231,7 @@ func (r *ModelRegistryInferenceServiceReconciler) processDelta(ctx context.Conte
 	if delta.IsUpdated() {
 		log.V(1).Info("Delta found", "update", existingISVC.GetName())
 		rp := existingISVC.DeepCopy()
+		rp.Labels[constants.ModelRegistryInferenceServiceSMLabel] = desiredISVC.Labels[constants.ModelRegistryInferenceServiceSMLabel]
 		rp.Spec.Predictor = desiredISVC.Spec.Predictor
 
 		if err = r.client.Update(ctx, rp); err != nil {
@@ -360,7 +361,7 @@ func (r *ModelRegistryInferenceServiceReconciler) getLatestServeModel(mrClient m
 }
 
 // createServeModel create a fresh new instance of ServeModel
-func (r *ModelRegistryInferenceServiceReconciler) createServeModel(mrClient mrapi.ModelRegistryApi, is *openapi.InferenceService) (*openapi.ServeModel, error) {
+func (r *ModelRegistryInferenceServiceReconciler) createServeModel(mrClient mrapi.ModelRegistryApi, is *openapi.InferenceService, initialState openapi.ExecutionState) (*openapi.ServeModel, error) {
 
 	// Need to create a new ServeModel
 	modelVersion, err := mrClient.GetModelVersionByInferenceService(*is.Id)
@@ -368,12 +369,11 @@ func (r *ModelRegistryInferenceServiceReconciler) createServeModel(mrClient mrap
 		return nil, err
 	}
 
-	defaultState := openapi.EXECUTIONSTATE_UNKNOWN
 	smName := fmt.Sprintf("%s/%s", getInferenceServiceName(is), uuid.New().String())
 	newServeModel, err := mrClient.UpsertServeModel(&openapi.ServeModel{
 		Name:           &smName,
 		ModelVersionId: *modelVersion.Id,
-		LastKnownState: &defaultState,
+		LastKnownState: &initialState,
 	}, is.Id)
 	if err != nil {
 		return nil, err
@@ -383,26 +383,49 @@ func (r *ModelRegistryInferenceServiceReconciler) createServeModel(mrClient mrap
 }
 
 // updateLatestServeModelState update the LastKnownState of the configured ServeModel instance for the provided InferenceService.
+// if there is a modelVersionId mismatch, create a new ServeModel and mark teh previous one as completed
 func (r *ModelRegistryInferenceServiceReconciler) updateServeModelState(mrClient mrapi.ModelRegistryApi, is *openapi.InferenceService, sm *openapi.ServeModel, newState openapi.ExecutionState) (*openapi.ServeModel, error) {
 	if sm == nil {
 		return nil, nil
 	}
 
-	// Update the ServeModel state to the provided one
-	sm.SetLastKnownState(newState)
-
-	sm, err := mrClient.UpsertServeModel(sm, is.Id)
-	if err != nil {
-		return nil, err
+	var modelVersionId string
+	if is.ModelVersionId != nil {
+		modelVersionId = *is.ModelVersionId
+	} else {
+		// Fetch latest model version id
+		modelVersion, err := mrClient.GetModelVersionByInferenceService(*is.Id)
+		if err != nil {
+			return nil, err
+		}
+		modelVersionId = *modelVersion.Id
 	}
-	return sm, nil
+
+	if sm.ModelVersionId != modelVersionId {
+		// Need to create another ServeModel because this is a new deployment
+		sm.SetLastKnownState(openapi.EXECUTIONSTATE_COMPLETE)
+		_, _ = mrClient.UpsertServeModel(sm, is.Id)
+		newSM, err := r.createServeModel(mrClient, is, newState)
+		if err != nil {
+			return nil, err
+		}
+		return newSM, nil
+	} else {
+		// Update the ServeModel state to the provided one
+		sm.SetLastKnownState(newState)
+		sm, err := mrClient.UpsertServeModel(sm, is.Id)
+		if err != nil {
+			return nil, err
+		}
+		return sm, nil
+	}
 }
 
 // Utils
 
 // isInferenceServiceDeployed return true if the IS state is not nil and equal to DEPLOYED
 func isInferenceServiceDeployed(is *openapi.InferenceService) bool {
-	return is.State != nil && *is.State == openapi.INFERENCESERVICESTATE_DEPLOYED
+	return is.DesiredState != nil && *is.DesiredState == openapi.INFERENCESERVICESTATE_DEPLOYED
 }
 
 // getInferenceServiceName compute the IS name, which is equal to IS.Name if not nil otherwise the IS.Id
