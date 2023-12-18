@@ -12,12 +12,12 @@ require (
 	go.uber.org/zap v1.24.0
 	istio.io/api v0.0.0-20230712174848-a2b2de508c88
 	istio.io/client-go v1.17.4
-	k8s.io/api v0.26.4
-	k8s.io/apimachinery v0.26.4
-	k8s.io/client-go v0.26.4
+	k8s.io/api v0.27.0
+	k8s.io/apimachinery v0.27.0
+	k8s.io/client-go v0.27.0
 	k8s.io/utils v0.0.0-20230505201702-9f6742963106
 	knative.dev/pkg v0.0.0-20230502134655-db8a35330281
-	maistra.io/api v0.0.0-20230417135504-0536f6c22b1c
+	maistra.io/api v0.0.0-20230704084350-dfc96815fb16
 	sigs.k8s.io/controller-runtime v0.14.6
 	sigs.k8s.io/yaml v1.3.0
 )
@@ -72,12 +72,12 @@ require (
 	go.opencensus.io v0.24.0 // indirect
 	go.uber.org/atomic v1.11.0 // indirect
 	go.uber.org/multierr v1.11.0 // indirect
-	golang.org/x/crypto v0.14.0 // indirect
+	golang.org/x/crypto v0.17.0 // indirect
 	golang.org/x/net v0.17.0 // indirect
 	golang.org/x/oauth2 v0.8.0 // indirect
-	golang.org/x/sys v0.13.0 // indirect
-	golang.org/x/term v0.13.0 // indirect
-	golang.org/x/text v0.13.0 // indirect
+	golang.org/x/sys v0.15.0 // indirect
+	golang.org/x/term v0.15.0 // indirect
+	golang.org/x/text v0.14.0 // indirect
 	golang.org/x/time v0.3.0 // indirect
 	golang.org/x/xerrors v0.0.0-20220907171357-04be3eba64a2 // indirect
 	gomodules.xyz/jsonpatch/v2 v2.2.0 // indirect
@@ -90,8 +90,8 @@ require (
 	gopkg.in/tomb.v1 v1.0.0-20141024135613-dd632973f1e7 // indirect
 	gopkg.in/yaml.v2 v2.4.0 // indirect
 	gopkg.in/yaml.v3 v3.0.1 // indirect
-	k8s.io/apiextensions-apiserver v0.26.4 // indirect
-	k8s.io/component-base v0.26.4 // indirect
+	k8s.io/apiextensions-apiserver v0.27.0 // indirect
+	k8s.io/component-base v0.27.0 // indirect
 	k8s.io/klog/v2 v2.100.1 // indirect
 	k8s.io/kube-openapi v0.0.0-20230515203736-54b630e78af5 // indirect
 	knative.dev/networking v0.0.0-20230511122402-33636d99d870 // indirect
@@ -101,12 +101,12 @@ require (
 )
 
 replace (
-	// remove when upgrade to controller-runtime 0.15.x or apimachinery to 0.27.x
-	// Fixes github.com/elazarl/goproxy Denial of Service (DoS)
-	// This dependency was removed from apimachinery 0.27.0
-	 k8s.io/apimachinery => k8s.io/apimachinery v0.27.0
 	// Fixes CVE-2022-21698 and CVE-2023-45142
 	// this dependency comes from k8s.io/component-base@v0.26.4 and k8s.io/apiextensions-apiserver@v0.26.4
 	// before removing it make sure that the next version of the related k8s dependencies contains the fix
 	go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp => go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp v0.44.0
+	// remove when upgrade to controller-runtime 0.15.x or apimachinery to 0.27.x
+	// Fixes github.com/elazarl/goproxy Denial of Service (DoS)
+	// This dependency was removed from apimachinery 0.27.0
+	k8s.io/apimachinery => k8s.io/apimachinery v0.27.0
 )
