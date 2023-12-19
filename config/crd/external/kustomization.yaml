@@ -1,3 +1,9 @@
 resources:
 - serving.kserve.io_inferenceservices.yaml
-# - route.openshift.io_routes.yaml  #minikube
+- serving.kserve.io_servingruntimes.yaml
+- route.openshift.io_routes.yaml
+- monitoring.coreos.com_podmonitors.yaml
+- monitoring.coreos.com_servicemonitors.yaml
+- maistra.io_servicemeshmemberrolls.yaml
+- maistra.io_servicemeshmembers.yaml
+- telemetry.istio.io_telemetries.yaml
