@@ -21,3 +21,11 @@ const (
 	IstioIngressServiceHTTPPortName  = "http2"
 	IstioIngressServiceHTTPSPortName = "https"
 )
+
+// model registry
+const (
+	MLMDAddressEnv                       = "MLMD_ADDRESS"
+	ModelRegistryInferenceServiceIdLabel = "mr-inference-service-id"
+	ModelRegistryModelVersionIdLabel     = "mr-model-version-id"
+	ModelRegistryRegisteredModelIdLabel  = "mr-registered-model-id"
+)
