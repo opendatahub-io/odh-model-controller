@@ -20,6 +20,7 @@ import (
 var (
 	err                 error
 	modelRegistryClient api.ModelRegistryApi
+	mlmdAddr            string
 )
 
 // model registry data
@@ -36,7 +37,9 @@ var (
 	storagePath          = "path/to/model"
 	storageKey           = "aws-connection-models"
 	inferenceServiceName = "dummy-inference-service"
-	modelServer          = "ovms-1.x" // applied ServingRuntime
+	// longer timeouts
+	longerTimeout  = time.Second * 60
+	longerInterval = time.Millisecond * 200
 )
 
 // Run model registry and serving e2e test assuming the controller is already deployed in the cluster
@@ -63,6 +66,9 @@ var _ = Describe("ModelRegistry controller e2e", func() {
 			Expect(registeredModel.GetId()).To(Equal("2"))
 			Expect(modelVersion.GetId()).To(Equal("3"))
 			Expect(modelArtifact.GetId()).To(Equal("1"))
+
+			_, err := utils.Run(exec.Command("kubectl", "apply", "-f", ServingRuntimePath1))
+			Expect(err).ToNot(HaveOccurred())
 		})
 
 		It("the controller should create InferenceService with specific model version in model registry", func() {
@@ -82,7 +88,7 @@ var _ = Describe("ModelRegistry controller e2e", func() {
 		})
 
 		It("the controller should create InferenceService without specific model version in model registry", func() {
-			_, err := utils.Run(exec.Command("kubectl", "apply", "-f", InferenceServiceWithModelVersionPath))
+			_, err := utils.Run(exec.Command("kubectl", "apply", "-f", InferenceServiceWithoutModelVersionPath))
 			Expect(err).ToNot(HaveOccurred())
 
 			var is *openapi.InferenceService
@@ -130,7 +136,7 @@ func deployAndCheckModelRegistry() api.ModelRegistryApi {
 	}
 	Expect(grpcPort).ToNot(BeNil())
 
-	mlmdAddr := fmt.Sprintf("localhost:%d", *grpcPort)
+	mlmdAddr = fmt.Sprintf("localhost:%d", *grpcPort)
 	grpcConn, err := grpc.DialContext(
 		ctx,
 		mlmdAddr,
@@ -169,7 +175,7 @@ func waitForModelRegistryStartup() {
 			return false
 		}
 		return getPodReadyCondition(&podList.Items[0])
-	}, timeout, interval).Should(BeTrue())
+	}, longerTimeout, longerInterval).Should(BeTrue())
 
 	By("by checking that the model registry proxy and mlmd is up and running")
 	Eventually(func() bool {
@@ -182,7 +188,7 @@ func waitForModelRegistryStartup() {
 			return false
 		}
 		return getPodReadyCondition(&podList.Items[0])
-	}, timeout, interval).Should(BeTrue())
+	}, longerTimeout, longerInterval).Should(BeTrue())
 }
 
 // getPodReadyCondition retrieves the Pod ready condition as bool

@@ -9,7 +9,5 @@ spec:
       containers:
         - args:
             - --leader-elect
-          env:
-            - name: MONITORING_NS
-              value: $(monitoring-namespace)
+            - --model-registry-inference-reconcile
           name: manager

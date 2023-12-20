@@ -105,6 +105,8 @@ func main() {
 	var enableLeaderElection bool
 	var monitoringNS string
 	var probeAddr string
+	var enableMRInferenceServiceReconcile bool
+
 	flag.StringVar(&metricsAddr, "metrics-bind-address", ":8080", "The address the metric endpoint binds to.")
 	flag.StringVar(&probeAddr, "health-probe-bind-address", ":8081", "The address the probe endpoint binds to.")
 	flag.BoolVar(&enableLeaderElection, "leader-elect", false,
@@ -112,6 +114,8 @@ func main() {
 			"Enabling this will ensure there is only one active controller manager.")
 	flag.StringVar(&monitoringNS, "monitoring-namespace", "",
 		"The Namespace where the monitoring stack's Prometheus resides.")
+	flag.BoolVar(&enableMRInferenceServiceReconcile, "model-registry-inference-reconcile", false,
+		"Enable model registry inference service reconciliation. ")
 
 	opts := zap.Options{
 		Development: true,
@@ -167,6 +171,21 @@ func main() {
 	} else {
 		setupLog.Info("Monitoring namespace not provided, skipping setup of monitoring controller. To enable " +
 			"monitoring for ModelServing, please provide a monitoring namespace via the (--monitoring-namespace) flag.")
+	}
+
+	if enableMRInferenceServiceReconcile {
+		setupLog.Info("Model registry inference service reconciliation enabled..")
+		if err = (controllers.NewModelRegistryInferenceServiceReconciler(
+			mgr.GetClient(),
+			mgr.GetScheme(),
+			ctrl.Log.WithName("controllers").WithName("ModelRegistryInferenceService"),
+		)).SetupWithManager(mgr); err != nil {
+			setupLog.Error(err, "unable to create controller", "controller", "ModelRegistryInferenceServiceReconciler")
+			os.Exit(1)
+		}
+	} else {
+		setupLog.Info("Model registry inference service reconciliation disabled. To enable model registry " +
+			"reconciliation for InferenceService, please provide --model-registry-inference-reconcile flag.")
 	}
 
 	//+kubebuilder:scaffold:builder

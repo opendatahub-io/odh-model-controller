@@ -34,7 +34,7 @@ type ModelRegistryInferenceServiceReconciler struct {
 	log    logr.Logger
 }
 
-func NewModelRegistryInferenceServiceReconciler(client client.Client, scheme *runtime.Scheme, log logr.Logger, meshDisabled bool) *ModelRegistryInferenceServiceReconciler {
+func NewModelRegistryInferenceServiceReconciler(client client.Client, scheme *runtime.Scheme, log logr.Logger) *ModelRegistryInferenceServiceReconciler {
 	return &ModelRegistryInferenceServiceReconciler{
 		client: client,
 		scheme: scheme,
@@ -47,16 +47,16 @@ func (r *ModelRegistryInferenceServiceReconciler) Reconcile(ctx context.Context,
 	// Initialize logger format
 	log := r.log.WithValues("ModelRegistryInferenceService", req.Name, "namespace", req.Namespace)
 
-	mr, err := r.initModelRegistryService(log)
+	mr, err := r.initModelRegistryService(ctx, log, req.Namespace)
 	if err != nil {
 		log.Error(err, "Stop ModelRegistry InferenceService reconciliation")
-		return ctrl.Result{}, nil
+		return ctrl.Result{Requeue: true, RequeueAfter: time.Second * 5}, err
 	}
 
 	servingEnvironment, err := mr.GetServingEnvironmentByParams(&req.Namespace, nil)
 	if err != nil || servingEnvironment.Id == nil {
 		log.Error(err, "Stop ModelRegistry InferenceService reconciliation")
-		return ctrl.Result{}, err
+		return ctrl.Result{Requeue: true, RequeueAfter: time.Second * 5}, err
 	}
 
 	// Get the InferenceService object when a reconciliation event is triggered (create,
@@ -66,7 +66,7 @@ func (r *ModelRegistryInferenceServiceReconciler) Reconcile(ctx context.Context,
 
 	if err != nil && apierrs.IsNotFound(err) {
 		log.Error(err, "Stop ModelRegistry InferenceService reconciliation")
-		// TODO(user): Update IS resource in model registry (change state to UNDEPLOYED)
+		// TODO(user): Update IS resource in model registry (change state to UNDEPLOYED) ?
 		return ctrl.Result{}, nil
 	} else if err != nil {
 		log.Error(err, "Unable to fetch the InferenceService")
@@ -167,10 +167,47 @@ func (r *ModelRegistryInferenceServiceReconciler) onDeletion(mr api.ModelRegistr
 }
 
 // initModelRegistryService setup a gRPC connection with MLMD server and initialize the model registry service
-func (r *ModelRegistryInferenceServiceReconciler) initModelRegistryService(log logr.Logger) (api.ModelRegistryApi, error) {
-	// fetch MLMD address from environment
-	mlmdAddr := os.Getenv(constants.MLMDAddressEnv)
+func (r *ModelRegistryInferenceServiceReconciler) initModelRegistryService(ctx context.Context, log logr.Logger, namespace string) (api.ModelRegistryApi, error) {
+	mlmdAddr, ok := os.LookupEnv(constants.MLMDAddressEnv)
 
+	if !ok || mlmdAddr == "" {
+		log.Info("Retrieving mlmd address from deployed model registry service..")
+		// Env variable not set, look for existing model registry service
+		opts := []client.ListOption{client.InNamespace(namespace), client.MatchingLabels{
+			"component": "model-registry",
+		}}
+		mrServiceList := &corev1.ServiceList{}
+		err := r.client.List(ctx, mrServiceList, opts...)
+		if err != nil || len(mrServiceList.Items) == 0 {
+			// No model registry deployed in the provided namespace, skipping serving reconciliation
+			return nil, fmt.Errorf("unable to find model registry in the given namespace: %s", namespace)
+		}
+
+		// Actually we could iterate over every mrService, as nothing prevents to setup multiple MR in the same namespace
+		if len(mrServiceList.Items) > 1 {
+			return nil, fmt.Errorf("multiple services with component=model-registry for Namespace %s", namespace)
+		}
+
+		mrService := mrServiceList.Items[0]
+
+		var grpcPort *int32
+		for _, port := range mrService.Spec.Ports {
+			if port.Name == "grpc-api" {
+				grpcPort = &port.Port
+				break
+			}
+		}
+
+		if grpcPort == nil {
+			return nil, fmt.Errorf("cannot find grpc-api port for service %s", mrService.Name)
+		}
+
+		mlmdAddr = fmt.Sprintf("%s.%s.svc.cluster.local:%d", mrService.Name, namespace, *grpcPort)
+	}
+
+	if mlmdAddr == "" {
+		return nil, fmt.Errorf("cannot connect to the model registry: empty mlmd address")
+	}
 	// setup grpc connection to ml-metadata
 	ctxTimeout, cancel := context.WithTimeout(context.Background(), time.Second*5)
 	defer cancel()

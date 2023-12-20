@@ -32,7 +32,7 @@ const (
 	ServingRuntimePath1                     = "./test/data/deploy/kserve-openvino-serving-runtime-1.yaml"
 	InferenceServiceWithModelVersionPath    = "./test/data/deploy/inference-service-with-model-version.yaml"
 	InferenceServiceWithoutModelVersionPath = "./test/data/deploy/inference-service-without-model-version.yaml"
-	timeout                                 = time.Second * 20
+	timeout                                 = time.Second * 10
 	interval                                = time.Millisecond * 50
 )
 

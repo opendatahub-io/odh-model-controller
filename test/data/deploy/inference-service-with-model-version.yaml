@@ -4,8 +4,8 @@ metadata:
   name: dummy-inference-service
   namespace: default
   labels:
-    mr-registered-model-id: 2
-    mr-model-version-id: 3
+    "mr-registered-model-id": "2"
+    "mr-model-version-id": "3"
 spec:
   predictor:
     model:
