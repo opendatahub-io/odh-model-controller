@@ -6,7 +6,7 @@ resources:
 patchesStrategicMerge:
   - odh_model_controller_manager_patch.yaml
   
-namespace: opendatahub
+namespace: opendatahub-e2e
 configMapGenerator:
   - envs:
       - params.env

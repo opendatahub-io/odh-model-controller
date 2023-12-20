@@ -1,0 +1,16 @@
+apiVersion: serving.kserve.io/v1beta1
+kind: InferenceService
+metadata:
+  name: dummy-inference-service
+  namespace: default
+  labels:
+    mr-registered-model-id: 2
+spec:
+  predictor:
+    model:
+      modelFormat:
+        name: onnx
+      runtime: ovms-1.x
+      storage:
+        key: testkey
+        path: /testpath/test
