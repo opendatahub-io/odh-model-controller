@@ -7,12 +7,15 @@ import (
 	"time"
 
 	"github.com/go-logr/logr"
+	"github.com/google/uuid"
 	kservev1alpha1 "github.com/kserve/kserve/pkg/apis/serving/v1alpha1"
 	kservev1beta1 "github.com/kserve/kserve/pkg/apis/serving/v1beta1"
 	"github.com/opendatahub-io/model-registry/pkg/api"
 	"github.com/opendatahub-io/model-registry/pkg/core"
 	"github.com/opendatahub-io/model-registry/pkg/openapi"
+	"github.com/opendatahub-io/odh-model-controller/controllers/comparators"
 	"github.com/opendatahub-io/odh-model-controller/controllers/constants"
+	"github.com/opendatahub-io/odh-model-controller/controllers/processors"
 	monitoringv1 "github.com/prometheus-operator/prometheus-operator/pkg/apis/monitoring/v1"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
@@ -22,23 +25,28 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 	"sigs.k8s.io/controller-runtime/pkg/handler"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 	"sigs.k8s.io/controller-runtime/pkg/source"
 )
 
+const modelRegistryFinalizer = "modelregistry.opendatahub.io/finalizer"
+
 // ModelRegistryInferenceServiceReconciler holds the controller configuration.
 type ModelRegistryInferenceServiceReconciler struct {
-	client client.Client
-	scheme *runtime.Scheme
-	log    logr.Logger
+	client         client.Client
+	scheme         *runtime.Scheme
+	log            logr.Logger
+	deltaProcessor processors.DeltaProcessor
 }
 
 func NewModelRegistryInferenceServiceReconciler(client client.Client, scheme *runtime.Scheme, log logr.Logger) *ModelRegistryInferenceServiceReconciler {
 	return &ModelRegistryInferenceServiceReconciler{
-		client: client,
-		scheme: scheme,
-		log:    log,
+		client:         client,
+		scheme:         scheme,
+		log:            log,
+		deltaProcessor: processors.NewDeltaProcessor(),
 	}
 }
 
@@ -66,35 +74,91 @@ func (r *ModelRegistryInferenceServiceReconciler) Reconcile(ctx context.Context,
 
 	if err != nil && apierrs.IsNotFound(err) {
 		log.Error(err, "Stop ModelRegistry InferenceService reconciliation")
-		// TODO(user): Update IS resource in model registry (change state to UNDEPLOYED) ?
 		return ctrl.Result{}, nil
 	} else if err != nil {
 		log.Error(err, "Unable to fetch the InferenceService")
 		return ctrl.Result{}, err
 	}
 
-	// Retrieve or create a new InferenceService
-	is, err := mr.GetInferenceServiceByParams(&isvc.Name, servingEnvironment.Id, nil)
-	if err != nil {
-		var err1 error
-		if isId, ok := isvc.Labels[constants.ModelRegistryInferenceServiceIdLabel]; ok {
-			// Retrieve the IS from model registry using the id
-			is, err1 = mr.GetInferenceServiceById(isId)
-		} else if registeredModelId, ok := isvc.Labels[constants.ModelRegistryRegisteredModelIdLabel]; ok {
-			// Create new IS in model registry auditing the deployment of the latest or specific version of a registered model
-			modelVersionId := isvc.Labels[constants.ModelRegistryModelVersionIdLabel]
-			is, err1 = r.createMRInferenceService(mr, isvc, *servingEnvironment.Id, registeredModelId, &modelVersionId)
-		} else {
-			err1 = fmt.Errorf("unable to find a link to the model registry InferenceService resource")
+	// Let's add a finalizer. Then, we can define some operations which should
+	// occurs before the custom resource to be deleted.
+	// More info: https://kubernetes.io/docs/concepts/overview/working-with-objects/finalizers
+	if !controllerutil.ContainsFinalizer(isvc, modelRegistryFinalizer) {
+		log.Info("Adding Finalizer for ModelRegistry")
+		if ok := controllerutil.AddFinalizer(isvc, modelRegistryFinalizer); !ok {
+			log.Error(err, "Failed to add finalizer into the InferenceService custom resource")
+			return ctrl.Result{Requeue: true}, nil
 		}
 
-		if err1 != nil {
-			return ctrl.Result{}, err1
+		if err = r.client.Update(ctx, isvc); err != nil {
+			log.Error(err, "Failed to update InferenceService custom resource to add finalizer")
+			return ctrl.Result{}, err
 		}
 	}
 
-	if isvc.GetDeletionTimestamp() != nil {
-		return ctrl.Result{}, r.onDeletion(mr, log, isvc, is)
+	var is *openapi.InferenceService
+	isId, okIsId := isvc.Labels[constants.ModelRegistryInferenceServiceIdLabel]
+	registeredModelId, okRegisteredModelId := isvc.Labels[constants.ModelRegistryRegisteredModelIdLabel]
+	modelVersionId, okModelVersionId := isvc.Labels[constants.ModelRegistryModelVersionIdLabel]
+
+	if okIsId {
+		// Retrieve the IS from model registry using the id
+		log.Info("Retrieving model registry InferenceService by id", "isId", isId)
+		is, err = mr.GetInferenceServiceById(isId)
+		if err != nil {
+			return ctrl.Result{}, fmt.Errorf("unable to find InferenceService with id %s in model registry: %w", isId, err)
+		}
+	} else if okRegisteredModelId || okModelVersionId {
+		// No corresponding InferenceService in model registry, create new one
+		is, err = r.createMRInferenceService(log, mr, isvc, *servingEnvironment.Id, registeredModelId, modelVersionId)
+		if err != nil {
+			return ctrl.Result{}, err
+		}
+	} else {
+		// No expected labels set in the ISVC
+		log.Error(fmt.Errorf("missing label, unable to link ISVC to Model Registry, skipping InferenceService"), "Stop ModelRegistry InferenceService reconciliation")
+		return ctrl.Result{}, nil
+	}
+
+	if is == nil {
+		// This should NOT happen
+		return ctrl.Result{}, fmt.Errorf("unexpected nil model registry InferenceService")
+	}
+
+	// Check if the InferenceService instance is marked to be deleted, which is
+	// indicated by the deletion timestamp being set.
+	isMarkedToBeDeleted := isvc.GetDeletionTimestamp() != nil
+	if isMarkedToBeDeleted {
+		if controllerutil.ContainsFinalizer(isvc, modelRegistryFinalizer) {
+			log.Info("InferenceService going to be deleted from cluster, setting desired state to UNDEPLOYED in model registry")
+			err := r.onDeletion(mr, log, isvc, is)
+			if err != nil {
+				return ctrl.Result{Requeue: true}, err
+			}
+
+			log.Info("Removing Finalizer for modelRegistry after successfully perform the operations")
+			if ok := controllerutil.RemoveFinalizer(isvc, modelRegistryFinalizer); !ok {
+				log.Error(err, "Failed to remove modelRegistry finalizer for InferenceService")
+				return ctrl.Result{Requeue: true}, nil
+			}
+
+			if err = r.client.Update(ctx, isvc); IgnoreDeletingErrors(err) != nil {
+				log.Error(err, "Failed to remove modelRegistry finalizer for InferenceService")
+				return ctrl.Result{}, err
+			}
+		}
+		return ctrl.Result{}, nil
+	} else {
+		// Update the ISVC label, set the newly created IS id if not present yet
+		desired := isvc.DeepCopy()
+		desired.Labels[constants.ModelRegistryInferenceServiceIdLabel] = *is.Id
+		delete(desired.Labels, constants.ModelRegistryRegisteredModelIdLabel)
+		delete(desired.Labels, constants.ModelRegistryModelVersionIdLabel)
+
+		err = r.processDelta(ctx, log, desired, isvc)
+		if err != nil {
+			return ctrl.Result{}, err
+		}
 	}
 
 	return ctrl.Result{}, nil
@@ -140,17 +204,77 @@ func (r *ModelRegistryInferenceServiceReconciler) SetupWithManager(mgr ctrl.Mana
 	return builder.Complete(r)
 }
 
-// createMRInferenceService create a new model registry InferenceService resource based on provided input
-func (r *ModelRegistryInferenceServiceReconciler) createMRInferenceService(mr api.ModelRegistryApi, isvc *kservev1beta1.InferenceService, servingEnvironmentId string, registeredModelId string, modelVersionId *string) (*openapi.InferenceService, error) {
-	if modelVersionId != nil && *modelVersionId == "" {
-		modelVersionId = nil
+func (r *ModelRegistryInferenceServiceReconciler) processDelta(ctx context.Context, log logr.Logger, desiredISVC *kservev1beta1.InferenceService, existingISVC *kservev1beta1.InferenceService) (err error) {
+	comparator := comparators.GetInferenceServiceComparator()
+	delta := r.deltaProcessor.ComputeDelta(comparator, desiredISVC, existingISVC)
+
+	if !delta.HasChanges() {
+		log.V(1).Info("No delta found")
+		return nil
 	}
 
+	if delta.IsAdded() {
+		log.V(1).Info("Delta found", "create", desiredISVC.GetName())
+		if err = r.client.Create(ctx, desiredISVC); err != nil {
+			return
+		}
+	}
+
+	if delta.IsUpdated() {
+		log.V(1).Info("Delta found", "update", existingISVC.GetName())
+		rp := existingISVC.DeepCopy()
+
+		_, okIsId := desiredISVC.Labels[constants.ModelRegistryInferenceServiceIdLabel]
+		_, okRegisteredModelId := desiredISVC.Labels[constants.ModelRegistryRegisteredModelIdLabel]
+		_, okModelVersionId := desiredISVC.Labels[constants.ModelRegistryModelVersionIdLabel]
+
+		if okIsId {
+			rp.Labels[constants.ModelRegistryInferenceServiceIdLabel] = desiredISVC.Labels[constants.ModelRegistryInferenceServiceIdLabel]
+		} else {
+			delete(rp.Labels, constants.ModelRegistryInferenceServiceIdLabel)
+		}
+
+		if okRegisteredModelId {
+			rp.Labels[constants.ModelRegistryRegisteredModelIdLabel] = desiredISVC.Labels[constants.ModelRegistryRegisteredModelIdLabel]
+		} else {
+			delete(rp.Labels, constants.ModelRegistryRegisteredModelIdLabel)
+		}
+
+		if okModelVersionId {
+			rp.Labels[constants.ModelRegistryModelVersionIdLabel] = desiredISVC.Labels[constants.ModelRegistryModelVersionIdLabel]
+		} else {
+			delete(rp.Labels, constants.ModelRegistryModelVersionIdLabel)
+		}
+
+		if err = r.client.Update(ctx, rp); err != nil {
+			return
+		}
+	}
+
+	if delta.IsRemoved() {
+		log.V(1).Info("Delta found", "delete", existingISVC.GetName())
+		if err = r.client.Delete(ctx, existingISVC); err != nil {
+			return
+		}
+	}
+	return nil
+}
+
+// createMRInferenceService create a new model registry InferenceService resource based on provided input
+func (r *ModelRegistryInferenceServiceReconciler) createMRInferenceService(log logr.Logger, mr api.ModelRegistryApi, isvc *kservev1beta1.InferenceService, servingEnvironmentId string, registeredModelId string, modelVersionId string) (*openapi.InferenceService, error) {
+	modelVersionIdPtr := &modelVersionId
+	if modelVersionId == "" {
+		modelVersionIdPtr = nil
+	}
+
+	isName := fmt.Sprintf("%s/%s", isvc.Name, uuid.New().String())
+
+	log.Info("Creating new model registry InferenceService", "name", isName, "registeredModelId", registeredModelId, "modelVersionId", modelVersionId)
 	is := &openapi.InferenceService{
-		Name:                 &isvc.Name,
+		Name:                 &isName,
 		ServingEnvironmentId: servingEnvironmentId,
 		RegisteredModelId:    registeredModelId,
-		ModelVersionId:       modelVersionId,
+		ModelVersionId:       modelVersionIdPtr,
 		Runtime:              isvc.Spec.Predictor.Model.Runtime,
 	}
 
@@ -226,4 +350,14 @@ func (r *ModelRegistryInferenceServiceReconciler) initModelRegistryService(ctx c
 	}
 
 	return core.NewModelRegistryService(conn)
+}
+
+func IgnoreDeletingErrors(err error) error {
+	if err == nil {
+		return nil
+	}
+	if apierrs.IsNotFound(err) || apierrs.IsConflict(err) {
+		return nil
+	}
+	return err
 }

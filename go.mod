@@ -4,6 +4,7 @@ go 1.19
 
 require (
 	github.com/go-logr/logr v1.2.4
+	github.com/google/uuid v1.5.0
 	github.com/kserve/kserve v0.11.0
 	github.com/onsi/ginkgo v1.16.4
 	github.com/onsi/gomega v1.27.6
@@ -12,6 +13,7 @@ require (
 	github.com/prometheus-operator/prometheus-operator/pkg/apis/monitoring v0.64.1
 	go.uber.org/zap v1.26.0
 	google.golang.org/grpc v1.60.0
+	gopkg.in/yaml.v2 v2.4.0
 	istio.io/api v0.0.0-20230712174848-a2b2de508c88
 	istio.io/client-go v1.17.4
 	k8s.io/api v0.27.6
@@ -51,7 +53,6 @@ require (
 	github.com/google/go-containerregistry v0.15.2 // indirect
 	github.com/google/gofuzz v1.2.0 // indirect
 	github.com/google/s2a-go v0.1.7 // indirect
-	github.com/google/uuid v1.5.0 // indirect
 	github.com/googleapis/enterprise-certificate-proxy v0.3.2 // indirect
 	github.com/googleapis/gax-go/v2 v2.12.0 // indirect
 	github.com/googleapis/google-cloud-go-testing v0.0.0-20210719221736-1c9a4c676720 // indirect
@@ -92,7 +93,6 @@ require (
 	google.golang.org/protobuf v1.31.0 // indirect
 	gopkg.in/inf.v0 v0.9.1 // indirect
 	gopkg.in/tomb.v1 v1.0.0-20141024135613-dd632973f1e7 // indirect
-	gopkg.in/yaml.v2 v2.4.0 // indirect
 	gopkg.in/yaml.v3 v3.0.1 // indirect
 	k8s.io/apiextensions-apiserver v0.27.6 // indirect
 	k8s.io/component-base v0.27.6 // indirect

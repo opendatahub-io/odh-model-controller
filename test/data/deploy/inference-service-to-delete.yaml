@@ -1,0 +1,18 @@
+apiVersion: serving.kserve.io/v1beta1
+kind: InferenceService
+metadata:
+  name: dummy-inference-service
+  namespace: default
+  labels:
+    "mr-inference-service-id": "4"
+  finalizers:
+  - modelregistry.opendatahub.io/finalizer
+spec:
+  predictor:
+    model:
+      modelFormat:
+        name: onnx
+      runtime: ovms-1.x
+      storage:
+        key: testkey
+        path: /testpath/test

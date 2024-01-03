@@ -3,17 +3,21 @@ package e2e
 import (
 	"fmt"
 	"os/exec"
+	"strings"
 	"time"
 
+	kservev1beta1 "github.com/kserve/kserve/pkg/apis/serving/v1beta1"
 	. "github.com/onsi/ginkgo"
 	. "github.com/onsi/gomega"
 	"github.com/opendatahub-io/model-registry/pkg/api"
 	"github.com/opendatahub-io/model-registry/pkg/core"
 	"github.com/opendatahub-io/model-registry/pkg/openapi"
+	"github.com/opendatahub-io/odh-model-controller/controllers/constants"
 	"github.com/opendatahub-io/odh-model-controller/test/utils"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
 	corev1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
@@ -38,7 +42,7 @@ var (
 	storageKey           = "aws-connection-models"
 	inferenceServiceName = "dummy-inference-service"
 	// longer timeouts
-	longerTimeout  = time.Second * 60
+	longerTimeout  = time.Second * 80
 	longerInterval = time.Millisecond * 200
 )
 
@@ -47,13 +51,13 @@ var _ = Describe("ModelRegistry controller e2e", func() {
 
 	BeforeEach(func() {
 		// Deploy model registry
-		By("by starting up model registry")
+		By("starting up model registry")
 		modelRegistryClient = deployAndCheckModelRegistry()
 	})
 
 	AfterEach(func() {
 		// Cleanup model registry
-		By("by tearing down model registry")
+		By("tearing down model registry")
 		undeployModelRegistry()
 	})
 
@@ -71,20 +75,45 @@ var _ = Describe("ModelRegistry controller e2e", func() {
 			Expect(err).ToNot(HaveOccurred())
 		})
 
+		AfterEach(func() {
+			By("removing finalizers from inference service")
+			_, err := utils.Run(exec.Command("kubectl", "patch", "inferenceservice", "dummy-inference-service", "--type", "json", "--patch", "[ { \"op\": \"remove\", \"path\": \"/metadata/finalizers\" } ]"))
+			Expect(err).ToNot(HaveOccurred())
+		})
+
 		It("the controller should create InferenceService with specific model version in model registry", func() {
 			_, err := utils.Run(exec.Command("kubectl", "apply", "-f", InferenceServiceWithModelVersionPath))
 			Expect(err).ToNot(HaveOccurred())
 
 			var is *openapi.InferenceService
+			// incremental id
+			isId := "4"
 			Eventually(func() error {
-				is, err = modelRegistryClient.GetInferenceServiceByParams(&inferenceServiceName, servingEnvironment.Id, nil)
+				is, err = modelRegistryClient.GetInferenceServiceById(isId)
 				return err
-			}, time.Second*20, interval).ShouldNot(HaveOccurred())
+			}, timeout, interval).ShouldNot(HaveOccurred())
 
+			Expect(strings.HasPrefix(*is.Name, inferenceServiceName)).To(BeTrue())
 			Expect(is.ServingEnvironmentId).To(Equal(*servingEnvironment.Id))
 			Expect(is.RegisteredModelId).To(Equal(*registeredModel.Id))
 			Expect(is.ModelVersionId).ToNot(BeNil())
 			Expect(*is.ModelVersionId).To(Equal(*modelVersion.Id))
+
+			By("checking that the controller has correctly put the InferenceService id label in the ISVC")
+			actualISVC := &kservev1beta1.InferenceService{}
+			Eventually(func() bool {
+				namespacedNamed := types.NamespacedName{Name: inferenceServiceName, Namespace: WorkingNamespace}
+				err := cli.Get(ctx, namespacedNamed, actualISVC)
+				if err != nil {
+					return false
+				}
+				_, ok := actualISVC.Labels[constants.ModelRegistryInferenceServiceIdLabel]
+				return ok
+			}, timeout, interval).Should(BeTrue())
+
+			Expect(actualISVC.Labels[constants.ModelRegistryRegisteredModelIdLabel]).To(Equal(""))
+			Expect(actualISVC.Labels[constants.ModelRegistryModelVersionIdLabel]).To(Equal(""))
+			Expect(actualISVC.Finalizers[0]).To(Equal("modelregistry.opendatahub.io/finalizer"))
 		})
 
 		It("the controller should create InferenceService without specific model version in model registry", func() {
@@ -92,14 +121,84 @@ var _ = Describe("ModelRegistry controller e2e", func() {
 			Expect(err).ToNot(HaveOccurred())
 
 			var is *openapi.InferenceService
+			// incremental id
+			isId := "4"
 			Eventually(func() error {
-				is, err = modelRegistryClient.GetInferenceServiceByParams(&inferenceServiceName, servingEnvironment.Id, nil)
+				is, err = modelRegistryClient.GetInferenceServiceById(isId)
 				return err
-			}, time.Second*20, interval).ShouldNot(HaveOccurred())
+			}, timeout, interval).ShouldNot(HaveOccurred())
 
+			Expect(strings.HasPrefix(*is.Name, inferenceServiceName)).To(BeTrue())
 			Expect(is.ServingEnvironmentId).To(Equal(*servingEnvironment.Id))
 			Expect(is.RegisteredModelId).To(Equal(*registeredModel.Id))
 			Expect(is.ModelVersionId).To(BeNil())
+
+			By("checking that the controller has correctly put the InferenceService id label in the ISVC")
+			actualISVC := &kservev1beta1.InferenceService{}
+			Eventually(func() bool {
+				namespacedNamed := types.NamespacedName{Name: inferenceServiceName, Namespace: WorkingNamespace}
+				err := cli.Get(ctx, namespacedNamed, actualISVC)
+				if err != nil {
+					return false
+				}
+				_, ok := actualISVC.Labels[constants.ModelRegistryInferenceServiceIdLabel]
+				return ok
+			}, timeout, interval).Should(BeTrue())
+
+			Expect(actualISVC.Labels[constants.ModelRegistryRegisteredModelIdLabel]).To(Equal(""))
+			Expect(actualISVC.Labels[constants.ModelRegistryModelVersionIdLabel]).To(Equal(""))
+			Expect(actualISVC.Finalizers[0]).To(Equal("modelregistry.opendatahub.io/finalizer"))
+		})
+	})
+
+	When("ISVC is deleted from the cluster", func() {
+		var inferenceService *openapi.InferenceService
+		BeforeEach(func() {
+			// fill mr with some models
+			fillModelRegistryContent(modelRegistryClient)
+			// Ensure IDs in model registry are created in a specific order
+			Expect(servingEnvironment.GetId()).To(Equal("1"))
+			Expect(registeredModel.GetId()).To(Equal("2"))
+			Expect(modelVersion.GetId()).To(Equal("3"))
+			Expect(modelArtifact.GetId()).To(Equal("1"))
+
+			inferenceService, err = modelRegistryClient.UpsertInferenceService(&openapi.InferenceService{
+				Name:                 &versionName,
+				DesiredState:         openapi.INFERENCESERVICESTATE_DEPLOYED.Ptr(),
+				RegisteredModelId:    *registeredModel.Id,
+				ServingEnvironmentId: *servingEnvironment.Id,
+			})
+			Expect(err).ToNot(HaveOccurred())
+			Expect(inferenceService.GetId()).To(Equal("4"))
+
+			_, err := utils.Run(exec.Command("kubectl", "apply", "-f", ServingRuntimePath1))
+			Expect(err).ToNot(HaveOccurred())
+
+			_, err = utils.Run(exec.Command("kubectl", "apply", "-f", InferenceServiceWithInfServiceIdPath))
+			Expect(err).ToNot(HaveOccurred())
+		})
+
+		It("the controller should set the InferenceService desired state to UNDEPLOYED", func() {
+			_, err := utils.Run(exec.Command("kubectl", "delete", "-f", InferenceServiceWithInfServiceIdPath))
+			Expect(err).ToNot(HaveOccurred())
+
+			var is *openapi.InferenceService
+			// incremental id
+			isId := "4"
+			Eventually(func() bool {
+				is, err = modelRegistryClient.GetInferenceServiceById(isId)
+				if err != nil {
+					return false
+				}
+				return is.GetDesiredState() == openapi.INFERENCESERVICESTATE_UNDEPLOYED
+			}, time.Second*20, interval).Should(BeTrue())
+
+			By("checking that the ISVC is correctly deleted once finalizer is removed")
+			actualISVC := &kservev1beta1.InferenceService{}
+			Eventually(func() error {
+				namespacedNamed := types.NamespacedName{Name: inferenceServiceName, Namespace: WorkingNamespace}
+				return cli.Get(ctx, namespacedNamed, actualISVC)
+			}, timeout, interval).Should(HaveOccurred())
 		})
 	})
 })
