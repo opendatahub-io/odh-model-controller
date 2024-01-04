@@ -120,7 +120,7 @@ func (r *OpenshiftInferenceServiceReconciler) SetupWithManager(mgr ctrl.Manager)
 		Watches(&source.Kind{Type: &networkingv1.NetworkPolicy{}},
 			handler.EnqueueRequestsFromMapFunc(func(o client.Object) []reconcile.Request {
 				r.log.Info("Reconcile event triggered by Network Policy: " + o.GetName())
-				return r.getReconcileRequestsOnUpdateOfServingRuntime(o)
+				return r.getReconcileRequestsOnUpdateOfNetworkPolicy(o)
 			}))
 	err := builder.Complete(r)
 	if err != nil {
