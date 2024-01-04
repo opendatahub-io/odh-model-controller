@@ -58,13 +58,21 @@ func (r *ModelRegistryInferenceServiceReconciler) Reconcile(ctx context.Context,
 	mr, err := r.initModelRegistryService(ctx, log, req.Namespace)
 	if err != nil {
 		log.Error(err, "Stop ModelRegistry InferenceService reconciliation")
-		return ctrl.Result{Requeue: true, RequeueAfter: time.Second * 5}, err
+		return ctrl.Result{Requeue: true, RequeueAfter: time.Second * 10}, err
 	}
 
+	// Retrieve or create the ServingEnvironment associated to the current namespace
 	servingEnvironment, err := mr.GetServingEnvironmentByParams(&req.Namespace, nil)
 	if err != nil || servingEnvironment.Id == nil {
-		log.Error(err, "Stop ModelRegistry InferenceService reconciliation")
-		return ctrl.Result{Requeue: true, RequeueAfter: time.Second * 5}, err
+		log.Info("ServingEnvironment not found, creating it..")
+		servingEnvironment, err = mr.UpsertServingEnvironment(&openapi.ServingEnvironment{
+			Name:       &req.Namespace,
+			ExternalID: &req.Namespace,
+		})
+		if err != nil || servingEnvironment.Id == nil {
+			err = fmt.Errorf("unable to create ServingEnvironment: %w", err)
+			return ctrl.Result{Requeue: true}, err
+		}
 	}
 
 	// Get the InferenceService object when a reconciliation event is triggered (create,
@@ -276,6 +284,7 @@ func (r *ModelRegistryInferenceServiceReconciler) createMRInferenceService(log l
 		RegisteredModelId:    registeredModelId,
 		ModelVersionId:       modelVersionIdPtr,
 		Runtime:              isvc.Spec.Predictor.Model.Runtime,
+		DesiredState:         openapi.INFERENCESERVICESTATE_DEPLOYED.Ptr(),
 	}
 
 	return mr.UpsertInferenceService(is)

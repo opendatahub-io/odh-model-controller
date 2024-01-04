@@ -29,10 +29,9 @@ var (
 
 // model registry data
 var (
-	servingEnvironment *openapi.ServingEnvironment
-	registeredModel    *openapi.RegisteredModel
-	modelVersion       *openapi.ModelVersion
-	modelArtifact      *openapi.ModelArtifact
+	registeredModel *openapi.RegisteredModel
+	modelVersion    *openapi.ModelVersion
+	modelArtifact   *openapi.ModelArtifact
 	// data
 	modelName            = "dummy-model"
 	versionName          = "dummy-version"
@@ -66,9 +65,8 @@ var _ = Describe("ModelRegistry controller e2e", func() {
 			// fill mr with some models
 			fillModelRegistryContent(modelRegistryClient)
 			// Ensure IDs in model registry are created in a specific order
-			Expect(servingEnvironment.GetId()).To(Equal("1"))
-			Expect(registeredModel.GetId()).To(Equal("2"))
-			Expect(modelVersion.GetId()).To(Equal("3"))
+			Expect(registeredModel.GetId()).To(Equal("1"))
+			Expect(modelVersion.GetId()).To(Equal("2"))
 			Expect(modelArtifact.GetId()).To(Equal("1"))
 
 			_, err := utils.Run(exec.Command("kubectl", "apply", "-f", ServingRuntimePath1))
@@ -94,7 +92,7 @@ var _ = Describe("ModelRegistry controller e2e", func() {
 			}, timeout, interval).ShouldNot(HaveOccurred())
 
 			Expect(strings.HasPrefix(*is.Name, inferenceServiceName)).To(BeTrue())
-			Expect(is.ServingEnvironmentId).To(Equal(*servingEnvironment.Id))
+			Expect(is.ServingEnvironmentId).To(Equal("3"))
 			Expect(is.RegisteredModelId).To(Equal(*registeredModel.Id))
 			Expect(is.ModelVersionId).ToNot(BeNil())
 			Expect(*is.ModelVersionId).To(Equal(*modelVersion.Id))
@@ -114,6 +112,7 @@ var _ = Describe("ModelRegistry controller e2e", func() {
 			Expect(actualISVC.Labels[constants.ModelRegistryRegisteredModelIdLabel]).To(Equal(""))
 			Expect(actualISVC.Labels[constants.ModelRegistryModelVersionIdLabel]).To(Equal(""))
 			Expect(actualISVC.Finalizers[0]).To(Equal("modelregistry.opendatahub.io/finalizer"))
+
 		})
 
 		It("the controller should create InferenceService without specific model version in model registry", func() {
@@ -129,7 +128,7 @@ var _ = Describe("ModelRegistry controller e2e", func() {
 			}, timeout, interval).ShouldNot(HaveOccurred())
 
 			Expect(strings.HasPrefix(*is.Name, inferenceServiceName)).To(BeTrue())
-			Expect(is.ServingEnvironmentId).To(Equal(*servingEnvironment.Id))
+			Expect(is.ServingEnvironmentId).To(Equal("3"))
 			Expect(is.RegisteredModelId).To(Equal(*registeredModel.Id))
 			Expect(is.ModelVersionId).To(BeNil())
 
@@ -157,21 +156,27 @@ var _ = Describe("ModelRegistry controller e2e", func() {
 			// fill mr with some models
 			fillModelRegistryContent(modelRegistryClient)
 			// Ensure IDs in model registry are created in a specific order
-			Expect(servingEnvironment.GetId()).To(Equal("1"))
-			Expect(registeredModel.GetId()).To(Equal("2"))
-			Expect(modelVersion.GetId()).To(Equal("3"))
+			Expect(registeredModel.GetId()).To(Equal("1"))
+			Expect(modelVersion.GetId()).To(Equal("2"))
 			Expect(modelArtifact.GetId()).To(Equal("1"))
+
+			// simulate ServingEnvironment creation
+			envName := WorkingNamespace
+			_, err := modelRegistryClient.UpsertServingEnvironment(&openapi.ServingEnvironment{
+				Name: &envName,
+			})
+			Expect(err).ToNot(HaveOccurred())
 
 			inferenceService, err = modelRegistryClient.UpsertInferenceService(&openapi.InferenceService{
 				Name:                 &versionName,
 				DesiredState:         openapi.INFERENCESERVICESTATE_DEPLOYED.Ptr(),
 				RegisteredModelId:    *registeredModel.Id,
-				ServingEnvironmentId: *servingEnvironment.Id,
+				ServingEnvironmentId: "3",
 			})
 			Expect(err).ToNot(HaveOccurred())
 			Expect(inferenceService.GetId()).To(Equal("4"))
 
-			_, err := utils.Run(exec.Command("kubectl", "apply", "-f", ServingRuntimePath1))
+			_, err = utils.Run(exec.Command("kubectl", "apply", "-f", ServingRuntimePath1))
 			Expect(err).ToNot(HaveOccurred())
 
 			_, err = utils.Run(exec.Command("kubectl", "apply", "-f", InferenceServiceWithInfServiceIdPath))
@@ -302,15 +307,9 @@ func getPodReadyCondition(pod *corev1.Pod) bool {
 }
 
 func fillModelRegistryContent(mr api.ModelRegistryApi) {
-	envName := WorkingNamespace
-	servingEnvironment, err = mr.GetServingEnvironmentByParams(&envName, nil)
-	if err != nil {
-		// register a new model
-		servingEnvironment, err = mr.UpsertServingEnvironment(&openapi.ServingEnvironment{
-			Name: &envName,
-		})
-		Expect(err).ToNot(HaveOccurred())
-	}
+	// envName := WorkingNamespace
+	// servingEnvironment, err = mr.GetServingEnvironmentByParams(&envName, nil)
+	// Expect(err).ToNot(HaveOccurred())
 
 	registeredModel, err = mr.GetRegisteredModelByParams(&modelName, nil)
 	if err != nil {
