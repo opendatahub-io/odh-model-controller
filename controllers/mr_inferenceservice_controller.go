@@ -85,30 +85,39 @@ func (r *ModelRegistryInferenceServiceReconciler) Reconcile(ctx context.Context,
 		modelRegistryNamespace = req.Namespace
 	}
 
-	mr, err := r.initModelRegistryService(ctx, log, modelRegistryNamespace)
+	// setup grpc connection to ml-metadata
+	ctxTimeout, cancel := context.WithTimeout(context.Background(), time.Second*5)
+	defer cancel()
+
+	log.Info("Creating model registry service..")
+	mr, conn, err := r.initModelRegistryService(ctx, ctxTimeout, log, modelRegistryNamespace)
 	if err != nil {
 		log.Error(err, "Stop ModelRegistry InferenceService reconciliation")
 		return ctrl.Result{Requeue: true, RequeueAfter: time.Second * 10}, err
+	} else if mr == nil {
+		// There is no model registry installed, do not requeue
+		log.Info("Cannot find ModelRegistry in given namespace, stopping reconciliation")
+		return ctrl.Result{}, nil
+	}
+
+	if conn != nil {
+		defer conn.Close()
 	}
 
 	// Retrieve or create the ServingEnvironment associated to the current namespace
-	servingEnvironment, err := mr.GetServingEnvironmentByParams(&req.Namespace, nil)
-	if err != nil || servingEnvironment.Id == nil {
-		log.Info("ServingEnvironment not found, creating it..")
-		servingEnvironment, err = mr.UpsertServingEnvironment(&openapi.ServingEnvironment{
-			Name:       &req.Namespace,
-			ExternalID: &req.Namespace,
-		})
-		if err != nil || servingEnvironment.Id == nil {
-			err = fmt.Errorf("unable to create ServingEnvironment: %w", err)
-			return ctrl.Result{Requeue: true}, err
-		}
+	servingEnvironment, err := r.getOrCreateServingEnvironment(log, mr, req.Namespace)
+	if err != nil {
+		return ctrl.Result{Requeue: true}, err
 	}
+
+	// Check if the InferenceService instance is marked to be deleted, which is
+	// indicated by the deletion timestamp being set.
+	isMarkedToBeDeleted := isvc.GetDeletionTimestamp() != nil
 
 	// Let's add a finalizer. Then, we can define some operations which should
 	// occurs before the custom resource to be deleted.
 	// More info: https://kubernetes.io/docs/concepts/overview/working-with-objects/finalizers
-	if !controllerutil.ContainsFinalizer(isvc, modelRegistryFinalizer) {
+	if !isMarkedToBeDeleted && !controllerutil.ContainsFinalizer(isvc, modelRegistryFinalizer) {
 		log.Info("Adding Finalizer for ModelRegistry")
 		if ok := controllerutil.AddFinalizer(isvc, modelRegistryFinalizer); !ok {
 			log.Error(err, "Failed to add finalizer into the InferenceService custom resource")
@@ -147,16 +156,14 @@ func (r *ModelRegistryInferenceServiceReconciler) Reconcile(ctx context.Context,
 		return ctrl.Result{}, fmt.Errorf("unexpected nil model registry InferenceService")
 	}
 
-	// Check if the InferenceService instance is marked to be deleted, which is
-	// indicated by the deletion timestamp being set.
-	isMarkedToBeDeleted := isvc.GetDeletionTimestamp() != nil
 	if isMarkedToBeDeleted {
+		err := r.onDeletion(mr, log, isvc, is)
+		if err != nil {
+			return ctrl.Result{Requeue: true}, err
+		}
+
 		if controllerutil.ContainsFinalizer(isvc, modelRegistryFinalizer) {
 			log.Info("InferenceService going to be deleted from cluster, setting desired state to UNDEPLOYED in model registry")
-			err := r.onDeletion(mr, log, isvc, is)
-			if err != nil {
-				return ctrl.Result{Requeue: true}, err
-			}
 
 			log.Info("Removing Finalizer for modelRegistry after successfully perform the operations")
 			if ok := controllerutil.RemoveFinalizer(isvc, modelRegistryFinalizer); !ok {
@@ -282,6 +289,20 @@ func (r *ModelRegistryInferenceServiceReconciler) processDelta(ctx context.Conte
 	return nil
 }
 
+func (r *ModelRegistryInferenceServiceReconciler) getOrCreateServingEnvironment(log logr.Logger, mr api.ModelRegistryApi, namespace string) (*openapi.ServingEnvironment, error) {
+	servingEnvironment, err := mr.GetServingEnvironmentByParams(&namespace, nil)
+	if err != nil {
+		log.Info("ServingEnvironment not found, creating it..")
+		servingEnvironment, err = mr.UpsertServingEnvironment(&openapi.ServingEnvironment{
+			Name: &namespace,
+		})
+		if err != nil {
+			return nil, fmt.Errorf("unable to create ServingEnvironment: %w", err)
+		}
+	}
+	return servingEnvironment, nil
+}
+
 // createMRInferenceService create a new model registry InferenceService resource based on provided input
 func (r *ModelRegistryInferenceServiceReconciler) createMRInferenceService(
 	log logr.Logger,
@@ -321,11 +342,12 @@ func (r *ModelRegistryInferenceServiceReconciler) onDeletion(mr api.ModelRegistr
 }
 
 // initModelRegistryService setup a gRPC connection with MLMD server and initialize the model registry service
-func (r *ModelRegistryInferenceServiceReconciler) initModelRegistryService(ctx context.Context, log logr.Logger, namespace string) (api.ModelRegistryApi, error) {
+func (r *ModelRegistryInferenceServiceReconciler) initModelRegistryService(ctx context.Context, ctxTimeout context.Context, log logr.Logger, namespace string) (api.ModelRegistryApi, *grpc.ClientConn, error) {
+	log1 := log.WithValues("mr-namespace", namespace)
 	mlmdAddr, ok := os.LookupEnv(constants.MLMDAddressEnv)
 
 	if !ok || mlmdAddr == "" {
-		log.Info("Retrieving mlmd address from deployed model registry service..")
+		log1.Info("Retrieving mlmd address from deployed model registry service")
 		// Env variable not set, look for existing model registry service
 		opts := []client.ListOption{client.InNamespace(namespace), client.MatchingLabels{
 			"component": "model-registry",
@@ -334,12 +356,12 @@ func (r *ModelRegistryInferenceServiceReconciler) initModelRegistryService(ctx c
 		err := r.client.List(ctx, mrServiceList, opts...)
 		if err != nil || len(mrServiceList.Items) == 0 {
 			// No model registry deployed in the provided namespace, skipping serving reconciliation
-			return nil, fmt.Errorf("unable to find model registry in the given namespace: %s", namespace)
+			return nil, nil, fmt.Errorf("unable to find model registry in the given namespace: %s", namespace)
 		}
 
 		// Actually we could iterate over every mrService, as nothing prevents to setup multiple MR in the same namespace
 		if len(mrServiceList.Items) > 1 {
-			return nil, fmt.Errorf("multiple services with component=model-registry for Namespace %s", namespace)
+			return nil, nil, fmt.Errorf("multiple services with component=model-registry for Namespace %s", namespace)
 		}
 
 		mrService := mrServiceList.Items[0]
@@ -353,18 +375,16 @@ func (r *ModelRegistryInferenceServiceReconciler) initModelRegistryService(ctx c
 		}
 
 		if grpcPort == nil {
-			return nil, fmt.Errorf("cannot find grpc-api port for service %s", mrService.Name)
+			return nil, nil, fmt.Errorf("cannot find grpc-api port for service %s", mrService.Name)
 		}
 
 		mlmdAddr = fmt.Sprintf("%s.%s.svc.cluster.local:%d", mrService.Name, namespace, *grpcPort)
 	}
 
 	if mlmdAddr == "" {
-		return nil, fmt.Errorf("cannot connect to the model registry: empty mlmd address")
+		log1.Info("Cannot connect to the model registry: empty mlmd address")
+		return nil, nil, nil
 	}
-	// setup grpc connection to ml-metadata
-	ctxTimeout, cancel := context.WithTimeout(context.Background(), time.Second*5)
-	defer cancel()
 
 	// Setup model registry service
 	log.Info("Connecting to " + mlmdAddr)
@@ -376,10 +396,11 @@ func (r *ModelRegistryInferenceServiceReconciler) initModelRegistryService(ctx c
 		grpc.WithTransportCredentials(insecure.NewCredentials()),
 	)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 
-	return core.NewModelRegistryService(conn)
+	mr, err := core.NewModelRegistryService(conn)
+	return mr, conn, err
 }
 
 func IgnoreDeletingErrors(err error) error {
