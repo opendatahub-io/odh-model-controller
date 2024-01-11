@@ -25,6 +25,7 @@ const (
 // model registry
 const (
 	MLMDAddressEnv                       = "MLMD_ADDRESS"
+	ModelRegistryNamespaceLabel          = "mr-namespace"
 	ModelRegistryInferenceServiceIdLabel = "mr-inference-service-id"
 	ModelRegistryModelVersionIdLabel     = "mr-model-version-id"
 	ModelRegistryRegisteredModelIdLabel  = "mr-registered-model-id"

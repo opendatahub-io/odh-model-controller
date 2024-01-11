@@ -7,7 +7,6 @@ import (
 	"time"
 
 	"github.com/go-logr/logr"
-	"github.com/google/uuid"
 	kservev1alpha1 "github.com/kserve/kserve/pkg/apis/serving/v1alpha1"
 	kservev1beta1 "github.com/kserve/kserve/pkg/apis/serving/v1beta1"
 	"github.com/opendatahub-io/model-registry/pkg/api"
@@ -55,7 +54,38 @@ func (r *ModelRegistryInferenceServiceReconciler) Reconcile(ctx context.Context,
 	// Initialize logger format
 	log := r.log.WithValues("ModelRegistryInferenceService", req.Name, "namespace", req.Namespace)
 
-	mr, err := r.initModelRegistryService(ctx, log, req.Namespace)
+	// Get the InferenceService object when a reconciliation event is triggered (create,
+	// update, delete)
+	isvc := &kservev1beta1.InferenceService{}
+	err := r.client.Get(ctx, req.NamespacedName, isvc)
+	if err != nil && apierrs.IsNotFound(err) {
+		log.Error(err, "Stop ModelRegistry InferenceService reconciliation")
+		return ctrl.Result{}, nil
+	} else if err != nil {
+		log.Error(err, "Unable to fetch the InferenceService")
+		return ctrl.Result{}, err
+	}
+
+	isId, okIsId := isvc.Labels[constants.ModelRegistryInferenceServiceIdLabel]
+	registeredModelId, okRegisteredModelId := isvc.Labels[constants.ModelRegistryRegisteredModelIdLabel]
+	modelVersionId, okModelVersionId := isvc.Labels[constants.ModelRegistryModelVersionIdLabel]
+
+	if !okIsId && !(okRegisteredModelId || okModelVersionId) {
+		// Early check: no model registry specific labels set in the ISVC, ignore the CR
+		log.Error(fmt.Errorf("missing model registry specific label, unable to link ISVC to Model Registry, skipping InferenceService"), "Stop ModelRegistry InferenceService reconciliation")
+		return ctrl.Result{}, nil
+	}
+
+	var modelRegistryNamespace string
+	if mrNSFromISVC, ok := isvc.Labels[constants.ModelRegistryNamespaceLabel]; ok {
+		// look for model registry located at specific namespace, as specified in isvc
+		modelRegistryNamespace = mrNSFromISVC
+	} else {
+		// look for model registry inside current namespace
+		modelRegistryNamespace = req.Namespace
+	}
+
+	mr, err := r.initModelRegistryService(ctx, log, modelRegistryNamespace)
 	if err != nil {
 		log.Error(err, "Stop ModelRegistry InferenceService reconciliation")
 		return ctrl.Result{Requeue: true, RequeueAfter: time.Second * 10}, err
@@ -75,19 +105,6 @@ func (r *ModelRegistryInferenceServiceReconciler) Reconcile(ctx context.Context,
 		}
 	}
 
-	// Get the InferenceService object when a reconciliation event is triggered (create,
-	// update, delete)
-	isvc := &kservev1beta1.InferenceService{}
-	err = r.client.Get(ctx, req.NamespacedName, isvc)
-
-	if err != nil && apierrs.IsNotFound(err) {
-		log.Error(err, "Stop ModelRegistry InferenceService reconciliation")
-		return ctrl.Result{}, nil
-	} else if err != nil {
-		log.Error(err, "Unable to fetch the InferenceService")
-		return ctrl.Result{}, err
-	}
-
 	// Let's add a finalizer. Then, we can define some operations which should
 	// occurs before the custom resource to be deleted.
 	// More info: https://kubernetes.io/docs/concepts/overview/working-with-objects/finalizers
@@ -105,9 +122,6 @@ func (r *ModelRegistryInferenceServiceReconciler) Reconcile(ctx context.Context,
 	}
 
 	var is *openapi.InferenceService
-	isId, okIsId := isvc.Labels[constants.ModelRegistryInferenceServiceIdLabel]
-	registeredModelId, okRegisteredModelId := isvc.Labels[constants.ModelRegistryRegisteredModelIdLabel]
-	modelVersionId, okModelVersionId := isvc.Labels[constants.ModelRegistryModelVersionIdLabel]
 
 	if okIsId {
 		// Retrieve the IS from model registry using the id
@@ -269,13 +283,20 @@ func (r *ModelRegistryInferenceServiceReconciler) processDelta(ctx context.Conte
 }
 
 // createMRInferenceService create a new model registry InferenceService resource based on provided input
-func (r *ModelRegistryInferenceServiceReconciler) createMRInferenceService(log logr.Logger, mr api.ModelRegistryApi, isvc *kservev1beta1.InferenceService, servingEnvironmentId string, registeredModelId string, modelVersionId string) (*openapi.InferenceService, error) {
+func (r *ModelRegistryInferenceServiceReconciler) createMRInferenceService(
+	log logr.Logger,
+	mr api.ModelRegistryApi,
+	isvc *kservev1beta1.InferenceService,
+	servingEnvironmentId string,
+	registeredModelId string,
+	modelVersionId string,
+) (*openapi.InferenceService, error) {
 	modelVersionIdPtr := &modelVersionId
 	if modelVersionId == "" {
 		modelVersionIdPtr = nil
 	}
 
-	isName := fmt.Sprintf("%s/%s", isvc.Name, uuid.New().String())
+	isName := fmt.Sprintf("%s/%s", isvc.Name, isvc.UID)
 
 	log.Info("Creating new model registry InferenceService", "name", isName, "registeredModelId", registeredModelId, "modelVersionId", modelVersionId)
 	is := &openapi.InferenceService{

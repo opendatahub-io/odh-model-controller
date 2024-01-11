@@ -22,9 +22,10 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"os"
 	"path/filepath"
-	"sigs.k8s.io/yaml"
 	"testing"
 	"time"
+
+	"sigs.k8s.io/yaml"
 
 	kservev1alpha1 "github.com/kserve/kserve/pkg/apis/serving/v1alpha1"
 	kservev1beta1 "github.com/kserve/kserve/pkg/apis/serving/v1beta1"
@@ -168,6 +169,13 @@ var _ = BeforeSuite(func() {
 		Client: cli,
 		Log:    ctrl.Log.WithName("controllers").WithName("Storage-Secret-Controller"),
 		Scheme: scheme.Scheme,
+	}).SetupWithManager(mgr)
+	Expect(err).ToNot(HaveOccurred())
+
+	err = (&ModelRegistryInferenceServiceReconciler{
+		client: cli,
+		log:    ctrl.Log.WithName("controllers").WithName("ModelRegistry-InferenceService-Controller"),
+		scheme: scheme.Scheme,
 	}).SetupWithManager(mgr)
 	Expect(err).ToNot(HaveOccurred())
 

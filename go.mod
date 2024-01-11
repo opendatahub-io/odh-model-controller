@@ -4,7 +4,6 @@ go 1.19
 
 require (
 	github.com/go-logr/logr v1.2.4
-	github.com/google/uuid v1.5.0
 	github.com/kserve/kserve v0.11.0
 	github.com/onsi/ginkgo v1.16.4
 	github.com/onsi/gomega v1.27.6
@@ -53,6 +52,7 @@ require (
 	github.com/google/go-containerregistry v0.15.2 // indirect
 	github.com/google/gofuzz v1.2.0 // indirect
 	github.com/google/s2a-go v0.1.7 // indirect
+	github.com/google/uuid v1.5.0 // indirect
 	github.com/googleapis/enterprise-certificate-proxy v0.3.2 // indirect
 	github.com/googleapis/gax-go/v2 v2.12.0 // indirect
 	github.com/googleapis/google-cloud-go-testing v0.0.0-20210719221736-1c9a4c676720 // indirect
