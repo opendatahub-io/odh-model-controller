@@ -11,3 +11,4 @@ spec:
             - --leader-elect
             - --model-registry-inference-reconcile
           name: manager
+          imagePullPolicy: IfNotPresent

@@ -33,7 +33,7 @@ const (
 	InferenceServiceWithModelVersionPath    = "./test/data/deploy/inference-service-with-model-version.yaml"
 	InferenceServiceWithoutModelVersionPath = "./test/data/deploy/inference-service-without-model-version.yaml"
 	InferenceServiceWithInfServiceIdPath    = "./test/data/deploy/inference-service-to-delete.yaml"
-	timeout                                 = time.Second * 10
+	timeout                                 = time.Second * 30
 	interval                                = time.Millisecond * 50
 )
 
