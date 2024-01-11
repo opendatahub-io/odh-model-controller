@@ -20,7 +20,6 @@ import (
 	"github.com/go-logr/logr"
 	kservev1beta1 "github.com/kserve/kserve/pkg/apis/serving/v1beta1"
 	"github.com/opendatahub-io/odh-model-controller/controllers/resources"
-	"k8s.io/api/networking/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -45,13 +44,9 @@ func NewKServeNetworkPolicyReconciler(client client.Client, scheme *runtime.Sche
 }
 
 func (r *KserveNetworkPolicyReconciler) Reconcile(ctx context.Context, log logr.Logger, isvc *kservev1beta1.InferenceService) error {
-	return r.DeleteNetworkPolicy(ctx, isvc.Namespace)
+	return r.deleteNetworkPolicy(ctx, isvc.Namespace)
 }
 
-func (r *KserveNetworkPolicyReconciler) getExistingResource(ctx context.Context, log logr.Logger, isvc *kservev1beta1.InferenceService) (*v1.NetworkPolicy, error) {
-	return r.networkPolicyHandler.FetchNetworkPolicy(ctx, log, types.NamespacedName{Name: networkPolicyName, Namespace: isvc.Namespace})
-}
-
-func (r *KserveNetworkPolicyReconciler) DeleteNetworkPolicy(ctx context.Context, isvcNamespace string) error {
+func (r *KserveNetworkPolicyReconciler) deleteNetworkPolicy(ctx context.Context, isvcNamespace string) error {
 	return r.networkPolicyHandler.DeleteNetworkPolicy(ctx, types.NamespacedName{Name: networkPolicyName, Namespace: isvcNamespace})
 }
