@@ -101,12 +101,17 @@ require (
 )
 
 replace (
+	// Fixes CVE-2022-21698 and CVE-2023-45142
+	// this dependency comes from k8s.io/component-base@v0.28.4 and k8s.io/apiextensions-apiserver@v0.28.4
+	// before removing it make sure that the next version of the related k8s dependencies contains the fix
+	go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp => go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp v0.44.0
 
 	// The crypto is pulled from go/compute which is pulled by go/storage
 	// this replace can be removed when version 1.36.1 of go/storage is released.
 	// https://github.com/googleapis/google-cloud-go/tree/main/storage
 	// Fixes CVE-2023-48795 - golang.org/x/crypto Authentication Bypass by Capture-replay
 	golang.org/x/crypto => golang.org/x/crypto v0.17.0
+
 	// remove when upgrade to controller-runtime 0.15.xor apimachinery to 0.27.x
 	// Fixes github.com/elazarl/goproxy Denial of Service (DoS)
 	// This dependency was remove from apimachinery 0.27.0
