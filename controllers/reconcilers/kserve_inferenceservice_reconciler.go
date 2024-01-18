@@ -161,6 +161,11 @@ func (r *KserveInferenceServiceReconciler) DeleteKserveMetricsResourcesIfNoKserv
 		if err := r.istioPeerAuthenticationReconciler.DeletePeerAuthentication(ctx, isvcNamespace); err != nil {
 			return err
 		}
+
+		log.V(1).Info("Deleting NetworkPolicy object for target namespace")
+		if err := r.networkPolicyReconciler.DeleteNetworkPolicy(ctx, isvcNamespace); err != nil {
+			return err
+		}
 	}
 	return nil
 }
