@@ -105,9 +105,9 @@ func (r *KserveNetworkPolicyReconciler) getExistingResource(ctx context.Context,
 	return r.networkPolicyHandler.FetchNetworkPolicy(ctx, log, types.NamespacedName{Name: networkPolicyName, Namespace: isvc.Namespace})
 }
 
-func (r *KserveNetworkPolicyReconciler) processDelta(ctx context.Context, log logr.Logger, desiredPod *v1.NetworkPolicy, existingPod *v1.NetworkPolicy) (err error) {
+func (r *KserveNetworkPolicyReconciler) processDelta(ctx context.Context, log logr.Logger, desiredNetworkPolicy *v1.NetworkPolicy, existingNetworkPolicy *v1.NetworkPolicy) (err error) {
 	comparator := comparators.GetNetworkPolicyComparator()
-	delta := r.deltaProcessor.ComputeDelta(comparator, desiredPod, existingPod)
+	delta := r.deltaProcessor.ComputeDelta(comparator, desiredNetworkPolicy, existingNetworkPolicy)
 
 	if !delta.HasChanges() {
 		log.V(1).Info("No delta found")
@@ -115,24 +115,24 @@ func (r *KserveNetworkPolicyReconciler) processDelta(ctx context.Context, log lo
 	}
 
 	if delta.IsAdded() {
-		log.V(1).Info("Delta found", "create", desiredPod.GetName())
-		if err = r.client.Create(ctx, desiredPod); err != nil {
+		log.V(1).Info("Delta found", "create", desiredNetworkPolicy.GetName())
+		if err = r.client.Create(ctx, desiredNetworkPolicy); err != nil {
 			return
 		}
 	}
 	if delta.IsUpdated() {
-		log.V(1).Info("Delta found", "update", existingPod.GetName())
-		rp := existingPod.DeepCopy()
-		rp.Labels = desiredPod.Labels
-		rp.Spec = desiredPod.Spec
+		log.V(1).Info("Delta found", "update", existingNetworkPolicy.GetName())
+		rp := existingNetworkPolicy.DeepCopy()
+		rp.Labels = desiredNetworkPolicy.Labels
+		rp.Spec = desiredNetworkPolicy.Spec
 
 		if err = r.client.Update(ctx, rp); err != nil {
 			return
 		}
 	}
 	if delta.IsRemoved() {
-		log.V(1).Info("Delta found", "delete", existingPod.GetName())
-		if err = r.client.Delete(ctx, existingPod); err != nil {
+		log.V(1).Info("Delta found", "delete", existingNetworkPolicy.GetName())
+		if err = r.client.Delete(ctx, existingNetworkPolicy); err != nil {
 			return
 		}
 	}
