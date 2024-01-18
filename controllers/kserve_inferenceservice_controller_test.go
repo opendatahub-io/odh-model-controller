@@ -19,7 +19,7 @@ import (
 	"context"
 	kservev1alpha1 "github.com/kserve/kserve/pkg/apis/serving/v1alpha1"
 	kservev1beta1 "github.com/kserve/kserve/pkg/apis/serving/v1beta1"
-	. "github.com/onsi/ginkgo"
+	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	"github.com/opendatahub-io/odh-model-controller/controllers/constants"
 	routev1 "github.com/openshift/api/route/v1"
