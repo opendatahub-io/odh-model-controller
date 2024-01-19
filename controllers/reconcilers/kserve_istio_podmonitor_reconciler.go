@@ -100,9 +100,9 @@ func (r *KserveIstioPodMonitorReconciler) getExistingResource(ctx context.Contex
 	return r.podMonitorHandler.FetchPodMonitor(ctx, log, types.NamespacedName{Name: istioPodMonitorName, Namespace: isvc.Namespace})
 }
 
-func (r *KserveIstioPodMonitorReconciler) processDelta(ctx context.Context, log logr.Logger, desiredPod *v1.PodMonitor, existingPod *v1.PodMonitor) (err error) {
+func (r *KserveIstioPodMonitorReconciler) processDelta(ctx context.Context, log logr.Logger, desiredPodMonitor *v1.PodMonitor, existingPodMonitor *v1.PodMonitor) (err error) {
 	comparator := comparators.GetPodMonitorComparator()
-	delta := r.deltaProcessor.ComputeDelta(comparator, desiredPod, existingPod)
+	delta := r.deltaProcessor.ComputeDelta(comparator, desiredPodMonitor, existingPodMonitor)
 
 	if !delta.HasChanges() {
 		log.V(1).Info("No delta found")
@@ -110,23 +110,23 @@ func (r *KserveIstioPodMonitorReconciler) processDelta(ctx context.Context, log 
 	}
 
 	if delta.IsAdded() {
-		log.V(1).Info("Delta found", "create", desiredPod.GetName())
-		if err = r.client.Create(ctx, desiredPod); err != nil {
+		log.V(1).Info("Delta found", "create", desiredPodMonitor.GetName())
+		if err = r.client.Create(ctx, desiredPodMonitor); err != nil {
 			return
 		}
 	}
 	if delta.IsUpdated() {
-		log.V(1).Info("Delta found", "update", existingPod.GetName())
-		rp := existingPod.DeepCopy()
-		rp.Spec = desiredPod.Spec
+		log.V(1).Info("Delta found", "update", existingPodMonitor.GetName())
+		rp := existingPodMonitor.DeepCopy()
+		rp.Spec = desiredPodMonitor.Spec
 
 		if err = r.client.Update(ctx, rp); err != nil {
 			return
 		}
 	}
 	if delta.IsRemoved() {
-		log.V(1).Info("Delta found", "delete", existingPod.GetName())
-		if err = r.client.Delete(ctx, existingPod); err != nil {
+		log.V(1).Info("Delta found", "delete", existingPodMonitor.GetName())
+		if err = r.client.Delete(ctx, existingPodMonitor); err != nil {
 			return
 		}
 	}

@@ -19,6 +19,7 @@ import (
 	"context"
 	"github.com/go-logr/logr"
 	kservev1beta1 "github.com/kserve/kserve/pkg/apis/serving/v1beta1"
+	"github.com/kserve/kserve/pkg/constants"
 	"github.com/opendatahub-io/odh-model-controller/controllers/comparators"
 	"github.com/opendatahub-io/odh-model-controller/controllers/processors"
 	"github.com/opendatahub-io/odh-model-controller/controllers/resources"
@@ -30,8 +31,12 @@ import (
 )
 
 const (
-	networkPolicyName = "allow-from-openshift-monitoring-ns"
+	monitoringNetworkPolicyName            = "allow-from-openshift-monitoring-ns"
+	openshiftIngressNetworkPolicyName      = "allow-openshift-ingress"
+	opendatahubNamespacesNetworkPolicyName = "allow-from-opendatahub-ns"
 )
+
+var definedNetworkPolicies = []string{monitoringNetworkPolicyName, openshiftIngressNetworkPolicyName, opendatahubNamespacesNetworkPolicyName}
 
 type KserveNetworkPolicyReconciler struct {
 	client               client.Client
@@ -50,30 +55,31 @@ func NewKServeNetworkPolicyReconciler(client client.Client, scheme *runtime.Sche
 }
 
 func (r *KserveNetworkPolicyReconciler) Reconcile(ctx context.Context, log logr.Logger, isvc *kservev1beta1.InferenceService) error {
-
-	// Create Desired resource
-	desiredResource, err := r.createDesiredResource(isvc)
-	if err != nil {
-		return err
+	desiredNetworkPolicies := []*v1.NetworkPolicy{
+		r.allowTrafficFromMonitoringNamespace(isvc),
+		r.allowOpenshiftIngressPolicy(isvc),
+		r.allowTrafficFromApplicationNamespaces(isvc),
 	}
 
-	// Get Existing resource
-	existingResource, err := r.getExistingResource(ctx, log, isvc)
-	if err != nil {
-		return err
+	for _, desiredNetworkPolicy := range desiredNetworkPolicies {
+		existingNetworkPolicy, err := r.getExistingResource(ctx, log, isvc, desiredNetworkPolicy.Name)
+		if err != nil {
+			return err
+		}
+
+		if err = r.processDelta(ctx, log, desiredNetworkPolicy, existingNetworkPolicy); err != nil {
+			return err
+		}
+
 	}
 
-	// Process Delta
-	if err = r.processDelta(ctx, log, desiredResource, existingResource); err != nil {
-		return err
-	}
 	return nil
 }
 
-func (r *KserveNetworkPolicyReconciler) createDesiredResource(isvc *kservev1beta1.InferenceService) (*v1.NetworkPolicy, error) {
+func (r *KserveNetworkPolicyReconciler) allowTrafficFromMonitoringNamespace(isvc *kservev1beta1.InferenceService) *v1.NetworkPolicy {
 	desiredNetworkPolicy := &v1.NetworkPolicy{
 		ObjectMeta: metav1.ObjectMeta{
-			Name:      networkPolicyName,
+			Name:      monitoringNetworkPolicyName,
 			Namespace: isvc.Namespace,
 			Labels: map[string]string{
 				"app.kubernetes.io/version":               "release-v1.9",
@@ -98,16 +104,91 @@ func (r *KserveNetworkPolicyReconciler) createDesiredResource(isvc *kservev1beta
 			PolicyTypes: []v1.PolicyType{v1.PolicyTypeIngress},
 		},
 	}
-	return desiredNetworkPolicy, nil
+	return desiredNetworkPolicy
 }
 
-func (r *KserveNetworkPolicyReconciler) getExistingResource(ctx context.Context, log logr.Logger, isvc *kservev1beta1.InferenceService) (*v1.NetworkPolicy, error) {
-	return r.networkPolicyHandler.FetchNetworkPolicy(ctx, log, types.NamespacedName{Name: networkPolicyName, Namespace: isvc.Namespace})
+// allowOpenshiftIngressPolicy creates policy that grants ingress access through Openshift Routes to the services which
+// are part of a namespace under Service Mesh, but are not under Service Mesh control.
+func (r *KserveNetworkPolicyReconciler) allowOpenshiftIngressPolicy(isvc *kservev1beta1.InferenceService) *v1.NetworkPolicy {
+	return &v1.NetworkPolicy{
+		TypeMeta: metav1.TypeMeta{
+			Kind:       "NetworkPolicy",
+			APIVersion: "networking.k8s.io/v1",
+		},
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      openshiftIngressNetworkPolicyName,
+			Namespace: isvc.Namespace,
+			Labels:    map[string]string{"opendatahub.io/related-to": "RHOAIENG-1003"},
+		},
+		Spec: v1.NetworkPolicySpec{
+			PodSelector: metav1.LabelSelector{},
+			Ingress: []v1.NetworkPolicyIngressRule{
+				{
+					From: []v1.NetworkPolicyPeer{
+						{
+							NamespaceSelector: &metav1.LabelSelector{
+								MatchLabels: map[string]string{"network.openshift.io/policy-group": "ingress"},
+							},
+						},
+					},
+				},
+			},
+			PolicyTypes: []v1.PolicyType{v1.PolicyTypeIngress},
+		},
+	}
 }
 
-func (r *KserveNetworkPolicyReconciler) processDelta(ctx context.Context, log logr.Logger, desiredPod *v1.NetworkPolicy, existingPod *v1.NetworkPolicy) (err error) {
+// allowTrafficFromApplicationNamespaces creates combined network policy applied to pods in InferenceService namespace.
+// This set of policies allow traffic from:
+// - application namespace, where OpenDataHub and component services are deployed
+// - namespaces created by OpenDataHub where components live
+// - traffic from other DataScienceProjects (namespaces created through dashboard)
+func (r *KserveNetworkPolicyReconciler) allowTrafficFromApplicationNamespaces(isvc *kservev1beta1.InferenceService) *v1.NetworkPolicy {
+	return &v1.NetworkPolicy{
+		TypeMeta: metav1.TypeMeta{
+			Kind:       "NetworkPolicy",
+			APIVersion: "networking.k8s.io/v1",
+		},
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      opendatahubNamespacesNetworkPolicyName,
+			Namespace: isvc.Namespace,
+			Labels:    map[string]string{"opendatahub.io/related-to": "RHOAIENG-1003"},
+		},
+		Spec: v1.NetworkPolicySpec{
+			PodSelector: metav1.LabelSelector{},
+			Ingress: []v1.NetworkPolicyIngressRule{
+				{
+					From: []v1.NetworkPolicyPeer{
+						{
+							NamespaceSelector: &metav1.LabelSelector{
+								MatchLabels: map[string]string{"opendatahub.io/dashboard": "true"},
+							},
+						},
+						{
+							NamespaceSelector: &metav1.LabelSelector{
+								MatchLabels: map[string]string{"kubernetes.io/metadata.name": constants.KServeNamespace},
+							},
+						},
+						{
+							NamespaceSelector: &metav1.LabelSelector{
+								MatchLabels: map[string]string{"opendatahub.io/generated-namespace": "true"},
+							},
+						},
+					},
+				},
+			},
+			PolicyTypes: []v1.PolicyType{v1.PolicyTypeIngress},
+		},
+	}
+}
+
+func (r *KserveNetworkPolicyReconciler) getExistingResource(ctx context.Context, log logr.Logger, isvc *kservev1beta1.InferenceService, policyName string) (*v1.NetworkPolicy, error) {
+	return r.networkPolicyHandler.FetchNetworkPolicy(ctx, log, types.NamespacedName{Name: policyName, Namespace: isvc.Namespace})
+}
+
+func (r *KserveNetworkPolicyReconciler) processDelta(ctx context.Context, log logr.Logger, desiredNetworkPolicy *v1.NetworkPolicy, existingNetworkPolicy *v1.NetworkPolicy) (err error) {
 	comparator := comparators.GetNetworkPolicyComparator()
-	delta := r.deltaProcessor.ComputeDelta(comparator, desiredPod, existingPod)
+	delta := r.deltaProcessor.ComputeDelta(comparator, desiredNetworkPolicy, existingNetworkPolicy)
 
 	if !delta.HasChanges() {
 		log.V(1).Info("No delta found")
@@ -115,24 +196,24 @@ func (r *KserveNetworkPolicyReconciler) processDelta(ctx context.Context, log lo
 	}
 
 	if delta.IsAdded() {
-		log.V(1).Info("Delta found", "create", desiredPod.GetName())
-		if err = r.client.Create(ctx, desiredPod); err != nil {
+		log.V(1).Info("Delta found", "create", desiredNetworkPolicy.GetName())
+		if err = r.client.Create(ctx, desiredNetworkPolicy); err != nil {
 			return
 		}
 	}
 	if delta.IsUpdated() {
-		log.V(1).Info("Delta found", "update", existingPod.GetName())
-		rp := existingPod.DeepCopy()
-		rp.Labels = desiredPod.Labels
-		rp.Spec = desiredPod.Spec
+		log.V(1).Info("Delta found", "update", existingNetworkPolicy.GetName())
+		rp := existingNetworkPolicy.DeepCopy()
+		rp.Labels = desiredNetworkPolicy.Labels
+		rp.Spec = desiredNetworkPolicy.Spec
 
 		if err = r.client.Update(ctx, rp); err != nil {
 			return
 		}
 	}
 	if delta.IsRemoved() {
-		log.V(1).Info("Delta found", "delete", existingPod.GetName())
-		if err = r.client.Delete(ctx, existingPod); err != nil {
+		log.V(1).Info("Delta found", "delete", existingNetworkPolicy.GetName())
+		if err = r.client.Delete(ctx, existingNetworkPolicy); err != nil {
 			return
 		}
 	}
@@ -140,5 +221,11 @@ func (r *KserveNetworkPolicyReconciler) processDelta(ctx context.Context, log lo
 }
 
 func (r *KserveNetworkPolicyReconciler) DeleteNetworkPolicy(ctx context.Context, isvcNamespace string) error {
-	return r.networkPolicyHandler.DeleteNetworkPolicy(ctx, types.NamespacedName{Name: networkPolicyName, Namespace: isvcNamespace})
+	for _, networkPolicy := range definedNetworkPolicies {
+		if err := r.networkPolicyHandler.DeleteNetworkPolicy(ctx, types.NamespacedName{Name: networkPolicy, Namespace: isvcNamespace}); err != nil {
+			return err
+		}
+	}
+
+	return nil
 }

@@ -98,9 +98,9 @@ func (r *KserveIstioServiceMonitorReconciler) getExistingResource(ctx context.Co
 	return r.serviceMonitorHandler.FetchServiceMonitor(ctx, log, types.NamespacedName{Name: istioServiceMonitorName, Namespace: isvc.Namespace})
 }
 
-func (r *KserveIstioServiceMonitorReconciler) processDelta(ctx context.Context, log logr.Logger, desiredService *v1.ServiceMonitor, existingService *v1.ServiceMonitor) (err error) {
+func (r *KserveIstioServiceMonitorReconciler) processDelta(ctx context.Context, log logr.Logger, desiredServiceMonitor *v1.ServiceMonitor, existingServiceMonitor *v1.ServiceMonitor) (err error) {
 	comparator := comparators.GetServiceMonitorComparator()
-	delta := r.deltaProcessor.ComputeDelta(comparator, desiredService, existingService)
+	delta := r.deltaProcessor.ComputeDelta(comparator, desiredServiceMonitor, existingServiceMonitor)
 
 	if !delta.HasChanges() {
 		log.V(1).Info("No delta found")
@@ -108,25 +108,25 @@ func (r *KserveIstioServiceMonitorReconciler) processDelta(ctx context.Context, 
 	}
 
 	if delta.IsAdded() {
-		log.V(1).Info("Delta found", "create", desiredService.GetName())
-		if err = r.client.Create(ctx, desiredService); err != nil {
+		log.V(1).Info("Delta found", "create", desiredServiceMonitor.GetName())
+		if err = r.client.Create(ctx, desiredServiceMonitor); err != nil {
 			return
 		}
 	}
 	if delta.IsUpdated() {
-		log.V(1).Info("Delta found", "update", existingService.GetName())
-		rp := existingService.DeepCopy()
-		rp.Annotations = desiredService.Annotations
-		rp.Labels = desiredService.Labels
-		rp.Spec = desiredService.Spec
+		log.V(1).Info("Delta found", "update", existingServiceMonitor.GetName())
+		rp := existingServiceMonitor.DeepCopy()
+		rp.Annotations = desiredServiceMonitor.Annotations
+		rp.Labels = desiredServiceMonitor.Labels
+		rp.Spec = desiredServiceMonitor.Spec
 
 		if err = r.client.Update(ctx, rp); err != nil {
 			return
 		}
 	}
 	if delta.IsRemoved() {
-		log.V(1).Info("Delta found", "delete", existingService.GetName())
-		if err = r.client.Delete(ctx, existingService); err != nil {
+		log.V(1).Info("Delta found", "delete", existingServiceMonitor.GetName())
+		if err = r.client.Delete(ctx, existingServiceMonitor); err != nil {
 			return
 		}
 	}

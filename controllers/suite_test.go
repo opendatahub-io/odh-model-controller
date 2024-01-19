@@ -17,6 +17,9 @@ package controllers
 
 import (
 	"context"
+	"fmt"
+	"github.com/opendatahub-io/odh-model-controller/controllers/constants"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"os"
 	"path/filepath"
 	"sigs.k8s.io/yaml"
@@ -28,6 +31,7 @@ import (
 	monitoringv1 "github.com/prometheus-operator/prometheus-operator/pkg/apis/monitoring/v1"
 	"go.uber.org/zap/zapcore"
 	k8srbacv1 "k8s.io/api/rbac/v1"
+	utilrand "k8s.io/apimachinery/pkg/util/rand"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
 	ctrl "sigs.k8s.io/controller-runtime"
 
@@ -126,6 +130,15 @@ var _ = BeforeSuite(func() {
 	Expect(err).NotTo(HaveOccurred())
 	Expect(cli).NotTo(BeNil())
 
+	// Create istio-system namespace
+	istioNamespace := &corev1.Namespace{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      constants.IstioNamespace,
+			Namespace: constants.IstioNamespace,
+		},
+	}
+	Expect(cli.Create(ctx, istioNamespace)).Should(Succeed())
+
 	// Setup controller manager
 	mgr, err := ctrl.NewManager(cfg, ctrl.Options{
 		Scheme:             scheme.Scheme,
@@ -198,4 +211,17 @@ func convertToStructuredResource(path string, out interface{}) (err error) {
 		return err
 	}
 	return nil
+}
+
+const (
+	maxNameLength          = 63
+	randomLength           = 5
+	maxGeneratedNameLength = maxNameLength - randomLength
+)
+
+func appendRandomNameTo(base string) string {
+	if len(base) > maxGeneratedNameLength {
+		base = base[:maxGeneratedNameLength]
+	}
+	return fmt.Sprintf("%s%s", base, utilrand.String(randomLength))
 }
