@@ -98,9 +98,9 @@ func (r *KserveIstioPeerAuthenticationReconciler) getExistingResource(ctx contex
 	return r.peerAuthenticationHandler.FetchPeerAuthentication(ctx, log, types.NamespacedName{Name: peerAuthenticationName, Namespace: isvc.Namespace})
 }
 
-func (r *KserveIstioPeerAuthenticationReconciler) processDelta(ctx context.Context, log logr.Logger, desiredPod *istiosecv1beta1.PeerAuthentication, existingPod *istiosecv1beta1.PeerAuthentication) (err error) {
+func (r *KserveIstioPeerAuthenticationReconciler) processDelta(ctx context.Context, log logr.Logger, desiredPeerAuthentication *istiosecv1beta1.PeerAuthentication, existingPeerAuthentication *istiosecv1beta1.PeerAuthentication) (err error) {
 	comparator := comparators.GetPeerAuthenticationComparator()
-	delta := r.deltaProcessor.ComputeDelta(comparator, desiredPod, existingPod)
+	delta := r.deltaProcessor.ComputeDelta(comparator, desiredPeerAuthentication, existingPeerAuthentication)
 
 	if !delta.HasChanges() {
 		log.V(1).Info("No delta found")
@@ -108,25 +108,25 @@ func (r *KserveIstioPeerAuthenticationReconciler) processDelta(ctx context.Conte
 	}
 
 	if delta.IsAdded() {
-		log.V(1).Info("Delta found", "create", desiredPod.GetName())
-		if err = r.client.Create(ctx, desiredPod); err != nil {
+		log.V(1).Info("Delta found", "create", desiredPeerAuthentication.GetName())
+		if err = r.client.Create(ctx, desiredPeerAuthentication); err != nil {
 			return
 		}
 	}
 	if delta.IsUpdated() {
-		log.V(1).Info("Delta found", "update", existingPod.GetName())
-		rp := existingPod.DeepCopy()
-		rp.Spec.Selector = desiredPod.Spec.Selector
-		rp.Spec.Mtls = desiredPod.Spec.Mtls
-		rp.Spec.PortLevelMtls = desiredPod.Spec.PortLevelMtls
+		log.V(1).Info("Delta found", "update", existingPeerAuthentication.GetName())
+		rp := existingPeerAuthentication.DeepCopy()
+		rp.Spec.Selector = desiredPeerAuthentication.Spec.Selector
+		rp.Spec.Mtls = desiredPeerAuthentication.Spec.Mtls
+		rp.Spec.PortLevelMtls = desiredPeerAuthentication.Spec.PortLevelMtls
 
 		if err = r.client.Update(ctx, rp); err != nil {
 			return
 		}
 	}
 	if delta.IsRemoved() {
-		log.V(1).Info("Delta found", "delete", existingPod.GetName())
-		if err = r.client.Delete(ctx, existingPod); err != nil {
+		log.V(1).Info("Delta found", "delete", existingPeerAuthentication.GetName())
+		if err = r.client.Delete(ctx, existingPeerAuthentication); err != nil {
 			return
 		}
 	}
