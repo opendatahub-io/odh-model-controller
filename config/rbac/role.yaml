@@ -22,6 +22,22 @@ rules:
   - patch
   - update
   - watch
+#revert before 2.7 https://issues.redhat.com/browse/RHOAIENG-293
+- apiGroups:
+  - apps
+  resources:
+  - deployments
+  - statefulsets
+  verbs:
+  - get
+  - list
+  - delete
+- apiGroups:
+  - project.openshift.io
+  resources:
+  - projects
+  verbs:
+  - get
 - apiGroups:
   - maistra.io
   resources:
@@ -213,3 +229,19 @@ rules:
   - patch
   - update
   - watch
+- apiGroups:
+    - extensions
+  resources:
+    - ingresses
+  verbs:
+    - get
+    - list
+    - watch
+- apiGroups:
+    - networking.k8s.io
+  resources:
+    - ingresses
+  verbs:
+    - get
+    - list
+    - watch
