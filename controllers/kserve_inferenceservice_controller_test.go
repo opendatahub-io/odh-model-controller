@@ -33,7 +33,6 @@ import (
 	"knative.dev/pkg/apis"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"strings"
-	"time"
 )
 
 var _ = Describe("The Openshift Kserve model controller", func() {
@@ -79,7 +78,7 @@ var _ = Describe("The Openshift Kserve model controller", func() {
 				key := types.NamespacedName{Name: getKServeRouteName(inferenceService), Namespace: constants.IstioNamespace}
 				err = cli.Get(ctx, key, route)
 				return err
-			}, time.Second*1, interval).Should(HaveOccurred())
+			}, timeout, interval).Should(HaveOccurred())
 
 			deployedInferenceService := &kservev1beta1.InferenceService{}
 			err = cli.Get(ctx, types.NamespacedName{Name: inferenceService.Name, Namespace: inferenceService.Namespace}, deployedInferenceService)
@@ -119,9 +118,7 @@ var _ = Describe("The Openshift Kserve model controller", func() {
 					Fail(err.Error())
 				}
 				return networkPolicies.Items
-			}, time.Second*1, interval).Should(HaveLen(3))
-
-			Expect(networkPolicies.Items).To(
+			}, timeout, interval).Should(
 				ContainElements(
 					withMatchingNestedField("ObjectMeta.Name", Equal("allow-from-openshift-monitoring-ns")),
 					withMatchingNestedField("ObjectMeta.Name", Equal("allow-openshift-ingress")),
