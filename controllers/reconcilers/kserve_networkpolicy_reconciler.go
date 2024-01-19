@@ -149,8 +149,8 @@ func (r *KserveNetworkPolicyReconciler) allowOpenshiftIngressPolicy(isvc *kserve
 
 // allowTrafficFromApplicationNamespaces creates combined network policy applied to pods in InferenceService namespace.
 // This set of policies allow traffic from:
-// - application namespace, where OpenDataHub and component service are deployed
-// - namespaces created by OpenDataHub where its component live
+// - application namespace, where OpenDataHub and component services are deployed
+// - namespaces created by OpenDataHub where components live
 // - traffic from other DataScienceProjects (namespaces created through dashboard)
 func (r *KserveNetworkPolicyReconciler) allowTrafficFromApplicationNamespaces(isvc *kservev1beta1.InferenceService) *v1.NetworkPolicy {
 	return &v1.NetworkPolicy{
