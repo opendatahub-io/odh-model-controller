@@ -19,10 +19,10 @@ import (
 	"context"
 	"github.com/go-logr/logr"
 	kservev1beta1 "github.com/kserve/kserve/pkg/apis/serving/v1beta1"
+	"github.com/kserve/kserve/pkg/constants"
 	"github.com/opendatahub-io/odh-model-controller/controllers/comparators"
 	"github.com/opendatahub-io/odh-model-controller/controllers/processors"
 	"github.com/opendatahub-io/odh-model-controller/controllers/resources"
-	"github.com/opendatahub-io/odh-model-controller/controllers/utils"
 	"k8s.io/api/networking/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -43,7 +43,6 @@ type KserveNetworkPolicyReconciler struct {
 	scheme               *runtime.Scheme
 	networkPolicyHandler resources.NetworkPolicyHandler
 	deltaProcessor       processors.DeltaProcessor
-	appNamespace         string
 }
 
 func NewKServeNetworkPolicyReconciler(client client.Client, scheme *runtime.Scheme) *KserveNetworkPolicyReconciler {
@@ -56,14 +55,6 @@ func NewKServeNetworkPolicyReconciler(client client.Client, scheme *runtime.Sche
 }
 
 func (r *KserveNetworkPolicyReconciler) Reconcile(ctx context.Context, log logr.Logger, isvc *kservev1beta1.InferenceService) error {
-	if r.appNamespace == "" {
-		namespace, err := utils.GetApplicationNamespace()
-		if err != nil {
-			return err
-		}
-		r.appNamespace = namespace
-	}
-
 	desiredNetworkPolicies := []*v1.NetworkPolicy{
 		r.allowTrafficFromMonitoringNamespace(isvc),
 		r.allowOpenshiftIngressPolicy(isvc),
@@ -175,7 +166,7 @@ func (r *KserveNetworkPolicyReconciler) allowTrafficFromApplicationNamespaces(is
 						},
 						{
 							NamespaceSelector: &metav1.LabelSelector{
-								MatchLabels: map[string]string{"kubernetes.io/metadata.name": r.appNamespace},
+								MatchLabels: map[string]string{"kubernetes.io/metadata.name": constants.KServeNamespace},
 							},
 						},
 						{
