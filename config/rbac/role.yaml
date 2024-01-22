@@ -8,12 +8,23 @@ rules:
 - apiGroups:
   - ""
   resources:
+  - serviceaccounts
+  verbs:
+  - create
+  - get
+  - list
+  - patch
+  - update
+  - watch
+  - delete
+- apiGroups:
+  - ""
+  resources:
   - configmaps
   - endpoints
   - namespaces
   - pods
   - secrets
-  - serviceaccounts
   - services
   verbs:
   - create
