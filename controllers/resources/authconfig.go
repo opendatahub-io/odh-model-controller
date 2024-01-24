@@ -18,13 +18,13 @@ package resources
 import (
 	"context"
 	_ "embed" // needed for go:embed directive
+	"fmt"
 	"sort"
 	"strings"
 
 	kservev1beta1 "github.com/kserve/kserve/pkg/apis/serving/v1beta1"
 	authorinov1beta2 "github.com/kuadrant/authorino/api/v1beta2"
 	"github.com/opendatahub-io/odh-model-controller/controllers/utils"
-	"github.com/pkg/errors"
 	v1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -74,13 +74,13 @@ func (s *staticTemplateLoader) Load(ctx context.Context, authType AuthType, key 
 	if authType == UserDefined {
 		err := utils.ConvertToStructuredResource(authConfigTemplateUserDefined, &authConfig)
 		if err != nil {
-			return authConfig, errors.Wrap(err, "could not load UserDefined template")
+			return authConfig, fmt.Errorf("could not load UserDefined template. cause %w", err)
 		}
 		return authConfig, nil
 	}
 	err := utils.ConvertToStructuredResource(authConfigTemplateAnonymous, &authConfig)
 	if err != nil {
-		return authConfig, errors.Wrap(err, "could not load Anonymous template")
+		return authConfig, fmt.Errorf("could not load Anonymous template. cause: %w", err)
 	}
 	return authConfig, nil
 }
@@ -125,7 +125,7 @@ func (c *clientAuthConfigStore) Get(ctx context.Context, key types.NamespacedNam
 
 	err := c.client.Get(ctx, key, authConfig)
 	if err != nil {
-		return nil, errors.Wrapf(err, "could not GET authconfig %s", key)
+		return nil, fmt.Errorf("could not GET authconfig %s. cause %w", key, err)
 	}
 	return authConfig, nil
 }
@@ -134,15 +134,24 @@ func (c *clientAuthConfigStore) Remove(ctx context.Context, key types.Namespaced
 	authConfig := authorinov1beta2.AuthConfig{}
 	authConfig.Name = key.Name
 	authConfig.Namespace = key.Namespace
-	return errors.Wrapf(c.client.Delete(ctx, &authConfig), "could not DELETE authconfig %s", key)
+	if err := c.client.Delete(ctx, &authConfig); err != nil {
+		return fmt.Errorf("could not DELETE authconfig %s. cause %w", key, err)
+	}
+	return nil
 }
 
 func (c *clientAuthConfigStore) Create(ctx context.Context, authConfig *authorinov1beta2.AuthConfig) error {
-	return errors.Wrapf(c.client.Create(ctx, authConfig), "could not CREATE authconfig %s/%s", authConfig.Namespace, authConfig.Name)
+	if err := c.client.Create(ctx, authConfig); err != nil {
+		return fmt.Errorf("could not CREATE authconfig %s/%s. cause %w", authConfig.Namespace, authConfig.Name, err)
+	}
+	return nil
 }
 
 func (c *clientAuthConfigStore) Update(ctx context.Context, authConfig *authorinov1beta2.AuthConfig) error {
-	return errors.Wrapf(c.client.Update(ctx, authConfig), "could not UPDATE authconfig %s/%s", authConfig.Namespace, authConfig.Name)
+	if err := c.client.Update(ctx, authConfig); err != nil {
+		return fmt.Errorf("could not UPDATE authconfig %s/%s. cause %w", authConfig.Namespace, authConfig.Name, err)
+	}
+	return nil
 }
 
 type kserveAuthTypeDetector struct {

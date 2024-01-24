@@ -8,10 +8,7 @@ import (
 
 	kservev1beta1 "github.com/kserve/kserve/pkg/apis/serving/v1beta1"
 	"github.com/opendatahub-io/odh-model-controller/controllers/resources"
-	"github.com/pkg/errors"
-	k8serror "k8s.io/apimachinery/pkg/api/errors"
 	v1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
 	"knative.dev/pkg/apis"
 	duckv1 "knative.dev/pkg/apis/duck/v1"
@@ -79,14 +76,6 @@ func TestY(t *testing.T) {
 	auth2, _ := store.Load(context.Background(), resources.Anonymous, types.NamespacedName{})
 
 	fmt.Println(reflect.DeepEqual(auth1.Spec, auth2.Spec))
-}
-
-func TestX(t *testing.T) {
-
-	err := k8serror.NewNotFound(schema.GroupResource{}, "test")
-	errw := errors.Wrap(err, "x")
-
-	fmt.Println(k8serror.IsNotFound(errw))
 }
 
 func TestLoadTemplateAnonymous(t *testing.T) {

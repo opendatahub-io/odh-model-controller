@@ -17,6 +17,7 @@ package reconcilers
 
 import (
 	"context"
+	"fmt"
 
 	"github.com/go-logr/logr"
 	kservev1beta1 "github.com/kserve/kserve/pkg/apis/serving/v1beta1"
@@ -24,7 +25,6 @@ import (
 	"github.com/opendatahub-io/odh-model-controller/controllers/comparators"
 	"github.com/opendatahub-io/odh-model-controller/controllers/processors"
 	"github.com/opendatahub-io/odh-model-controller/controllers/resources"
-	"github.com/pkg/errors"
 	k8serror "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
@@ -90,11 +90,11 @@ func (r *KserveAuthConfigReconciler) createDesiredResource(ctx context.Context, 
 
 	authType, err := r.detector.Detect(ctx, isvc)
 	if err != nil {
-		return nil, errors.Wrapf(err, "could not detect AuthType for InferenceService %s", typeName)
+		return nil, fmt.Errorf("could not detect AuthType for InferenceService %s. cause: %w", typeName, err)
 	}
 	template, err := r.templateLoader.Load(ctx, authType, typeName)
 	if err != nil {
-		return nil, errors.Wrapf(err, "could not load template for AuthType %s for InferenceService %s", authType, typeName)
+		return nil, fmt.Errorf("could not load template for AuthType %s for InferenceService %s. cause: %w", authType, typeName, err)
 	}
 
 	template.Name = typeName.Name
@@ -129,24 +129,28 @@ func (r *KserveAuthConfigReconciler) processDelta(ctx context.Context, log logr.
 
 	if delta.IsAdded() {
 		log.V(1).Info("Delta found", "create", desiredState.GetName())
-		return errors.Wrapf(
-			r.store.Create(ctx, desiredState),
-			"could not store AuthConfig %s for InferenceService %s", desiredState.Name, desiredState.Name)
-	}
-	if delta.IsUpdated() {
+		err := r.store.Create(ctx, desiredState)
+		if err != nil {
+			return fmt.Errorf(
+				"could not store AuthConfig %s for InferenceService %s. cause: %w", desiredState.Name, desiredState.Name, err)
+		}
+	} else if delta.IsUpdated() {
 		log.V(1).Info("Delta found", "update", desiredState.GetName())
 		rp := existingState.DeepCopy()
 		rp.Spec = desiredState.Spec
 		rp.Labels = desiredState.Labels
-		return errors.Wrapf(
-			r.store.Update(ctx, rp),
-			"could not store AuthConfig %s for InferenceService %s", desiredState.Name, desiredState.Name)
-	}
-	if delta.IsRemoved() {
+		err := r.store.Update(ctx, rp)
+		if err != nil {
+			return fmt.Errorf(
+				"could not store AuthConfig %s for InferenceService %s. cause: %w", desiredState.Name, desiredState.Name, err)
+		}
+	} else if delta.IsRemoved() {
 		log.V(1).Info("Delta found", "delete", existingState.GetName())
-		return errors.Wrapf(
-			r.store.Remove(ctx, types.NamespacedName{Namespace: existingState.Namespace, Name: existingState.Name}),
-			"could not remove AuthConfig %s for InferenceService %s", existingState.Name, existingState.Name)
+		err := r.store.Remove(ctx, types.NamespacedName{Namespace: existingState.Namespace, Name: existingState.Name})
+		if err != nil {
+			return fmt.Errorf(
+				"could not remove AuthConfig %s for InferenceService %s. cause: %w", existingState.Name, existingState.Name, err)
+		}
 	}
 	return nil
 }

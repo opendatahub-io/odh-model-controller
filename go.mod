@@ -11,7 +11,6 @@ require (
 	github.com/onsi/gomega v1.27.6
 	github.com/opendatahub-io/model-registry v0.0.0-20240117182018-0497cf4b325e
 	github.com/openshift/api v3.9.0+incompatible
-	github.com/pkg/errors v0.9.1
 	github.com/prometheus-operator/prometheus-operator/pkg/apis/monitoring v0.64.1
 	go.uber.org/zap v1.26.0
 	google.golang.org/grpc v1.60.1
@@ -23,6 +22,7 @@ require (
 	k8s.io/client-go v0.27.6
 	k8s.io/utils v0.0.0-20230505201702-9f6742963106
 	knative.dev/pkg v0.0.0-20231023151236-29775d7c9e5c
+	knative.dev/serving v0.37.1
 	maistra.io/api v0.0.0-20230417135504-0536f6c22b1c
 	sigs.k8s.io/controller-runtime v0.14.6
 	sigs.k8s.io/yaml v1.3.0
@@ -71,6 +71,7 @@ require (
 	github.com/munnerz/goautoneg v0.0.0-20191010083416-a7dc8b61c822 // indirect
 	github.com/nxadm/tail v1.4.8 // indirect
 	github.com/opencontainers/go-digest v1.0.0 // indirect
+	github.com/pkg/errors v0.9.1 // indirect
 	github.com/prometheus/client_golang v1.17.0 // indirect
 	github.com/prometheus/client_model v0.4.1-0.20230718164431-9a2bf3000d16 // indirect
 	github.com/prometheus/common v0.44.0 // indirect
@@ -105,7 +106,6 @@ require (
 	k8s.io/klog/v2 v2.100.1 // indirect
 	k8s.io/kube-openapi v0.0.0-20230515203736-54b630e78af5 // indirect
 	knative.dev/networking v0.0.0-20231017124814-2a7676e912b7 // indirect
-	knative.dev/serving v0.37.1 // indirect
 	sigs.k8s.io/json v0.0.0-20221116044647-bc3834ca7abd // indirect
 	sigs.k8s.io/structured-merge-diff/v4 v4.2.3 // indirect
 )
