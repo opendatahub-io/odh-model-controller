@@ -156,8 +156,14 @@ func NewKServeAuthTypeDetector(client client.Client) AuthTypeDetector {
 }
 
 func (k *kserveAuthTypeDetector) Detect(ctx context.Context, isvc *kservev1beta1.InferenceService) (AuthType, error) {
-	if strings.ToLower(isvc.Annotations["enable-auth"]) == "true" {
-		return UserDefined, nil
+	if value, exist := isvc.Annotations["security.opendatahub.io/enable-auth"]; exist {
+		if strings.ToLower(value) == "true" {
+			return UserDefined, nil
+		}
+	} else { // backward compat
+		if strings.ToLower(isvc.Annotations["enable-auth"]) == "true" {
+			return UserDefined, nil
+		}
 	}
 	return Anonymous, nil
 }
