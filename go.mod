@@ -110,6 +110,10 @@ replace (
 	// https://github.com/googleapis/google-cloud-go/tree/main/storage
 	// Fixes CVE-2023-48795 - golang.org/x/crypto Authentication Bypass by Capture-replay
 	golang.org/x/crypto => golang.org/x/crypto v0.17.0
+	// can be removed when the indirect depdency is in the same version or higher
+	// Fixes Stack-based Buffer Overflow on protobuf
+	// https://security.snyk.io/vuln/SNYK-GOLANG-GOOGLEGOLANGORGPROTOBUFENCODINGPROTOJSON-6137908
+	google.golang.org/protobuf => google.golang.org/protobuf v1.32.0
 	// remove when upgrade to controller-runtime 0.15.x or apimachinery to 0.27.x
 	// Fixes github.com/elazarl/goproxy Denial of Service (DoS)
 	// This dependency was removed from apimachinery 0.27.0
