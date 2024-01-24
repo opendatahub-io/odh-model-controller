@@ -18,6 +18,7 @@ package resources
 import (
 	"context"
 	_ "embed" // needed for go:embed directive
+	"sort"
 	"strings"
 
 	kservev1beta1 "github.com/kserve/kserve/pkg/apis/serving/v1beta1"
@@ -168,43 +169,63 @@ func NewKServeInferenceServiceHostExtractor() InferenceServiceHostExtractor {
 	return &kserveInferenceServiceHostExtractor{}
 }
 
-/*
-in: caikit-example-isvc-kserve-demo.apps-crc.testing
-
-out:
-caikit-example-isvc.kserve-demo.svc.cluster.local
-caikit-example-isvc-kserve-demo.apps-crc.testing
-caikit-example-isvc-predictor-kserve-demo.apps-crc.testing
-caikit-example-isvc-predictor.kserve-demo
-caikit-example-isvc-predictor.kserve-demo.svc
-caikit-example-isvc-predictor.kserve-demo.svc.cluster.local
-*/
 func (k *kserveInferenceServiceHostExtractor) Extract(isvc *kservev1beta1.InferenceService) []string {
-	statusHost := isvc.Status.URL.Host
 
-	// short cut exit, something is wrong with the expected pattern
-	if !strings.Contains(statusHost, isvc.Namespace) {
-		return []string{statusHost}
+	hosts := k.findAllURLHosts(isvc)
+
+	for _, host := range hosts {
+		if strings.HasSuffix(host, ".svc.cluster.local") {
+			hosts = append(hosts, strings.ReplaceAll(host, ".svc.cluster.local", ""))
+			hosts = append(hosts, strings.ReplaceAll(host, ".svc.cluster.local", ".svc"))
+		}
 	}
+	sort.Strings(hosts)
+	return hosts
+}
 
+func (k *kserveInferenceServiceHostExtractor) findAllURLHosts(isvc *kservev1beta1.InferenceService) []string {
 	hosts := []string{}
 
-	base := strings.ReplaceAll(statusHost[0:strings.Index(statusHost, isvc.Namespace)-1], "-predictor", "")
-	basePre := base + "-predictor"
+	if isvc.Status.URL != nil {
+		hosts = append(hosts, isvc.Status.URL.Host)
+	}
 
-	// caikit-example-isvc-kserve-demo.apps-crc.testing
-	hosts = append(hosts, base+statusHost[strings.Index(statusHost, isvc.Namespace)-1:])
-	// // caikit-example-isvc.kserve-demo.svc.cluster.local
-	hosts = append(hosts, base+"."+isvc.Namespace+".svc.cluster.local")
+	if isvc.Status.Address != nil && isvc.Status.Address.URL != nil {
+		hosts = append(hosts, isvc.Status.Address.URL.Host)
+	}
 
-	// caikit-example-isvc-predictor-kserve-demo.apps-crc.testing
-	hosts = append(hosts, basePre+statusHost[strings.Index(statusHost, isvc.Namespace)-1:])
-	// caikit-example-isvc-predictor.kserve-demo
-	hosts = append(hosts, basePre+"."+isvc.Namespace)
-	// caikit-example-isvc-predictor.kserve-demo.svc
-	hosts = append(hosts, basePre+"."+isvc.Namespace+".svc")
-	// // caikit-example-isvc-predictor.kserve-demo.svc.cluster.local
-	hosts = append(hosts, basePre+"."+isvc.Namespace+".svc.cluster.local")
+	for _, comp := range isvc.Status.Components {
+		if comp.Address != nil && comp.Address.URL != nil {
+			hosts = append(hosts, comp.Address.URL.Host)
+		}
+		if comp.URL != nil {
+			hosts = append(hosts, comp.URL.Host)
+		}
+		if comp.GrpcURL != nil {
+			hosts = append(hosts, comp.GrpcURL.Host)
+		}
+		if comp.RestURL != nil {
+			hosts = append(hosts, comp.RestURL.Host)
+		}
+		for _, tt := range comp.Traffic {
+			if tt.URL != nil {
+				hosts = append(hosts, tt.URL.Host)
+			}
+		}
+	}
 
-	return hosts
+	unique := func(in []string) []string {
+		m := map[string]bool{}
+		for _, v := range in {
+			m[v] = true
+		}
+		k := make([]string, len(m))
+		i := 0
+		for v := range m {
+			k[i] = v
+			i++
+		}
+		return k
+	}
+	return unique(hosts)
 }

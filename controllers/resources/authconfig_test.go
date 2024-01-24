@@ -14,21 +14,48 @@ import (
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
 	"knative.dev/pkg/apis"
+	duckv1 "knative.dev/pkg/apis/duck/v1"
+	knservingv1 "knative.dev/serving/pkg/apis/serving/v1"
 	"sigs.k8s.io/yaml"
 )
 
 func TestExtractHost(t *testing.T) {
-	url, _ := apis.ParseURL("https://caikit-example-isvc-kserve-demo.apps-crc.testing")
+	url_1, _ := apis.ParseURL("https://1caikit-example-isvc-kserve-demo.apps-crc.testing")
+	url_2, _ := apis.ParseURL("https://2caikit-example-isvc-kserve-demo.apps-crc.testing")
+	url_3, _ := apis.ParseURL("https://3caikit-example-isvc-kserve-demo.apps-crc.testing")
+	url_4, _ := apis.ParseURL("https://4caikit-example-isvc-kserve-demo.apps-crc.testing")
+	url_5, _ := apis.ParseURL("https://5caikit-example-isvc-kserve-demo.apps-crc.testing")
+	url_6, _ := apis.ParseURL("https://6caikit-example-isvc-kserve-demo.apps-crc.testing")
+	url_7, _ := apis.ParseURL("https://7caikit-example-isvc-kserve-demo.svc.cluster.local")
 	isvc := &kservev1beta1.InferenceService{
 		ObjectMeta: v1.ObjectMeta{
 			Namespace: "kserve-demo",
 		},
 		Status: kservev1beta1.InferenceServiceStatus{
-			URL: url,
+			URL: url_1,
+			Address: &duckv1.Addressable{
+				URL: url_2,
+			},
+			Components: map[kservev1beta1.ComponentType]kservev1beta1.ComponentStatusSpec{
+				kservev1beta1.PredictorComponent: {
+					URL:     url_3,
+					GrpcURL: url_4,
+					RestURL: url_5,
+					Address: &duckv1.Addressable{
+						URL: url_6,
+					},
+					Traffic: []knservingv1.TrafficTarget{
+						{
+							URL: url_7,
+						},
+					},
+				},
+			},
 		},
 	}
 
 	hs := resources.NewKServeInferenceServiceHostExtractor().Extract(isvc)
+	fmt.Println(len(hs))
 	for _, h := range hs {
 		fmt.Println(h)
 	}
