@@ -13,14 +13,3 @@ spec:
       kubernetesTokenReview:
         audiences:
         - https://kubernetes.default.svc
-  response:
-    unauthenticated:
-      code: 302
-      headers:
-        Location:
-          selector: http://some-service?redirect_to={context.request.http.path}
-    unauthorized:
-      code: 403
-      headers:
-        Location:
-          selector: http://some-service?redirect_to={context.request.http.path}
