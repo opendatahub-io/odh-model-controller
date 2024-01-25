@@ -17,22 +17,22 @@ package controllers
 
 import (
 	"context"
-	"fmt"
-	"github.com/opendatahub-io/odh-model-controller/controllers/constants"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"math/rand"
 	"os"
 	"path/filepath"
 	"testing"
 	"time"
 
-	"sigs.k8s.io/yaml"
+	"github.com/opendatahub-io/odh-model-controller/controllers/constants"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
 	kservev1alpha1 "github.com/kserve/kserve/pkg/apis/serving/v1alpha1"
 	kservev1beta1 "github.com/kserve/kserve/pkg/apis/serving/v1beta1"
+	authorinov1beta2 "github.com/kuadrant/authorino/api/v1beta2"
 	monitoringv1 "github.com/prometheus-operator/prometheus-operator/pkg/apis/monitoring/v1"
 	"go.uber.org/zap/zapcore"
 	k8srbacv1 "k8s.io/api/rbac/v1"
-	utilrand "k8s.io/apimachinery/pkg/util/rand"
+	"k8s.io/apimachinery/pkg/runtime"
 	ctrl "sigs.k8s.io/controller-runtime"
 
 	. "github.com/onsi/ginkgo"
@@ -54,10 +54,11 @@ import (
 // +kubebuilder:docs-gen:collapse=Imports
 
 var (
-	cli     client.Client
-	envTest *envtest.Environment
-	ctx     context.Context
-	cancel  context.CancelFunc
+	cli        client.Client
+	envTest    *envtest.Environment
+	ctx        context.Context
+	cancel     context.CancelFunc
+	Namespaces NamespaceHolder
 )
 
 const (
@@ -76,6 +77,11 @@ const (
 	timeout                     = time.Second * 20
 	interval                    = time.Millisecond * 10
 )
+
+func init() {
+	rand.Seed(time.Now().UnixNano())
+	Namespaces = NamespaceHolder{}
+}
 
 func TestAPIs(t *testing.T) {
 	RegisterFailHandler(Fail)
@@ -183,39 +189,62 @@ var _ = AfterSuite(func() {
 
 // Cleanup resources to not contaminate between tests
 var _ = AfterEach(func() {
-	inNamespace := client.InNamespace(WorkingNamespace)
-	Expect(cli.DeleteAllOf(context.TODO(), &kservev1alpha1.ServingRuntime{}, inNamespace)).ToNot(HaveOccurred())
-	Expect(cli.DeleteAllOf(context.TODO(), &kservev1beta1.InferenceService{}, inNamespace)).ToNot(HaveOccurred())
-	Expect(cli.DeleteAllOf(context.TODO(), &routev1.Route{}, inNamespace)).ToNot(HaveOccurred())
-	Expect(cli.DeleteAllOf(context.TODO(), &monitoringv1.ServiceMonitor{}, inNamespace)).ToNot(HaveOccurred())
-	Expect(cli.DeleteAllOf(context.TODO(), &k8srbacv1.RoleBinding{}, inNamespace)).ToNot(HaveOccurred())
-	Expect(cli.DeleteAllOf(context.TODO(), &corev1.Secret{}, inNamespace)).ToNot(HaveOccurred())
-
+	cleanUp := func(namespace string, cli client.Client) {
+		inNamespace := client.InNamespace(namespace)
+		Expect(cli.DeleteAllOf(context.TODO(), &kservev1alpha1.ServingRuntime{}, inNamespace)).ToNot(HaveOccurred())
+		Expect(cli.DeleteAllOf(context.TODO(), &kservev1beta1.InferenceService{}, inNamespace)).ToNot(HaveOccurred())
+		Expect(cli.DeleteAllOf(context.TODO(), &routev1.Route{}, inNamespace)).ToNot(HaveOccurred())
+		Expect(cli.DeleteAllOf(context.TODO(), &monitoringv1.ServiceMonitor{}, inNamespace)).ToNot(HaveOccurred())
+		Expect(cli.DeleteAllOf(context.TODO(), &k8srbacv1.RoleBinding{}, inNamespace)).ToNot(HaveOccurred())
+		Expect(cli.DeleteAllOf(context.TODO(), &corev1.Secret{}, inNamespace)).ToNot(HaveOccurred())
+		Expect(cli.DeleteAllOf(context.TODO(), &authorinov1beta2.AuthConfig{}, inNamespace)).ToNot(HaveOccurred())
+	}
+	cleanUp(WorkingNamespace, cli)
+	for _, ns := range Namespaces.All() {
+		cleanUp(ns, cli)
+	}
+	Namespaces.Clear()
 })
 
-func convertToStructuredResource(path string, out interface{}) (err error) {
+func convertToStructuredResource(path string, out runtime.Object) (err error) {
 	data, err := os.ReadFile(path)
 	if err != nil {
 		return err
 	}
 
 	// Unmarshal the YAML data into the struct
-	err = yaml.Unmarshal(data, out)
+	err = utils.ConvertToStructuredResource(data, out)
 	if err != nil {
 		return err
 	}
 	return nil
 }
 
-const (
-	maxNameLength          = 63
-	randomLength           = 5
-	maxGeneratedNameLength = maxNameLength - randomLength
-)
+type NamespaceHolder struct {
+	namespaces []string
+}
 
-func appendRandomNameTo(base string) string {
-	if len(base) > maxGeneratedNameLength {
-		base = base[:maxGeneratedNameLength]
+func (n *NamespaceHolder) Get() string {
+	ns := createTestNamespaceName()
+	n.namespaces = append(n.namespaces, ns)
+	return ns
+}
+
+func (n *NamespaceHolder) All() []string {
+	return n.namespaces
+}
+
+func (n *NamespaceHolder) Clear() {
+	n.namespaces = []string{}
+}
+
+func createTestNamespaceName() string {
+	n := 5
+	letterRunes := []rune("abcdefghijklmnopqrstuvwxyz")
+
+	b := make([]rune, n)
+	for i := range b {
+		b[i] = letterRunes[rand.Intn(len(letterRunes))]
 	}
-	return fmt.Sprintf("%s%s", base, utilrand.String(randomLength))
+	return "test-ns-" + string(b)
 }

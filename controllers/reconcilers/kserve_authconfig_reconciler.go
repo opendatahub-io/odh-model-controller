@@ -61,13 +61,11 @@ func (r *KserveAuthConfigReconciler) Reconcile(ctx context.Context, log logr.Log
 		return nil
 	}
 
-	log.V(1).Info("create desired state")
 	desiredState, err := r.createDesiredResource(ctx, isvc)
 	if err != nil {
 		return err
 	}
 
-	log.V(1).Info("get existing state")
 	existingState, err := r.getExistingResource(ctx, isvc)
 	if err != nil && !k8serror.IsNotFound(err) {
 		return err

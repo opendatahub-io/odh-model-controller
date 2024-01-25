@@ -1,108 +1,74 @@
 package resources_test
 
 import (
-	"context"
-	"fmt"
-	"reflect"
-	"testing"
-
 	kservev1beta1 "github.com/kserve/kserve/pkg/apis/serving/v1beta1"
+	. "github.com/onsi/ginkgo"
+	. "github.com/onsi/gomega"
 	"github.com/opendatahub-io/odh-model-controller/controllers/resources"
 	v1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/apimachinery/pkg/types"
 	"knative.dev/pkg/apis"
 	duckv1 "knative.dev/pkg/apis/duck/v1"
 	knservingv1 "knative.dev/serving/pkg/apis/serving/v1"
-	"sigs.k8s.io/yaml"
 )
 
-func TestExtractHost(t *testing.T) {
-	url_1, _ := apis.ParseURL("https://1caikit-example-isvc-kserve-demo.apps-crc.testing")
-	url_2, _ := apis.ParseURL("https://2caikit-example-isvc-kserve-demo.apps-crc.testing")
-	url_3, _ := apis.ParseURL("https://3caikit-example-isvc-kserve-demo.apps-crc.testing")
-	url_4, _ := apis.ParseURL("https://4caikit-example-isvc-kserve-demo.apps-crc.testing")
-	url_5, _ := apis.ParseURL("https://5caikit-example-isvc-kserve-demo.apps-crc.testing")
-	url_6, _ := apis.ParseURL("https://6caikit-example-isvc-kserve-demo.apps-crc.testing")
-	url_7, _ := apis.ParseURL("https://7caikit-example-isvc-kserve-demo.svc.cluster.local")
-	isvc := &kservev1beta1.InferenceService{
-		ObjectMeta: v1.ObjectMeta{
-			Namespace: "kserve-demo",
-		},
-		Status: kservev1beta1.InferenceServiceStatus{
-			URL: url_1,
-			Address: &duckv1.Addressable{
-				URL: url_2,
-			},
-			Components: map[kservev1beta1.ComponentType]kservev1beta1.ComponentStatusSpec{
-				kservev1beta1.PredictorComponent: {
-					URL:     url_3,
-					GrpcURL: url_4,
-					RestURL: url_5,
+var _ = When("InferenceService is ready", func() {
+
+	Context("Extract Hosts", func() {
+
+		It("From all URL fields", func() {
+			url_1, _ := apis.ParseURL("https://1.testing")
+			url_2, _ := apis.ParseURL("https://2.testing")
+			url_3, _ := apis.ParseURL("https://3.testing")
+			url_4, _ := apis.ParseURL("https://4.testing")
+			url_5, _ := apis.ParseURL("https://5.testing")
+			url_6, _ := apis.ParseURL("https://6.testing")
+			url_7, _ := apis.ParseURL("https://7.testing")
+			isvc := &kservev1beta1.InferenceService{
+				ObjectMeta: v1.ObjectMeta{
+					Namespace: "kserve-demo",
+				},
+				Status: kservev1beta1.InferenceServiceStatus{
+					URL: url_1,
 					Address: &duckv1.Addressable{
-						URL: url_6,
+						URL: url_2,
 					},
-					Traffic: []knservingv1.TrafficTarget{
-						{
-							URL: url_7,
+					Components: map[kservev1beta1.ComponentType]kservev1beta1.ComponentStatusSpec{
+						kservev1beta1.PredictorComponent: {
+							URL:     url_3,
+							GrpcURL: url_4,
+							RestURL: url_5,
+							Address: &duckv1.Addressable{
+								URL: url_6,
+							},
+							Traffic: []knservingv1.TrafficTarget{
+								{
+									URL: url_7,
+								},
+							},
 						},
 					},
 				},
-			},
-		},
-	}
+			}
 
-	hs := resources.NewKServeInferenceServiceHostExtractor().Extract(isvc)
-	fmt.Println(len(hs))
-	for _, h := range hs {
-		fmt.Println(h)
-	}
-}
+			hosts := resources.NewKServeInferenceServiceHostExtractor().Extract(isvc)
+			Expect(hosts).To(HaveLen(7))
+		})
 
-/*
->> caikit-example-isvc-kserve-demo.apps-crc.testing
+		It("Expand to all internal formats", func() {
+			url, _ := apis.ParseURL("https://x.svc.cluster.local")
+			isvc := &kservev1beta1.InferenceService{
+				ObjectMeta: v1.ObjectMeta{
+					Namespace: "kserve-demo",
+				},
+				Status: kservev1beta1.InferenceServiceStatus{
+					URL: url,
+				},
+			}
 
-caikit-example-isvc.kserve-demo.svc.cluster.local
-caikit-example-isvc-kserve-demo.apps-crc.testing
-caikit-example-isvc-predictor-kserve-demo.apps-crc.testing
-caikit-example-isvc-predictor.kserve-demo
-caikit-example-isvc-predictor.kserve-demo.svc
-caikit-example-isvc-predictor.kserve-demo.svc.cluster.local
+			hosts := resources.NewKServeInferenceServiceHostExtractor().Extract(isvc)
+			Expect(hosts).To(HaveLen(3))
+			Expect(hosts).To(ContainElements("x", "x.svc", "x.svc.cluster.local"))
+		})
 
-*/
-
-func TestY(t *testing.T) {
-	store := resources.NewStaticTemplateLoader()
-	auth1, _ := store.Load(context.Background(), resources.Anonymous, types.NamespacedName{})
-	auth2, _ := store.Load(context.Background(), resources.Anonymous, types.NamespacedName{})
-
-	fmt.Println(reflect.DeepEqual(auth1.Spec, auth2.Spec))
-}
-
-func TestLoadTemplateAnonymous(t *testing.T) {
-
-	loader := resources.NewStaticTemplateLoader()
-	config, err := loader.Load(context.Background(), resources.Anonymous, types.NamespacedName{})
-	if err != nil {
-		t.Error(err)
-	}
-
-	printYaml(t, config.Spec)
-}
-
-func TestLoadTemplateUserDefined(t *testing.T) {
-
-	loader := resources.NewStaticTemplateLoader()
-	config, err := loader.Load(context.Background(), resources.UserDefined, types.NamespacedName{})
-	if err != nil {
-		t.Error(err)
-	}
-	printYaml(t, config.Spec)
-}
-
-func printYaml(t *testing.T, o interface{}) {
-	b, err := yaml.Marshal(o)
-	if err != nil {
-		t.Error(err)
-	}
-	fmt.Println(string(b))
-}
+	})
+})
