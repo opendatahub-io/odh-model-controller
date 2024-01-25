@@ -1,22 +1,10 @@
----
+# This file is generated automatically by `make manifests`,
+# Please, do not manually change this file.---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRole
 metadata:
-  creationTimestamp: null
   name: odh-model-controller-role
 rules:
-- apiGroups:
-  - ""
-  resources:
-  - serviceaccounts
-  verbs:
-  - create
-  - get
-  - list
-  - patch
-  - update
-  - watch
-  - delete
 - apiGroups:
   - ""
   resources:
@@ -32,6 +20,26 @@ rules:
   - list
   - patch
   - update
+  - watch
+- apiGroups:
+  - ""
+  resources:
+  - serviceaccounts
+  verbs:
+  - create
+  - delete
+  - get
+  - list
+  - patch
+  - update
+  - watch
+- apiGroups:
+  - extensions
+  resources:
+  - ingresses
+  verbs:
+  - get
+  - list
   - watch
 - apiGroups:
   - maistra.io
@@ -117,6 +125,14 @@ rules:
   - list
   - patch
   - update
+  - watch
+- apiGroups:
+  - networking.k8s.io
+  resources:
+  - ingresses
+  verbs:
+  - get
+  - list
   - watch
 - apiGroups:
   - networking.k8s.io
@@ -224,19 +240,3 @@ rules:
   - patch
   - update
   - watch
-- apiGroups:
-    - extensions
-  resources:
-    - ingresses
-  verbs:
-    - get
-    - list
-    - watch
-- apiGroups:
-    - networking.k8s.io
-  resources:
-    - ingresses
-  verbs:
-    - get
-    - list
-    - watch
