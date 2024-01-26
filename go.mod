@@ -7,7 +7,7 @@ require (
 	github.com/kserve/kserve v0.11.0
 	github.com/onsi/ginkgo v1.16.4
 	github.com/onsi/gomega v1.27.6
-	github.com/opendatahub-io/model-registry v0.0.0-20240102140304-53b744622382
+	github.com/opendatahub-io/model-registry v0.0.0-20240117182018-0497cf4b325e
 	github.com/openshift/api v3.9.0+incompatible
 	github.com/prometheus-operator/prometheus-operator/pkg/apis/monitoring v0.64.1
 	go.uber.org/zap v1.26.0
