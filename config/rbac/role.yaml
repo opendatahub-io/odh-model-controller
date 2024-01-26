@@ -13,7 +13,6 @@ rules:
   - namespaces
   - pods
   - secrets
-  - serviceaccounts
   - services
   verbs:
   - create
@@ -35,9 +34,6 @@ rules:
   - update
   - watch
 - apiGroups:
-  - extensions
-  resources:
-  - ingresses
   - authorino.kuadrant.io
   resources:
   - authconfigs
@@ -48,6 +44,14 @@ rules:
   - list
   - patch
   - update
+  - watch
+- apiGroups:
+  - extensions
+  resources:
+  - ingresses
+  verbs:
+  - get
+  - list
   - watch
 - apiGroups:
   - maistra.io
