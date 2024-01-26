@@ -5,7 +5,7 @@ metadata:
     security.opendatahub.io/authorization-group: default
 spec:
   hosts:
-  - "example.com"
+  - "UPDATED.RUNTIME"
   authentication:
     kubernetes-user:
       credentials:
@@ -13,3 +13,18 @@ spec:
       kubernetesTokenReview:
         audiences:
         - https://kubernetes.default.svc
+
+  authorization:
+    kubernetes-rbac:
+      kubernetesSubjectAccessReview:
+        resourceAttributes:
+          verb:
+            value: get
+          group:
+            value: serving.kserve.io/v1beta1
+          resource:
+            value: inferenceservice
+          namespace:
+            value: {{ .Namespace }}
+        user:
+          selector: auth.identity.user.username

@@ -1,11 +1,14 @@
 package resources_test
 
 import (
+	"context"
+
 	kservev1beta1 "github.com/kserve/kserve/pkg/apis/serving/v1beta1"
 	. "github.com/onsi/ginkgo"
 	. "github.com/onsi/gomega"
 	"github.com/opendatahub-io/odh-model-controller/controllers/resources"
 	v1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/types"
 	"knative.dev/pkg/apis"
 	duckv1 "knative.dev/pkg/apis/duck/v1"
 	knservingv1 "knative.dev/serving/pkg/apis/serving/v1"
@@ -70,5 +73,23 @@ var _ = When("InferenceService is ready", func() {
 			Expect(hosts).To(ContainElements("x", "x.svc", "x.svc.cluster.local"))
 		})
 
+	})
+
+	Context("Template loading", func() {
+
+		It("should resovle UserDefined template", func() {
+			typeName := types.NamespacedName{
+				Name:      "test",
+				Namespace: "test-ns",
+			}
+
+			ac, err := resources.NewStaticTemplateLoader().Load(
+				context.Background(),
+				resources.UserDefined,
+				typeName)
+
+			Expect(err).To(Succeed())
+			Expect("test").To(Equal(ac.Spec.Authorization["kubernetes-rbac"].KubernetesSubjectAccessReview.ResourceAttributes.Namespace))
+		})
 	})
 })

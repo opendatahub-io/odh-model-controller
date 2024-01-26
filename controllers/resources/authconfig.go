@@ -16,11 +16,13 @@ limitations under the License.
 package resources
 
 import (
+	"bytes"
 	"context"
 	_ "embed" // needed for go:embed directive
 	"fmt"
 	"sort"
 	"strings"
+	"text/template"
 
 	kservev1beta1 "github.com/kserve/kserve/pkg/apis/serving/v1beta1"
 	authorinov1beta2 "github.com/kuadrant/authorino/api/v1beta2"
@@ -71,18 +73,38 @@ func NewStaticTemplateLoader() AuthConfigTemplateLoader {
 
 func (s *staticTemplateLoader) Load(ctx context.Context, authType AuthType, key types.NamespacedName) (authorinov1beta2.AuthConfig, error) {
 	authConfig := authorinov1beta2.AuthConfig{}
-	if authType == UserDefined {
-		err := utils.ConvertToStructuredResource(authConfigTemplateUserDefined, &authConfig)
-		if err != nil {
-			return authConfig, fmt.Errorf("could not load UserDefined template. cause %w", err)
-		}
-		return authConfig, nil
+
+	templateData := map[string]string{
+		"Namespace": key.Namespace,
 	}
-	err := utils.ConvertToStructuredResource(authConfigTemplateAnonymous, &authConfig)
+	template := authConfigTemplateAnonymous
+	if authType == UserDefined {
+		template = authConfigTemplateUserDefined
+	}
+
+	resolvedTemplate, err := s.resolveTemplate(template, templateData)
 	if err != nil {
-		return authConfig, fmt.Errorf("could not load Anonymous template. cause: %w", err)
+		return authConfig, fmt.Errorf("could not resovle auth template. cause %w", err)
+	}
+	err = utils.ConvertToStructuredResource(resolvedTemplate, &authConfig)
+	if err != nil {
+		return authConfig, fmt.Errorf("could not load auth template. cause %w", err)
 	}
 	return authConfig, nil
+}
+
+func (s *staticTemplateLoader) resolveTemplate(tmpl []byte, data map[string]string) ([]byte, error) {
+	engine, err := template.New("authconfig").Parse(string(tmpl))
+	if err != nil {
+		return []byte{}, err
+	}
+	buf := new(bytes.Buffer)
+	err = engine.Execute(buf, data)
+	if err != nil {
+		return []byte{}, err
+	}
+	return buf.Bytes(), nil
+
 }
 
 type configMapTemplateLoader struct {
