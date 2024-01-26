@@ -20,6 +20,7 @@ import (
 	"context"
 	_ "embed" // needed for go:embed directive
 	"fmt"
+	"os"
 	"sort"
 	"strings"
 	"text/template"
@@ -35,8 +36,9 @@ import (
 type AuthType string
 
 const (
-	UserDefined AuthType = "userdefined"
-	Anonymous   AuthType = "anonymous"
+	UserDefined  AuthType = "userdefined"
+	Anonymous    AuthType = "anonymous"
+	AuthAudience          = "AUTH_AUDIENCE"
 )
 
 type InferenceServiceHostExtractor interface {
@@ -74,8 +76,9 @@ func NewStaticTemplateLoader() AuthConfigTemplateLoader {
 func (s *staticTemplateLoader) Load(ctx context.Context, authType AuthType, key types.NamespacedName) (authorinov1beta2.AuthConfig, error) {
 	authConfig := authorinov1beta2.AuthConfig{}
 
-	templateData := map[string]string{
+	templateData := map[string]interface{}{
 		"Namespace": key.Namespace,
+		"Audiences": getAuthAudience(),
 	}
 	template := authConfigTemplateAnonymous
 	if authType == UserDefined {
@@ -93,7 +96,7 @@ func (s *staticTemplateLoader) Load(ctx context.Context, authType AuthType, key 
 	return authConfig, nil
 }
 
-func (s *staticTemplateLoader) resolveTemplate(tmpl []byte, data map[string]string) ([]byte, error) {
+func (s *staticTemplateLoader) resolveTemplate(tmpl []byte, data map[string]interface{}) ([]byte, error) {
 	engine, err := template.New("authconfig").Parse(string(tmpl))
 	if err != nil {
 		return []byte{}, err
@@ -265,4 +268,21 @@ func (k *kserveInferenceServiceHostExtractor) findAllURLHosts(isvc *kservev1beta
 		return k
 	}
 	return unique(hosts)
+}
+
+func getAuthAudience() []string {
+	aud := getEnvOr(AuthAudience, "https://kubernetes.default.svc")
+	audiences := strings.Split(aud, ",")
+	for i := range audiences {
+		audiences[i] = strings.TrimSpace(audiences[i])
+	}
+	return audiences
+}
+
+func getEnvOr(key, defaultValue string) string {
+	if env, defined := os.LookupEnv(key); defined {
+		return env
+	}
+
+	return defaultValue
 }

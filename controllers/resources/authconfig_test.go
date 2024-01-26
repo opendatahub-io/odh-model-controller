@@ -2,6 +2,7 @@ package resources_test
 
 import (
 	"context"
+	"os"
 
 	kservev1beta1 "github.com/kserve/kserve/pkg/apis/serving/v1beta1"
 	. "github.com/onsi/ginkgo"
@@ -90,6 +91,39 @@ var _ = When("InferenceService is ready", func() {
 
 			Expect(err).To(Succeed())
 			Expect("test").To(Equal(ac.Spec.Authorization["kubernetes-rbac"].KubernetesSubjectAccessReview.ResourceAttributes.Namespace))
+		})
+
+		It("should default to kubernetes.default.svc Audience", func() {
+			typeName := types.NamespacedName{
+				Name:      "test",
+				Namespace: "test-ns",
+			}
+
+			ac, err := resources.NewStaticTemplateLoader().Load(
+				context.Background(),
+				resources.UserDefined,
+				typeName)
+
+			Expect(err).To(Succeed())
+			Expect("https://kubernetes.default.svc").To(Equal(ac.Spec.Authentication["kubernetes-user"].KubernetesTokenReview.Audiences))
+		})
+
+		It("should read AUTH_AUDIENCE env var for Audience", func() {
+			typeName := types.NamespacedName{
+				Name:      "test",
+				Namespace: "test-ns",
+			}
+
+			os.Setenv("AUTH_AUDIENCE", "http://test.com")
+			defer os.Unsetenv("AUTH_AUDIENCE")
+
+			ac, err := resources.NewStaticTemplateLoader().Load(
+				context.Background(),
+				resources.UserDefined,
+				typeName)
+
+			Expect(err).To(Succeed())
+			Expect("https://test.com").To(Equal(ac.Spec.Authentication["kubernetes-user"].KubernetesTokenReview.Audiences))
 		})
 	})
 })

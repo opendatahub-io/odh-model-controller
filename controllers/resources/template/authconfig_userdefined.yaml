@@ -12,8 +12,9 @@ spec:
         authorizationHeader: {}
       kubernetesTokenReview:
         audiences:
-        - https://kubernetes.default.svc
-
+{{- range .Audiences }}
+        - "{{ . }}"
+{{- end }}
   authorization:
     kubernetes-rbac:
       kubernetesSubjectAccessReview:
