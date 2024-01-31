@@ -27,5 +27,9 @@ spec:
             value: inferenceservice
           namespace:
             value: {{ .Namespace }}
+          subresource:
+            value: ""
+          name:
+            value: ""
         user:
           selector: auth.identity.user.username
