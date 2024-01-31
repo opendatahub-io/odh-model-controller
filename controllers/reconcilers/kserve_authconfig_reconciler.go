@@ -72,7 +72,6 @@ func (r *KserveAuthConfigReconciler) Reconcile(ctx context.Context, log logr.Log
 	}
 
 	// Process Delta
-	log.V(1).Info("process delta")
 	if err = r.processDelta(ctx, log, desiredState, existingState); err != nil {
 		return err
 	}

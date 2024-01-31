@@ -166,24 +166,12 @@ func createISVCWithAuth(namespace string) *kservev1beta1.InferenceService {
 	inferenceService.Annotations["enable-auth"] = "true"
 	Expect(cli.Create(ctx, inferenceService)).Should(Succeed())
 
-	// HMM... second routine to do updates?
-	url, _ := apis.ParseURL("http://iscv-" + namespace + "ns.apps.openshift.ai")
-	inferenceService.Status = kservev1beta1.InferenceServiceStatus{
-		URL: url,
-	}
-
 	return inferenceService
 }
 
 func createISVCWithoutAuth(namespace string) *kservev1beta1.InferenceService {
 	inferenceService := createBasicISVC(namespace)
 	Expect(cli.Create(ctx, inferenceService)).Should(Succeed())
-
-	// HMM... second routine to do updates?
-	url, _ := apis.ParseURL("http://iscv-" + namespace + "ns.apps.openshift.ai")
-	inferenceService.Status = kservev1beta1.InferenceServiceStatus{
-		URL: url,
-	}
 
 	return inferenceService
 }

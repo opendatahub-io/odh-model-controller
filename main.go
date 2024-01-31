@@ -69,9 +69,6 @@ func init() { //nolint:gochecknoinits //reason this way we ensure schemes are al
 // +kubebuilder:rbac:groups="",resources=serviceaccounts,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups=authorino.kuadrant.io,resources=authconfigs,verbs=get;list;watch;create;update;patch;delete
 
-func init() {
-}
-
 func getEnvAsBool(name string, defaultValue bool) bool {
 	valStr := os.Getenv(name)
 	if val, err := strconv.ParseBool(valStr); err == nil {

@@ -1,12 +1,11 @@
 package utils
 
 import (
-	"github.com/manifestival/manifestival"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/serializer"
 )
 
-func ConvertToStructuredResource(yamlContent []byte, out runtime.Object, opts ...manifestival.Option) error {
+func ConvertToStructuredResource(yamlContent []byte, out runtime.Object) error {
 
 	s := runtime.NewScheme()
 	RegisterSchemes(s)
