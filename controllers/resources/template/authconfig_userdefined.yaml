@@ -22,9 +22,9 @@ spec:
           verb:
             value: get
           group:
-            value: serving.kserve.io/v1beta1
+            value: ""
           resource:
-            value: inferenceservice
+            value: services
           namespace:
             value: {{ .Namespace }}
           subresource:
