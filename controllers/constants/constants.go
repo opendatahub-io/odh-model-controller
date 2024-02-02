@@ -20,6 +20,11 @@ const (
 	IstioIngressService              = "istio-ingressgateway"
 	IstioIngressServiceHTTPPortName  = "http2"
 	IstioIngressServiceHTTPSPortName = "https"
+
+	LabelAuthGroup     = "security.opendatahub.io/authorization-group"
+	LabelEnableAuthODH = "security.opendatahub.io/enable-auth"
+	LabelEnableAuth    = "enable-auth"
+	LabelEnableRoute   = "enable-route"
 )
 
 // model registry

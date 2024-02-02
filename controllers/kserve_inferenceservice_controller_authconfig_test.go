@@ -22,6 +22,7 @@ import (
 	authorinov1beta2 "github.com/kuadrant/authorino/api/v1beta2"
 	. "github.com/onsi/ginkgo"
 	. "github.com/onsi/gomega"
+	"github.com/opendatahub-io/odh-model-controller/controllers/constants"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
@@ -163,7 +164,7 @@ func createISVCMissingStatus(namespace string) *kservev1beta1.InferenceService {
 
 func createISVCWithAuth(namespace string) *kservev1beta1.InferenceService {
 	inferenceService := createBasicISVC(namespace)
-	inferenceService.Annotations["enable-auth"] = "true"
+	inferenceService.Annotations[constants.LabelEnableAuth] = "true"
 	Expect(cli.Create(ctx, inferenceService)).Should(Succeed())
 
 	return inferenceService
@@ -196,8 +197,8 @@ func updateISVCStatus(isvc *kservev1beta1.InferenceService) error {
 }
 
 func disableAuth(isvc *kservev1beta1.InferenceService) error {
-	delete(isvc.Annotations, "enable-auth")
-	delete(isvc.Annotations, "security.opendatahub.io/enable-auth")
+	delete(isvc.Annotations, constants.LabelEnableAuth)
+	delete(isvc.Annotations, constants.LabelEnableAuthODH)
 	return cli.Update(context.Background(), isvc)
 }
 
@@ -205,6 +206,6 @@ func enableAuth(isvc *kservev1beta1.InferenceService) error {
 	if isvc.Annotations == nil {
 		isvc.Annotations = map[string]string{}
 	}
-	isvc.Annotations["security.opendatahub.io/enable-auth"] = "true"
+	isvc.Annotations[constants.LabelEnableAuthODH] = "true"
 	return cli.Update(context.Background(), isvc)
 }

@@ -17,17 +17,19 @@ package reconcilers
 
 import (
 	"context"
+	"sort"
+	"strconv"
+
 	"github.com/opendatahub-io/odh-model-controller/controllers/comparators"
+	"github.com/opendatahub-io/odh-model-controller/controllers/constants"
 	"github.com/opendatahub-io/odh-model-controller/controllers/processors"
 	"github.com/opendatahub-io/odh-model-controller/controllers/resources"
 	"k8s.io/apimachinery/pkg/runtime"
-	"sort"
-	"strconv"
 
 	"github.com/go-logr/logr"
 	kservev1alpha1 "github.com/kserve/kserve/pkg/apis/serving/v1alpha1"
 	kservev1beta1 "github.com/kserve/kserve/pkg/apis/serving/v1beta1"
-	"github.com/openshift/api/route/v1"
+	v1 "github.com/openshift/api/route/v1"
 	apierrs "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
@@ -89,16 +91,16 @@ func (r *ModelMeshRouteReconciler) createDesiredResource(ctx context.Context, lo
 	}
 
 	enableAuth := false
-	if enableAuth, err = strconv.ParseBool(desiredServingRuntime.Annotations["enable-auth"]); err != nil {
+	if enableAuth, err = strconv.ParseBool(desiredServingRuntime.Annotations[constants.LabelEnableAuth]); err != nil {
 		enableAuth = false
 	}
 	createRoute := false
-	if createRoute, err = strconv.ParseBool(desiredServingRuntime.Annotations["enable-route"]); err != nil {
+	if createRoute, err = strconv.ParseBool(desiredServingRuntime.Annotations[constants.LabelEnableRoute]); err != nil {
 		createRoute = false
 	}
 
 	if !createRoute {
-		log.Info("Serving runtime does not have 'enable-route' annotation set to 'True'. Skipping route creation")
+		log.Info("Serving runtime does not have '%s' annotation set to 'True'. Skipping route creation", constants.LabelEnableRoute)
 		return nil, nil
 	}
 

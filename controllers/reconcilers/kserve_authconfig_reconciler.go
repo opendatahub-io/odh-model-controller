@@ -23,6 +23,7 @@ import (
 	kservev1beta1 "github.com/kserve/kserve/pkg/apis/serving/v1beta1"
 	authorinov1beta2 "github.com/kuadrant/authorino/api/v1beta2"
 	"github.com/opendatahub-io/odh-model-controller/controllers/comparators"
+	"github.com/opendatahub-io/odh-model-controller/controllers/constants"
 	"github.com/opendatahub-io/odh-model-controller/controllers/processors"
 	"github.com/opendatahub-io/odh-model-controller/controllers/resources"
 	k8serror "k8s.io/apimachinery/pkg/api/errors"
@@ -100,7 +101,7 @@ func (r *KserveAuthConfigReconciler) createDesiredResource(ctx context.Context, 
 	if template.Labels == nil {
 		template.Labels = map[string]string{}
 	}
-	template.Labels["security.opendatahub.io/authorization-group"] = "default"
+	template.Labels[constants.LabelAuthGroup] = "default"
 
 	ctrl.SetControllerReference(isvc, &template, r.scheme)
 

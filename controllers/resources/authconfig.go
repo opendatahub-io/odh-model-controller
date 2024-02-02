@@ -27,6 +27,7 @@ import (
 
 	kservev1beta1 "github.com/kserve/kserve/pkg/apis/serving/v1beta1"
 	authorinov1beta2 "github.com/kuadrant/authorino/api/v1beta2"
+	"github.com/opendatahub-io/odh-model-controller/controllers/constants"
 	"github.com/opendatahub-io/odh-model-controller/controllers/utils"
 	v1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
@@ -190,12 +191,12 @@ func NewKServeAuthTypeDetector(client client.Client) AuthTypeDetector {
 }
 
 func (k *kserveAuthTypeDetector) Detect(ctx context.Context, isvc *kservev1beta1.InferenceService) (AuthType, error) {
-	if value, exist := isvc.Annotations["security.opendatahub.io/enable-auth"]; exist {
+	if value, exist := isvc.Annotations[constants.LabelEnableAuthODH]; exist {
 		if strings.ToLower(value) == "true" {
 			return UserDefined, nil
 		}
 	} else { // backward compat
-		if strings.ToLower(isvc.Annotations["enable-auth"]) == "true" {
+		if strings.ToLower(isvc.Annotations[constants.LabelEnableAuth]) == "true" {
 			return UserDefined, nil
 		}
 	}
