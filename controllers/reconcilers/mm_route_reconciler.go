@@ -100,7 +100,7 @@ func (r *ModelMeshRouteReconciler) createDesiredResource(ctx context.Context, lo
 	}
 
 	if !createRoute {
-		log.Info("Serving runtime does not have '%s' annotation set to 'True'. Skipping route creation", constants.LabelEnableRoute)
+		log.Info("Serving runtime does not have '" + constants.LabelEnableRoute + "' annotation set to 'True'. Skipping route creation")
 		return nil, nil
 	}
 
