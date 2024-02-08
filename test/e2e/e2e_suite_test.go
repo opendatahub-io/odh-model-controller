@@ -27,16 +27,17 @@ import (
 )
 
 const (
-	KubectlCmdEnv                           = "KUBECTL"
-	WorkingNamespace                        = "default"
-	ModelRegistryDeploymentPath             = "./test/data/model-registry/modelregistry_deployment.yaml"
-	ModelRegistryDatabaseDeploymentPath     = "./test/data/model-registry/database_deployment.yaml"
-	ServingRuntimePath1                     = "./test/data/deploy/kserve-openvino-serving-runtime-1.yaml"
-	InferenceServiceWithModelVersionPath    = "./test/data/deploy/inference-service-with-model-version.yaml"
-	InferenceServiceWithoutModelVersionPath = "./test/data/deploy/inference-service-without-model-version.yaml"
-	InferenceServiceWithInfServiceIdPath    = "./test/data/deploy/inference-service-to-delete.yaml"
-	timeout                                 = time.Second * 30
-	interval                                = time.Millisecond * 50
+	KubectlCmdEnv                              = "KUBECTL"
+	WorkingNamespace                           = "default"
+	ModelRegistryDeploymentPath                = "./test/data/model-registry/modelregistry_deployment.yaml"
+	ModelRegistryDatabaseDeploymentPath        = "./test/data/model-registry/database_deployment.yaml"
+	ServingRuntimePath1                        = "./test/data/deploy/kserve-openvino-serving-runtime-1.yaml"
+	InferenceServiceWithModelVersionPath       = "./test/data/deploy/inference-service-with-model-version.yaml"
+	InferenceServiceWithoutModelVersionPath    = "./test/data/deploy/inference-service-without-model-version.yaml"
+	InferenceServiceWithoutRegisteredModelPath = "./test/data/deploy/inference-service-without-registered-model.yaml"
+	InferenceServiceWithInfServiceIdPath       = "./test/data/deploy/inference-service-to-delete.yaml"
+	timeout                                    = time.Second * 30
+	interval                                   = time.Millisecond * 50
 )
 
 var (

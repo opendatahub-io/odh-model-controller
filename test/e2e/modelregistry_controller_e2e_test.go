@@ -60,6 +60,17 @@ var _ = Describe("ModelRegistry controller e2e", func() {
 		undeployModelRegistry()
 	})
 
+	It("the controller should not create InferenceService when registered model id is missing", func() {
+		_, err := utils.Run(exec.Command(kubectl, "apply", "-f", InferenceServiceWithoutRegisteredModelPath))
+		Expect(err).ToNot(HaveOccurred())
+
+		Consistently(func() error {
+			// incremental id
+			_, err := modelRegistryClient.GetInferenceServiceById("4")
+			return err
+		}, time.Second*20, interval).Should(HaveOccurred())
+	})
+
 	When("ISVC is created in the cluster", func() {
 		BeforeEach(func() {
 			// fill mr with some models
@@ -99,6 +110,66 @@ var _ = Describe("ModelRegistry controller e2e", func() {
 
 			By("checking that the controller has correctly put the InferenceService id label in the ISVC")
 			actualISVC := &kservev1beta1.InferenceService{}
+			Eventually(func() bool {
+				namespacedNamed := types.NamespacedName{Name: inferenceServiceName, Namespace: WorkingNamespace}
+				err := cli.Get(ctx, namespacedNamed, actualISVC)
+				if err != nil {
+					return false
+				}
+				_, ok := actualISVC.Labels[constants.ModelRegistryInferenceServiceIdLabel]
+				return ok
+			}, timeout, interval).Should(BeTrue())
+
+			Expect(actualISVC.Labels[constants.ModelRegistryRegisteredModelIdLabel]).To(Equal("1"))
+			Expect(actualISVC.Labels[constants.ModelRegistryModelVersionIdLabel]).To(Equal("2"))
+			Expect(actualISVC.Finalizers[0]).To(Equal("modelregistry.opendatahub.io/finalizer"))
+
+		})
+
+		It("the controller should get InferenceService if already existing in the model registry", func() {
+			_, err := utils.Run(exec.Command(kubectl, "apply", "-f", InferenceServiceWithModelVersionPath))
+			Expect(err).ToNot(HaveOccurred())
+
+			var is *openapi.InferenceService
+			// incremental id
+			isId := "4"
+			Eventually(func() error {
+				is, err = modelRegistryClient.GetInferenceServiceById(isId)
+				return err
+			}, timeout, interval).ShouldNot(HaveOccurred())
+
+			Expect(strings.HasPrefix(*is.Name, inferenceServiceName)).To(BeTrue())
+			Expect(is.ServingEnvironmentId).To(Equal("3"))
+			Expect(is.RegisteredModelId).To(Equal(*registeredModel.Id))
+			Expect(is.ModelVersionId).ToNot(BeNil())
+			Expect(*is.ModelVersionId).To(Equal(*modelVersion.Id))
+
+			By("checking that the controller has correctly put the InferenceService id label in the ISVC")
+			actualISVC := &kservev1beta1.InferenceService{}
+			Eventually(func() bool {
+				namespacedNamed := types.NamespacedName{Name: inferenceServiceName, Namespace: WorkingNamespace}
+				err := cli.Get(ctx, namespacedNamed, actualISVC)
+				if err != nil {
+					return false
+				}
+				_, ok := actualISVC.Labels[constants.ModelRegistryInferenceServiceIdLabel]
+				return ok
+			}, timeout, interval).Should(BeTrue())
+
+			// Remove the label from ISVC which should trigger reconciliation and check it is added again
+			delete(actualISVC.Labels, constants.ModelRegistryInferenceServiceIdLabel)
+			Expect(cli.Update(ctx, actualISVC)).ToNot(HaveOccurred())
+
+			Eventually(func() bool {
+				namespacedNamed := types.NamespacedName{Name: inferenceServiceName, Namespace: WorkingNamespace}
+				err := cli.Get(ctx, namespacedNamed, actualISVC)
+				if err != nil {
+					return false
+				}
+				_, ok := actualISVC.Labels[constants.ModelRegistryInferenceServiceIdLabel]
+				return ok
+			}, timeout, interval).Should(BeFalse())
+
 			Eventually(func() bool {
 				namespacedNamed := types.NamespacedName{Name: inferenceServiceName, Namespace: WorkingNamespace}
 				err := cli.Get(ctx, namespacedNamed, actualISVC)
