@@ -4,8 +4,8 @@ metadata:
   name: dummy-inference-service
   namespace: default
   labels:
-    "mr-registered-model-id": "1"
-    "mr-model-version-id": "2"
+    "modelregistry.opendatahub.io/registered-model-id": "1"
+    "modelregistry.opendatahub.io/model-version-id": "2"
 spec:
   predictor:
     model:

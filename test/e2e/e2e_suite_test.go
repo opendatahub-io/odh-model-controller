@@ -3,6 +3,7 @@ package e2e
 import (
 	"context"
 	"fmt"
+	"os"
 	"testing"
 	"time"
 
@@ -26,6 +27,7 @@ import (
 )
 
 const (
+	KubectlCmdEnv                           = "KUBECTL"
 	WorkingNamespace                        = "default"
 	ModelRegistryDeploymentPath             = "./test/data/model-registry/modelregistry_deployment.yaml"
 	ModelRegistryDatabaseDeploymentPath     = "./test/data/model-registry/database_deployment.yaml"
@@ -38,7 +40,8 @@ const (
 )
 
 var (
-	scheme = runtime.NewScheme()
+	scheme  = runtime.NewScheme()
+	kubectl = "kubectl"
 
 	ctx    context.Context
 	cancel context.CancelFunc
@@ -74,6 +77,12 @@ var _ = BeforeSuite(func() {
 	cli, err = client.New(config, client.Options{Scheme: scheme})
 	Expect(err).NotTo(HaveOccurred())
 	Expect(cli).NotTo(BeNil())
+
+	// Override kubectl cmd
+	cmd, ok := os.LookupEnv(KubectlCmdEnv)
+	if ok && cmd != "" {
+		kubectl = cmd
+	}
 
 	// Register API objects
 	utilruntime.Must(clientgoscheme.AddToScheme(scheme))

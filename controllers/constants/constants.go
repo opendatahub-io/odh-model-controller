@@ -25,8 +25,8 @@ const (
 // model registry
 const (
 	MLMDAddressEnv                       = "MLMD_ADDRESS"
-	ModelRegistryNamespaceLabel          = "mr-namespace"
-	ModelRegistryInferenceServiceIdLabel = "mr-inference-service-id"
-	ModelRegistryModelVersionIdLabel     = "mr-model-version-id"
-	ModelRegistryRegisteredModelIdLabel  = "mr-registered-model-id"
+	ModelRegistryNamespaceLabel          = "modelregistry.opendatahub.io/namespace"
+	ModelRegistryInferenceServiceIdLabel = "modelregistry.opendatahub.io/inference-service-id"
+	ModelRegistryModelVersionIdLabel     = "modelregistry.opendatahub.io/model-version-id"
+	ModelRegistryRegisteredModelIdLabel  = "modelregistry.opendatahub.io/registered-model-id"
 )

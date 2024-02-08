@@ -7,7 +7,6 @@ import (
 	"time"
 
 	"github.com/go-logr/logr"
-	kservev1alpha1 "github.com/kserve/kserve/pkg/apis/serving/v1alpha1"
 	kservev1beta1 "github.com/kserve/kserve/pkg/apis/serving/v1beta1"
 	"github.com/opendatahub-io/model-registry/pkg/api"
 	"github.com/opendatahub-io/model-registry/pkg/core"
@@ -15,19 +14,14 @@ import (
 	"github.com/opendatahub-io/odh-model-controller/controllers/comparators"
 	"github.com/opendatahub-io/odh-model-controller/controllers/constants"
 	"github.com/opendatahub-io/odh-model-controller/controllers/processors"
-	monitoringv1 "github.com/prometheus-operator/prometheus-operator/pkg/apis/monitoring/v1"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
 	corev1 "k8s.io/api/core/v1"
 	apierrs "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/runtime"
-	"k8s.io/apimachinery/pkg/types"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
-	"sigs.k8s.io/controller-runtime/pkg/handler"
-	"sigs.k8s.io/controller-runtime/pkg/reconcile"
-	"sigs.k8s.io/controller-runtime/pkg/source"
 )
 
 const modelRegistryFinalizer = "modelregistry.opendatahub.io/finalizer"
@@ -59,18 +53,18 @@ func (r *ModelRegistryInferenceServiceReconciler) Reconcile(ctx context.Context,
 	isvc := &kservev1beta1.InferenceService{}
 	err := r.client.Get(ctx, req.NamespacedName, isvc)
 	if err != nil && apierrs.IsNotFound(err) {
-		log.Error(err, "Stop ModelRegistry InferenceService reconciliation")
+		log.V(1).Info("Stop ModelRegistry InferenceService reconciliation, ISVC not found.")
 		return ctrl.Result{}, nil
 	} else if err != nil {
 		log.Error(err, "Unable to fetch the InferenceService")
 		return ctrl.Result{}, err
 	}
 
-	isId, okIsId := isvc.Labels[constants.ModelRegistryInferenceServiceIdLabel]
+	mrIsvcId, okMrIsvcId := isvc.Labels[constants.ModelRegistryInferenceServiceIdLabel]
 	registeredModelId, okRegisteredModelId := isvc.Labels[constants.ModelRegistryRegisteredModelIdLabel]
 	modelVersionId, okModelVersionId := isvc.Labels[constants.ModelRegistryModelVersionIdLabel]
 
-	if !okIsId && !(okRegisteredModelId || okModelVersionId) {
+	if !okMrIsvcId && !(okRegisteredModelId || okModelVersionId) {
 		// Early check: no model registry specific labels set in the ISVC, ignore the CR
 		log.Error(fmt.Errorf("missing model registry specific label, unable to link ISVC to Model Registry, skipping InferenceService"), "Stop ModelRegistry InferenceService reconciliation")
 		return ctrl.Result{}, nil
@@ -132,12 +126,12 @@ func (r *ModelRegistryInferenceServiceReconciler) Reconcile(ctx context.Context,
 
 	var is *openapi.InferenceService
 
-	if okIsId {
+	if okMrIsvcId {
 		// Retrieve the IS from model registry using the id
-		log.Info("Retrieving model registry InferenceService by id", "isId", isId)
-		is, err = mr.GetInferenceServiceById(isId)
+		log.Info("Retrieving model registry InferenceService by id", "mrIsvcId", mrIsvcId)
+		is, err = mr.GetInferenceServiceById(mrIsvcId)
 		if err != nil {
-			return ctrl.Result{}, fmt.Errorf("unable to find InferenceService with id %s in model registry: %w", isId, err)
+			return ctrl.Result{}, fmt.Errorf("unable to find InferenceService with id %s in model registry: %w", mrIsvcId, err)
 		}
 	} else if okRegisteredModelId || okModelVersionId {
 		// No corresponding InferenceService in model registry, create new one
@@ -145,10 +139,6 @@ func (r *ModelRegistryInferenceServiceReconciler) Reconcile(ctx context.Context,
 		if err != nil {
 			return ctrl.Result{}, err
 		}
-	} else {
-		// No expected labels set in the ISVC
-		log.Error(fmt.Errorf("missing label, unable to link ISVC to Model Registry, skipping InferenceService"), "Stop ModelRegistry InferenceService reconciliation")
-		return ctrl.Result{}, nil
 	}
 
 	if is == nil {
@@ -163,8 +153,6 @@ func (r *ModelRegistryInferenceServiceReconciler) Reconcile(ctx context.Context,
 		}
 
 		if controllerutil.ContainsFinalizer(isvc, modelRegistryFinalizer) {
-			log.Info("InferenceService going to be deleted from cluster, setting desired state to UNDEPLOYED in model registry")
-
 			log.Info("Removing Finalizer for modelRegistry after successfully perform the operations")
 			if ok := controllerutil.RemoveFinalizer(isvc, modelRegistryFinalizer); !ok {
 				log.Error(err, "Failed to remove modelRegistry finalizer for InferenceService")
@@ -181,8 +169,6 @@ func (r *ModelRegistryInferenceServiceReconciler) Reconcile(ctx context.Context,
 		// Update the ISVC label, set the newly created IS id if not present yet
 		desired := isvc.DeepCopy()
 		desired.Labels[constants.ModelRegistryInferenceServiceIdLabel] = *is.Id
-		delete(desired.Labels, constants.ModelRegistryRegisteredModelIdLabel)
-		delete(desired.Labels, constants.ModelRegistryModelVersionIdLabel)
 
 		err = r.processDelta(ctx, log, desired, isvc)
 		if err != nil {
@@ -196,39 +182,7 @@ func (r *ModelRegistryInferenceServiceReconciler) Reconcile(ctx context.Context,
 // SetupWithManager sets up the controller with the Manager.
 func (r *ModelRegistryInferenceServiceReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	builder := ctrl.NewControllerManagedBy(mgr).
-		For(&kservev1beta1.InferenceService{}).
-		Owns(&kservev1alpha1.ServingRuntime{}).
-		Owns(&corev1.Namespace{}).
-		Owns(&monitoringv1.PodMonitor{}).
-		Watches(&source.Kind{Type: &kservev1alpha1.ServingRuntime{}},
-			handler.EnqueueRequestsFromMapFunc(func(o client.Object) []reconcile.Request {
-				r.log.Info("Reconcile event triggered by serving runtime: " + o.GetName())
-				inferenceServicesList := &kservev1beta1.InferenceServiceList{}
-				opts := []client.ListOption{client.InNamespace(o.GetNamespace())}
-
-				// Todo: Get only Inference Services that are deploying on the specific serving runtime
-				err := r.client.List(context.TODO(), inferenceServicesList, opts...)
-				if err != nil {
-					r.log.Info("Error getting list of inference services for namespace")
-					return []reconcile.Request{}
-				}
-
-				if len(inferenceServicesList.Items) == 0 {
-					r.log.Info("No InferenceServices found for Serving Runtime: " + o.GetName())
-					return []reconcile.Request{}
-				}
-
-				reconcileRequests := make([]reconcile.Request, 0, len(inferenceServicesList.Items))
-				for _, inferenceService := range inferenceServicesList.Items {
-					reconcileRequests = append(reconcileRequests, reconcile.Request{
-						NamespacedName: types.NamespacedName{
-							Name:      inferenceService.Name,
-							Namespace: inferenceService.Namespace,
-						},
-					})
-				}
-				return reconcileRequests
-			}))
+		For(&kservev1beta1.InferenceService{})
 
 	return builder.Complete(r)
 }
@@ -333,11 +287,14 @@ func (r *ModelRegistryInferenceServiceReconciler) createMRInferenceService(
 }
 
 // onDeletion mark model registry inference service to UNDEPLOYED desired state
-func (r *ModelRegistryInferenceServiceReconciler) onDeletion(mr api.ModelRegistryApi, log logr.Logger, isvc *kservev1beta1.InferenceService, is *openapi.InferenceService) error {
+func (r *ModelRegistryInferenceServiceReconciler) onDeletion(mr api.ModelRegistryApi, log logr.Logger, isvc *kservev1beta1.InferenceService, is *openapi.InferenceService) (err error) {
 	log.Info("Running onDeletion logic")
-	is.DesiredState = openapi.INFERENCESERVICESTATE_UNDEPLOYED.Ptr()
+	if is.DesiredState != nil && *is.DesiredState != openapi.INFERENCESERVICESTATE_UNDEPLOYED {
+		log.Info("InferenceService going to be deleted from cluster, setting desired state to UNDEPLOYED in model registry")
+		is.DesiredState = openapi.INFERENCESERVICESTATE_UNDEPLOYED.Ptr()
 
-	_, err := mr.UpsertInferenceService(is)
+		_, err = mr.UpsertInferenceService(is)
+	}
 	return err
 }
 
@@ -407,7 +364,7 @@ func IgnoreDeletingErrors(err error) error {
 	if err == nil {
 		return nil
 	}
-	if apierrs.IsNotFound(err) || apierrs.IsConflict(err) {
+	if apierrs.IsNotFound(err) {
 		return nil
 	}
 	return err

@@ -69,18 +69,18 @@ var _ = Describe("ModelRegistry controller e2e", func() {
 			Expect(modelVersion.GetId()).To(Equal("2"))
 			Expect(modelArtifact.GetId()).To(Equal("1"))
 
-			_, err := utils.Run(exec.Command("kubectl", "apply", "-f", ServingRuntimePath1))
+			_, err := utils.Run(exec.Command(kubectl, "apply", "-f", ServingRuntimePath1))
 			Expect(err).ToNot(HaveOccurred())
 		})
 
 		AfterEach(func() {
 			By("removing finalizers from inference service")
-			_, err := utils.Run(exec.Command("kubectl", "patch", "inferenceservice", "dummy-inference-service", "--type", "json", "--patch", "[ { \"op\": \"remove\", \"path\": \"/metadata/finalizers\" } ]"))
+			_, err := utils.Run(exec.Command(kubectl, "patch", "inferenceservice", "dummy-inference-service", "--type", "json", "--patch", "[ { \"op\": \"remove\", \"path\": \"/metadata/finalizers\" } ]"))
 			Expect(err).ToNot(HaveOccurred())
 		})
 
 		It("the controller should create InferenceService with specific model version in model registry", func() {
-			_, err := utils.Run(exec.Command("kubectl", "apply", "-f", InferenceServiceWithModelVersionPath))
+			_, err := utils.Run(exec.Command(kubectl, "apply", "-f", InferenceServiceWithModelVersionPath))
 			Expect(err).ToNot(HaveOccurred())
 
 			var is *openapi.InferenceService
@@ -109,14 +109,14 @@ var _ = Describe("ModelRegistry controller e2e", func() {
 				return ok
 			}, timeout, interval).Should(BeTrue())
 
-			Expect(actualISVC.Labels[constants.ModelRegistryRegisteredModelIdLabel]).To(Equal(""))
-			Expect(actualISVC.Labels[constants.ModelRegistryModelVersionIdLabel]).To(Equal(""))
+			Expect(actualISVC.Labels[constants.ModelRegistryRegisteredModelIdLabel]).To(Equal("1"))
+			Expect(actualISVC.Labels[constants.ModelRegistryModelVersionIdLabel]).To(Equal("2"))
 			Expect(actualISVC.Finalizers[0]).To(Equal("modelregistry.opendatahub.io/finalizer"))
 
 		})
 
 		It("the controller should create InferenceService without specific model version in model registry", func() {
-			_, err := utils.Run(exec.Command("kubectl", "apply", "-f", InferenceServiceWithoutModelVersionPath))
+			_, err := utils.Run(exec.Command(kubectl, "apply", "-f", InferenceServiceWithoutModelVersionPath))
 			Expect(err).ToNot(HaveOccurred())
 
 			var is *openapi.InferenceService
@@ -144,7 +144,7 @@ var _ = Describe("ModelRegistry controller e2e", func() {
 				return ok
 			}, timeout, interval).Should(BeTrue())
 
-			Expect(actualISVC.Labels[constants.ModelRegistryRegisteredModelIdLabel]).To(Equal(""))
+			Expect(actualISVC.Labels[constants.ModelRegistryRegisteredModelIdLabel]).To(Equal("1"))
 			Expect(actualISVC.Labels[constants.ModelRegistryModelVersionIdLabel]).To(Equal(""))
 			Expect(actualISVC.Finalizers[0]).To(Equal("modelregistry.opendatahub.io/finalizer"))
 		})
@@ -176,15 +176,15 @@ var _ = Describe("ModelRegistry controller e2e", func() {
 			Expect(err).ToNot(HaveOccurred())
 			Expect(inferenceService.GetId()).To(Equal("4"))
 
-			_, err = utils.Run(exec.Command("kubectl", "apply", "-f", ServingRuntimePath1))
+			_, err = utils.Run(exec.Command(kubectl, "apply", "-f", ServingRuntimePath1))
 			Expect(err).ToNot(HaveOccurred())
 
-			_, err = utils.Run(exec.Command("kubectl", "apply", "-f", InferenceServiceWithInfServiceIdPath))
+			_, err = utils.Run(exec.Command(kubectl, "apply", "-f", InferenceServiceWithInfServiceIdPath))
 			Expect(err).ToNot(HaveOccurred())
 		})
 
 		It("the controller should set the InferenceService desired state to UNDEPLOYED", func() {
-			_, err := utils.Run(exec.Command("kubectl", "delete", "-f", InferenceServiceWithInfServiceIdPath))
+			_, err := utils.Run(exec.Command(kubectl, "delete", "-f", InferenceServiceWithInfServiceIdPath))
 			Expect(err).ToNot(HaveOccurred())
 
 			var is *openapi.InferenceService
@@ -212,11 +212,11 @@ var _ = Describe("ModelRegistry controller e2e", func() {
 
 // deployAndCheckModelRegistry setup model registry deployments and creates model registry client connection
 func deployAndCheckModelRegistry() api.ModelRegistryApi {
-	cmd := exec.Command("kubectl", "apply", "-f", ModelRegistryDatabaseDeploymentPath)
+	cmd := exec.Command(kubectl, "apply", "-f", ModelRegistryDatabaseDeploymentPath)
 	_, err := utils.Run(cmd)
 	Expect(err).ToNot(HaveOccurred())
 
-	cmd = exec.Command("kubectl", "apply", "-f", ModelRegistryDeploymentPath)
+	cmd = exec.Command(kubectl, "apply", "-f", ModelRegistryDeploymentPath)
 	_, err = utils.Run(cmd)
 	Expect(err).ToNot(HaveOccurred())
 
@@ -257,11 +257,11 @@ func deployAndCheckModelRegistry() api.ModelRegistryApi {
 
 // undeployModelRegistry cleanup model registry deployments
 func undeployModelRegistry() {
-	cmd := exec.Command("kubectl", "delete", "-f", ModelRegistryDeploymentPath)
+	cmd := exec.Command(kubectl, "delete", "-f", ModelRegistryDeploymentPath)
 	_, err = utils.Run(cmd)
 	Expect(err).ToNot(HaveOccurred())
 
-	cmd = exec.Command("kubectl", "delete", "-f", ModelRegistryDatabaseDeploymentPath)
+	cmd = exec.Command(kubectl, "delete", "-f", ModelRegistryDatabaseDeploymentPath)
 	_, err = utils.Run(cmd)
 	Expect(err).ToNot(HaveOccurred())
 }
