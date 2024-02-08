@@ -62,9 +62,9 @@ func (r *ModelRegistryInferenceServiceReconciler) Reconcile(ctx context.Context,
 
 	mrIsvcId, okMrIsvcId := isvc.Labels[constants.ModelRegistryInferenceServiceIdLabel]
 	registeredModelId, okRegisteredModelId := isvc.Labels[constants.ModelRegistryRegisteredModelIdLabel]
-	modelVersionId, okModelVersionId := isvc.Labels[constants.ModelRegistryModelVersionIdLabel]
+	modelVersionId, _ := isvc.Labels[constants.ModelRegistryModelVersionIdLabel]
 
-	if !okMrIsvcId && !(okRegisteredModelId || okModelVersionId) {
+	if !okMrIsvcId && !okRegisteredModelId {
 		// Early check: no model registry specific labels set in the ISVC, ignore the CR
 		log.Error(fmt.Errorf("missing model registry specific label, unable to link ISVC to Model Registry, skipping InferenceService"), "Stop ModelRegistry InferenceService reconciliation")
 		return ctrl.Result{}, nil
@@ -97,7 +97,7 @@ func (r *ModelRegistryInferenceServiceReconciler) Reconcile(ctx context.Context,
 	// Retrieve or create the ServingEnvironment associated to the current namespace
 	servingEnvironment, err := r.getOrCreateServingEnvironment(log, mr, req.Namespace)
 	if err != nil {
-		return ctrl.Result{Requeue: true}, err
+		return ctrl.Result{}, err
 	}
 
 	// Check if the InferenceService instance is marked to be deleted, which is
@@ -129,7 +129,7 @@ func (r *ModelRegistryInferenceServiceReconciler) Reconcile(ctx context.Context,
 		if err != nil {
 			return ctrl.Result{}, fmt.Errorf("unable to find InferenceService with id %s in model registry: %w", mrIsvcId, err)
 		}
-	} else if okRegisteredModelId || okModelVersionId {
+	} else if okRegisteredModelId {
 		// No corresponding InferenceService in model registry, create new one
 		is, err = r.createMRInferenceService(log, mr, isvc, *servingEnvironment.Id, registeredModelId, modelVersionId)
 		if err != nil {
@@ -269,17 +269,21 @@ func (r *ModelRegistryInferenceServiceReconciler) createMRInferenceService(
 
 	isName := fmt.Sprintf("%s/%s", isvc.Name, isvc.UID)
 
-	log.Info("Creating new model registry InferenceService", "name", isName, "registeredModelId", registeredModelId, "modelVersionId", modelVersionId)
-	is := &openapi.InferenceService{
-		Name:                 &isName,
-		ServingEnvironmentId: servingEnvironmentId,
-		RegisteredModelId:    registeredModelId,
-		ModelVersionId:       modelVersionIdPtr,
-		Runtime:              isvc.Spec.Predictor.Model.Runtime,
-		DesiredState:         openapi.INFERENCESERVICESTATE_DEPLOYED.Ptr(),
+	is, err := mr.GetInferenceServiceByParams(&isName, &servingEnvironmentId, nil)
+	if err != nil {
+		log.Info("Creating new model registry InferenceService", "name", isName, "registeredModelId", registeredModelId, "modelVersionId", modelVersionId)
+		is = &openapi.InferenceService{
+			Name:                 &isName,
+			ServingEnvironmentId: servingEnvironmentId,
+			RegisteredModelId:    registeredModelId,
+			ModelVersionId:       modelVersionIdPtr,
+			Runtime:              isvc.Spec.Predictor.Model.Runtime,
+			DesiredState:         openapi.INFERENCESERVICESTATE_DEPLOYED.Ptr(),
+		}
+		is, err = mr.UpsertInferenceService(is)
 	}
 
-	return mr.UpsertInferenceService(is)
+	return is, err
 }
 
 // onDeletion mark model registry inference service to UNDEPLOYED desired state
