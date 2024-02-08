@@ -79,12 +79,8 @@ func (r *ModelRegistryInferenceServiceReconciler) Reconcile(ctx context.Context,
 		modelRegistryNamespace = req.Namespace
 	}
 
-	// setup grpc connection to ml-metadata
-	ctxTimeout, cancel := context.WithTimeout(context.Background(), time.Second*5)
-	defer cancel()
-
 	log.Info("Creating model registry service..")
-	mr, conn, err := r.initModelRegistryService(ctx, ctxTimeout, log, modelRegistryNamespace)
+	mr, conn, err := r.initModelRegistryService(ctx, log, modelRegistryNamespace)
 	if err != nil {
 		log.Error(err, "Stop ModelRegistry InferenceService reconciliation")
 		return ctrl.Result{Requeue: true, RequeueAfter: time.Second * 10}, err
@@ -299,7 +295,7 @@ func (r *ModelRegistryInferenceServiceReconciler) onDeletion(mr api.ModelRegistr
 }
 
 // initModelRegistryService setup a gRPC connection with MLMD server and initialize the model registry service
-func (r *ModelRegistryInferenceServiceReconciler) initModelRegistryService(ctx context.Context, ctxTimeout context.Context, log logr.Logger, namespace string) (api.ModelRegistryApi, *grpc.ClientConn, error) {
+func (r *ModelRegistryInferenceServiceReconciler) initModelRegistryService(ctx context.Context, log logr.Logger, namespace string) (api.ModelRegistryApi, *grpc.ClientConn, error) {
 	log1 := log.WithValues("mr-namespace", namespace)
 	mlmdAddr, ok := os.LookupEnv(constants.MLMDAddressEnv)
 
@@ -346,10 +342,8 @@ func (r *ModelRegistryInferenceServiceReconciler) initModelRegistryService(ctx c
 	// Setup model registry service
 	log.Info("Connecting to " + mlmdAddr)
 	conn, err := grpc.DialContext(
-		ctxTimeout,
+		ctx,
 		mlmdAddr,
-		grpc.WithReturnConnectionError(),
-		grpc.WithBlock(),
 		grpc.WithTransportCredentials(insecure.NewCredentials()),
 	)
 	if err != nil {
