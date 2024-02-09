@@ -7,11 +7,13 @@ spec:
   template:
     spec:
       containers:
-        - args:
-            - --leader-elect
-            - "--monitoring-namespace"
-            - "$(MONITORING_NS)"
-          env:
-            - name: MONITORING_NS
-              value: $(monitoring-namespace)
-          name: manager
+      - args:
+        - --leader-elect
+        - --model-registry-inference-reconcile
+        - "--monitoring-namespace"
+        - "$(MONITORING_NS)"
+        env:
+        - name: MONITORING_NS
+          value: $(monitoring-namespace)
+        name: manager
+        imagePullPolicy: IfNotPresent
