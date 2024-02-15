@@ -21,3 +21,12 @@ const (
 	IstioIngressServiceHTTPPortName  = "http2"
 	IstioIngressServiceHTTPSPortName = "https"
 )
+
+// model registry
+const (
+	MLMDAddressEnv                       = "MLMD_ADDRESS"
+	ModelRegistryNamespaceLabel          = "modelregistry.opendatahub.io/namespace"
+	ModelRegistryInferenceServiceIdLabel = "modelregistry.opendatahub.io/inference-service-id"
+	ModelRegistryModelVersionIdLabel     = "modelregistry.opendatahub.io/model-version-id"
+	ModelRegistryRegisteredModelIdLabel  = "modelregistry.opendatahub.io/registered-model-id"
+)

@@ -196,6 +196,7 @@ rules:
   verbs:
   - get
   - list
+  - update
   - watch
 - apiGroups:
   - serving.kserve.io
