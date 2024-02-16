@@ -17,6 +17,7 @@ package reconcilers
 
 import (
 	"context"
+
 	"github.com/go-logr/logr"
 	kservev1beta1 "github.com/kserve/kserve/pkg/apis/serving/v1beta1"
 	"github.com/opendatahub-io/odh-model-controller/controllers/utils"
@@ -67,7 +68,11 @@ func (r *ModelMeshInferenceServiceReconciler) DeleteModelMeshResourcesIfNoMMIsvc
 
 	for i := len(inferenceServiceList.Items) - 1; i >= 0; i-- {
 		inferenceService := inferenceServiceList.Items[i]
-		if !utils.IsDeploymentModeForIsvcModelMesh(&inferenceService) {
+		isvcDeploymentMode, err := utils.GetDeploymentModeForIsvc(ctx, r.client, &inferenceService)
+		if err != nil {
+			return err
+		}
+		if isvcDeploymentMode == utils.ModelMesh {
 			inferenceServiceList.Items = append(inferenceServiceList.Items[:i], inferenceServiceList.Items[i+1:]...)
 		}
 	}
