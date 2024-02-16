@@ -5,6 +5,8 @@ go 1.19
 require (
 	github.com/go-logr/logr v1.2.4
 	github.com/kserve/kserve v0.11.0
+	github.com/kuadrant/authorino v0.15.0
+	github.com/manifestival/manifestival v0.7.2
 	github.com/onsi/ginkgo v1.16.4
 	github.com/onsi/gomega v1.27.6
 	github.com/opendatahub-io/model-registry v0.0.0-20240117182018-0497cf4b325e
@@ -20,6 +22,7 @@ require (
 	k8s.io/client-go v0.27.6
 	k8s.io/utils v0.0.0-20230505201702-9f6742963106
 	knative.dev/pkg v0.0.0-20231023151236-29775d7c9e5c
+	knative.dev/serving v0.37.1
 	maistra.io/api v0.0.0-20230417135504-0536f6c22b1c
 	sigs.k8s.io/controller-runtime v0.14.6
 	sigs.k8s.io/yaml v1.3.0
@@ -37,6 +40,7 @@ require (
 	github.com/cespare/xxhash/v2 v2.2.0 // indirect
 	github.com/davecgh/go-spew v1.1.2-0.20180830191138-d8f796af33cc // indirect
 	github.com/emicklei/go-restful/v3 v3.10.2 // indirect
+	github.com/evanphx/json-patch v5.6.0+incompatible // indirect
 	github.com/evanphx/json-patch/v5 v5.7.0 // indirect
 	github.com/fsnotify/fsnotify v1.7.0 // indirect
 	github.com/go-logr/zapr v1.2.4 // indirect
@@ -73,6 +77,9 @@ require (
 	github.com/prometheus/common v0.44.0 // indirect
 	github.com/prometheus/procfs v0.11.1 // indirect
 	github.com/spf13/pflag v1.0.5 // indirect
+	github.com/tidwall/gjson v1.14.4 // indirect
+	github.com/tidwall/match v1.1.1 // indirect
+	github.com/tidwall/pretty v1.2.1 // indirect
 	go.opencensus.io v0.24.0 // indirect
 	go.uber.org/multierr v1.11.0 // indirect
 	golang.org/x/crypto v0.16.0 // indirect
@@ -99,7 +106,6 @@ require (
 	k8s.io/klog/v2 v2.100.1 // indirect
 	k8s.io/kube-openapi v0.0.0-20230515203736-54b630e78af5 // indirect
 	knative.dev/networking v0.0.0-20231017124814-2a7676e912b7 // indirect
-	knative.dev/serving v0.37.1 // indirect
 	sigs.k8s.io/json v0.0.0-20221116044647-bc3834ca7abd // indirect
 	sigs.k8s.io/structured-merge-diff/v4 v4.2.3 // indirect
 )

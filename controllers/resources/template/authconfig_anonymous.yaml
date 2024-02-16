@@ -1,0 +1,13 @@
+apiVersion: authorino.kuadrant.io/v1beta2
+kind: AuthConfig
+metadata:
+  labels:
+    security.opendatahub.io/authorization-group: default
+spec:
+  hosts:
+  - "UPDATED.RUNTIME"
+  authentication:
+    anonymous-access:
+      anonymous: {}
+      credentials:
+        authorizationHeader: {}

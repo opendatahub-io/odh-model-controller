@@ -17,6 +17,9 @@ package controllers
 
 import (
 	"context"
+
+	"strings"
+
 	kservev1alpha1 "github.com/kserve/kserve/pkg/apis/serving/v1alpha1"
 	kservev1beta1 "github.com/kserve/kserve/pkg/apis/serving/v1beta1"
 	. "github.com/onsi/ginkgo"
@@ -32,7 +35,6 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 	"knative.dev/pkg/apis"
 	"sigs.k8s.io/controller-runtime/pkg/client"
-	"strings"
 )
 
 var _ = Describe("The Openshift Kserve model controller", func() {
@@ -42,7 +44,7 @@ var _ = Describe("The Openshift Kserve model controller", func() {
 
 		BeforeEach(func() {
 			ctx := context.Background()
-			testNs = appendRandomNameTo("test-namespace")
+			testNs = Namespaces.Get()
 			testNamespace := &corev1.Namespace{
 				ObjectMeta: metav1.ObjectMeta{
 					Name:      testNs,

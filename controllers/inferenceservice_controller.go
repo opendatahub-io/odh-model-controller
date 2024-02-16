@@ -17,9 +17,11 @@ package controllers
 
 import (
 	"context"
+
 	"github.com/go-logr/logr"
 	kservev1alpha1 "github.com/kserve/kserve/pkg/apis/serving/v1alpha1"
 	kservev1beta1 "github.com/kserve/kserve/pkg/apis/serving/v1beta1"
+	authorinov1beta2 "github.com/kuadrant/authorino/api/v1beta2"
 	"github.com/opendatahub-io/odh-model-controller/controllers/reconcilers"
 	"github.com/opendatahub-io/odh-model-controller/controllers/utils"
 	routev1 "github.com/openshift/api/route/v1"
@@ -112,6 +114,7 @@ func (r *OpenshiftInferenceServiceReconciler) SetupWithManager(mgr ctrl.Manager)
 		Owns(&networkingv1.NetworkPolicy{}).
 		Owns(&monitoringv1.ServiceMonitor{}).
 		Owns(&monitoringv1.PodMonitor{}).
+		Owns(&authorinov1beta2.AuthConfig{}).
 		Watches(&source.Kind{Type: &kservev1alpha1.ServingRuntime{}},
 			handler.EnqueueRequestsFromMapFunc(func(o client.Object) []reconcile.Request {
 				r.log.Info("Reconcile event triggered by serving runtime: " + o.GetName())

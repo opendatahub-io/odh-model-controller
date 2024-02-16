@@ -21,28 +21,17 @@ import (
 	"os"
 	"strconv"
 
-	kservev1alpha1 "github.com/kserve/kserve/pkg/apis/serving/v1alpha1"
-	kservev1beta1 "github.com/kserve/kserve/pkg/apis/serving/v1beta1"
-	monitoringv1 "github.com/prometheus-operator/prometheus-operator/pkg/apis/monitoring/v1"
-
 	// Import all Kubernetes client auth plugins (e.g. Azure, GCP, OIDC, etc.)
 	// to ensure that exec-entrypoint and run can make use of them.
 	_ "k8s.io/client-go/plugin/pkg/client/auth"
 
 	"k8s.io/apimachinery/pkg/runtime"
-	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
-	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/healthz"
 	"sigs.k8s.io/controller-runtime/pkg/log/zap"
 
 	"github.com/opendatahub-io/odh-model-controller/controllers"
-	routev1 "github.com/openshift/api/route/v1"
-	istiosecurityv1beta1 "istio.io/client-go/pkg/apis/security/v1beta1"
-	telemetryv1alpha1 "istio.io/client-go/pkg/apis/telemetry/v1alpha1"
-	corev1 "k8s.io/api/core/v1"
-	authv1 "k8s.io/api/rbac/v1"
-	maistrav1 "maistra.io/api/core/v1"
+	"github.com/opendatahub-io/odh-model-controller/controllers/utils"
 	//+kubebuilder:scaffold:imports
 )
 
@@ -50,6 +39,10 @@ var (
 	scheme   = runtime.NewScheme()
 	setupLog = ctrl.Log.WithName("setup")
 )
+
+func init() { //nolint:gochecknoinits //reason this way we ensure schemes are always registered before we start anything
+	utils.RegisterSchemes(scheme)
+}
 
 // ClusterRole permissions
 
@@ -74,26 +67,7 @@ var (
 // +kubebuilder:rbac:groups=extensions,resources=ingresses,verbs=get;list;watch
 // +kubebuilder:rbac:groups="",resources=configmaps;namespaces;pods;services;secrets;endpoints,verbs=get;list;watch;create;update;patch
 // +kubebuilder:rbac:groups="",resources=serviceaccounts,verbs=get;list;watch;create;update;patch;delete
-
-func init() {
-	utilruntime.Must(clientgoscheme.AddToScheme(scheme))
-
-	utilruntime.Must(kservev1alpha1.AddToScheme(scheme))
-	utilruntime.Must(kservev1beta1.AddToScheme(scheme))
-	utilruntime.Must(corev1.AddToScheme(scheme))
-	utilruntime.Must(routev1.AddToScheme(scheme))
-	utilruntime.Must(authv1.AddToScheme(scheme))
-	utilruntime.Must(monitoringv1.AddToScheme(scheme))
-	utilruntime.Must(istiosecurityv1beta1.AddToScheme(scheme))
-	utilruntime.Must(telemetryv1alpha1.AddToScheme(scheme))
-	utilruntime.Must(maistrav1.SchemeBuilder.AddToScheme(scheme))
-
-	// The following are related to Service Mesh, uncomment this and other
-	// similar blocks to use with Service Mesh
-	//utilruntime.Must(virtualservicev1.AddToScheme(scheme))
-
-	//+kubebuilder:scaffold:scheme
-}
+// +kubebuilder:rbac:groups=authorino.kuadrant.io,resources=authconfigs,verbs=get;list;watch;create;update;patch;delete
 
 func getEnvAsBool(name string, defaultValue bool) bool {
 	valStr := os.Getenv(name)

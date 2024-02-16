@@ -1,0 +1,35 @@
+apiVersion: authorino.kuadrant.io/v1beta2
+kind: AuthConfig
+metadata:
+  labels:
+    security.opendatahub.io/authorization-group: default
+spec:
+  hosts:
+  - "UPDATED.RUNTIME"
+  authentication:
+    kubernetes-user:
+      credentials:
+        authorizationHeader: {}
+      kubernetesTokenReview:
+        audiences:
+{{- range .Audiences }}
+        - "{{ . }}"
+{{- end }}
+  authorization:
+    kubernetes-rbac:
+      kubernetesSubjectAccessReview:
+        resourceAttributes:
+          verb:
+            value: get
+          group:
+            value: ""
+          resource:
+            value: services
+          namespace:
+            value: {{ .Namespace }}
+          subresource:
+            value: ""
+          name:
+            value: ""
+        user:
+          selector: auth.identity.user.username
