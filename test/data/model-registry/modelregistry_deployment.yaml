@@ -86,7 +86,7 @@ spec:
         command:
         - /model-registry
         - proxy
-        image: quay.io/opendatahub/model-registry:latest
+        image: quay.io/opendatahub/model-registry:v0.1.1
         imagePullPolicy: Always
         livenessProbe:
           failureThreshold: 3
