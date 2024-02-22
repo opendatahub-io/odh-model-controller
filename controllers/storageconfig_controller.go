@@ -181,12 +181,8 @@ func reconcileOpenDataHubSecrets() predicate.Predicate {
 		CreateFunc: func(e event.CreateEvent) bool {
 			objectLabels := e.Object.GetLabels()
 			return checkOpenDataHubLabel(objectLabels)
-		},
+		},		
 		DeleteFunc: func(e event.DeleteEvent) bool {
-			objectLabels := e.Object.GetLabels()
-			return checkOpenDataHubLabel(objectLabels)
-		},
-		GenericFunc: func(e event.GenericEvent) bool {
 			objectLabels := e.Object.GetLabels()
 			return checkOpenDataHubLabel(objectLabels)
 		},
