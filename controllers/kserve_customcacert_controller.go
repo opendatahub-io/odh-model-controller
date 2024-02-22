@@ -46,9 +46,7 @@ type KServeCustomCACertReconciler struct {
 }
 
 // reconcileConfigMap watch odh global ca cert and it will create/update/delete kserve custom cert configmap
-func (r *KServeCustomCACertReconciler) reconcileConfigMap(configmap *corev1.ConfigMap, ctx context.Context) error {
-	// Initialize logger format
-	log := r.Log
+func (r *KServeCustomCACertReconciler) reconcileConfigMap(configmap *corev1.ConfigMap, ctx context.Context, log logr.Logger) error {
 
 	var odhCustomCertData string
 	// If kserve custom cert configmap changed, rollback it
@@ -124,7 +122,7 @@ func (r *KServeCustomCACertReconciler) Reconcile(ctx context.Context, req ctrl.R
 		return ctrl.Result{}, err
 	}
 
-	err = r.reconcileConfigMap(configmap, ctx)
+	err = r.reconcileConfigMap(configmap, ctx, log)
 	if err != nil {
 		return ctrl.Result{}, err
 	}
