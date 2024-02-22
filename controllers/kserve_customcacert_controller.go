@@ -18,9 +18,11 @@ package controllers
 import (
 	"context"
 	"fmt"
+	"reflect"
 
 	"github.com/go-logr/logr"
 	"github.com/opendatahub-io/odh-model-controller/controllers/constants"
+	"github.com/opendatahub-io/odh-model-controller/controllers/utils"
 	corev1 "k8s.io/api/core/v1"
 	apierrs "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -34,6 +36,7 @@ import (
 
 const (
 	kserveCustomCACertConfigMapName = constants.KServeCACertConfigMapName
+	kserveCustomCACertFileName      = constants.KServeCACertFileName
 	odhGlobalCACertConfigMapName    = constants.ODHGlobalCertConfigMapName
 )
 
@@ -47,74 +50,28 @@ type KServeCustomCACertReconciler struct {
 func (r *KServeCustomCACertReconciler) reconcileConfigMap(configmap *corev1.ConfigMap, ctx context.Context) error {
 	// Initialize logger format
 	log := r.Log
-
 	odhCustomCertData := configmap.Data[constants.ODHCustomCACertFileName]
-	if odhCustomCertData == "" {
-		log.Info(fmt.Sprintf("Detected opendatahub global cert ConfigMap (%s), but custom cert is not set\n", odhGlobalCACertConfigMapName))
-		kserveCustomCertConfigMap := &corev1.ConfigMap{}
-		err := r.Get(ctx, types.NamespacedName{Name: kserveCustomCACertConfigMapName, Namespace: configmap.Namespace}, kserveCustomCertConfigMap)
-		if err == nil {
-			log.Info(fmt.Sprintf("Deleting KServe custom cert ConfigMap (%s)", kserveCustomCACertConfigMapName))
-			if err := r.Delete(ctx, kserveCustomCertConfigMap); err != nil {
-				return err
-			}
-		} else if !apierrs.IsNotFound(err) {
+
+	// Create Desired resource
+	configData := map[string]string{kserveCustomCACertFileName: odhCustomCertData}
+	desiredResource := getDesiredCaCertConfigMapForKServe(kserveCustomCACertConfigMapName, configmap.Namespace, configData)
+
+	// Get Existing resource
+	existingResource := &corev1.ConfigMap{}
+	err := r.Get(ctx, types.NamespacedName{Name: kserveCustomCACertConfigMapName, Namespace: configmap.Namespace}, existingResource)
+	if err != nil {
+		if apierrs.IsNotFound(err) {
+			existingResource = nil
+		} else {
 			return err
 		}
-		return nil
 	}
-
-	configData := map[string]string{constants.KServeCACertFileName: odhCustomCertData}
-	newCaCertConfigMap := getDesiredCaCertConfigMapForKServe(kserveCustomCACertConfigMapName, configmap.Namespace, configData)
-
-	kserveCustomCertConfigMap := &corev1.ConfigMap{}
-	if err := r.Get(ctx, types.NamespacedName{Name: kserveCustomCACertConfigMapName, Namespace: configmap.Namespace}, kserveCustomCertConfigMap); err != nil {
-		if !apierrs.IsNotFound(err) {
-			return err
-		}
-		log.Info(fmt.Sprintf("Creating KServe custom cert ConfigMap (%s) because it detected the creation of the opendatahub global cert ConfigMap (%s)", kserveCustomCACertConfigMapName, odhGlobalCACertConfigMapName))
-		if err := r.Create(ctx, newCaCertConfigMap); err != nil {
-			log.Error(err, "Failed to create KServe custom cert ConfigMap")
-			return err
-		}
-	} else {
-		log.Info("Checking if the data in KServe custom cert ConfigMap differs from the data in the opendatahub global CA cert ConfigMap")
-		existingOdhCustomCertData := kserveCustomCertConfigMap.Data[constants.KServeCACertFileName]
-		if existingOdhCustomCertData == odhCustomCertData {
-			log.Info(fmt.Sprintf("No updates required for KServe custom cert ConfigMap (%s) as the data matches the opendatahub global cert ConfigMap (%s)", kserveCustomCACertConfigMapName, odhGlobalCACertConfigMapName))
-			return nil
-		}
-		log.Info(fmt.Sprintf("Updating KServe custom cert ConfigMap due to changes in the opendatahub global cert ConfigMap (%s)", odhGlobalCACertConfigMapName))
-		if err := r.Update(ctx, newCaCertConfigMap); err != nil {
-			return err
-		}
-		if err := r.deleteStorageSecret(ctx, configmap.Namespace); err != nil {
-			log.Error(err, "Failed to delete the storage-config secret to update the custom cert")
-			return err
-		}
-		log.V(1).Info("Deleted the storage-config Secret to update the custom cert")
+	// Process Delta
+	if err = r.processDelta(ctx, log, desiredResource, existingResource); err != nil {
+		return err
 	}
-
 	return nil
-}
 
-// This section is intended for regenerating StorageSecret using new data.
-func (r *KServeCustomCACertReconciler) deleteStorageSecret(ctx context.Context, namespace string) error {
-	foundStorageSecret := &corev1.Secret{}
-
-	err := r.Get(ctx, types.NamespacedName{
-		Name:      constants.DefaultStorageConfig,
-		Namespace: namespace,
-	}, foundStorageSecret)
-
-	if err == nil {
-		err = r.Delete(ctx, foundStorageSecret)
-		if err != nil {
-			return err
-		}
-	}
-
-	return nil
 }
 
 func checkOpenDataHubGlobalCertCAConfigMapName(objectName string) bool {
@@ -182,9 +139,89 @@ func getDesiredCaCertConfigMapForKServe(configmapName string, namespace string, 
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      configmapName,
 			Namespace: namespace,
+			Labels:    map[string]string{"opendatahub.io/managed": "true"},
 		},
 		Data: caCertData,
 	}
 
 	return desiredConfigMap
+}
+
+func (r *KServeCustomCACertReconciler) processDelta(ctx context.Context, log logr.Logger, desiredConfigMap *corev1.ConfigMap, existingConfigMap *corev1.ConfigMap) (err error) {
+	hasChanged := false
+
+	if isAdded(desiredConfigMap, existingConfigMap) {
+		hasChanged = true
+		log.V(0).Info("Delta found", "create", desiredConfigMap.GetName())
+		if err = r.Create(ctx, desiredConfigMap); err != nil {
+			return err
+		}
+	}
+
+	if isUpdated(desiredConfigMap, existingConfigMap) {
+		hasChanged = true
+		log.V(0).Info("Delta found", "update", existingConfigMap.GetName())
+		rp := desiredConfigMap.DeepCopy()
+		rp.Labels = existingConfigMap.Labels
+
+		if err = r.Update(ctx, rp); err != nil {
+			return err
+		}
+	}
+
+	if isRemoved(desiredConfigMap, existingConfigMap) {
+		hasChanged = true
+		log.V(0).Info("Delta found", "delete", existingConfigMap.GetName())
+		if err = r.Delete(ctx, existingConfigMap); err != nil {
+			return err
+		}
+	}
+
+	if !hasChanged {
+		log.V(0).Info("No delta found")
+		return nil
+	}
+
+	if err := r.deleteStorageSecret(ctx, desiredConfigMap.Namespace); err != nil {
+		log.Error(err, "Failed to delete the storage-config secret to update the custom cert")
+		return err
+	}
+	log.V(0).Info("Deleted the storage-config Secret to update the custom cert")
+
+	return nil
+}
+
+// This section is intended for regenerating StorageSecret using new data.
+func (r *KServeCustomCACertReconciler) deleteStorageSecret(ctx context.Context, namespace string) error {
+	foundStorageSecret := &corev1.Secret{}
+
+	err := r.Get(ctx, types.NamespacedName{
+		Name:      constants.DefaultStorageConfig,
+		Namespace: namespace,
+	}, foundStorageSecret)
+
+	if err == nil && foundStorageSecret.Labels["opendatahub.io/managed"] == "true" {
+		err = r.Delete(ctx, foundStorageSecret)
+		if err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
+func isAdded(desiredConfigMap *corev1.ConfigMap, existingConfigMap *corev1.ConfigMap) bool {
+	fmt.Println("utils.IsNil(existingConfigMap)")
+	fmt.Println(utils.IsNil(existingConfigMap))
+	fmt.Println("existingConfigMap == nil")
+	fmt.Println(existingConfigMap == nil)
+	return desiredConfigMap.Data[kserveCustomCACertFileName] != "" && utils.IsNil(existingConfigMap)
+}
+
+func isUpdated(desiredConfigMap *corev1.ConfigMap, existingConfigMap *corev1.ConfigMap) bool {
+	return utils.IsNotNil(existingConfigMap) && desiredConfigMap.Data[kserveCustomCACertFileName] != "" && !reflect.DeepEqual(desiredConfigMap.Data, existingConfigMap.Data)
+}
+
+func isRemoved(desiredConfigMap *corev1.ConfigMap, existingConfigMap *corev1.ConfigMap) bool {
+	return utils.IsNotNil(existingConfigMap) && desiredConfigMap.Data[kserveCustomCACertFileName] == ""
 }

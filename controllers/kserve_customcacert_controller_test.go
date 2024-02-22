@@ -17,13 +17,14 @@ package controllers
 
 import (
 	"context"
+	"reflect"
+	"time"
+
 	. "github.com/onsi/ginkgo"
 	. "github.com/onsi/gomega"
 	"github.com/opendatahub-io/odh-model-controller/controllers/constants"
 	corev1 "k8s.io/api/core/v1"
-	"reflect"
 	"sigs.k8s.io/controller-runtime/pkg/client"
-	"time"
 )
 
 const (
