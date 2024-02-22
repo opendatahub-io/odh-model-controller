@@ -26,12 +26,15 @@ import (
 
 	. "github.com/onsi/ginkgo"
 	. "github.com/onsi/gomega"
+	"github.com/opendatahub-io/odh-model-controller/controllers/constants"
 )
 
 const (
-	dataconnectionStringPath          = "./testdata/secrets/dataconnection-string.yaml"
-	storageconfigEncodedPath          = "./testdata/secrets/storageconfig-encoded.yaml"
-	storageconfigEncodedUnmanagedPath = "./testdata/secrets/storageconfig-encoded-unmanaged.yaml"
+	dataconnectionStringPath            = "./testdata/secrets/dataconnection-string.yaml"
+	storageconfigEncodedPath            = "./testdata/secrets/storageconfig-encoded.yaml"
+	storageconfigEncodedUnmanagedPath   = "./testdata/secrets/storageconfig-encoded-unmanaged.yaml"
+	storageconfigCertEncodedPath        = "./testdata/secrets/storageconfig-cert-encoded.yaml"
+	storageconfigUpdatedCertEncodedPath = "./testdata/secrets/storageconfig-updated-cert-encoded.yaml"
 )
 
 var _ = Describe("StorageConfig controller", func() {
@@ -46,13 +49,12 @@ var _ = Describe("StorageConfig controller", func() {
 			Expect(err).NotTo(HaveOccurred())
 			Expect(cli.Create(ctx, dataconnectionStringSecret)).Should(Succeed())
 
-			storegeconfigSecret, err := waitForSecret(cli, WorkingNamespace, "storage-config", 30*time.Second)
+			storegeconfigSecret, err := waitForSecret(cli, WorkingNamespace, constants.DefaultStorageConfig, 30*time.Second)
 			Expect(err).NotTo(HaveOccurred())
 
 			expectedStorageConfigSecret := &corev1.Secret{}
 			err = convertToStructuredResource(storageconfigEncodedPath, expectedStorageConfigSecret)
 			Expect(err).NotTo(HaveOccurred())
-
 			Expect(compareSecrets(storegeconfigSecret, expectedStorageConfigSecret)).Should((BeTrue()))
 		})
 	})
@@ -67,12 +69,12 @@ var _ = Describe("StorageConfig controller", func() {
 			Expect(cli.Create(ctx, dataconnectionStringSecret)).Should(Succeed())
 
 			storageconfigSecret := &corev1.Secret{}
-			storageconfigSecret, err = waitForSecret(cli, WorkingNamespace, "storage-config", 30*time.Second)
+			_, err = waitForSecret(cli, WorkingNamespace, constants.DefaultStorageConfig, 30*time.Second)
 			Expect(err).NotTo(HaveOccurred())
 
 			err = updateSecretLabel(cli, WorkingNamespace, storageSecretName, "opendatahub.io/managed", "false")
 			Expect(err).NotTo(HaveOccurred())
-			storageconfigSecret, err = waitForSecret(cli, WorkingNamespace, storageSecretName, 30*time.Second)
+			_, err = waitForSecret(cli, WorkingNamespace, storageSecretName, 30*time.Second)
 			Expect(err).NotTo(HaveOccurred())
 
 			err = updateSecretData(cli, WorkingNamespace, storageSecretName, "aws-connection-minio", "unmanaged")
@@ -84,8 +86,50 @@ var _ = Describe("StorageConfig controller", func() {
 			expectedStorageConfigSecret := &corev1.Secret{}
 			err = convertToStructuredResource(storageconfigEncodedUnmanagedPath, expectedStorageConfigSecret)
 			Expect(err).NotTo(HaveOccurred())
-
 			Expect(compareSecrets(storageconfigSecret, expectedStorageConfigSecret)).Should((BeTrue()))
+		})
+	})
+
+	Context("when a configmap 'odh-trusted-ca-bundle' exists or updates", func() {
+		It("should add/update certificate keys into storage-config secret", func() {
+			dataconnectionStringSecret := &corev1.Secret{}
+
+			By("creating odh-trusted-ca-bundle configmap")
+			odhtrustedcabundleConfigMap := &corev1.ConfigMap{}
+			err := convertToStructuredResource(odhtrustedcabundleConfigMapPath, odhtrustedcabundleConfigMap)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(cli.Create(ctx, odhtrustedcabundleConfigMap)).Should(Succeed())
+
+			By("creating dataconnection secret")
+			err = convertToStructuredResource(dataconnectionStringPath, dataconnectionStringSecret)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(cli.Create(ctx, dataconnectionStringSecret)).Should(Succeed())
+
+			storageconfigSecret, err := waitForSecret(cli, WorkingNamespace, constants.DefaultStorageConfig, 30*time.Second)
+			Expect(err).NotTo(HaveOccurred())
+
+			// Check storage-config secret
+			expectedStorageConfigSecret := &corev1.Secret{}
+			err = convertToStructuredResource(storageconfigCertEncodedPath, expectedStorageConfigSecret)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(compareSecrets(storageconfigSecret, expectedStorageConfigSecret)).Should((BeTrue()))
+
+			By("updating odh-trusted-ca-bundle configmap")
+			updatedOdhtrustedcacertConfigMap := &corev1.ConfigMap{}
+			err = convertToStructuredResource(odhtrustedcabundleConfigMapUpdatedPath, updatedOdhtrustedcacertConfigMap)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(cli.Update(ctx, updatedOdhtrustedcacertConfigMap)).Should(Succeed())
+
+			// Wait for updating Secret
+			time.Sleep(2 * time.Second)
+			// Check updated storage-config secret
+			updatedStorageconfigSecret, err := waitForSecret(cli, WorkingNamespace, constants.DefaultStorageConfig, 30*time.Second)
+			Expect(err).NotTo(HaveOccurred())
+			expectedUpdatedStorageConfigSecret := &corev1.Secret{}
+			err = convertToStructuredResource(storageconfigUpdatedCertEncodedPath, expectedUpdatedStorageConfigSecret)
+			Expect(err).NotTo(HaveOccurred())
+
+			Expect(compareSecrets(updatedStorageconfigSecret, expectedUpdatedStorageConfigSecret)).Should((BeTrue()))
 		})
 	})
 })
@@ -140,6 +184,8 @@ func waitForSecret(cli client.Client, namespace, secretName string, timeout time
 	ctx, cancel := context.WithTimeout(context.Background(), timeout)
 	defer cancel()
 
+	// Wait for updating Secret
+	time.Sleep(1 * time.Second)
 	for {
 		secret := &corev1.Secret{}
 		err := cli.Get(ctx, client.ObjectKey{Namespace: namespace, Name: secretName}, secret)
@@ -154,7 +200,7 @@ func waitForSecret(cli client.Client, namespace, secretName string, timeout time
 	}
 }
 
-// compareSecrets checks if two Secret data are equal, if not return false
+// // compareSecrets checks if two Secret data are equal, if not return false
 func compareSecrets(s1 *corev1.Secret, s2 *corev1.Secret) bool {
 	// Two Secret will be equal if the data is identical
 	return reflect.DeepEqual(s1.Data, s2.Data)
