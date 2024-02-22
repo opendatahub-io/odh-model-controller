@@ -29,6 +29,8 @@ type ModelMeshInferenceServiceReconciler struct {
 	routeReconciler              *ModelMeshRouteReconciler
 	serviceAccountReconciler     *ModelMeshServiceAccountReconciler
 	clusterRoleBindingReconciler *ModelMeshClusterRoleBindingReconciler
+	controllerNetworkPolicy      *MMControllerNetworkPolicyReconciler
+	routeNetworkPolicy           *MMRouteNetworkPolicyReconciler
 }
 
 func NewModelMeshInferenceServiceReconciler(client client.Client, scheme *runtime.Scheme) *ModelMeshInferenceServiceReconciler {
@@ -37,6 +39,8 @@ func NewModelMeshInferenceServiceReconciler(client client.Client, scheme *runtim
 		routeReconciler:              NewModelMeshRouteReconciler(client, scheme),
 		serviceAccountReconciler:     NewModelMeshServiceAccountReconciler(client, scheme),
 		clusterRoleBindingReconciler: NewModelMeshClusterRoleBindingReconciler(client, scheme),
+		controllerNetworkPolicy:      NewMMControllerNetworkPolicyReconciler(client, scheme),
+		routeNetworkPolicy:           NewMMRouteNetworkPolicyReconciler(client, scheme),
 	}
 }
 
@@ -56,6 +60,17 @@ func (r *ModelMeshInferenceServiceReconciler) Reconcile(ctx context.Context, log
 	if err := r.clusterRoleBindingReconciler.Reconcile(ctx, log, isvc); err != nil {
 		return err
 	}
+
+	log.V(1).Info("Reconciling NetworkPolicy to allow traffic from Controller")
+	if err := r.controllerNetworkPolicy.Reconcile(ctx, log, isvc); err != nil {
+		return err
+	}
+
+	log.V(1).Info("Reconciling NetworkPolicy to allow traffic from external routes")
+	if err := r.routeNetworkPolicy.Reconcile(ctx, log, isvc); err != nil {
+		return err
+	}
+
 	return nil
 }
 
@@ -82,6 +97,16 @@ func (r *ModelMeshInferenceServiceReconciler) DeleteModelMeshResourcesIfNoMMIsvc
 
 		log.V(1).Info("Deleting ClusterRoleBinding object for target namespace")
 		if err := r.clusterRoleBindingReconciler.DeleteClusterRoleBinding(ctx, isvcNamespace); err != nil {
+			return err
+		}
+
+		log.V(1).Info("Deleting Controller network policy object for target namespace")
+		if err := r.controllerNetworkPolicy.DeleteMMControllerNetworkPolicy(ctx, isvcNamespace); err != nil {
+			return err
+		}
+
+		log.V(1).Info("Deleting Route network policy object for target namespace")
+		if err := r.routeNetworkPolicy.DeleteMMRouteNetworkPolicy(ctx, isvcNamespace); err != nil {
 			return err
 		}
 	}
