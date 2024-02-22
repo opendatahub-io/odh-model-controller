@@ -17,7 +17,6 @@ package controllers
 
 import (
 	"context"
-	"fmt"
 	"reflect"
 
 	"github.com/go-logr/logr"
@@ -50,7 +49,18 @@ type KServeCustomCACertReconciler struct {
 func (r *KServeCustomCACertReconciler) reconcileConfigMap(configmap *corev1.ConfigMap, ctx context.Context) error {
 	// Initialize logger format
 	log := r.Log
-	odhCustomCertData := configmap.Data[constants.ODHCustomCACertFileName]
+
+	var odhCustomCertData string
+	// If kserve custom cert configmap changed, rollback it
+	if configmap.Name == kserveCustomCACertConfigMapName {
+		odhCustomCertConfigMap := &corev1.ConfigMap{}
+		err := r.Get(ctx, types.NamespacedName{Name: odhGlobalCACertConfigMapName, Namespace: configmap.Namespace}, odhCustomCertConfigMap)
+		if err != nil {
+			return err
+		}
+		configmap = odhCustomCertConfigMap
+	}
+	odhCustomCertData = configmap.Data[constants.ODHCustomCACertFileName]
 
 	// Create Desired resource
 	configData := map[string]string{kserveCustomCACertFileName: odhCustomCertData}
@@ -75,7 +85,7 @@ func (r *KServeCustomCACertReconciler) reconcileConfigMap(configmap *corev1.Conf
 }
 
 func checkOpenDataHubGlobalCertCAConfigMapName(objectName string) bool {
-	return objectName == odhGlobalCACertConfigMapName
+	return objectName == odhGlobalCACertConfigMapName || objectName == kserveCustomCACertConfigMapName
 }
 
 // reconcileOpenDataHubGlobalCertConfigMap filters out all ConfigMaps that are not the OpenDataHub global certificate ConfigMap.
@@ -152,7 +162,7 @@ func (r *KServeCustomCACertReconciler) processDelta(ctx context.Context, log log
 
 	if isAdded(desiredConfigMap, existingConfigMap) {
 		hasChanged = true
-		log.V(0).Info("Delta found", "create", desiredConfigMap.GetName())
+		log.V(1).Info("Delta found", "create", desiredConfigMap.GetName())
 		if err = r.Create(ctx, desiredConfigMap); err != nil {
 			return err
 		}
@@ -160,7 +170,7 @@ func (r *KServeCustomCACertReconciler) processDelta(ctx context.Context, log log
 
 	if isUpdated(desiredConfigMap, existingConfigMap) {
 		hasChanged = true
-		log.V(0).Info("Delta found", "update", existingConfigMap.GetName())
+		log.V(1).Info("Delta found", "update", existingConfigMap.GetName())
 		rp := desiredConfigMap.DeepCopy()
 		rp.Labels = existingConfigMap.Labels
 
@@ -171,14 +181,14 @@ func (r *KServeCustomCACertReconciler) processDelta(ctx context.Context, log log
 
 	if isRemoved(desiredConfigMap, existingConfigMap) {
 		hasChanged = true
-		log.V(0).Info("Delta found", "delete", existingConfigMap.GetName())
+		log.V(1).Info("Delta found", "delete", existingConfigMap.GetName())
 		if err = r.Delete(ctx, existingConfigMap); err != nil {
 			return err
 		}
 	}
 
 	if !hasChanged {
-		log.V(0).Info("No delta found")
+		log.V(1).Info("No delta found")
 		return nil
 	}
 
@@ -186,7 +196,7 @@ func (r *KServeCustomCACertReconciler) processDelta(ctx context.Context, log log
 		log.Error(err, "Failed to delete the storage-config secret to update the custom cert")
 		return err
 	}
-	log.V(0).Info("Deleted the storage-config Secret to update the custom cert")
+	log.V(1).Info("Deleted the storage-config Secret to update the custom cert")
 
 	return nil
 }
@@ -211,10 +221,6 @@ func (r *KServeCustomCACertReconciler) deleteStorageSecret(ctx context.Context, 
 }
 
 func isAdded(desiredConfigMap *corev1.ConfigMap, existingConfigMap *corev1.ConfigMap) bool {
-	fmt.Println("utils.IsNil(existingConfigMap)")
-	fmt.Println(utils.IsNil(existingConfigMap))
-	fmt.Println("existingConfigMap == nil")
-	fmt.Println(existingConfigMap == nil)
 	return desiredConfigMap.Data[kserveCustomCACertFileName] != "" && utils.IsNil(existingConfigMap)
 }
 
