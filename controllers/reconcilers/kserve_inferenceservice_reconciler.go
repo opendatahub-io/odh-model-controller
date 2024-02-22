@@ -17,6 +17,7 @@ package reconcilers
 
 import (
 	"context"
+
 	"github.com/go-logr/logr"
 	kservev1beta1 "github.com/kserve/kserve/pkg/apis/serving/v1beta1"
 	"github.com/opendatahub-io/odh-model-controller/controllers/utils"
@@ -36,6 +37,7 @@ type KserveInferenceServiceReconciler struct {
 	istioPodMonitorReconciler         *KserveIstioPodMonitorReconciler
 	istioPeerAuthenticationReconciler *KserveIstioPeerAuthenticationReconciler
 	networkPolicyReconciler           *KserveNetworkPolicyReconciler
+	authConfigReconciler              *KserveAuthConfigReconciler
 }
 
 func NewKServeInferenceServiceReconciler(client client.Client, scheme *runtime.Scheme) *KserveInferenceServiceReconciler {
@@ -51,6 +53,7 @@ func NewKServeInferenceServiceReconciler(client client.Client, scheme *runtime.S
 		istioPodMonitorReconciler:         NewKServeIstioPodMonitorReconciler(client, scheme),
 		istioPeerAuthenticationReconciler: NewKServeIstioPeerAuthenticationReconciler(client, scheme),
 		networkPolicyReconciler:           NewKServeNetworkPolicyReconciler(client, scheme),
+		authConfigReconciler:              NewKserveAuthConfigReconciler(client, scheme),
 	}
 }
 
@@ -93,6 +96,11 @@ func (r *KserveInferenceServiceReconciler) Reconcile(ctx context.Context, log lo
 	}
 
 	//  Resource created for each ISVC resource
+	log.V(1).Info("Reconciling Authorino AuthConfig for InferenceService")
+	if err := r.authConfigReconciler.Reconcile(ctx, log, isvc); err != nil {
+		return err
+	}
+
 	log.V(1).Info("Reconciling Generic Route for Kserve InferenceService")
 	if err := r.routeReconciler.Reconcile(ctx, log, isvc); err != nil {
 		return err
@@ -113,7 +121,15 @@ func (r *KserveInferenceServiceReconciler) Reconcile(ctx context.Context, log lo
 
 func (r *KserveInferenceServiceReconciler) OnDeletionOfKserveInferenceService(ctx context.Context, log logr.Logger, isvc *kservev1beta1.InferenceService) error {
 	log.V(1).Info("Deleting Kserve inference service generic route")
-	return r.routeReconciler.DeleteRoute(ctx, isvc)
+	if err := r.routeReconciler.DeleteRoute(ctx, isvc); err != nil {
+		return err
+	}
+
+	log.V(1).Info("Deleting Kserve inference service authorino authconfig entry")
+	if err := r.authConfigReconciler.Remove(ctx, log, isvc); err != nil {
+		return err
+	}
+	return nil
 }
 
 func (r *KserveInferenceServiceReconciler) DeleteKserveMetricsResourcesIfNoKserveIsvcExists(ctx context.Context, log logr.Logger, isvcNamespace string) error {

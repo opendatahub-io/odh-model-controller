@@ -8,9 +8,11 @@ rules:
 - apiGroups:
   - ""
   resources:
+  - configmaps
   - endpoints
   - namespaces
   - pods
+  - secrets
   - services
   verbs:
   - create
@@ -22,9 +24,19 @@ rules:
 - apiGroups:
   - ""
   resources:
-  - secrets
-  - configmaps
   - serviceaccounts
+  verbs:
+  - create
+  - delete
+  - get
+  - list
+  - patch
+  - update
+  - watch
+- apiGroups:
+  - authorino.kuadrant.io
+  resources:
+  - authconfigs
   verbs:
   - create
   - delete
@@ -196,6 +208,7 @@ rules:
   verbs:
   - get
   - list
+  - update
   - watch
 - apiGroups:
   - serving.kserve.io

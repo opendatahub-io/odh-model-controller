@@ -20,6 +20,20 @@ const (
 	IstioIngressService              = "istio-ingressgateway"
 	IstioIngressServiceHTTPPortName  = "http2"
 	IstioIngressServiceHTTPSPortName = "https"
+
+	LabelAuthGroup     = "security.opendatahub.io/authorization-group"
+	LabelEnableAuthODH = "security.opendatahub.io/enable-auth"
+	LabelEnableAuth    = "enable-auth"
+	LabelEnableRoute   = "enable-route"
+)
+
+// model registry
+const (
+	MLMDAddressEnv                       = "MLMD_ADDRESS"
+	ModelRegistryNamespaceLabel          = "modelregistry.opendatahub.io/namespace"
+	ModelRegistryInferenceServiceIdLabel = "modelregistry.opendatahub.io/inference-service-id"
+	ModelRegistryModelVersionIdLabel     = "modelregistry.opendatahub.io/model-version-id"
+	ModelRegistryRegisteredModelIdLabel  = "modelregistry.opendatahub.io/registered-model-id"
 )
 
 const (
