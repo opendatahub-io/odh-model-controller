@@ -21,3 +21,14 @@ const (
 	IstioIngressServiceHTTPPortName  = "http2"
 	IstioIngressServiceHTTPSPortName = "https"
 )
+
+const (
+	KServeCACertFileName       = "cabundle.crt"
+	KServeCACertConfigMapName  = "odh-kserve-custom-ca-bundle"
+	ODHGlobalCertConfigMapName = "odh-trusted-ca-bundle"
+	ODHCustomCACertFileName    = "odh-ca-bundle.crt"
+)
+
+const (
+	DefaultStorageConfig = "storage-config"
+)
