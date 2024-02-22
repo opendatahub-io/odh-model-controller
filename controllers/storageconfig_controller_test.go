@@ -200,7 +200,7 @@ func waitForSecret(cli client.Client, namespace, secretName string, timeout time
 	}
 }
 
-// // compareSecrets checks if two Secret data are equal, if not return false
+// compareSecrets checks if two Secret data are equal, if not return false
 func compareSecrets(s1 *corev1.Secret, s2 *corev1.Secret) bool {
 	// Two Secret will be equal if the data is identical
 	return reflect.DeepEqual(s1.Data, s2.Data)
