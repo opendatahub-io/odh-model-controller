@@ -92,12 +92,11 @@ func (r *StorageSecretReconciler) reconcileSecret(secret *corev1.Secret,
 	}
 	err := r.List(ctx, dataConnectionSecretsList, opts...)
 	if err != nil {
-		if apierrs.IsNotFound(err) {
-			log.Info("No data connections found in namespace ", secret.Namespace)
-			return nil
-		} else {
-			return err
-		}
+		return err
+	}
+	if len(dataConnectionSecretsList.Items) == 0 {
+		log.Info("No data connections found in namespace")
+		return nil
 	}
 
 	odhCustomCertData := ""
@@ -183,7 +182,7 @@ func reconcileOpenDataHubSecrets() predicate.Predicate {
 		CreateFunc: func(e event.CreateEvent) bool {
 			objectLabels := e.Object.GetLabels()
 			return checkOpenDataHubLabel(objectLabels)
-		},		
+		},
 		DeleteFunc: func(e event.DeleteEvent) bool {
 			objectLabels := e.Object.GetLabels()
 			return checkOpenDataHubLabel(objectLabels)
