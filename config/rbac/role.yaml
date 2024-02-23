@@ -8,11 +8,9 @@ rules:
 - apiGroups:
   - ""
   resources:
-  - configmaps
   - endpoints
   - namespaces
   - pods
-  - secrets
   - services
   verbs:
   - create
@@ -24,6 +22,8 @@ rules:
 - apiGroups:
   - ""
   resources:
+  - secrets
+  - configmaps
   - serviceaccounts
   verbs:
   - create
