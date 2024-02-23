@@ -24,6 +24,7 @@ require (
 	knative.dev/serving v0.37.1
 	maistra.io/api v0.0.0-20230417135504-0536f6c22b1c
 	sigs.k8s.io/controller-runtime v0.14.6
+	sigs.k8s.io/yaml v1.3.0
 )
 
 require (
@@ -105,7 +106,6 @@ require (
 	knative.dev/networking v0.0.0-20231017124814-2a7676e912b7 // indirect
 	sigs.k8s.io/json v0.0.0-20221116044647-bc3834ca7abd // indirect
 	sigs.k8s.io/structured-merge-diff/v4 v4.2.3 // indirect
-	sigs.k8s.io/yaml v1.3.0 // indirect
 )
 
 replace (

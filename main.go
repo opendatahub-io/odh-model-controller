@@ -134,6 +134,15 @@ func main() {
 		os.Exit(1)
 	}
 
+	if err = (&controllers.KServeCustomCACertReconciler{
+		Client: mgr.GetClient(),
+		Log:    ctrl.Log.WithName("controllers").WithName("KServeCustomeCABundleConfigMap"),
+		Scheme: mgr.GetScheme(),
+	}).SetupWithManager(mgr); err != nil {
+		setupLog.Error(err, "unable to create controller", "controller", "KServeCustomeCABundleConfigMap")
+		os.Exit(1)
+	}
+
 	if monitoringNS != "" {
 		setupLog.Info("Monitoring namespace provided, setting up monitoring controller.")
 		if err = (&controllers.MonitoringReconciler{

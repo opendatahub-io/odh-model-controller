@@ -35,3 +35,14 @@ const (
 	ModelRegistryModelVersionIdLabel     = "modelregistry.opendatahub.io/model-version-id"
 	ModelRegistryRegisteredModelIdLabel  = "modelregistry.opendatahub.io/registered-model-id"
 )
+
+const (
+	KServeCACertFileName       = "cabundle.crt"
+	KServeCACertConfigMapName  = "odh-kserve-custom-ca-bundle"
+	ODHGlobalCertConfigMapName = "odh-trusted-ca-bundle"
+	ODHCustomCACertFileName    = "odh-ca-bundle.crt"
+)
+
+const (
+	DefaultStorageConfig = "storage-config"
+)
