@@ -17,6 +17,7 @@ package controllers
 
 import (
 	"context"
+	"fmt"
 	"log"
 	"reflect"
 	"time"
@@ -27,6 +28,7 @@ import (
 	. "github.com/onsi/ginkgo"
 	. "github.com/onsi/gomega"
 	"github.com/opendatahub-io/odh-model-controller/controllers/constants"
+	apierrs "k8s.io/apimachinery/pkg/api/errors"
 )
 
 const (
@@ -49,13 +51,64 @@ var _ = Describe("StorageConfig controller", func() {
 			Expect(err).NotTo(HaveOccurred())
 			Expect(cli.Create(ctx, dataconnectionStringSecret)).Should(Succeed())
 
-			storegeconfigSecret, err := waitForSecret(cli, WorkingNamespace, constants.DefaultStorageConfig, 30*time.Second)
+			storegeconfigSecret, err := waitForSecret(cli, WorkingNamespace, constants.DefaultStorageConfig, 30, 1*time.Second)
 			Expect(err).NotTo(HaveOccurred())
 
 			expectedStorageConfigSecret := &corev1.Secret{}
 			err = convertToStructuredResource(storageconfigEncodedPath, expectedStorageConfigSecret)
 			Expect(err).NotTo(HaveOccurred())
 			Expect(compareSecrets(storegeconfigSecret, expectedStorageConfigSecret)).Should((BeTrue()))
+		})
+	})
+
+	Context("when all dataconnection secret that has 'opendatahub.io/managed=true' and 'opendatahub.io/dashboard=true' are removed", func() {
+		It("should delete existing storage-config secret if the secret has 'opendatahub.io/managed=true'", func() {
+			dataconnectionStringSecret := &corev1.Secret{}
+
+			By("creating dataconnection secret")
+			err := convertToStructuredResource(dataconnectionStringPath, dataconnectionStringSecret)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(cli.Create(ctx, dataconnectionStringSecret)).Should(Succeed())
+
+			storegeconfigSecret, err := waitForSecret(cli, WorkingNamespace, constants.DefaultStorageConfig, 30, 1*time.Second)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(storegeconfigSecret).NotTo(BeNil())
+
+			By("deleting the dataconnection secret")
+			Expect(err).NotTo(HaveOccurred())
+			Expect(cli.Delete(ctx, dataconnectionStringSecret)).Should(Succeed())
+
+			storegeconfigSecret, err = waitForSecret(cli, WorkingNamespace, constants.DefaultStorageConfig, 30, 1*time.Second)
+			Expect(storegeconfigSecret).To(BeNil())
+			Expect(err).To(HaveOccurred())
+			Expect(err).To(BeAssignableToTypeOf(&apierrs.StatusError{}))
+		})
+
+		It("should not delete existing storage-config secret if the secret has not 'opendatahub.io/managed=true'", func() {
+			dataconnectionStringSecret := &corev1.Secret{}
+
+			By("creating dataconnection secret")
+			err := convertToStructuredResource(dataconnectionStringPath, dataconnectionStringSecret)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(cli.Create(ctx, dataconnectionStringSecret)).Should(Succeed())
+
+			storegeconfigSecret, err := waitForSecret(cli, WorkingNamespace, constants.DefaultStorageConfig, 30, 1*time.Second)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(storegeconfigSecret).NotTo(BeNil())
+
+			By("updating storage-config label opendatahub.io/managed: false")
+			err = updateSecretLabel(cli, WorkingNamespace, storageSecretName, "opendatahub.io/managed", "false")
+			Expect(err).NotTo(HaveOccurred())
+			_, err = waitForSecret(cli, WorkingNamespace, storageSecretName, 30, 1*time.Second)
+			Expect(err).NotTo(HaveOccurred())
+
+			By("deleting the dataconnection secret")
+			Expect(err).NotTo(HaveOccurred())
+			Expect(cli.Delete(ctx, dataconnectionStringSecret)).Should(Succeed())
+
+			storegeconfigSecret, err = waitForSecret(cli, WorkingNamespace, constants.DefaultStorageConfig, 30, 1*time.Second)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(storegeconfigSecret).NotTo(BeNil())
 		})
 	})
 
@@ -69,18 +122,18 @@ var _ = Describe("StorageConfig controller", func() {
 			Expect(cli.Create(ctx, dataconnectionStringSecret)).Should(Succeed())
 
 			storageconfigSecret := &corev1.Secret{}
-			_, err = waitForSecret(cli, WorkingNamespace, constants.DefaultStorageConfig, 30*time.Second)
+			_, err = waitForSecret(cli, WorkingNamespace, constants.DefaultStorageConfig, 30, 1*time.Second)
 			Expect(err).NotTo(HaveOccurred())
 
 			err = updateSecretLabel(cli, WorkingNamespace, storageSecretName, "opendatahub.io/managed", "false")
 			Expect(err).NotTo(HaveOccurred())
-			_, err = waitForSecret(cli, WorkingNamespace, storageSecretName, 30*time.Second)
+			_, err = waitForSecret(cli, WorkingNamespace, storageSecretName, 30, 1*time.Second)
 			Expect(err).NotTo(HaveOccurred())
 
 			err = updateSecretData(cli, WorkingNamespace, storageSecretName, "aws-connection-minio", "unmanaged")
 			Expect(err).NotTo(HaveOccurred())
 
-			storageconfigSecret, err = waitForSecret(cli, WorkingNamespace, storageSecretName, 30*time.Second)
+			storageconfigSecret, err = waitForSecret(cli, WorkingNamespace, storageSecretName, 30, 1*time.Second)
 			Expect(err).NotTo(HaveOccurred())
 
 			expectedStorageConfigSecret := &corev1.Secret{}
@@ -105,7 +158,7 @@ var _ = Describe("StorageConfig controller", func() {
 			Expect(err).NotTo(HaveOccurred())
 			Expect(cli.Create(ctx, dataconnectionStringSecret)).Should(Succeed())
 
-			storageconfigSecret, err := waitForSecret(cli, WorkingNamespace, constants.DefaultStorageConfig, 30*time.Second)
+			storageconfigSecret, err := waitForSecret(cli, WorkingNamespace, constants.DefaultStorageConfig, 30, 1*time.Second)
 			Expect(err).NotTo(HaveOccurred())
 
 			// Check storage-config secret
@@ -120,10 +173,8 @@ var _ = Describe("StorageConfig controller", func() {
 			Expect(err).NotTo(HaveOccurred())
 			Expect(cli.Update(ctx, updatedOdhtrustedcacertConfigMap)).Should(Succeed())
 
-			// Wait for updating Secret
-			time.Sleep(2 * time.Second)
 			// Check updated storage-config secret
-			updatedStorageconfigSecret, err := waitForSecret(cli, WorkingNamespace, constants.DefaultStorageConfig, 30*time.Second)
+			updatedStorageconfigSecret, err := waitForSecret(cli, WorkingNamespace, constants.DefaultStorageConfig, 30, 3*time.Second)
 			Expect(err).NotTo(HaveOccurred())
 			expectedUpdatedStorageConfigSecret := &corev1.Secret{}
 			err = convertToStructuredResource(storageconfigUpdatedCertEncodedPath, expectedUpdatedStorageConfigSecret)
@@ -177,27 +228,30 @@ func updateSecretLabel(cli client.Client, namespace, secretName string, labelKey
 		log.Printf("Error updating Secret: %v\n", err)
 		return err
 	}
+	log.Printf("Updated Secret label: %s: %s\n", labelKey, labelValue)
 	return nil
 }
 
-func waitForSecret(cli client.Client, namespace, secretName string, timeout time.Duration) (*corev1.Secret, error) {
-	ctx, cancel := context.WithTimeout(context.Background(), timeout)
-	defer cancel()
+func waitForSecret(cli client.Client, namespace, secretName string, maxTries int, delay time.Duration) (*corev1.Secret, error) {
+	time.Sleep(delay)
 
-	// Wait for updating Secret
-	time.Sleep(1 * time.Second)
-	for {
-		secret := &corev1.Secret{}
+	ctx := context.Background()
+	secret := &corev1.Secret{}
+	for try := 1; try <= maxTries; try++ {
 		err := cli.Get(ctx, client.ObjectKey{Namespace: namespace, Name: secretName}, secret)
-		if err != nil {
-			log.Printf("Waiting for Secret %s/%s to be created: %v", namespace, secretName, err)
-			time.Sleep(1 * time.Second)
-			continue
+		if err == nil {
+			return secret, nil
 		}
-		log.Printf("Secret %s/%s is created", secret.Namespace, secret.Name)
+		if !apierrs.IsNotFound(err) {
+			return nil, fmt.Errorf("failed to get secret %s/%s: %v", namespace, secretName, err)
+		}
 
-		return secret, nil
+		if try < maxTries {
+			time.Sleep(1 * time.Second)
+			return nil, err
+		}
 	}
+	return secret, nil
 }
 
 // compareSecrets checks if two Secret data are equal, if not return false
