@@ -1,8 +1,9 @@
 package utils
 
 import (
-	kservev1beta1 "github.com/kserve/kserve/pkg/apis/serving/v1beta1"
 	"reflect"
+
+	kservev1beta1 "github.com/kserve/kserve/pkg/apis/serving/v1beta1"
 )
 
 const (
