@@ -95,6 +95,8 @@ func (r *StorageSecretReconciler) reconcileSecret(secret *corev1.Secret,
 		if apierrs.IsNotFound(err) {
 			log.Info("No data connections found in namespace ", secret.Namespace)
 			return nil
+		} else {
+			return err
 		}
 	}
 
