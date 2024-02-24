@@ -18,13 +18,14 @@ package controllers
 import (
 	"context"
 	"fmt"
-	"github.com/opendatahub-io/odh-model-controller/controllers/constants"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"os"
 	"path/filepath"
-	"sigs.k8s.io/yaml"
 	"testing"
 	"time"
+
+	"github.com/opendatahub-io/odh-model-controller/controllers/constants"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"sigs.k8s.io/yaml"
 
 	kservev1alpha1 "github.com/kserve/kserve/pkg/apis/serving/v1alpha1"
 	kservev1beta1 "github.com/kserve/kserve/pkg/apis/serving/v1beta1"
@@ -65,20 +66,21 @@ var (
 )
 
 const (
-	WorkingNamespace            = "default"
-	MonitoringNS                = "monitoring-ns"
-	RoleBindingPath             = "./testdata/results/model-server-ns-role.yaml"
-	ServingRuntimePath1         = "./testdata/deploy/test-openvino-serving-runtime-1.yaml"
-	KserveServingRuntimePath1   = "./testdata/deploy/kserve-openvino-serving-runtime-1.yaml"
-	ServingRuntimePath2         = "./testdata/deploy/test-openvino-serving-runtime-2.yaml"
-	InferenceService1           = "./testdata/deploy/openvino-inference-service-1.yaml"
-	InferenceServiceNoRuntime   = "./testdata/deploy/openvino-inference-service-no-runtime.yaml"
-	KserveInferenceServicePath1 = "./testdata/deploy/kserve-openvino-inference-service-1.yaml"
-	InferenceServiceConfigPath1 = "./testdata/configmaps/inferenceservice-config.yaml"
-	ExpectedRoutePath           = "./testdata/results/example-onnx-mnist-route.yaml"
-	ExpectedRouteNoRuntimePath  = "./testdata/results/example-onnx-mnist-no-runtime-route.yaml"
-	timeout                     = time.Second * 20
-	interval                    = time.Millisecond * 10
+	WorkingNamespace                = "default"
+	MonitoringNS                    = "monitoring-ns"
+	RoleBindingPath                 = "./testdata/results/model-server-ns-role.yaml"
+	ServingRuntimePath1             = "./testdata/deploy/test-openvino-serving-runtime-1.yaml"
+	KserveServingRuntimePath1       = "./testdata/deploy/kserve-openvino-serving-runtime-1.yaml"
+	ServingRuntimePath2             = "./testdata/deploy/test-openvino-serving-runtime-2.yaml"
+	InferenceService1               = "./testdata/deploy/openvino-inference-service-1.yaml"
+	InferenceServiceNoRuntime       = "./testdata/deploy/openvino-inference-service-no-runtime.yaml"
+	KserveInferenceServicePath1     = "./testdata/deploy/kserve-openvino-inference-service-1.yaml"
+	InferenceServiceConfigPath1     = "./testdata/configmaps/inferenceservice-config.yaml"
+	ExpectedRoutePath               = "./testdata/results/example-onnx-mnist-route.yaml"
+	ExpectedRouteNoRuntimePath      = "./testdata/results/example-onnx-mnist-no-runtime-route.yaml"
+	odhtrustedcabundleConfigMapPath = "./testdata/configmaps/odh-trusted-ca-bundle-configmap.yaml"
+	timeout                         = time.Second * 20
+	interval                        = time.Millisecond * 10
 )
 
 func TestAPIs(t *testing.T) {
@@ -171,6 +173,13 @@ var _ = BeforeSuite(func() {
 	}).SetupWithManager(mgr)
 	Expect(err).ToNot(HaveOccurred())
 
+	err = (&KServeCustomCACertReconciler{
+		Client: cli,
+		Log:    ctrl.Log.WithName("controllers").WithName("KServe-Custom-CA-Bundle-ConfigMap-Controller"),
+		Scheme: scheme.Scheme,
+	}).SetupWithManager(mgr)
+	Expect(err).ToNot(HaveOccurred())
+
 	// Start the manager
 	go func() {
 		defer GinkgoRecover()
@@ -196,6 +205,7 @@ var _ = AfterEach(func() {
 	Expect(cli.DeleteAllOf(context.TODO(), &monitoringv1.ServiceMonitor{}, inNamespace)).ToNot(HaveOccurred())
 	Expect(cli.DeleteAllOf(context.TODO(), &k8srbacv1.RoleBinding{}, inNamespace)).ToNot(HaveOccurred())
 	Expect(cli.DeleteAllOf(context.TODO(), &corev1.Secret{}, inNamespace)).ToNot(HaveOccurred())
+	Expect(cli.DeleteAllOf(context.TODO(), &corev1.ConfigMap{}, inNamespace)).ToNot(HaveOccurred())
 
 })
 
