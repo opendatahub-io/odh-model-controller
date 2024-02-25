@@ -24,6 +24,7 @@ import (
 	. "github.com/onsi/gomega"
 	"github.com/opendatahub-io/odh-model-controller/controllers/constants"
 	corev1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"knative.dev/pkg/apis"
@@ -43,6 +44,11 @@ var _ = When("InferenceService is created", func() {
 			},
 		}
 		Expect(cli.Create(ctx, namespace)).Should(Succeed())
+		inferenceServiceConfig := &corev1.ConfigMap{}
+		Expect(convertToStructuredResource(InferenceServiceConfigPath1, inferenceServiceConfig)).To(Succeed())
+		if err := cli.Create(ctx, inferenceServiceConfig); err != nil && !errors.IsAlreadyExists(err) {
+			Fail(err.Error())
+		}
 	})
 	Context("when not ready", func() {
 		BeforeEach(func() {
