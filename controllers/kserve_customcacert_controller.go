@@ -96,7 +96,7 @@ func reconcileOpenDataHubGlobalCACertConfigMap() predicate.Predicate {
 		DeleteFunc: func(e event.DeleteEvent) bool {
 			objectName := e.Object.GetName()
 			return checkOpenDataHubGlobalCertCAConfigMapName(objectName)
-		},		
+		},
 		UpdateFunc: func(e event.UpdateEvent) bool {
 			objectName := e.ObjectNew.GetName()
 			return checkOpenDataHubGlobalCertCAConfigMapName(objectName)
