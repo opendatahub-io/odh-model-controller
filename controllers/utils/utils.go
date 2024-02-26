@@ -37,6 +37,8 @@ func GetDeploymentModeForIsvc(ctx context.Context, cli client.Client, isvc *kser
 			return Serverless, nil
 		case string(RawDeployment):
 			return RawDeployment, nil
+		default:
+			return "", fmt.Errorf("the deployment mode '%s' of the Inference Service is invalid", value)
 		}
 	} else {
 		// ISVC does not specifically set deployment mode using an annotation, determine the default from configmap
@@ -54,13 +56,17 @@ func GetDeploymentModeForIsvc(ctx context.Context, cli client.Client, isvc *kser
 			return "", fmt.Errorf("error retrieving value for key 'deploy' from configmap %s. %w", KserveConfigMapName, err)
 		}
 		defaultDeploymentMode := deployData["defaultDeploymentMode"]
-		if defaultDeploymentMode == string(Serverless) {
+		switch defaultDeploymentMode {
+		case string(ModelMesh):
+			return ModelMesh, nil
+		case string(Serverless):
 			return Serverless, nil
-		} else {
+		case string(RawDeployment):
 			return RawDeployment, nil
+		default:
+			return "", fmt.Errorf("the deployment mode '%s' of the Inference Service is invalid", defaultDeploymentMode)
 		}
 	}
-	return "", nil
 }
 
 func IsNil(i any) bool {
