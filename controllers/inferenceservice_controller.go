@@ -89,12 +89,20 @@ func (r *OpenshiftInferenceServiceReconciler) Reconcile(ctx context.Context, req
 	}
 
 	// Check what deployment mode is used by the InferenceService. We have differing reconciliation logic for Kserve and ModelMesh
-	if utils.IsDeploymentModeForIsvcModelMesh(isvc) {
+	IsvcDeploymentMode, err := utils.GetDeploymentModeForIsvc(ctx, r.client, isvc)
+	if err != nil {
+		return ctrl.Result{}, err
+	}
+	switch IsvcDeploymentMode {
+	case utils.ModelMesh:
 		log.Info("Reconciling InferenceService for ModelMesh")
 		err = r.mmISVCReconciler.Reconcile(ctx, log, isvc)
-	} else {
-		log.Info("Reconciling InferenceService for Kserve")
-		err = r.kserveISVCReconciler.Reconcile(ctx, log, isvc)
+	case utils.Serverless:
+		log.Info("Reconciling InferenceService for Kserve in mode Serverless")
+		err = r.kserveISVCReconciler.ReconcileServerless(ctx, log, isvc)
+	case utils.RawDeployment:
+		log.Info("Reconciling InferenceService for Kserve in mode RawDeployment")
+		err = r.kserveISVCReconciler.ReconcileRawDeployment(ctx, log, isvc)
 	}
 
 	return ctrl.Result{}, err
@@ -156,8 +164,12 @@ func (r *OpenshiftInferenceServiceReconciler) SetupWithManager(mgr ctrl.Manager)
 func (r *OpenshiftInferenceServiceReconciler) onDeletion(ctx context.Context, log logr.Logger, inferenceService *kservev1beta1.InferenceService) error {
 	log.V(1).Info("Running cleanup logic")
 
-	if !utils.IsDeploymentModeForIsvcModelMesh(inferenceService) {
-		log.V(1).Info("Deleting kserve inference resource")
+	IsvcDeploymentMode, err := utils.GetDeploymentModeForIsvc(ctx, r.client, inferenceService)
+	if err != nil {
+		log.V(1).Error(err, "Could not determine deployment mode for ISVC. Some resources related to the inferenceservice might not be deleted.")
+	}
+	if IsvcDeploymentMode == utils.Serverless {
+		log.V(1).Info("Deleting kserve inference resource (Serverless Mode)")
 		return r.kserveISVCReconciler.OnDeletionOfKserveInferenceService(ctx, log, inferenceService)
 	}
 	return nil
