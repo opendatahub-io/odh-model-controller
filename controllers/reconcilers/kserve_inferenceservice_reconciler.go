@@ -148,7 +148,7 @@ func (r *KserveInferenceServiceReconciler) DeleteKserveMetricsResourcesIfNoKserv
 		if err != nil {
 			return err
 		}
-		if isvcDeploymentMode == utils.Serverless {
+		if isvcDeploymentMode != utils.Serverless {
 			inferenceServiceList.Items = append(inferenceServiceList.Items[:i], inferenceServiceList.Items[i+1:]...)
 		}
 	}

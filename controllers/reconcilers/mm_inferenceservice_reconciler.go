@@ -72,7 +72,7 @@ func (r *ModelMeshInferenceServiceReconciler) DeleteModelMeshResourcesIfNoMMIsvc
 		if err != nil {
 			return err
 		}
-		if isvcDeploymentMode == utils.ModelMesh {
+		if isvcDeploymentMode != utils.ModelMesh {
 			inferenceServiceList.Items = append(inferenceServiceList.Items[:i], inferenceServiceList.Items[i+1:]...)
 		}
 	}
