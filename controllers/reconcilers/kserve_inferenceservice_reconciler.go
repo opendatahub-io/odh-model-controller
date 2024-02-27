@@ -54,8 +54,12 @@ func NewKServeInferenceServiceReconciler(client client.Client, scheme *runtime.S
 	}
 }
 
-func (r *KserveInferenceServiceReconciler) Reconcile(ctx context.Context, log logr.Logger, isvc *kservev1beta1.InferenceService) error {
+func (r *KserveInferenceServiceReconciler) ReconcileRawDeployment(ctx context.Context, log logr.Logger, isvc *kservev1beta1.InferenceService) error {
+	log.V(1).Info("No Reconciliation to be done for inferenceservice as it is using RawDeployment mode")
+	return nil
+}
 
+func (r *KserveInferenceServiceReconciler) ReconcileServerless(ctx context.Context, log logr.Logger, isvc *kservev1beta1.InferenceService) error {
 	//  Resource created per namespace
 	log.V(1).Info("Verifying that the default ServiceMeshMemberRoll has the target namespace")
 	if err := r.istioSMMRReconciler.Reconcile(ctx, log, isvc); err != nil {
@@ -124,7 +128,11 @@ func (r *KserveInferenceServiceReconciler) DeleteKserveMetricsResourcesIfNoKserv
 
 	for i := len(inferenceServiceList.Items) - 1; i >= 0; i-- {
 		inferenceService := inferenceServiceList.Items[i]
-		if utils.IsDeploymentModeForIsvcModelMesh(&inferenceService) {
+		isvcDeploymentMode, err := utils.GetDeploymentModeForIsvc(ctx, r.client, &inferenceService)
+		if err != nil {
+			return err
+		}
+		if isvcDeploymentMode != utils.Serverless {
 			inferenceServiceList.Items = append(inferenceServiceList.Items[:i], inferenceServiceList.Items[i+1:]...)
 		}
 	}
