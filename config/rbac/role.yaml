@@ -7,10 +7,21 @@ rules:
 - apiGroups:
   - ""
   resources:
+  - serviceaccounts
+  verbs:
+  - create
+  - get
+  - list
+  - patch
+  - update
+  - watch
+  - delete
+- apiGroups:
+  - ""
+  resources:
   - endpoints
   - namespaces
   - pods
-  - serviceaccounts
   - services
   verbs:
   - create
