@@ -7,13 +7,12 @@ rules:
 - apiGroups:
   - ""
   resources:
-  - endpoints
-  - namespaces
-  - pods
+  - configmaps
+  - secrets
   - serviceaccounts
-  - services
   verbs:
   - create
+  - delete
   - get
   - list
   - patch
@@ -22,11 +21,12 @@ rules:
 - apiGroups:
   - ""
   resources:
-  - configmaps
-  - secrets
+  - endpoints
+  - namespaces
+  - pods
+  - services
   verbs:
   - create
-  - delete
   - get
   - list
   - patch
