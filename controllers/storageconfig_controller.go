@@ -92,12 +92,15 @@ func (r *StorageSecretReconciler) reconcileSecret(secret *corev1.Secret,
 	}
 	err := r.List(ctx, dataConnectionSecretsList, opts...)
 	if err != nil {
-		if apierrs.IsNotFound(err) {
-			log.Info("No data connections found in namespace ", secret.Namespace)
-			return nil
-		} else {
+		return err
+	}
+	if len(dataConnectionSecretsList.Items) == 0 {
+		log.Info("No data connections found in namespace")
+		if err := r.deleteStorageSecret(ctx, secret.Namespace, log); err != nil {
+			log.Error(err, "Failed to delete the storage-config secret")
 			return err
 		}
+		return nil
 	}
 
 	odhCustomCertData := ""
@@ -226,5 +229,24 @@ func (r *StorageSecretReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	if err != nil {
 		return err
 	}
+	return nil
+}
+
+func (r *StorageSecretReconciler) deleteStorageSecret(ctx context.Context, namespace string, log logr.Logger) error {
+	foundStorageSecret := &corev1.Secret{}
+
+	err := r.Get(ctx, types.NamespacedName{
+		Name:      constants.DefaultStorageConfig,
+		Namespace: namespace,
+	}, foundStorageSecret)
+
+	if err == nil && foundStorageSecret.Labels["opendatahub.io/managed"] == "true" {
+		log.Info("Deleting StorageSecret")
+		err = r.Delete(ctx, foundStorageSecret)
+		if err != nil {
+			return err
+		}
+	}
+
 	return nil
 }
