@@ -21,13 +21,6 @@ vars:
       kind: ConfigMap
       name: odh-model-controller-parameters
   - fieldref:
-      fieldPath: data.monitoring-namespace
-    name: monitoring-namespace
-    objref:
-      apiVersion: v1
-      kind: ConfigMap
-      name: odh-model-controller-parameters
-  - fieldref:
       fieldPath: data.odh-model-controller
     name: odh-model-controller
     objref:
