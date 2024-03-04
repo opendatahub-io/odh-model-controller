@@ -174,9 +174,6 @@ func main() {
 			setupLog.Error(err, "unable to create controller", "controller", "MonitoringReconciler")
 			os.Exit(1)
 		}
-	} else {
-		setupLog.Info("Monitoring namespace not provided, skipping setup of monitoring controller. To enable " +
-			"monitoring for ModelServing, please provide a monitoring namespace via the (--monitoring-namespace) flag.")
 	}
 
 	//+kubebuilder:scaffold:builder
