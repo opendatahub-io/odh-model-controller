@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"os"
 	"reflect"
 
@@ -23,6 +24,8 @@ var (
 const (
 	inferenceServiceDeploymentModeAnnotation = "serving.kserve.io/deploymentMode"
 	KserveConfigMapName                      = "inferenceservice-config"
+	dataScienceClusterKind                   = "DataScienceCluster"
+	dataScienceClusterApiVersion             = "datasciencecluster.opendatahub.io/v1"
 )
 
 func GetDeploymentModeForIsvc(ctx context.Context, cli client.Client, isvc *kservev1beta1.InferenceService) (IsvcDeploymentMode, error) {
@@ -66,6 +69,31 @@ func GetDeploymentModeForIsvc(ctx context.Context, cli client.Client, isvc *kser
 		default:
 			return "", fmt.Errorf("the deployment mode '%s' of the Inference Service is invalid", defaultDeploymentMode)
 		}
+	}
+}
+
+// VerifyIfComponentIsEnabled will query the DCS in the cluster and see if the desired componentName is enabled
+func VerifyIfComponentIsEnabled(ctx context.Context, cli client.Client, componentName string) (bool, error) {
+	// Query the custom object
+	objectList := &unstructured.UnstructuredList{}
+	objectList.SetAPIVersion(dataScienceClusterApiVersion)
+	objectList.SetKind(dataScienceClusterKind)
+
+	if err := cli.List(ctx, objectList); err != nil {
+		return false, fmt.Errorf("not able to read %s: %w", objectList, err)
+	}
+
+	// there must be only one dsc
+	if len(objectList.Items) == 1 {
+		fields := []string{"spec", "components", componentName, "managementState"}
+		val, _, err := unstructured.NestedString(objectList.Items[0].Object, fields...)
+		if err != nil {
+			return false, fmt.Errorf("failed to retrieve the component [%s] status from %+v",
+				componentName, objectList.Items[0])
+		}
+		return val == "Managed", nil
+	} else {
+		return false, fmt.Errorf("there is no %s available in the cluster", dataScienceClusterKind)
 	}
 }
 
