@@ -152,17 +152,19 @@ func (r *OpenshiftInferenceServiceReconciler) SetupWithManager(mgr ctrl.Manager)
 			}))
 
 	// check if kserve is enabled, otherwise don't require Authorino.
-	enabled, err := utils.VerifyIfComponentIsEnabled(context.TODO(), r.client, "kserve")
+	enabled, err := utils.VerifyIfComponentIsEnabled(context.TODO(), r.client, utils.KserveAuthorinoComponent)
+	logMessage := "kserve service mesh component is enabled, Authorino is required"
 	if err != nil {
-		r.log.V(1).Error(err, "could not determine if kserve is enabled, default is enabled")
+		r.log.V(1).Error(err, "could not determine if kserve have service mesh enabled")
 		enabled = true
+		logMessage = "could not determine if kserve have service mesh enabled, Authorino integration will be enabled"
 	}
 
 	if enabled {
 		builder.Owns(&authorinov1beta2.AuthConfig{})
-		r.log.Info("kserve component is enabled, Authorino is required")
+		r.log.Info(logMessage)
 	} else {
-		r.log.Info("kserve component is disabled, ignoring Authorino requirement")
+		r.log.Info("kserve serving component is disabled, ignoring Authorino requirement")
 	}
 
 	err = builder.Complete(r)

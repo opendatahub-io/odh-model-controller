@@ -26,6 +26,7 @@ const (
 	KserveConfigMapName                      = "inferenceservice-config"
 	dataScienceClusterKind                   = "DataScienceCluster"
 	dataScienceClusterApiVersion             = "datasciencecluster.opendatahub.io/v1"
+	KserveAuthorinoComponent                 = "kserve-authorino"
 )
 
 func GetDeploymentModeForIsvc(ctx context.Context, cli client.Client, isvc *kservev1beta1.InferenceService) (IsvcDeploymentMode, error) {
@@ -86,6 +87,13 @@ func VerifyIfComponentIsEnabled(ctx context.Context, cli client.Client, componen
 	// there must be only one dsc
 	if len(objectList.Items) == 1 {
 		fields := []string{"spec", "components", componentName, "managementState"}
+		if componentName == KserveAuthorinoComponent {
+			// For KServe, Authorino is required when ServiceMesh is enabled
+			// By Disabling ServiceMesh for RawDeployment, it should reflect on disabling
+			// the Authorino integration as well.
+			fields = []string{"spec", "components", "kserve", "serving", "managementState"}
+		}
+
 		val, _, err := unstructured.NestedString(objectList.Items[0].Object, fields...)
 		if err != nil {
 			return false, fmt.Errorf("failed to retrieve the component [%s] status from %+v",
