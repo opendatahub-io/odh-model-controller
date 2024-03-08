@@ -17,7 +17,6 @@ package controllers
 
 import (
 	"context"
-
 	"github.com/go-logr/logr"
 	kservev1alpha1 "github.com/kserve/kserve/pkg/apis/serving/v1alpha1"
 	kservev1beta1 "github.com/kserve/kserve/pkg/apis/serving/v1beta1"
@@ -122,7 +121,6 @@ func (r *OpenshiftInferenceServiceReconciler) SetupWithManager(mgr ctrl.Manager)
 		Owns(&networkingv1.NetworkPolicy{}).
 		Owns(&monitoringv1.ServiceMonitor{}).
 		Owns(&monitoringv1.PodMonitor{}).
-		Owns(&authorinov1beta2.AuthConfig{}).
 		Watches(&source.Kind{Type: &kservev1alpha1.ServingRuntime{}},
 			handler.EnqueueRequestsFromMapFunc(func(o client.Object) []reconcile.Request {
 				r.log.Info("Reconcile event triggered by serving runtime: " + o.GetName())
@@ -152,7 +150,22 @@ func (r *OpenshiftInferenceServiceReconciler) SetupWithManager(mgr ctrl.Manager)
 				}
 				return reconcileRequests
 			}))
-	err := builder.Complete(r)
+
+	// check if kserve is enabled, otherwise don't require Authorino.
+
+	isAuthorinoRequired, err := utils.VerifyIfComponentIsEnabled(context.TODO(), r.client, utils.KserveAuthorinoComponent)
+	if err != nil {
+		r.log.V(1).Error(err, "could not determine if kserve have service mesh enabled")
+	}
+
+	if isAuthorinoRequired {
+		builder.Owns(&authorinov1beta2.AuthConfig{})
+		r.log.Info("kserve is enabled with Service Mesh, Authorino is a requirement")
+	} else {
+		r.log.Info("didn't find kserve with service mesh, Authorino is not a requirement")
+	}
+
+	err = builder.Complete(r)
 	if err != nil {
 		return err
 	}
