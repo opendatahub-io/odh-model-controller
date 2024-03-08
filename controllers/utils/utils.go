@@ -92,6 +92,15 @@ func VerifyIfComponentIsEnabled(ctx context.Context, cli client.Client, componen
 			// By Disabling ServiceMesh for RawDeployment, it should reflect on disabling
 			// the Authorino integration as well.
 			fields = []string{"spec", "components", "kserve", "serving", "managementState"}
+			kserveFields := []string{"spec", "components", "kserve", "managementState"}
+			serving, _, err := unstructured.NestedString(objectList.Items[0].Object, fields...)
+			kserve, _, err := unstructured.NestedString(objectList.Items[0].Object, kserveFields...)
+			if err != nil {
+				return false, fmt.Errorf("failed to retrieve the component [%s] status from %+v",
+					componentName, objectList.Items[0])
+			}
+
+			return (serving == "Managed" || serving == "Unmanaged") && kserve == "Managed", nil
 		}
 
 		val, _, err := unstructured.NestedString(objectList.Items[0].Object, fields...)
