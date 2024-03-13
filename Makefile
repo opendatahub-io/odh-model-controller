@@ -34,7 +34,7 @@ help: ## Display this help.
 
 .PHONY: manifests
 manifests: controller-gen ## Generate WebhookConfiguration, ClusterRole and CustomResourceDefinition objects.
-	$(CONTROLLER_GEN) rbac:roleName=odh-model-controller-role,headerFile="hack/manifests_boilerplate.yaml.txt" crd webhook paths="./..." output:crd:artifacts:config=config/crd/bases
+	$(CONTROLLER_GEN) rbac:roleName=odh-model-controller-role,headerFile="hack/manifests_boilerplate.yaml.txt" crd paths="./..." output:crd:artifacts:config=config/crd/bases
 
 external-manifests: 
 	go get github.com/kserve/modelmesh-serving

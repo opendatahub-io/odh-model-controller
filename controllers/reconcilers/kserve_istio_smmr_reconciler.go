@@ -30,10 +30,6 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
-const (
-	serviceMeshMemberRollName = "default"
-)
-
 type KserveIstioSMMRReconciler struct {
 	client         client.Client
 	scheme         *runtime.Scheme
@@ -72,7 +68,7 @@ func (r *KserveIstioSMMRReconciler) Reconcile(ctx context.Context, log logr.Logg
 }
 
 func (r *KserveIstioSMMRReconciler) createDesiredResource(ctx context.Context, log logr.Logger, isvc *kservev1beta1.InferenceService) (*v1.ServiceMeshMemberRoll, error) {
-	desiredSMMR, err := r.smmrHandler.FetchSMMR(ctx, log, types.NamespacedName{Name: serviceMeshMemberRollName, Namespace: constants.IstioNamespace})
+	desiredSMMR, err := r.smmrHandler.FetchSMMR(ctx, log, types.NamespacedName{Name: constants.ServiceMeshMemberRollName, Namespace: constants.IstioNamespace})
 	if err != nil {
 		return nil, err
 	}
@@ -92,7 +88,7 @@ func (r *KserveIstioSMMRReconciler) createDesiredResource(ctx context.Context, l
 	} else {
 		desiredSMMR = &v1.ServiceMeshMemberRoll{
 			ObjectMeta: metav1.ObjectMeta{
-				Name:      serviceMeshMemberRollName,
+				Name:      constants.ServiceMeshMemberRollName,
 				Namespace: constants.IstioNamespace,
 			},
 			Spec: v1.ServiceMeshMemberRollSpec{
@@ -106,7 +102,7 @@ func (r *KserveIstioSMMRReconciler) createDesiredResource(ctx context.Context, l
 }
 
 func (r *KserveIstioSMMRReconciler) getExistingResource(ctx context.Context, log logr.Logger) (*v1.ServiceMeshMemberRoll, error) {
-	return r.smmrHandler.FetchSMMR(ctx, log, types.NamespacedName{Name: serviceMeshMemberRollName, Namespace: constants.IstioNamespace})
+	return r.smmrHandler.FetchSMMR(ctx, log, types.NamespacedName{Name: constants.ServiceMeshMemberRollName, Namespace: constants.IstioNamespace})
 }
 
 func (r *KserveIstioSMMRReconciler) processDelta(ctx context.Context, log logr.Logger, desiredSMMR *v1.ServiceMeshMemberRoll, existingSMMR *v1.ServiceMeshMemberRoll) (err error) {
@@ -143,5 +139,5 @@ func (r *KserveIstioSMMRReconciler) processDelta(ctx context.Context, log logr.L
 }
 
 func (r *KserveIstioSMMRReconciler) RemoveMemberFromSMMR(ctx context.Context, isvcNamespace string) error {
-	return r.smmrHandler.RemoveMemberFromSMMR(ctx, types.NamespacedName{Name: serviceMeshMemberRollName, Namespace: constants.IstioNamespace}, isvcNamespace)
+	return r.smmrHandler.RemoveMemberFromSMMR(ctx, types.NamespacedName{Name: constants.ServiceMeshMemberRollName, Namespace: constants.IstioNamespace}, isvcNamespace)
 }
