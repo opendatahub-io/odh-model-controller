@@ -2,7 +2,7 @@ apiVersion: authorino.kuadrant.io/v1beta2
 kind: AuthConfig
 metadata:
   labels:
-    security.opendatahub.io/authorization-group: default
+    {{ .AuthorinoLabel }}
 spec:
   hosts:
   - "UPDATED.RUNTIME"
