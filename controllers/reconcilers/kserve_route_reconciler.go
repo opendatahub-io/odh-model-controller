@@ -36,6 +36,8 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
+var _ Reconciler = (*KserveRouteReconciler)(nil)
+
 type KserveRouteReconciler struct {
 	client         client.Client
 	scheme         *runtime.Scheme

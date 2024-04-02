@@ -33,6 +33,8 @@ const (
 	istioServiceMonitorName = "istiod-monitor"
 )
 
+var _ Reconciler = (*KserveIstioServiceMonitorReconciler)(nil)
+
 type KserveIstioServiceMonitorReconciler struct {
 	client                client.Client
 	scheme                *runtime.Scheme

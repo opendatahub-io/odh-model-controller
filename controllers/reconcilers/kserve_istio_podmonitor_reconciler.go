@@ -33,6 +33,8 @@ const (
 	istioPodMonitorName = "istio-proxies-monitor"
 )
 
+var _ Reconciler = (*KserveIstioPodMonitorReconciler)(nil)
+
 type KserveIstioPodMonitorReconciler struct {
 	client            client.Client
 	scheme            *runtime.Scheme

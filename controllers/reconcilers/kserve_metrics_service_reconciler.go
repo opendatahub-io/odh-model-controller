@@ -35,6 +35,8 @@ const (
 	inferenceServiceLabelName = "serving.kserve.io/inferenceservice"
 )
 
+var _ Reconciler = (*KserveMetricsServiceReconciler)(nil)
+
 type KserveMetricsServiceReconciler struct {
 	client         client.Client
 	scheme         *runtime.Scheme

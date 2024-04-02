@@ -35,6 +35,8 @@ const (
 	peerAuthenticationName = "default"
 )
 
+var _ Reconciler = (*KserveIstioPeerAuthenticationReconciler)(nil)
+
 type KserveIstioPeerAuthenticationReconciler struct {
 	client                    client.Client
 	scheme                    *runtime.Scheme

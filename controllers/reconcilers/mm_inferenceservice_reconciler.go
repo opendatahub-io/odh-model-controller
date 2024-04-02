@@ -25,6 +25,8 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
+var _ Reconciler = (*ModelMeshInferenceServiceReconciler)(nil)
+
 type ModelMeshInferenceServiceReconciler struct {
 	client                       client.Client
 	routeReconciler              *ModelMeshRouteReconciler

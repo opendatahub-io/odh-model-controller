@@ -33,6 +33,8 @@ const (
 	clusterPrometheusAccessRoleBinding = "kserve-prometheus-k8s"
 )
 
+var _ Reconciler = (*KservePrometheusRoleBindingReconciler)(nil)
+
 type KservePrometheusRoleBindingReconciler struct {
 	client             client.Client
 	scheme             *runtime.Scheme

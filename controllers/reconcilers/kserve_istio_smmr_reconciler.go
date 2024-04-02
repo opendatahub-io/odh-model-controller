@@ -30,6 +30,8 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
+var _ Reconciler = (*KserveIstioSMMRReconciler)(nil)
+
 type KserveIstioSMMRReconciler struct {
 	client         client.Client
 	scheme         *runtime.Scheme

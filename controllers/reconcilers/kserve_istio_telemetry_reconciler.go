@@ -35,6 +35,8 @@ const (
 	telemetryName = "enable-prometheus-metrics"
 )
 
+var _ Reconciler = (*KserveIstioTelemetryReconciler)(nil)
+
 type KserveIstioTelemetryReconciler struct {
 	client           client.Client
 	scheme           *runtime.Scheme

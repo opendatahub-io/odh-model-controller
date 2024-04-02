@@ -45,6 +45,8 @@ const (
 	modelmeshServicePort     = 8008
 )
 
+var _ Reconciler = (*ModelMeshRouteReconciler)(nil)
+
 type ModelMeshRouteReconciler struct {
 	client         client.Client
 	scheme         *runtime.Scheme

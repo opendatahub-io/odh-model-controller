@@ -38,6 +38,8 @@ const (
 
 var definedNetworkPolicies = []string{monitoringNetworkPolicyName, openshiftIngressNetworkPolicyName, opendatahubNamespacesNetworkPolicyName}
 
+var _ Reconciler = (*KserveNetworkPolicyReconciler)(nil)
+
 type KserveNetworkPolicyReconciler struct {
 	client               client.Client
 	scheme               *runtime.Scheme

@@ -25,7 +25,9 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
-type KserveInferenceServiceReconciler struct {
+var _ Reconciler = (*KserveServerlessInferenceServiceReconciler)(nil)
+
+type KserveServerlessInferenceServiceReconciler struct {
 	client                            client.Client
 	routeReconciler                   *KserveRouteReconciler
 	metricsServiceReconciler          *KserveMetricsServiceReconciler
@@ -40,8 +42,8 @@ type KserveInferenceServiceReconciler struct {
 	authConfigReconciler              *KserveAuthConfigReconciler
 }
 
-func NewKServeInferenceServiceReconciler(client client.Client, scheme *runtime.Scheme) *KserveInferenceServiceReconciler {
-	return &KserveInferenceServiceReconciler{
+func NewKServeServerlessInferenceServiceReconciler(client client.Client, scheme *runtime.Scheme) *KserveServerlessInferenceServiceReconciler {
+	return &KserveServerlessInferenceServiceReconciler{
 		client:                            client,
 		istioSMMRReconciler:               NewKServeIstioSMMRReconciler(client, scheme),
 		routeReconciler:                   NewKserveRouteReconciler(client, scheme),
@@ -57,12 +59,7 @@ func NewKServeInferenceServiceReconciler(client client.Client, scheme *runtime.S
 	}
 }
 
-func (r *KserveInferenceServiceReconciler) ReconcileRawDeployment(ctx context.Context, log logr.Logger, isvc *kservev1beta1.InferenceService) error {
-	log.V(1).Info("No Reconciliation to be done for inferenceservice as it is using RawDeployment mode")
-	return nil
-}
-
-func (r *KserveInferenceServiceReconciler) ReconcileServerless(ctx context.Context, log logr.Logger, isvc *kservev1beta1.InferenceService) error {
+func (r *KserveServerlessInferenceServiceReconciler) Reconcile(ctx context.Context, log logr.Logger, isvc *kservev1beta1.InferenceService) error {
 	//  Resource created per namespace
 	log.V(1).Info("Verifying that the default ServiceMeshMemberRoll has the target namespace")
 	if err := r.istioSMMRReconciler.Reconcile(ctx, log, isvc); err != nil {
@@ -123,7 +120,7 @@ func (r *KserveInferenceServiceReconciler) ReconcileServerless(ctx context.Conte
 	return nil
 }
 
-func (r *KserveInferenceServiceReconciler) OnDeletionOfKserveInferenceService(ctx context.Context, log logr.Logger, isvc *kservev1beta1.InferenceService) error {
+func (r *KserveServerlessInferenceServiceReconciler) OnDeletionOfKserveInferenceService(ctx context.Context, log logr.Logger, isvc *kservev1beta1.InferenceService) error {
 	log.V(1).Info("Deleting Kserve inference service generic route")
 	if err := r.routeReconciler.DeleteRoute(ctx, isvc); err != nil {
 		return err
@@ -136,7 +133,7 @@ func (r *KserveInferenceServiceReconciler) OnDeletionOfKserveInferenceService(ct
 	return nil
 }
 
-func (r *KserveInferenceServiceReconciler) DeleteKserveMetricsResourcesIfNoKserveIsvcExists(ctx context.Context, log logr.Logger, isvcNamespace string) error {
+func (r *KserveServerlessInferenceServiceReconciler) DeleteKserveMetricsResourcesIfNoKserveIsvcExists(ctx context.Context, log logr.Logger, isvcNamespace string) error {
 	inferenceServiceList := &kservev1beta1.InferenceServiceList{}
 	if err := r.client.List(ctx, inferenceServiceList, client.InNamespace(isvcNamespace)); err != nil {
 		return err

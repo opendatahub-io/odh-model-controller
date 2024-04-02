@@ -29,6 +29,8 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
+var _ Reconciler = (*ModelMeshClusterRoleBindingReconciler)(nil)
+
 type ModelMeshClusterRoleBindingReconciler struct {
 	client                    client.Client
 	scheme                    *runtime.Scheme

@@ -33,6 +33,8 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
+var _ Reconciler = (*KserveAuthConfigReconciler)(nil)
+
 type KserveAuthConfigReconciler struct {
 	client         client.Client
 	scheme         *runtime.Scheme

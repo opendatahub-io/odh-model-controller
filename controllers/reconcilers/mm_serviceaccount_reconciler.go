@@ -35,6 +35,8 @@ const (
 	modelMeshServiceAccountName = "modelmesh-serving-sa"
 )
 
+var _ Reconciler = (*ModelMeshServiceAccountReconciler)(nil)
+
 type ModelMeshServiceAccountReconciler struct {
 	client                client.Client
 	scheme                *runtime.Scheme

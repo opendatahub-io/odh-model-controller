@@ -30,6 +30,8 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
+var _ Reconciler = (*KserveMetricsServiceMonitorReconciler)(nil)
+
 type KserveMetricsServiceMonitorReconciler struct {
 	client                client.Client
 	scheme                *runtime.Scheme
