@@ -17,16 +17,20 @@ package controllers
 
 import (
 	"context"
-
+	"fmt"
 	kservev1beta1 "github.com/kserve/kserve/pkg/apis/serving/v1beta1"
 	authorinov1beta2 "github.com/kuadrant/authorino/api/v1beta2"
 	. "github.com/onsi/ginkgo"
 	. "github.com/onsi/gomega"
 	"github.com/opendatahub-io/odh-model-controller/controllers/constants"
+	"github.com/opendatahub-io/odh-model-controller/controllers/utils"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
+	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/client-go/dynamic"
 	"knative.dev/pkg/apis"
 )
 
@@ -45,11 +49,18 @@ var _ = When("InferenceService is created", func() {
 		}
 		Expect(cli.Create(ctx, namespace)).Should(Succeed())
 		inferenceServiceConfig := &corev1.ConfigMap{}
+
 		Expect(convertToStructuredResource(InferenceServiceConfigPath1, inferenceServiceConfig)).To(Succeed())
 		if err := cli.Create(ctx, inferenceServiceConfig); err != nil && !errors.IsAlreadyExists(err) {
 			Fail(err.Error())
 		}
+
+		// We need to stub the cluster state and indicate that Authorino is configured as authorization layer
+		if dsciErr := createDSCIWithAuthorinoEnabled(); dsciErr != nil && !errors.IsAlreadyExists(dsciErr) {
+			Fail(dsciErr.Error())
+		}
 	})
+
 	Context("when not ready", func() {
 		BeforeEach(func() {
 			isvc = createISVCMissingStatus(namespace.Name)
@@ -214,4 +225,43 @@ func enableAuth(isvc *kservev1beta1.InferenceService) error {
 	}
 	isvc.Annotations[constants.LabelEnableAuthODH] = "true"
 	return cli.Update(context.Background(), isvc)
+}
+
+// createDSCIWithAuthorinoEnabled creates a DSCInitialization which has a condition indicating
+// that Authorino is configured for the given cluster.
+func createDSCIWithAuthorinoEnabled() error {
+	obj := &unstructured.Unstructured{}
+	if err := convertToUnstructuredResource(DSCIWithAuthorization, obj); err != nil {
+		return err
+	}
+
+	gvk := utils.GVK.DataScienceClusterInitialization
+	obj.SetGroupVersionKind(gvk)
+	dynamicClient, err := dynamic.NewForConfig(envTest.Config)
+	if err != nil {
+		return err
+	}
+
+	gvr := schema.GroupVersionResource{
+		Group:    gvk.Group,
+		Version:  gvk.Version,
+		Resource: "dscinitializations",
+	}
+	resource := dynamicClient.Resource(gvr)
+	createdObj, createErr := resource.Create(context.TODO(), obj, metav1.CreateOptions{})
+	if createErr != nil {
+		return nil
+	}
+
+	if status, found, err := unstructured.NestedFieldCopy(obj.Object, "status"); err != nil {
+		return err
+	} else if found {
+		if err := unstructured.SetNestedField(createdObj.Object, status, "status"); err != nil {
+			return err
+		}
+	}
+
+	update, statusErr := resource.UpdateStatus(context.TODO(), createdObj, metav1.UpdateOptions{})
+	fmt.Printf("%s", update.GetName())
+	return statusErr
 }

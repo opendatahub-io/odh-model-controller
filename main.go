@@ -19,6 +19,9 @@ package main
 import (
 	"context"
 	"flag"
+	authorinov1beta2 "github.com/kuadrant/authorino/api/v1beta2"
+	"github.com/opendatahub-io/odh-model-controller/controllers/constants"
+	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
 	"os"
 	"strconv"
 
@@ -73,6 +76,7 @@ func init() { //nolint:gochecknoinits //reason this way we ensure schemes are al
 // +kubebuilder:rbac:groups="",resources=secrets;configmaps;serviceaccounts,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups=authorino.kuadrant.io,resources=authconfigs,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups=datasciencecluster.opendatahub.io,resources=datascienceclusters,verbs=get;list;watch
+// +kubebuilder:rbac:groups=dscinitialization.opendatahub.io,resources=datascienceclusterinitializations,verbs=get;list;watch
 
 func getEnvAsBool(name string, defaultValue bool) bool {
 	valStr := os.Getenv(name)
@@ -171,7 +175,7 @@ func main() {
 			"reconciliation for InferenceService, please provide --model-registry-inference-reconcile flag.")
 	}
 
-	kserveWithMeshEnabled, kserveWithMeshEnabledErr := utils.VerifyIfComponentIsEnabled(context.Background(), mgr.GetClient(), utils.KserveAuthorinoComponent)
+	kserveWithMeshEnabled, kserveWithMeshEnabledErr := utils.VerifyIfComponentIsEnabled(context.Background(), mgr.GetClient(), utils.KServeWithServiceMeshComponent)
 	if kserveWithMeshEnabledErr != nil {
 		setupLog.Error(kserveWithMeshEnabledErr, "could not determine if kserve have service mesh enabled")
 	}
@@ -187,6 +191,17 @@ func main() {
 		}
 	} else {
 		setupLog.Info("Skipping setup of Knative Service validating Webhook, because KServe Serverless setup seems to be disabled in the DataScienceCluster resource.")
+	}
+
+	authorinoEnabled, capabilityErr := utils.VerifyIfCapabilityIsEnabled(context.Background(), mgr.GetClient(), constants.CapabilityServiceMeshAuthorization, utils.AuthorinoEnabledWhenOperatorNotMissing)
+	if capabilityErr != nil {
+		setupLog.Error(capabilityErr, "unable to determine if Authorino in service mesh is enabled")
+		os.Exit(1)
+	}
+	if kserveWithMeshEnabled && authorinoEnabled {
+		utilruntime.Must(authorinov1beta2.SchemeBuilder.AddToScheme(scheme))
+	} else {
+		setupLog.Info("Authorino is not enabled, skipping handling")
 	}
 
 	//+kubebuilder:scaffold:builder

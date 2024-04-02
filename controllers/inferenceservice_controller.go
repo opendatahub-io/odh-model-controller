@@ -21,6 +21,7 @@ import (
 	kservev1alpha1 "github.com/kserve/kserve/pkg/apis/serving/v1alpha1"
 	kservev1beta1 "github.com/kserve/kserve/pkg/apis/serving/v1beta1"
 	authorinov1beta2 "github.com/kuadrant/authorino/api/v1beta2"
+	"github.com/opendatahub-io/odh-model-controller/controllers/constants"
 	"github.com/opendatahub-io/odh-model-controller/controllers/reconcilers"
 	"github.com/opendatahub-io/odh-model-controller/controllers/utils"
 	routev1 "github.com/openshift/api/route/v1"
@@ -150,26 +151,24 @@ func (r *OpenshiftInferenceServiceReconciler) SetupWithManager(mgr ctrl.Manager)
 				return reconcileRequests
 			}))
 
-	// check if kserve is enabled, otherwise don't require Authorino.
-
-	isAuthorinoRequired, err := utils.VerifyIfComponentIsEnabled(context.TODO(), r.client, utils.KserveAuthorinoComponent)
-	if err != nil {
-		r.log.V(1).Error(err, "could not determine if kserve have service mesh enabled")
+	kserveWithMeshEnabled, kserveWithMeshEnabledErr := utils.VerifyIfComponentIsEnabled(context.Background(), mgr.GetClient(), utils.KServeWithServiceMeshComponent)
+	if kserveWithMeshEnabledErr != nil {
+		r.log.V(1).Error(kserveWithMeshEnabledErr, "could not determine if kserve have service mesh enabled")
 	}
 
-	if isAuthorinoRequired {
+	authorinoEnabled, capabilityErr := utils.VerifyIfCapabilityIsEnabled(context.Background(), r.client, constants.CapabilityServiceMeshAuthorization, utils.AuthorinoEnabledWhenOperatorNotMissing)
+	if capabilityErr != nil {
+		r.log.V(1).Error(capabilityErr, "could not determine if Authorino is enabled")
+	}
+
+	if kserveWithMeshEnabled && authorinoEnabled {
+		r.log.Info("KServe is enabled and Authorino is registered, enabling Authorization capability")
 		builder.Owns(&authorinov1beta2.AuthConfig{})
-		r.log.Info("kserve is enabled with Service Mesh, Authorino is a requirement")
 	} else {
-		r.log.Info("didn't find kserve with service mesh, Authorino is not a requirement")
+		r.log.Info("didn't find kserve with service mesh, and Authorino is not a requirement")
 	}
 
-	err = builder.Complete(r)
-	if err != nil {
-		return err
-	}
-
-	return nil
+	return builder.Complete(r)
 }
 
 // general clean-up, mostly resources in different namespaces from kservev1beta1.InferenceService
