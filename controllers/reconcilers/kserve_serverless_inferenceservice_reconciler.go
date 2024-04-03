@@ -17,6 +17,7 @@ package reconcilers
 
 import (
 	"context"
+	"github.com/hashicorp/go-multierror"
 
 	"github.com/go-logr/logr"
 	kservev1beta1 "github.com/kserve/kserve/pkg/apis/serving/v1beta1"
@@ -27,99 +28,47 @@ import (
 var _ Reconciler = (*KserveServerlessInferenceServiceReconciler)(nil)
 
 type KserveServerlessInferenceServiceReconciler struct {
-	client                            client.Client
-	routeReconciler                   *KserveRouteReconciler
-	metricsServiceReconciler          *KserveMetricsServiceReconciler
-	metricsServiceMonitorReconciler   *KserveMetricsServiceMonitorReconciler
-	prometheusRoleBindingReconciler   *KservePrometheusRoleBindingReconciler
-	istioSMMRReconciler               *KserveIstioSMMRReconciler
-	istioTelemetryReconciler          *KserveIstioTelemetryReconciler
-	istioServiceMonitorReconciler     *KserveIstioServiceMonitorReconciler
-	istioPodMonitorReconciler         *KserveIstioPodMonitorReconciler
-	istioPeerAuthenticationReconciler *KserveIstioPeerAuthenticationReconciler
-	networkPolicyReconciler           *KserveNetworkPolicyReconciler
-	authConfigReconciler              *KserveAuthConfigReconciler
+	client                 client.Client
+	subResourceReconcilers []SubResourceReconciler
 }
 
 func NewKServeServerlessInferenceServiceReconciler(client client.Client) *KserveServerlessInferenceServiceReconciler {
+	subResourceReconciler := []SubResourceReconciler{
+		NewKServeIstioSMMRReconciler(client),
+		NewKserveRouteReconciler(client),
+		NewKServeMetricsServiceReconciler(client),
+		NewKServeMetricsServiceMonitorReconciler(client),
+		NewKServePrometheusRoleBindingReconciler(client),
+		NewKServeIstioTelemetryReconciler(client),
+		NewKServeIstioServiceMonitorReconciler(client),
+		NewKServeIstioPodMonitorReconciler(client),
+		NewKServeIstioPeerAuthenticationReconciler(client),
+		NewKServeNetworkPolicyReconciler(client),
+		NewKserveAuthConfigReconciler(client),
+	}
+
 	return &KserveServerlessInferenceServiceReconciler{
-		client:                            client,
-		istioSMMRReconciler:               NewKServeIstioSMMRReconciler(client),
-		routeReconciler:                   NewKserveRouteReconciler(client),
-		metricsServiceReconciler:          NewKServeMetricsServiceReconciler(client),
-		metricsServiceMonitorReconciler:   NewKServeMetricsServiceMonitorReconciler(client),
-		prometheusRoleBindingReconciler:   NewKServePrometheusRoleBindingReconciler(client),
-		istioTelemetryReconciler:          NewKServeIstioTelemetryReconciler(client),
-		istioServiceMonitorReconciler:     NewKServeIstioServiceMonitorReconciler(client),
-		istioPodMonitorReconciler:         NewKServeIstioPodMonitorReconciler(client),
-		istioPeerAuthenticationReconciler: NewKServeIstioPeerAuthenticationReconciler(client),
-		networkPolicyReconciler:           NewKServeNetworkPolicyReconciler(client),
-		authConfigReconciler:              NewKserveAuthConfigReconciler(client),
+		client:                 client,
+		subResourceReconcilers: subResourceReconciler,
 	}
 }
 
-// TODO(reconciler): make it a slice. keep order
 func (r *KserveServerlessInferenceServiceReconciler) Reconcile(ctx context.Context, log logr.Logger, isvc *kservev1beta1.InferenceService) error {
-	//  Resource created per namespace
-
-	if err := r.istioSMMRReconciler.Reconcile(ctx, log, isvc); err != nil {
-		return err
+	var reconcileErrors *multierror.Error
+	for _, reconciler := range r.subResourceReconcilers {
+		reconcileErrors = multierror.Append(reconcileErrors, reconciler.Reconcile(ctx, log, isvc))
 	}
 
-	if err := r.prometheusRoleBindingReconciler.Reconcile(ctx, log, isvc); err != nil {
-		return err
-	}
-
-	if err := r.istioTelemetryReconciler.Reconcile(ctx, log, isvc); err != nil {
-		return err
-	}
-
-	if err := r.istioServiceMonitorReconciler.Reconcile(ctx, log, isvc); err != nil {
-		return err
-	}
-
-	if err := r.istioPodMonitorReconciler.Reconcile(ctx, log, isvc); err != nil {
-		return err
-	}
-
-	if err := r.istioPeerAuthenticationReconciler.Reconcile(ctx, log, isvc); err != nil {
-		return err
-	}
-
-	if err := r.networkPolicyReconciler.Reconcile(ctx, log, isvc); err != nil {
-		return err
-	}
-
-	if err := r.authConfigReconciler.Reconcile(ctx, log, isvc); err != nil {
-		return err
-	}
-
-	if err := r.routeReconciler.Reconcile(ctx, log, isvc); err != nil {
-		return err
-	}
-
-	if err := r.metricsServiceReconciler.Reconcile(ctx, log, isvc); err != nil {
-		return err
-	}
-
-	if err := r.metricsServiceMonitorReconciler.Reconcile(ctx, log, isvc); err != nil {
-		return err
-	}
-
-	return nil
+	return reconcileErrors.ErrorOrNil()
 }
 
 func (r *KserveServerlessInferenceServiceReconciler) OnDeletionOfKserveInferenceService(ctx context.Context, log logr.Logger, isvc *kservev1beta1.InferenceService) error {
-
-	// TODO(reconciler): shouldnt we iterate over all deletes?
-	if err := r.routeReconciler.Delete(ctx, log, isvc); err != nil {
-		return err
+	var deleteErrors *multierror.Error
+	for _, reconciler := range r.subResourceReconcilers {
+		deleteErrors = multierror.Append(deleteErrors, reconciler.Delete(ctx, log, isvc))
 	}
 
-	if err := r.authConfigReconciler.Delete(ctx, log, isvc); err != nil {
-		return err
-	}
-	return nil
+	return deleteErrors.ErrorOrNil()
 }
 
 func (r *KserveServerlessInferenceServiceReconciler) DeleteKserveMetricsResourcesIfNoKserveIsvcExists(ctx context.Context, log logr.Logger, isvcNamespace string) error {
@@ -140,35 +89,12 @@ func (r *KserveServerlessInferenceServiceReconciler) DeleteKserveMetricsResource
 	}
 
 	// If there are no Kserve InferenceServices in the namespace, delete namespace-scoped resources needed for Kserve Metrics
+	var cleanupErrors *multierror.Error
 	if len(inferenceServiceList.Items) == 0 {
-
-		if err := r.istioSMMRReconciler.Cleanup(ctx, log, isvcNamespace); err != nil {
-			return err
-		}
-
-		if err := r.prometheusRoleBindingReconciler.Cleanup(ctx, log, isvcNamespace); err != nil {
-			return err
-		}
-
-		if err := r.istioTelemetryReconciler.Cleanup(ctx, log, isvcNamespace); err != nil {
-			return err
-		}
-
-		if err := r.istioServiceMonitorReconciler.Cleanup(ctx, log, isvcNamespace); err != nil {
-			return err
-		}
-
-		if err := r.istioPodMonitorReconciler.Cleanup(ctx, log, isvcNamespace); err != nil {
-			return err
-		}
-
-		if err := r.istioPeerAuthenticationReconciler.Cleanup(ctx, log, isvcNamespace); err != nil {
-			return err
-		}
-
-		if err := r.networkPolicyReconciler.Cleanup(ctx, log, isvcNamespace); err != nil {
-			return err
+		for _, reconciler := range r.subResourceReconcilers {
+			cleanupErrors = multierror.Append(cleanupErrors, reconciler.Cleanup(ctx, log, isvcNamespace))
 		}
 	}
-	return nil
+
+	return cleanupErrors.ErrorOrNil()
 }

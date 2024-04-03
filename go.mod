@@ -4,6 +4,7 @@ go 1.19
 
 require (
 	github.com/go-logr/logr v1.2.4
+	github.com/hashicorp/go-multierror v1.1.1
 	github.com/kserve/kserve v0.11.0
 	github.com/kuadrant/authorino v0.15.0
 	github.com/onsi/ginkgo v1.16.4
@@ -24,7 +25,6 @@ require (
 	knative.dev/serving v0.37.1
 	maistra.io/api v0.0.0-20230417135504-0536f6c22b1c
 	sigs.k8s.io/controller-runtime v0.14.6
-	sigs.k8s.io/yaml v1.3.0
 )
 
 require (
@@ -58,6 +58,7 @@ require (
 	github.com/googleapis/enterprise-certificate-proxy v0.3.2 // indirect
 	github.com/googleapis/gax-go/v2 v2.12.0 // indirect
 	github.com/googleapis/google-cloud-go-testing v0.0.0-20210719221736-1c9a4c676720 // indirect
+	github.com/hashicorp/errwrap v1.1.0 // indirect
 	github.com/imdario/mergo v0.3.15 // indirect
 	github.com/jmespath/go-jmespath v0.4.0 // indirect
 	github.com/josharian/intern v1.0.0 // indirect
@@ -106,6 +107,7 @@ require (
 	knative.dev/networking v0.0.0-20231017124814-2a7676e912b7 // indirect
 	sigs.k8s.io/json v0.0.0-20221116044647-bc3834ca7abd // indirect
 	sigs.k8s.io/structured-merge-diff/v4 v4.2.3 // indirect
+	sigs.k8s.io/yaml v1.3.0 // indirect
 )
 
 replace (

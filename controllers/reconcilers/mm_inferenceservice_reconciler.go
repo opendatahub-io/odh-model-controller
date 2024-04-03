@@ -17,6 +17,7 @@ package reconcilers
 
 import (
 	"context"
+	"github.com/hashicorp/go-multierror"
 
 	"github.com/go-logr/logr"
 	kservev1beta1 "github.com/kserve/kserve/pkg/apis/serving/v1beta1"
@@ -28,35 +29,28 @@ var _ Reconciler = (*ModelMeshInferenceServiceReconciler)(nil)
 
 type ModelMeshInferenceServiceReconciler struct {
 	SingleResourcePerNamespace
-	client                       client.Client
-	routeReconciler              *ModelMeshRouteReconciler
-	serviceAccountReconciler     *ModelMeshServiceAccountReconciler
-	clusterRoleBindingReconciler *ModelMeshClusterRoleBindingReconciler
+	client                 client.Client
+	subResourceReconcilers []SubResourceReconciler
 }
 
 func NewModelMeshInferenceServiceReconciler(client client.Client) *ModelMeshInferenceServiceReconciler {
 	return &ModelMeshInferenceServiceReconciler{
-		client:                       client,
-		routeReconciler:              NewModelMeshRouteReconciler(client),
-		serviceAccountReconciler:     NewModelMeshServiceAccountReconciler(client),
-		clusterRoleBindingReconciler: NewModelMeshClusterRoleBindingReconciler(client),
+		client: client,
+		subResourceReconcilers: []SubResourceReconciler{
+			NewModelMeshRouteReconciler(client),
+			NewModelMeshServiceAccountReconciler(client),
+			NewModelMeshClusterRoleBindingReconciler(client),
+		},
 	}
 }
 
 func (r *ModelMeshInferenceServiceReconciler) Reconcile(ctx context.Context, log logr.Logger, isvc *kservev1beta1.InferenceService) error {
-
-	if err := r.routeReconciler.Reconcile(ctx, log, isvc); err != nil {
-		return err
+	var reconcileErrors *multierror.Error
+	for _, reconciler := range r.subResourceReconcilers {
+		reconcileErrors = multierror.Append(reconcileErrors, reconciler.Reconcile(ctx, log, isvc))
 	}
 
-	if err := r.serviceAccountReconciler.Reconcile(ctx, log, isvc); err != nil {
-		return err
-	}
-
-	if err := r.clusterRoleBindingReconciler.Reconcile(ctx, log, isvc); err != nil {
-		return err
-	}
-	return nil
+	return reconcileErrors.ErrorOrNil()
 }
 
 func (r *ModelMeshInferenceServiceReconciler) DeleteModelMeshResourcesIfNoMMIsvcExists(ctx context.Context, log logr.Logger, isvcNs string) error {
@@ -77,15 +71,12 @@ func (r *ModelMeshInferenceServiceReconciler) DeleteModelMeshResourcesIfNoMMIsvc
 	}
 
 	// If there are no ModelMesh InferenceServices in the namespace, delete namespace-scoped resources needed for ModelMesh
+	var cleanupErrors *multierror.Error
 	if len(inferenceServiceList.Items) == 0 {
-
-		if err := r.serviceAccountReconciler.Cleanup(ctx, log, isvcNs); err != nil {
-			return err
-		}
-
-		if err := r.clusterRoleBindingReconciler.Cleanup(ctx, log, isvcNs); err != nil {
-			return err
+		for _, reconciler := range r.subResourceReconcilers {
+			cleanupErrors = multierror.Append(cleanupErrors, reconciler.Cleanup(ctx, log, isvcNs))
 		}
 	}
-	return nil
+
+	return cleanupErrors.ErrorOrNil()
 }
