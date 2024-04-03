@@ -18,10 +18,10 @@ package reconcilers
 import (
 	"context"
 	"fmt"
-
 	"github.com/go-logr/logr"
 	kservev1beta1 "github.com/kserve/kserve/pkg/apis/serving/v1beta1"
 	authorinov1beta2 "github.com/kuadrant/authorino/api/v1beta2"
+	"github.com/kuadrant/authorino/pkg/log"
 	"github.com/opendatahub-io/odh-model-controller/controllers/comparators"
 	"github.com/opendatahub-io/odh-model-controller/controllers/constants"
 	"github.com/opendatahub-io/odh-model-controller/controllers/processors"
@@ -33,7 +33,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
-var _ Reconciler = (*KserveAuthConfigReconciler)(nil)
+var _ SubResourceReconciler = (*KserveAuthConfigReconciler)(nil)
 
 type KserveAuthConfigReconciler struct {
 	client         client.Client
@@ -58,6 +58,7 @@ func NewKserveAuthConfigReconciler(client client.Client, scheme *runtime.Scheme)
 }
 
 func (r *KserveAuthConfigReconciler) Reconcile(ctx context.Context, log logr.Logger, isvc *kservev1beta1.InferenceService) error {
+	log.V(1).Info("Reconciling Authorino AuthConfig for InferenceService")
 
 	if isvc.Status.URL == nil {
 		log.V(1).Info("Inference Service not ready yet, waiting for URL")
@@ -75,11 +76,24 @@ func (r *KserveAuthConfigReconciler) Reconcile(ctx context.Context, log logr.Log
 	}
 
 	// Process Delta
-	if err = r.processDelta(ctx, log, desiredState, existingState); err != nil {
+	if err = r.processDelta(ctx, desiredState, existingState); err != nil {
 		return err
 	}
 	return nil
+}
 
+func (r *KserveAuthConfigReconciler) Delete(ctx context.Context, log logr.Logger, isvc *kservev1beta1.InferenceService) error {
+	log.V(1).Info("Deleting Kserve inference service authorino authconfig entry")
+	typeName := types.NamespacedName{
+		Name:      isvc.GetName(),
+		Namespace: isvc.GetNamespace(),
+	}
+	return r.store.Remove(ctx, typeName)
+}
+
+func (r *KserveAuthConfigReconciler) Cleanup(_ context.Context, _ logr.Logger, _ string) error {
+	// NOOP
+	return nil
 }
 
 func (r *KserveAuthConfigReconciler) createDesiredResource(ctx context.Context, isvc *kservev1beta1.InferenceService) (*authorinov1beta2.AuthConfig, error) {
@@ -118,7 +132,7 @@ func (r *KserveAuthConfigReconciler) getExistingResource(ctx context.Context, is
 	return r.store.Get(ctx, typeName)
 }
 
-func (r *KserveAuthConfigReconciler) processDelta(ctx context.Context, log logr.Logger, desiredState *authorinov1beta2.AuthConfig, existingState *authorinov1beta2.AuthConfig) (err error) {
+func (r *KserveAuthConfigReconciler) processDelta(ctx context.Context, desiredState *authorinov1beta2.AuthConfig, existingState *authorinov1beta2.AuthConfig) (err error) {
 	comparator := comparators.GetAuthConfigComparator()
 	delta := r.deltaProcessor.ComputeDelta(comparator, desiredState, existingState)
 
@@ -153,12 +167,4 @@ func (r *KserveAuthConfigReconciler) processDelta(ctx context.Context, log logr.
 		}
 	}
 	return nil
-}
-
-func (r *KserveAuthConfigReconciler) Remove(ctx context.Context, log logr.Logger, isvc *kservev1beta1.InferenceService) error {
-	typeName := types.NamespacedName{
-		Name:      isvc.GetName(),
-		Namespace: isvc.GetNamespace(),
-	}
-	return r.store.Remove(ctx, typeName)
 }

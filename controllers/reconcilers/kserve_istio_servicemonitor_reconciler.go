@@ -33,7 +33,7 @@ const (
 	istioServiceMonitorName = "istiod-monitor"
 )
 
-var _ Reconciler = (*KserveIstioServiceMonitorReconciler)(nil)
+var _ SubResourceReconciler = (*KserveIstioServiceMonitorReconciler)(nil)
 
 type KserveIstioServiceMonitorReconciler struct {
 	client                client.Client
@@ -52,6 +52,7 @@ func NewKServeIstioServiceMonitorReconciler(client client.Client, scheme *runtim
 }
 
 func (r *KserveIstioServiceMonitorReconciler) Reconcile(ctx context.Context, log logr.Logger, isvc *kservev1beta1.InferenceService) error {
+	log.V(1).Info("Creating Istio ServiceMonitor for target namespace")
 
 	// Create Desired resource
 	desiredResource, err := r.createDesiredResource(isvc)
@@ -70,6 +71,16 @@ func (r *KserveIstioServiceMonitorReconciler) Reconcile(ctx context.Context, log
 		return err
 	}
 	return nil
+}
+
+func (r *KserveIstioServiceMonitorReconciler) Delete(ctx context.Context, log logr.Logger, isvc *kservev1beta1.InferenceService) error {
+	// NOOP it needs to be cleaned up when no ISVCs left in the Namespace
+	return nil
+}
+
+func (r *KserveIstioServiceMonitorReconciler) Cleanup(ctx context.Context, log logr.Logger, isvcNs string) error {
+	log.V(1).Info("Deleting ServiceMonitor object for target namespace")
+	return r.serviceMonitorHandler.DeleteServiceMonitor(ctx, types.NamespacedName{Name: istioServiceMonitorName, Namespace: isvcNs})
 }
 
 func (r *KserveIstioServiceMonitorReconciler) createDesiredResource(isvc *kservev1beta1.InferenceService) (*v1.ServiceMonitor, error) {
@@ -133,8 +144,4 @@ func (r *KserveIstioServiceMonitorReconciler) processDelta(ctx context.Context, 
 		}
 	}
 	return nil
-}
-
-func (r *KserveIstioServiceMonitorReconciler) DeleteServiceMonitor(ctx context.Context, isvcNamespace string) error {
-	return r.serviceMonitorHandler.DeleteServiceMonitor(ctx, types.NamespacedName{Name: istioServiceMonitorName, Namespace: isvcNamespace})
 }

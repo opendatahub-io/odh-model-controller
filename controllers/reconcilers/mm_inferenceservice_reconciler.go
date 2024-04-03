@@ -28,6 +28,7 @@ import (
 var _ Reconciler = (*ModelMeshInferenceServiceReconciler)(nil)
 
 type ModelMeshInferenceServiceReconciler struct {
+	SingleResourcePerNamespace
 	client                       client.Client
 	routeReconciler              *ModelMeshRouteReconciler
 	serviceAccountReconciler     *ModelMeshServiceAccountReconciler
@@ -45,26 +46,23 @@ func NewModelMeshInferenceServiceReconciler(client client.Client, scheme *runtim
 
 func (r *ModelMeshInferenceServiceReconciler) Reconcile(ctx context.Context, log logr.Logger, isvc *kservev1beta1.InferenceService) error {
 
-	log.V(1).Info("Reconciling Route for InferenceService")
 	if err := r.routeReconciler.Reconcile(ctx, log, isvc); err != nil {
 		return err
 	}
 
-	log.V(1).Info("Reconciling ServiceAccount for InferenceService")
 	if err := r.serviceAccountReconciler.Reconcile(ctx, log, isvc); err != nil {
 		return err
 	}
 
-	log.V(1).Info("Reconciling ClusterRoleBinding for InferenceService")
 	if err := r.clusterRoleBindingReconciler.Reconcile(ctx, log, isvc); err != nil {
 		return err
 	}
 	return nil
 }
 
-func (r *ModelMeshInferenceServiceReconciler) DeleteModelMeshResourcesIfNoMMIsvcExists(ctx context.Context, log logr.Logger, isvcNamespace string) error {
+func (r *ModelMeshInferenceServiceReconciler) DeleteModelMeshResourcesIfNoMMIsvcExists(ctx context.Context, log logr.Logger, isvcNs string) error {
 	inferenceServiceList := &kservev1beta1.InferenceServiceList{}
-	if err := r.client.List(ctx, inferenceServiceList, client.InNamespace(isvcNamespace)); err != nil {
+	if err := r.client.List(ctx, inferenceServiceList, client.InNamespace(isvcNs)); err != nil {
 		return err
 	}
 
@@ -82,13 +80,11 @@ func (r *ModelMeshInferenceServiceReconciler) DeleteModelMeshResourcesIfNoMMIsvc
 	// If there are no ModelMesh InferenceServices in the namespace, delete namespace-scoped resources needed for ModelMesh
 	if len(inferenceServiceList.Items) == 0 {
 
-		log.V(1).Info("Deleting ServiceAccount object for target namespace")
-		if err := r.serviceAccountReconciler.DeleteServiceAccount(ctx, isvcNamespace); err != nil {
+		if err := r.serviceAccountReconciler.Cleanup(ctx, log, isvcNs); err != nil {
 			return err
 		}
 
-		log.V(1).Info("Deleting ClusterRoleBinding object for target namespace")
-		if err := r.clusterRoleBindingReconciler.DeleteClusterRoleBinding(ctx, isvcNamespace); err != nil {
+		if err := r.clusterRoleBindingReconciler.Cleanup(ctx, log, isvcNs); err != nil {
 			return err
 		}
 	}

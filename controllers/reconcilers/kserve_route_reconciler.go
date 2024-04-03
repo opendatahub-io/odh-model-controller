@@ -36,7 +36,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
-var _ Reconciler = (*KserveRouteReconciler)(nil)
+var _ SubResourceReconciler = (*KserveRouteReconciler)(nil)
 
 type KserveRouteReconciler struct {
 	client         client.Client
@@ -55,6 +55,7 @@ func NewKserveRouteReconciler(client client.Client, scheme *runtime.Scheme) *Kse
 }
 
 func (r *KserveRouteReconciler) Reconcile(ctx context.Context, log logr.Logger, isvc *kservev1beta1.InferenceService) error {
+	log.V(1).Info("Reconciling Generic Route for Kserve InferenceService")
 
 	// Create Desired resource
 	desiredResource, err := r.createDesiredResource(isvc)
@@ -72,6 +73,16 @@ func (r *KserveRouteReconciler) Reconcile(ctx context.Context, log logr.Logger, 
 	if err = r.processDelta(ctx, log, desiredResource, existingResource); err != nil {
 		return err
 	}
+	return nil
+}
+
+func (r *KserveRouteReconciler) Delete(ctx context.Context, log logr.Logger, isvc *kservev1beta1.InferenceService) error {
+	log.V(1).Info("Deleting Kserve inference service generic route")
+	return r.routeHandler.DeleteRoute(ctx, types.NamespacedName{Name: getKServeRouteName(isvc), Namespace: constants2.IstioNamespace})
+}
+
+func (r *KserveRouteReconciler) Cleanup(_ context.Context, _ logr.Logger, _ string) error {
+	// NOOP - resources are deleted together with ISVCs
 	return nil
 }
 
@@ -199,8 +210,4 @@ func getServiceHost(isvc *kservev1beta1.InferenceService) string {
 
 func getKServeRouteName(isvc *kservev1beta1.InferenceService) string {
 	return isvc.Name + "-" + isvc.Namespace
-}
-
-func (r *KserveRouteReconciler) DeleteRoute(ctx context.Context, isvc *kservev1beta1.InferenceService) error {
-	return r.routeHandler.DeleteRoute(ctx, types.NamespacedName{Name: getKServeRouteName(isvc), Namespace: constants2.IstioNamespace})
 }

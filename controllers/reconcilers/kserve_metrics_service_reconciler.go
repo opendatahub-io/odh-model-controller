@@ -35,9 +35,10 @@ const (
 	inferenceServiceLabelName = "serving.kserve.io/inferenceservice"
 )
 
-var _ Reconciler = (*KserveMetricsServiceReconciler)(nil)
+var _ SubResourceReconciler = (*KserveMetricsServiceReconciler)(nil)
 
 type KserveMetricsServiceReconciler struct {
+	NoResourceRemoval
 	client         client.Client
 	scheme         *runtime.Scheme
 	serviceHandler resources.ServiceHandler
@@ -54,6 +55,7 @@ func NewKServeMetricsServiceReconciler(client client.Client, scheme *runtime.Sch
 }
 
 func (r *KserveMetricsServiceReconciler) Reconcile(ctx context.Context, log logr.Logger, isvc *kservev1beta1.InferenceService) error {
+	log.V(1).Info("Reconciling Metrics Service for InferenceService")
 
 	// Create Desired resource
 	desiredResource, err := r.createDesiredResource(log, isvc)

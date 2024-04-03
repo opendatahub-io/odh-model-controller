@@ -30,9 +30,10 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
-var _ Reconciler = (*KserveIstioSMMRReconciler)(nil)
+var _ SubResourceReconciler = (*KserveIstioSMMRReconciler)(nil)
 
 type KserveIstioSMMRReconciler struct {
+	SingleResourcePerNamespace
 	client         client.Client
 	scheme         *runtime.Scheme
 	smmrHandler    resources.ServiceMeshMemberRollHandler
@@ -49,6 +50,7 @@ func NewKServeIstioSMMRReconciler(client client.Client, scheme *runtime.Scheme) 
 }
 
 func (r *KserveIstioSMMRReconciler) Reconcile(ctx context.Context, log logr.Logger, isvc *kservev1beta1.InferenceService) error {
+	log.V(1).Info("Verifying that the default ServiceMeshMemberRoll has the target namespace")
 
 	// Create Desired resource
 	desiredResource, err := r.createDesiredResource(ctx, log, isvc)
@@ -67,6 +69,11 @@ func (r *KserveIstioSMMRReconciler) Reconcile(ctx context.Context, log logr.Logg
 		return err
 	}
 	return nil
+}
+
+func (r *KserveIstioSMMRReconciler) Cleanup(ctx context.Context, log logr.Logger, isvcNs string) error {
+	log.V(1).Info("Removing target namespace from ServiceMeshMemberRole")
+	return r.smmrHandler.RemoveMemberFromSMMR(ctx, types.NamespacedName{Name: constants.ServiceMeshMemberRollName, Namespace: constants.IstioNamespace}, isvcNs)
 }
 
 func (r *KserveIstioSMMRReconciler) createDesiredResource(ctx context.Context, log logr.Logger, isvc *kservev1beta1.InferenceService) (*v1.ServiceMeshMemberRoll, error) {
@@ -138,8 +145,4 @@ func (r *KserveIstioSMMRReconciler) processDelta(ctx context.Context, log logr.L
 		}
 	}
 	return nil
-}
-
-func (r *KserveIstioSMMRReconciler) RemoveMemberFromSMMR(ctx context.Context, isvcNamespace string) error {
-	return r.smmrHandler.RemoveMemberFromSMMR(ctx, types.NamespacedName{Name: constants.ServiceMeshMemberRollName, Namespace: constants.IstioNamespace}, isvcNamespace)
 }

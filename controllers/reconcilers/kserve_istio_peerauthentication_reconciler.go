@@ -35,9 +35,10 @@ const (
 	peerAuthenticationName = "default"
 )
 
-var _ Reconciler = (*KserveIstioPeerAuthenticationReconciler)(nil)
+var _ SubResourceReconciler = (*KserveIstioPeerAuthenticationReconciler)(nil)
 
 type KserveIstioPeerAuthenticationReconciler struct {
+	SingleResourcePerNamespace
 	client                    client.Client
 	scheme                    *runtime.Scheme
 	peerAuthenticationHandler resources.PeerAuthenticationHandler
@@ -54,6 +55,7 @@ func NewKServeIstioPeerAuthenticationReconciler(client client.Client, scheme *ru
 }
 
 func (r *KserveIstioPeerAuthenticationReconciler) Reconcile(ctx context.Context, log logr.Logger, isvc *kservev1beta1.InferenceService) error {
+	log.V(1).Info("Reconciling PeerAuthentication for target namespace")
 
 	// Create Desired resource
 	desiredResource, err := r.createDesiredResource(isvc)
@@ -72,6 +74,11 @@ func (r *KserveIstioPeerAuthenticationReconciler) Reconcile(ctx context.Context,
 		return err
 	}
 	return nil
+}
+
+func (r *KserveIstioPeerAuthenticationReconciler) Cleanup(ctx context.Context, log logr.Logger, isvcNs string) error {
+	log.V(1).Info("Deleting PeerAuthentication object for target namespace")
+	return r.peerAuthenticationHandler.DeletePeerAuthentication(ctx, types.NamespacedName{Name: peerAuthenticationName, Namespace: isvcNs})
 }
 
 func (r *KserveIstioPeerAuthenticationReconciler) createDesiredResource(isvc *kservev1beta1.InferenceService) (*istiosecv1beta1.PeerAuthentication, error) {
@@ -133,8 +140,4 @@ func (r *KserveIstioPeerAuthenticationReconciler) processDelta(ctx context.Conte
 		}
 	}
 	return nil
-}
-
-func (r *KserveIstioPeerAuthenticationReconciler) DeletePeerAuthentication(ctx context.Context, isvcNamespace string) error {
-	return r.peerAuthenticationHandler.DeletePeerAuthentication(ctx, types.NamespacedName{Name: peerAuthenticationName, Namespace: isvcNamespace})
 }

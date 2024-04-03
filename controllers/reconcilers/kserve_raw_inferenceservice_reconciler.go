@@ -24,6 +24,8 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
+var _ Reconciler = (*KserveRawInferenceServiceReconciler)(nil)
+
 type KserveRawInferenceServiceReconciler struct {
 	client client.Client
 }
@@ -34,7 +36,7 @@ func NewKServeRawInferenceServiceReconciler(client client.Client, scheme *runtim
 	}
 }
 
-func (r *KserveRawInferenceServiceReconciler) Reconcile(ctx context.Context, log logr.Logger, isvc *kservev1beta1.InferenceService) error {
+func (r *KserveRawInferenceServiceReconciler) Reconcile(_ context.Context, log logr.Logger, _ *kservev1beta1.InferenceService) error {
 	log.V(1).Info("No Reconciliation to be done for inferenceservice as it is using RawDeployment mode")
 	return nil
 }

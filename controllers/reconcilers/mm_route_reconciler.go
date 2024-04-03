@@ -45,9 +45,10 @@ const (
 	modelmeshServicePort     = 8008
 )
 
-var _ Reconciler = (*ModelMeshRouteReconciler)(nil)
+var _ SubResourceReconciler = (*ModelMeshRouteReconciler)(nil)
 
 type ModelMeshRouteReconciler struct {
+	NoResourceRemoval
 	client         client.Client
 	scheme         *runtime.Scheme
 	routeHandler   resources.RouteHandler
@@ -63,9 +64,9 @@ func NewModelMeshRouteReconciler(client client.Client, scheme *runtime.Scheme) *
 	}
 }
 
-// ReconcileRoute will manage the creation, update and deletion of the
-// TLS route when the predictor is reconciled
+// Reconcile will manage the creation, update and deletion of the  TLS route when the predictor is reconciled.
 func (r *ModelMeshRouteReconciler) Reconcile(ctx context.Context, log logr.Logger, isvc *kservev1beta1.InferenceService) error {
+	log.V(1).Info("Reconciling Route for InferenceService")
 	// Create Desired resource
 	desiredResource, err := r.createDesiredResource(ctx, log, isvc)
 	if err != nil {

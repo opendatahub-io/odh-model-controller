@@ -35,9 +35,10 @@ const (
 	telemetryName = "enable-prometheus-metrics"
 )
 
-var _ Reconciler = (*KserveIstioTelemetryReconciler)(nil)
+var _ SubResourceReconciler = (*KserveIstioTelemetryReconciler)(nil)
 
 type KserveIstioTelemetryReconciler struct {
+	SingleResourcePerNamespace
 	client           client.Client
 	scheme           *runtime.Scheme
 	telemetryHandler resources.TelemetryHandler
@@ -54,6 +55,7 @@ func NewKServeIstioTelemetryReconciler(client client.Client, scheme *runtime.Sch
 }
 
 func (r *KserveIstioTelemetryReconciler) Reconcile(ctx context.Context, log logr.Logger, isvc *kservev1beta1.InferenceService) error {
+	log.V(1).Info("Creating Istio Telemetry object for target namespace")
 
 	// Create Desired resource
 	desiredResource, err := r.createDesiredResource(isvc)
@@ -72,6 +74,11 @@ func (r *KserveIstioTelemetryReconciler) Reconcile(ctx context.Context, log logr
 		return err
 	}
 	return nil
+}
+
+func (r *KserveIstioTelemetryReconciler) Cleanup(ctx context.Context, log logr.Logger, isvcNs string) error {
+	log.V(1).Info("Deleting Istio Telemetry object for target namespace")
+	return r.telemetryHandler.DeleteTelemetry(ctx, types.NamespacedName{Name: telemetryName, Namespace: isvcNs})
 }
 
 func (r *KserveIstioTelemetryReconciler) createDesiredResource(isvc *kservev1beta1.InferenceService) (*telemetryv1alpha1.Telemetry, error) {
@@ -136,8 +143,4 @@ func (r *KserveIstioTelemetryReconciler) processDelta(ctx context.Context, log l
 		}
 	}
 	return nil
-}
-
-func (r *KserveIstioTelemetryReconciler) DeleteTelemetry(ctx context.Context, isvcNamespace string) error {
-	return r.telemetryHandler.DeleteTelemetry(ctx, types.NamespacedName{Name: telemetryName, Namespace: isvcNamespace})
 }

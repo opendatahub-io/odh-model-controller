@@ -30,9 +30,10 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
-var _ Reconciler = (*KserveMetricsServiceMonitorReconciler)(nil)
+var _ SubResourceReconciler = (*KserveMetricsServiceMonitorReconciler)(nil)
 
 type KserveMetricsServiceMonitorReconciler struct {
+	NoResourceRemoval
 	client                client.Client
 	scheme                *runtime.Scheme
 	serviceMonitorHandler resources.ServiceMonitorHandler
@@ -49,6 +50,7 @@ func NewKServeMetricsServiceMonitorReconciler(client client.Client, scheme *runt
 }
 
 func (r *KserveMetricsServiceMonitorReconciler) Reconcile(ctx context.Context, log logr.Logger, isvc *kservev1beta1.InferenceService) error {
+	log.V(1).Info("Reconciling Metrics ServiceMonitor for InferenceService")
 
 	// Create Desired resource
 	desiredResource, err := r.createDesiredResource(isvc)

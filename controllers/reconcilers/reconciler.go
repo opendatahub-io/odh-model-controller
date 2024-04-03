@@ -22,5 +22,38 @@ import (
 )
 
 type Reconciler interface {
+	// Reconcile ensures the resource related to given InferenceService is in the desired state.
 	Reconcile(ctx context.Context, log logr.Logger, isvc *kservev1beta1.InferenceService) error
+}
+
+type SubResourceReconciler interface {
+	Reconciler
+	// Delete removes subresource owned by InferenceService.
+	Delete(ctx context.Context, log logr.Logger, isvc *kservev1beta1.InferenceService) error
+	// Cleanup ensures singleton resource (such as ServiceMonitor) is removed
+	// when there is no InferenceServices left in the namespace.
+	Cleanup(ctx context.Context, log logr.Logger, isvcNs string) error
+}
+
+// NoResourceRemoval is a trait to indicate that given reconciler
+// is not supposed to delete any resources left.
+type NoResourceRemoval struct{}
+
+func (r *NoResourceRemoval) Delete(_ context.Context, _ logr.Logger, _ *kservev1beta1.InferenceService) error {
+	// NOOP
+	return nil
+}
+
+func (r *NoResourceRemoval) Cleanup(_ context.Context, _ logr.Logger, _ string) error {
+	// NOOP
+	return nil
+}
+
+// SingleResourcePerNamespace is a trait to indicate that given reconciler is only supposed to
+// clean up owned resources when there is no relevant ISVC left.
+type SingleResourcePerNamespace struct{}
+
+func (r *SingleResourcePerNamespace) Delete(_ context.Context, _ logr.Logger, _ *kservev1beta1.InferenceService) error {
+	// NOOP it needs to be cleaned up when no ISVCs left in the Namespace
+	return nil
 }

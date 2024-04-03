@@ -33,9 +33,10 @@ const (
 	clusterPrometheusAccessRoleBinding = "kserve-prometheus-k8s"
 )
 
-var _ Reconciler = (*KservePrometheusRoleBindingReconciler)(nil)
+var _ SubResourceReconciler = (*KservePrometheusRoleBindingReconciler)(nil)
 
 type KservePrometheusRoleBindingReconciler struct {
+	SingleResourcePerNamespace
 	client             client.Client
 	scheme             *runtime.Scheme
 	roleBindingHandler resources.RoleBindingHandler
@@ -52,6 +53,7 @@ func NewKServePrometheusRoleBindingReconciler(client client.Client, scheme *runt
 }
 
 func (r *KservePrometheusRoleBindingReconciler) Reconcile(ctx context.Context, log logr.Logger, isvc *kservev1beta1.InferenceService) error {
+	log.V(1).Info("Verifying that the role binding to enable prometheus access exists")
 
 	// Create Desired resource
 	desiredResource, err := r.createDesiredResource(isvc)
@@ -70,6 +72,11 @@ func (r *KservePrometheusRoleBindingReconciler) Reconcile(ctx context.Context, l
 		return err
 	}
 	return nil
+}
+
+func (r *KservePrometheusRoleBindingReconciler) Cleanup(ctx context.Context, log logr.Logger, isvcNs string) error {
+	log.V(1).Info("Deleting Prometheus RoleBinding object for target namespace")
+	return r.roleBindingHandler.DeleteRoleBinding(ctx, types.NamespacedName{Name: clusterPrometheusAccessRoleBinding, Namespace: isvcNs})
 }
 
 func (r *KservePrometheusRoleBindingReconciler) createDesiredResource(isvc *kservev1beta1.InferenceService) (*v1.RoleBinding, error) {
@@ -130,8 +137,4 @@ func (r *KservePrometheusRoleBindingReconciler) processDelta(ctx context.Context
 		}
 	}
 	return nil
-}
-
-func (r *KservePrometheusRoleBindingReconciler) DeleteRoleBinding(ctx context.Context, isvcNamespace string) error {
-	return r.roleBindingHandler.DeleteRoleBinding(ctx, types.NamespacedName{Name: clusterPrometheusAccessRoleBinding, Namespace: isvcNamespace})
 }

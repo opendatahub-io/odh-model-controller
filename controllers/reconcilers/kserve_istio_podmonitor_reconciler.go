@@ -33,9 +33,10 @@ const (
 	istioPodMonitorName = "istio-proxies-monitor"
 )
 
-var _ Reconciler = (*KserveIstioPodMonitorReconciler)(nil)
+var _ SubResourceReconciler = (*KserveIstioPodMonitorReconciler)(nil)
 
 type KserveIstioPodMonitorReconciler struct {
+	SingleResourcePerNamespace
 	client            client.Client
 	scheme            *runtime.Scheme
 	podMonitorHandler resources.PodMonitorHandler
@@ -52,6 +53,7 @@ func NewKServeIstioPodMonitorReconciler(client client.Client, scheme *runtime.Sc
 }
 
 func (r *KserveIstioPodMonitorReconciler) Reconcile(ctx context.Context, log logr.Logger, isvc *kservev1beta1.InferenceService) error {
+	log.V(1).Info("Creating Istio PodMonitor for target namespace")
 
 	// Create Desired resource
 	desiredResource, err := r.createDesiredResource(isvc)
@@ -70,6 +72,11 @@ func (r *KserveIstioPodMonitorReconciler) Reconcile(ctx context.Context, log log
 		return err
 	}
 	return nil
+}
+
+func (r *KserveIstioPodMonitorReconciler) Cleanup(ctx context.Context, log logr.Logger, isvcNs string) error {
+	log.V(1).Info("Deleting PodMonitor object for target namespace")
+	return r.podMonitorHandler.DeletePodMonitor(ctx, types.NamespacedName{Name: istioPodMonitorName, Namespace: isvcNs})
 }
 
 func (r *KserveIstioPodMonitorReconciler) createDesiredResource(isvc *kservev1beta1.InferenceService) (*v1.PodMonitor, error) {
@@ -133,8 +140,4 @@ func (r *KserveIstioPodMonitorReconciler) processDelta(ctx context.Context, log 
 		}
 	}
 	return nil
-}
-
-func (r *KserveIstioPodMonitorReconciler) DeletePodMonitor(ctx context.Context, isvcNamespace string) error {
-	return r.podMonitorHandler.DeletePodMonitor(ctx, types.NamespacedName{Name: istioPodMonitorName, Namespace: isvcNamespace})
 }
