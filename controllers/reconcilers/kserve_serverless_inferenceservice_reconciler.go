@@ -21,7 +21,6 @@ import (
 	"github.com/go-logr/logr"
 	kservev1beta1 "github.com/kserve/kserve/pkg/apis/serving/v1beta1"
 	"github.com/opendatahub-io/odh-model-controller/controllers/utils"
-	"k8s.io/apimachinery/pkg/runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
@@ -42,20 +41,20 @@ type KserveServerlessInferenceServiceReconciler struct {
 	authConfigReconciler              *KserveAuthConfigReconciler
 }
 
-func NewKServeServerlessInferenceServiceReconciler(client client.Client, scheme *runtime.Scheme) *KserveServerlessInferenceServiceReconciler {
+func NewKServeServerlessInferenceServiceReconciler(client client.Client) *KserveServerlessInferenceServiceReconciler {
 	return &KserveServerlessInferenceServiceReconciler{
 		client:                            client,
-		istioSMMRReconciler:               NewKServeIstioSMMRReconciler(client, scheme),
-		routeReconciler:                   NewKserveRouteReconciler(client, scheme),
-		metricsServiceReconciler:          NewKServeMetricsServiceReconciler(client, scheme),
-		metricsServiceMonitorReconciler:   NewKServeMetricsServiceMonitorReconciler(client, scheme),
-		prometheusRoleBindingReconciler:   NewKServePrometheusRoleBindingReconciler(client, scheme),
-		istioTelemetryReconciler:          NewKServeIstioTelemetryReconciler(client, scheme),
-		istioServiceMonitorReconciler:     NewKServeIstioServiceMonitorReconciler(client, scheme),
-		istioPodMonitorReconciler:         NewKServeIstioPodMonitorReconciler(client, scheme),
-		istioPeerAuthenticationReconciler: NewKServeIstioPeerAuthenticationReconciler(client, scheme),
-		networkPolicyReconciler:           NewKServeNetworkPolicyReconciler(client, scheme),
-		authConfigReconciler:              NewKserveAuthConfigReconciler(client, scheme),
+		istioSMMRReconciler:               NewKServeIstioSMMRReconciler(client),
+		routeReconciler:                   NewKserveRouteReconciler(client),
+		metricsServiceReconciler:          NewKServeMetricsServiceReconciler(client),
+		metricsServiceMonitorReconciler:   NewKServeMetricsServiceMonitorReconciler(client),
+		prometheusRoleBindingReconciler:   NewKServePrometheusRoleBindingReconciler(client),
+		istioTelemetryReconciler:          NewKServeIstioTelemetryReconciler(client),
+		istioServiceMonitorReconciler:     NewKServeIstioServiceMonitorReconciler(client),
+		istioPodMonitorReconciler:         NewKServeIstioPodMonitorReconciler(client),
+		istioPeerAuthenticationReconciler: NewKServeIstioPeerAuthenticationReconciler(client),
+		networkPolicyReconciler:           NewKServeNetworkPolicyReconciler(client),
+		authConfigReconciler:              NewKserveAuthConfigReconciler(client),
 	}
 }
 

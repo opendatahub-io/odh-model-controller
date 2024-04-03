@@ -26,7 +26,6 @@ import (
 	istiotypes "istio.io/api/type/v1beta1"
 	istiosecv1beta1 "istio.io/client-go/pkg/apis/security/v1beta1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
@@ -40,15 +39,13 @@ var _ SubResourceReconciler = (*KserveIstioPeerAuthenticationReconciler)(nil)
 type KserveIstioPeerAuthenticationReconciler struct {
 	SingleResourcePerNamespace
 	client                    client.Client
-	scheme                    *runtime.Scheme
 	peerAuthenticationHandler resources.PeerAuthenticationHandler
 	deltaProcessor            processors.DeltaProcessor
 }
 
-func NewKServeIstioPeerAuthenticationReconciler(client client.Client, scheme *runtime.Scheme) *KserveIstioPeerAuthenticationReconciler {
+func NewKServeIstioPeerAuthenticationReconciler(client client.Client) *KserveIstioPeerAuthenticationReconciler {
 	return &KserveIstioPeerAuthenticationReconciler{
 		client:                    client,
-		scheme:                    scheme,
 		peerAuthenticationHandler: resources.NewPeerAuthenticationHandler(client),
 		deltaProcessor:            processors.NewDeltaProcessor(),
 	}

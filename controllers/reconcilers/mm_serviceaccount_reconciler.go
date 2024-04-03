@@ -21,7 +21,6 @@ import (
 	"github.com/opendatahub-io/odh-model-controller/controllers/comparators"
 	"github.com/opendatahub-io/odh-model-controller/controllers/processors"
 	"github.com/opendatahub-io/odh-model-controller/controllers/resources"
-	"k8s.io/apimachinery/pkg/runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	"k8s.io/apimachinery/pkg/types"
@@ -40,15 +39,13 @@ var _ SubResourceReconciler = (*ModelMeshServiceAccountReconciler)(nil)
 type ModelMeshServiceAccountReconciler struct {
 	SingleResourcePerNamespace
 	client                client.Client
-	scheme                *runtime.Scheme
 	serviceAccountHandler resources.ServiceAccountHandler
 	deltaProcessor        processors.DeltaProcessor
 }
 
-func NewModelMeshServiceAccountReconciler(client client.Client, scheme *runtime.Scheme) *ModelMeshServiceAccountReconciler {
+func NewModelMeshServiceAccountReconciler(client client.Client) *ModelMeshServiceAccountReconciler {
 	return &ModelMeshServiceAccountReconciler{
 		client:                client,
-		scheme:                scheme,
 		serviceAccountHandler: resources.NewServiceAccountHandler(client),
 		deltaProcessor:        processors.NewDeltaProcessor(),
 	}

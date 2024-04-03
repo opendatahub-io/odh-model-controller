@@ -24,7 +24,6 @@ import (
 	"github.com/opendatahub-io/odh-model-controller/controllers/resources"
 	v1 "github.com/prometheus-operator/prometheus-operator/pkg/apis/monitoring/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
@@ -37,15 +36,13 @@ var _ SubResourceReconciler = (*KserveIstioServiceMonitorReconciler)(nil)
 
 type KserveIstioServiceMonitorReconciler struct {
 	client                client.Client
-	scheme                *runtime.Scheme
 	serviceMonitorHandler resources.ServiceMonitorHandler
 	deltaProcessor        processors.DeltaProcessor
 }
 
-func NewKServeIstioServiceMonitorReconciler(client client.Client, scheme *runtime.Scheme) *KserveIstioServiceMonitorReconciler {
+func NewKServeIstioServiceMonitorReconciler(client client.Client) *KserveIstioServiceMonitorReconciler {
 	return &KserveIstioServiceMonitorReconciler{
 		client:                client,
-		scheme:                scheme,
 		serviceMonitorHandler: resources.NewServiceMonitorHandler(client),
 		deltaProcessor:        processors.NewDeltaProcessor(),
 	}

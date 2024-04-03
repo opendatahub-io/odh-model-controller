@@ -21,7 +21,6 @@ import (
 	"github.com/go-logr/logr"
 	kservev1beta1 "github.com/kserve/kserve/pkg/apis/serving/v1beta1"
 	"github.com/opendatahub-io/odh-model-controller/controllers/utils"
-	"k8s.io/apimachinery/pkg/runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
@@ -35,12 +34,12 @@ type ModelMeshInferenceServiceReconciler struct {
 	clusterRoleBindingReconciler *ModelMeshClusterRoleBindingReconciler
 }
 
-func NewModelMeshInferenceServiceReconciler(client client.Client, scheme *runtime.Scheme) *ModelMeshInferenceServiceReconciler {
+func NewModelMeshInferenceServiceReconciler(client client.Client) *ModelMeshInferenceServiceReconciler {
 	return &ModelMeshInferenceServiceReconciler{
 		client:                       client,
-		routeReconciler:              NewModelMeshRouteReconciler(client, scheme),
-		serviceAccountReconciler:     NewModelMeshServiceAccountReconciler(client, scheme),
-		clusterRoleBindingReconciler: NewModelMeshClusterRoleBindingReconciler(client, scheme),
+		routeReconciler:              NewModelMeshRouteReconciler(client),
+		serviceAccountReconciler:     NewModelMeshServiceAccountReconciler(client),
+		clusterRoleBindingReconciler: NewModelMeshClusterRoleBindingReconciler(client),
 	}
 }
 

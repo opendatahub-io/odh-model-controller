@@ -24,7 +24,6 @@ import (
 	"github.com/opendatahub-io/odh-model-controller/controllers/resources"
 	v1 "k8s.io/api/rbac/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
@@ -34,15 +33,13 @@ var _ SubResourceReconciler = (*ModelMeshClusterRoleBindingReconciler)(nil)
 type ModelMeshClusterRoleBindingReconciler struct {
 	SingleResourcePerNamespace
 	client                    client.Client
-	scheme                    *runtime.Scheme
 	clusterRoleBindingHandler resources.ClusterRoleBindingHandler
 	deltaProcessor            processors.DeltaProcessor
 }
 
-func NewModelMeshClusterRoleBindingReconciler(client client.Client, scheme *runtime.Scheme) *ModelMeshClusterRoleBindingReconciler {
+func NewModelMeshClusterRoleBindingReconciler(client client.Client) *ModelMeshClusterRoleBindingReconciler {
 	return &ModelMeshClusterRoleBindingReconciler{
 		client:                    client,
-		scheme:                    scheme,
 		clusterRoleBindingHandler: resources.NewClusterRoleBindingHandler(client),
 		deltaProcessor:            processors.NewDeltaProcessor(),
 	}

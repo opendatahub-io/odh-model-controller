@@ -24,7 +24,6 @@ import (
 	"github.com/opendatahub-io/odh-model-controller/controllers/resources"
 	v1 "github.com/prometheus-operator/prometheus-operator/pkg/apis/monitoring/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
@@ -38,15 +37,13 @@ var _ SubResourceReconciler = (*KserveIstioPodMonitorReconciler)(nil)
 type KserveIstioPodMonitorReconciler struct {
 	SingleResourcePerNamespace
 	client            client.Client
-	scheme            *runtime.Scheme
 	podMonitorHandler resources.PodMonitorHandler
 	deltaProcessor    processors.DeltaProcessor
 }
 
-func NewKServeIstioPodMonitorReconciler(client client.Client, scheme *runtime.Scheme) *KserveIstioPodMonitorReconciler {
+func NewKServeIstioPodMonitorReconciler(client client.Client) *KserveIstioPodMonitorReconciler {
 	return &KserveIstioPodMonitorReconciler{
 		client:            client,
-		scheme:            scheme,
 		podMonitorHandler: resources.NewPodMonitorHandler(client),
 		deltaProcessor:    processors.NewDeltaProcessor(),
 	}

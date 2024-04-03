@@ -123,7 +123,6 @@ func main() {
 	//Setup InferenceService controller
 	if err = (controllers.NewOpenshiftInferenceServiceReconciler(
 		mgr.GetClient(),
-		mgr.GetScheme(),
 		ctrl.Log.WithName("controllers").WithName("InferenceService"),
 		getEnvAsBool("MESH_DISABLED", false))).
 		SetupWithManager(mgr); err != nil {
@@ -133,7 +132,6 @@ func main() {
 	if err = (&controllers.StorageSecretReconciler{
 		Client: mgr.GetClient(),
 		Log:    ctrl.Log.WithName("controllers").WithName("StorageSecret"),
-		Scheme: mgr.GetScheme(),
 	}).SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "unable to create controller", "controller", "StorageSecret")
 		os.Exit(1)
@@ -142,7 +140,6 @@ func main() {
 	if err = (&controllers.KServeCustomCACertReconciler{
 		Client: mgr.GetClient(),
 		Log:    ctrl.Log.WithName("controllers").WithName("KServeCustomeCABundleConfigMap"),
-		Scheme: mgr.GetScheme(),
 	}).SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "unable to create controller", "controller", "KServeCustomeCABundleConfigMap")
 		os.Exit(1)
@@ -153,7 +150,6 @@ func main() {
 		if err = (&controllers.MonitoringReconciler{
 			Client:       mgr.GetClient(),
 			Log:          ctrl.Log.WithName("controllers").WithName("MonitoringReconciler"),
-			Scheme:       mgr.GetScheme(),
 			MonitoringNS: monitoringNS,
 		}).SetupWithManager(mgr); err != nil {
 			setupLog.Error(err, "unable to create controller", "controller", "MonitoringReconciler")
@@ -165,7 +161,6 @@ func main() {
 		setupLog.Info("Model registry inference service reconciliation enabled..")
 		if err = (controllers.NewModelRegistryInferenceServiceReconciler(
 			mgr.GetClient(),
-			mgr.GetScheme(),
 			ctrl.Log.WithName("controllers").WithName("ModelRegistryInferenceService"),
 		)).SetupWithManager(mgr); err != nil {
 			setupLog.Error(err, "unable to create controller", "controller", "ModelRegistryInferenceServiceReconciler")

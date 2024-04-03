@@ -27,7 +27,6 @@ import (
 	"github.com/opendatahub-io/odh-model-controller/controllers/processors"
 	"github.com/opendatahub-io/odh-model-controller/controllers/resources"
 	k8serror "k8s.io/apimachinery/pkg/api/errors"
-	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -37,7 +36,6 @@ var _ SubResourceReconciler = (*KserveAuthConfigReconciler)(nil)
 
 type KserveAuthConfigReconciler struct {
 	client         client.Client
-	scheme         *runtime.Scheme
 	deltaProcessor processors.DeltaProcessor
 	detector       resources.AuthTypeDetector
 	store          resources.AuthConfigStore
@@ -45,10 +43,9 @@ type KserveAuthConfigReconciler struct {
 	hostExtractor  resources.InferenceServiceHostExtractor
 }
 
-func NewKserveAuthConfigReconciler(client client.Client, scheme *runtime.Scheme) *KserveAuthConfigReconciler {
+func NewKserveAuthConfigReconciler(client client.Client) *KserveAuthConfigReconciler {
 	return &KserveAuthConfigReconciler{
 		client:         client,
-		scheme:         scheme,
 		deltaProcessor: processors.NewDeltaProcessor(),
 		detector:       resources.NewKServeAuthTypeDetector(client),
 		store:          resources.NewClientAuthConfigStore(client),
@@ -119,7 +116,7 @@ func (r *KserveAuthConfigReconciler) createDesiredResource(ctx context.Context, 
 	}
 	template.Labels[constants.LabelAuthGroup] = "default"
 
-	ctrl.SetControllerReference(isvc, &template, r.scheme)
+	ctrl.SetControllerReference(isvc, &template, r.client.Scheme())
 
 	return &template, nil
 }

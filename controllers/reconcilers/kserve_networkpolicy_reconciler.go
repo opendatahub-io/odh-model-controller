@@ -25,7 +25,6 @@ import (
 	"github.com/opendatahub-io/odh-model-controller/controllers/resources"
 	"k8s.io/api/networking/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
@@ -43,15 +42,13 @@ var _ SubResourceReconciler = (*KserveNetworkPolicyReconciler)(nil)
 type KserveNetworkPolicyReconciler struct {
 	SingleResourcePerNamespace
 	client               client.Client
-	scheme               *runtime.Scheme
 	networkPolicyHandler resources.NetworkPolicyHandler
 	deltaProcessor       processors.DeltaProcessor
 }
 
-func NewKServeNetworkPolicyReconciler(client client.Client, scheme *runtime.Scheme) *KserveNetworkPolicyReconciler {
+func NewKServeNetworkPolicyReconciler(client client.Client) *KserveNetworkPolicyReconciler {
 	return &KserveNetworkPolicyReconciler{
 		client:               client,
-		scheme:               scheme,
 		networkPolicyHandler: resources.NewNetworkPolicyHandler(client),
 		deltaProcessor:       processors.NewDeltaProcessor(),
 	}

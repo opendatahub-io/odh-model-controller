@@ -145,7 +145,6 @@ var _ = BeforeSuite(func() {
 
 	err = (NewOpenshiftInferenceServiceReconciler(
 		mgr.GetClient(),
-		scheme.Scheme,
 		ctrl.Log.WithName("controllers").WithName("InferenceService-controller"),
 		false)).
 		SetupWithManager(mgr)
@@ -154,7 +153,6 @@ var _ = BeforeSuite(func() {
 	err = (&MonitoringReconciler{
 		Client:       cli,
 		Log:          ctrl.Log.WithName("controllers").WithName("monitoring-controller"),
-		Scheme:       scheme.Scheme,
 		MonitoringNS: MonitoringNS,
 	}).SetupWithManager(mgr)
 	Expect(err).ToNot(HaveOccurred())
@@ -162,21 +160,18 @@ var _ = BeforeSuite(func() {
 	err = (&StorageSecretReconciler{
 		Client: cli,
 		Log:    ctrl.Log.WithName("controllers").WithName("Storage-Secret-Controller"),
-		Scheme: scheme.Scheme,
 	}).SetupWithManager(mgr)
 	Expect(err).ToNot(HaveOccurred())
 
 	err = (&ModelRegistryInferenceServiceReconciler{
 		client: cli,
 		log:    ctrl.Log.WithName("controllers").WithName("ModelRegistry-InferenceService-Controller"),
-		scheme: scheme.Scheme,
 	}).SetupWithManager(mgr)
 	Expect(err).ToNot(HaveOccurred())
 
 	err = (&KServeCustomCACertReconciler{
 		Client: cli,
 		Log:    ctrl.Log.WithName("controllers").WithName("KServe-Custom-CA-Bundle-ConfigMap-Controller"),
-		Scheme: scheme.Scheme,
 	}).SetupWithManager(mgr)
 	Expect(err).ToNot(HaveOccurred())
 

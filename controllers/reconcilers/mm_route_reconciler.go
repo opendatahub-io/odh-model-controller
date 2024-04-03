@@ -20,15 +20,13 @@ import (
 	"sort"
 	"strconv"
 
+	"github.com/go-logr/logr"
+	kservev1alpha1 "github.com/kserve/kserve/pkg/apis/serving/v1alpha1"
+	kservev1beta1 "github.com/kserve/kserve/pkg/apis/serving/v1beta1"
 	"github.com/opendatahub-io/odh-model-controller/controllers/comparators"
 	"github.com/opendatahub-io/odh-model-controller/controllers/constants"
 	"github.com/opendatahub-io/odh-model-controller/controllers/processors"
 	"github.com/opendatahub-io/odh-model-controller/controllers/resources"
-	"k8s.io/apimachinery/pkg/runtime"
-
-	"github.com/go-logr/logr"
-	kservev1alpha1 "github.com/kserve/kserve/pkg/apis/serving/v1alpha1"
-	kservev1beta1 "github.com/kserve/kserve/pkg/apis/serving/v1beta1"
 	v1 "github.com/openshift/api/route/v1"
 	apierrs "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -50,15 +48,13 @@ var _ SubResourceReconciler = (*ModelMeshRouteReconciler)(nil)
 type ModelMeshRouteReconciler struct {
 	NoResourceRemoval
 	client         client.Client
-	scheme         *runtime.Scheme
 	routeHandler   resources.RouteHandler
 	deltaProcessor processors.DeltaProcessor
 }
 
-func NewModelMeshRouteReconciler(client client.Client, scheme *runtime.Scheme) *ModelMeshRouteReconciler {
+func NewModelMeshRouteReconciler(client client.Client) *ModelMeshRouteReconciler {
 	return &ModelMeshRouteReconciler{
 		client:         client,
-		scheme:         scheme,
 		routeHandler:   resources.NewRouteHandler(client),
 		deltaProcessor: processors.NewDeltaProcessor(),
 	}
@@ -146,7 +142,7 @@ func (r *ModelMeshRouteReconciler) createDesiredResource(ctx context.Context, lo
 			InsecureEdgeTerminationPolicy: v1.InsecureEdgeTerminationPolicyRedirect,
 		}
 	}
-	if err = ctrl.SetControllerReference(isvc, desiredRoute, r.scheme); err != nil {
+	if err = ctrl.SetControllerReference(isvc, desiredRoute, r.client.Scheme()); err != nil {
 		return nil, err
 	}
 	return desiredRoute, nil

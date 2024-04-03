@@ -28,7 +28,6 @@ import (
 	"github.com/opendatahub-io/odh-model-controller/controllers/resources"
 	v1 "github.com/openshift/api/route/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/intstr"
 	"k8s.io/utils/pointer"
@@ -40,15 +39,13 @@ var _ SubResourceReconciler = (*KserveRouteReconciler)(nil)
 
 type KserveRouteReconciler struct {
 	client         client.Client
-	scheme         *runtime.Scheme
 	routeHandler   resources.RouteHandler
 	deltaProcessor processors.DeltaProcessor
 }
 
-func NewKserveRouteReconciler(client client.Client, scheme *runtime.Scheme) *KserveRouteReconciler {
+func NewKserveRouteReconciler(client client.Client) *KserveRouteReconciler {
 	return &KserveRouteReconciler{
 		client:         client,
-		scheme:         scheme,
 		routeHandler:   resources.NewRouteHandler(client),
 		deltaProcessor: processors.NewDeltaProcessor(),
 	}

@@ -24,7 +24,6 @@ import (
 	"github.com/opendatahub-io/odh-model-controller/controllers/processors"
 	"github.com/opendatahub-io/odh-model-controller/controllers/resources"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
 	v1 "maistra.io/api/core/v1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -35,15 +34,13 @@ var _ SubResourceReconciler = (*KserveIstioSMMRReconciler)(nil)
 type KserveIstioSMMRReconciler struct {
 	SingleResourcePerNamespace
 	client         client.Client
-	scheme         *runtime.Scheme
 	smmrHandler    resources.ServiceMeshMemberRollHandler
 	deltaProcessor processors.DeltaProcessor
 }
 
-func NewKServeIstioSMMRReconciler(client client.Client, scheme *runtime.Scheme) *KserveIstioSMMRReconciler {
+func NewKServeIstioSMMRReconciler(client client.Client) *KserveIstioSMMRReconciler {
 	return &KserveIstioSMMRReconciler{
 		client:         client,
-		scheme:         scheme,
 		smmrHandler:    resources.NewServiceMeshMemberRole(client),
 		deltaProcessor: processors.NewDeltaProcessor(),
 	}

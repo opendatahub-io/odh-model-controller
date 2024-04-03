@@ -20,7 +20,6 @@ import (
 
 	"github.com/go-logr/logr"
 	kservev1beta1 "github.com/kserve/kserve/pkg/apis/serving/v1beta1"
-	"k8s.io/apimachinery/pkg/runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
@@ -30,7 +29,7 @@ type KserveRawInferenceServiceReconciler struct {
 	client client.Client
 }
 
-func NewKServeRawInferenceServiceReconciler(client client.Client, scheme *runtime.Scheme) *KserveRawInferenceServiceReconciler {
+func NewKServeRawInferenceServiceReconciler(client client.Client) *KserveRawInferenceServiceReconciler {
 	return &KserveRawInferenceServiceReconciler{
 		client: client,
 	}

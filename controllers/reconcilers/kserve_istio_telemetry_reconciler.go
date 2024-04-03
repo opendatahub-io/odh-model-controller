@@ -26,7 +26,6 @@ import (
 	istiotypes "istio.io/api/type/v1beta1"
 	telemetryv1alpha1 "istio.io/client-go/pkg/apis/telemetry/v1alpha1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
@@ -40,15 +39,13 @@ var _ SubResourceReconciler = (*KserveIstioTelemetryReconciler)(nil)
 type KserveIstioTelemetryReconciler struct {
 	SingleResourcePerNamespace
 	client           client.Client
-	scheme           *runtime.Scheme
 	telemetryHandler resources.TelemetryHandler
 	deltaProcessor   processors.DeltaProcessor
 }
 
-func NewKServeIstioTelemetryReconciler(client client.Client, scheme *runtime.Scheme) *KserveIstioTelemetryReconciler {
+func NewKServeIstioTelemetryReconciler(client client.Client) *KserveIstioTelemetryReconciler {
 	return &KserveIstioTelemetryReconciler{
 		client:           client,
-		scheme:           scheme,
 		telemetryHandler: resources.NewTelemetryHandler(client),
 		deltaProcessor:   processors.NewDeltaProcessor(),
 	}
