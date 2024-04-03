@@ -11,6 +11,7 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	authv1 "k8s.io/api/rbac/v1"
 	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
+	knservingv1 "knative.dev/serving/pkg/apis/serving/v1"
 	maistrav1 "maistra.io/api/core/v1"
 
 	"k8s.io/apimachinery/pkg/runtime"
@@ -31,6 +32,7 @@ func RegisterSchemes(s *runtime.Scheme) {
 	utilruntime.Must(istiosecurityv1beta1.AddToScheme(s))
 	utilruntime.Must(telemetryv1alpha1.AddToScheme(s))
 	utilruntime.Must(maistrav1.SchemeBuilder.AddToScheme(s))
+	utilruntime.Must(knservingv1.AddToScheme(s))
 
 	// The following are related to Service Mesh, uncomment this and other
 	// similar blocks to use with Service Mesh

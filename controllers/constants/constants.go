@@ -16,10 +16,14 @@ limitations under the License.
 package constants
 
 const (
+	InferenceServiceKind = "InferenceService"
+
 	IstioNamespace                   = "istio-system"
+	ServiceMeshMemberRollName        = "default"
 	IstioIngressService              = "istio-ingressgateway"
 	IstioIngressServiceHTTPPortName  = "http2"
 	IstioIngressServiceHTTPSPortName = "https"
+	IstioSidecarInjectAnnotationName = "sidecar.istio.io/inject"
 
 	LabelAuthGroup     = "security.opendatahub.io/authorization-group"
 	LabelEnableAuthODH = "security.opendatahub.io/enable-auth"

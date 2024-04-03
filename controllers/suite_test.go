@@ -23,7 +23,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/opendatahub-io/odh-model-controller/controllers/constants"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
 	kservev1alpha1 "github.com/kserve/kserve/pkg/apis/serving/v1alpha1"
@@ -37,7 +36,6 @@ import (
 
 	. "github.com/onsi/ginkgo"
 	. "github.com/onsi/gomega"
-	"github.com/opendatahub-io/odh-model-controller/controllers/utils"
 	routev1 "github.com/openshift/api/route/v1"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/client-go/kubernetes/scheme"
@@ -45,6 +43,9 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/envtest"
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
 	"sigs.k8s.io/controller-runtime/pkg/log/zap"
+
+	"github.com/opendatahub-io/odh-model-controller/controllers/constants"
+	"github.com/opendatahub-io/odh-model-controller/controllers/utils"
 	//+kubebuilder:scaffold:imports
 )
 

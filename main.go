@@ -17,6 +17,7 @@ limitations under the License.
 package main
 
 import (
+	"context"
 	"flag"
 	"os"
 	"strconv"
@@ -26,12 +27,15 @@ import (
 	_ "k8s.io/client-go/plugin/pkg/client/auth"
 
 	"k8s.io/apimachinery/pkg/runtime"
+	knservingv1 "knative.dev/serving/pkg/apis/serving/v1"
 	ctrl "sigs.k8s.io/controller-runtime"
+	"sigs.k8s.io/controller-runtime/pkg/builder"
 	"sigs.k8s.io/controller-runtime/pkg/healthz"
 	"sigs.k8s.io/controller-runtime/pkg/log/zap"
 
 	"github.com/opendatahub-io/odh-model-controller/controllers"
 	"github.com/opendatahub-io/odh-model-controller/controllers/utils"
+	"github.com/opendatahub-io/odh-model-controller/controllers/webhook"
 	//+kubebuilder:scaffold:imports
 )
 
@@ -170,6 +174,24 @@ func main() {
 	} else {
 		setupLog.Info("Model registry inference service reconciliation disabled. To enable model registry " +
 			"reconciliation for InferenceService, please provide --model-registry-inference-reconcile flag.")
+	}
+
+	kserveWithMeshEnabled, kserveWithMeshEnabledErr := utils.VerifyIfComponentIsEnabled(context.Background(), mgr.GetClient(), utils.KserveAuthorinoComponent)
+	if kserveWithMeshEnabledErr != nil {
+		setupLog.Error(kserveWithMeshEnabledErr, "could not determine if kserve have service mesh enabled")
+	}
+
+	if kserveWithMeshEnabled {
+		ksvcValidatorWebhookSetupErr := builder.WebhookManagedBy(mgr).
+			For(&knservingv1.Service{}).
+			WithValidator(webhook.NewKsvcValidator(mgr.GetClient())).
+			Complete()
+		if ksvcValidatorWebhookSetupErr != nil {
+			setupLog.Error(err, "unable to setup Knative Service validating Webhook")
+			os.Exit(1)
+		}
+	} else {
+		setupLog.Info("Skipping setup of Knative Service validating Webhook, because KServe Serverless setup seems to be disabled in the DataScienceCluster resource.")
 	}
 
 	//+kubebuilder:scaffold:builder
