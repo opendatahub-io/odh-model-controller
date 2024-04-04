@@ -18,10 +18,10 @@ package reconcilers
 import (
 	"context"
 	"fmt"
+
 	"github.com/go-logr/logr"
 	kservev1beta1 "github.com/kserve/kserve/pkg/apis/serving/v1beta1"
 	authorinov1beta2 "github.com/kuadrant/authorino/api/v1beta2"
-	"github.com/kuadrant/authorino/pkg/log"
 	"github.com/opendatahub-io/odh-model-controller/controllers/comparators"
 	"github.com/opendatahub-io/odh-model-controller/controllers/constants"
 	"github.com/opendatahub-io/odh-model-controller/controllers/processors"
@@ -73,7 +73,7 @@ func (r *KserveAuthConfigReconciler) Reconcile(ctx context.Context, log logr.Log
 	}
 
 	// Process Delta
-	if err = r.processDelta(ctx, desiredState, existingState); err != nil {
+	if err = r.processDelta(ctx, log, desiredState, existingState); err != nil {
 		return err
 	}
 	return nil
@@ -129,7 +129,7 @@ func (r *KserveAuthConfigReconciler) getExistingResource(ctx context.Context, is
 	return r.store.Get(ctx, typeName)
 }
 
-func (r *KserveAuthConfigReconciler) processDelta(ctx context.Context, desiredState *authorinov1beta2.AuthConfig, existingState *authorinov1beta2.AuthConfig) (err error) {
+func (r *KserveAuthConfigReconciler) processDelta(ctx context.Context, log logr.Logger, desiredState *authorinov1beta2.AuthConfig, existingState *authorinov1beta2.AuthConfig) (err error) {
 	comparator := comparators.GetAuthConfigComparator()
 	delta := r.deltaProcessor.ComputeDelta(comparator, desiredState, existingState)
 
