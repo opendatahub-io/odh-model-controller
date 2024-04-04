@@ -35,6 +35,7 @@ const (
 var _ SubResourceReconciler = (*KserveIstioServiceMonitorReconciler)(nil)
 
 type KserveIstioServiceMonitorReconciler struct {
+	SingleResourcePerNamespace
 	client                client.Client
 	serviceMonitorHandler resources.ServiceMonitorHandler
 	deltaProcessor        processors.DeltaProcessor
@@ -67,11 +68,6 @@ func (r *KserveIstioServiceMonitorReconciler) Reconcile(ctx context.Context, log
 	if err = r.processDelta(ctx, log, desiredResource, existingResource); err != nil {
 		return err
 	}
-	return nil
-}
-
-func (r *KserveIstioServiceMonitorReconciler) Delete(ctx context.Context, log logr.Logger, isvc *kservev1beta1.InferenceService) error {
-	// NOOP it needs to be cleaned up when no ISVCs left in the Namespace
 	return nil
 }
 
