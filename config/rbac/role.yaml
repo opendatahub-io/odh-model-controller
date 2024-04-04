@@ -1,4 +1,5 @@
----
+# This file is generated automatically by `make manifests`,
+# Please, do not manually change this file.---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRole
 metadata:
@@ -48,6 +49,34 @@ rules:
   - projects
   verbs:
   - get  
+- apiGroups:
+  - authorino.kuadrant.io
+  resources:
+  - authconfigs
+  verbs:
+  - create
+  - delete
+  - get
+  - list
+  - patch
+  - update
+  - watch
+- apiGroups:
+  - datasciencecluster.opendatahub.io
+  resources:
+  - datascienceclusters
+  verbs:
+  - get
+  - list
+  - watch
+- apiGroups:
+  - extensions
+  resources:
+  - ingresses
+  verbs:
+  - get
+  - list
+  - watch
 - apiGroups:
   - maistra.io
   resources:
@@ -136,6 +165,14 @@ rules:
 - apiGroups:
   - networking.k8s.io
   resources:
+  - ingresses
+  verbs:
+  - get
+  - list
+  - watch
+- apiGroups:
+  - networking.k8s.io
+  resources:
   - networkpolicies
   verbs:
   - create
@@ -195,6 +232,7 @@ rules:
   verbs:
   - get
   - list
+  - update
   - watch
 - apiGroups:
   - serving.kserve.io
@@ -239,19 +277,3 @@ rules:
   - patch
   - update
   - watch
-- apiGroups:
-    - extensions
-  resources:
-    - ingresses
-  verbs:
-    - get
-    - list
-    - watch
-- apiGroups:
-    - networking.k8s.io
-  resources:
-    - ingresses
-  verbs:
-    - get
-    - list
-    - watch

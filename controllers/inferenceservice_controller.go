@@ -20,6 +20,7 @@ import (
 	"github.com/go-logr/logr"
 	kservev1alpha1 "github.com/kserve/kserve/pkg/apis/serving/v1alpha1"
 	kservev1beta1 "github.com/kserve/kserve/pkg/apis/serving/v1beta1"
+	authorinov1beta2 "github.com/kuadrant/authorino/api/v1beta2"
 	"github.com/opendatahub-io/odh-model-controller/controllers/reconcilers"
 	"github.com/opendatahub-io/odh-model-controller/controllers/utils"
 	routev1 "github.com/openshift/api/route/v1"
@@ -149,7 +150,22 @@ func (r *OpenshiftInferenceServiceReconciler) SetupWithManager(mgr ctrl.Manager)
 				}
 				return reconcileRequests
 			}))
-	err := builder.Complete(r)
+
+	// check if kserve is enabled, otherwise don't require Authorino.
+
+	isAuthorinoRequired, err := utils.VerifyIfComponentIsEnabled(context.TODO(), r.client, utils.KserveAuthorinoComponent)
+	if err != nil {
+		r.log.V(1).Error(err, "could not determine if kserve have service mesh enabled")
+	}
+
+	if isAuthorinoRequired {
+		builder.Owns(&authorinov1beta2.AuthConfig{})
+		r.log.Info("kserve is enabled with Service Mesh, Authorino is a requirement")
+	} else {
+		r.log.Info("didn't find kserve with service mesh, Authorino is not a requirement")
+	}
+
+	err = builder.Complete(r)
 	if err != nil {
 		return err
 	}

@@ -16,10 +16,39 @@ limitations under the License.
 package constants
 
 const (
+	InferenceServiceKind = "InferenceService"
+
 	IstioNamespace                   = "istio-system"
+	ServiceMeshMemberRollName        = "default"
 	IstioIngressService              = "istio-ingressgateway"
 	IstioIngressServiceHTTPPortName  = "http2"
 	IstioIngressServiceHTTPSPortName = "https"
+	IstioSidecarInjectAnnotationName = "sidecar.istio.io/inject"
+
+	LabelAuthGroup     = "security.opendatahub.io/authorization-group"
+	LabelEnableAuthODH = "security.opendatahub.io/enable-auth"
+	LabelEnableAuth    = "enable-auth"
+	LabelEnableRoute   = "enable-route"
+)
+
+// model registry
+const (
+	MLMDAddressEnv                       = "MLMD_ADDRESS"
+	ModelRegistryNamespaceLabel          = "modelregistry.opendatahub.io/namespace"
+	ModelRegistryInferenceServiceIdLabel = "modelregistry.opendatahub.io/inference-service-id"
+	ModelRegistryModelVersionIdLabel     = "modelregistry.opendatahub.io/model-version-id"
+	ModelRegistryRegisteredModelIdLabel  = "modelregistry.opendatahub.io/registered-model-id"
+)
+
+const (
+	KServeCACertFileName       = "cabundle.crt"
+	KServeCACertConfigMapName  = "odh-kserve-custom-ca-bundle"
+	ODHGlobalCertConfigMapName = "odh-trusted-ca-bundle"
+	ODHCustomCACertFileName    = "odh-ca-bundle.crt"
+)
+
+const (
+	DefaultStorageConfig = "storage-config"
 )
 
 const (

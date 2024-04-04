@@ -18,15 +18,15 @@ package comparators
 import (
 	"reflect"
 
-	v1 "k8s.io/api/rbac/v1"
+	authorinov1beta2 "github.com/kuadrant/authorino/api/v1beta2"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
-func GetClusterRoleBindingComparator() ResourceComparator {
+func GetAuthConfigComparator() ResourceComparator {
 	return func(deployed client.Object, requested client.Object) bool {
-		deployedCRB := deployed.(*v1.ClusterRoleBinding)
-		requestedCRB := requested.(*v1.ClusterRoleBinding)
-		return reflect.DeepEqual(deployedCRB.RoleRef, requestedCRB.RoleRef) &&
-			reflect.DeepEqual(deployedCRB.Subjects, requestedCRB.Subjects)
+		deployedAC := deployed.(*authorinov1beta2.AuthConfig)
+		requestedAC := requested.(*authorinov1beta2.AuthConfig)
+		return reflect.DeepEqual(deployedAC.Spec, requestedAC.Spec) &&
+			reflect.DeepEqual(deployedAC.Labels, requestedAC.Labels)
 	}
 }

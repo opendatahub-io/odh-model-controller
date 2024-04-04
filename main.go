@@ -17,32 +17,25 @@ limitations under the License.
 package main
 
 import (
+	"context"
 	"flag"
 	"os"
 	"strconv"
-
-	kservev1alpha1 "github.com/kserve/kserve/pkg/apis/serving/v1alpha1"
-	kservev1beta1 "github.com/kserve/kserve/pkg/apis/serving/v1beta1"
-	monitoringv1 "github.com/prometheus-operator/prometheus-operator/pkg/apis/monitoring/v1"
 
 	// Import all Kubernetes client auth plugins (e.g. Azure, GCP, OIDC, etc.)
 	// to ensure that exec-entrypoint and run can make use of them.
 	_ "k8s.io/client-go/plugin/pkg/client/auth"
 
 	"k8s.io/apimachinery/pkg/runtime"
-	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
-	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
+	knservingv1 "knative.dev/serving/pkg/apis/serving/v1"
 	ctrl "sigs.k8s.io/controller-runtime"
+	"sigs.k8s.io/controller-runtime/pkg/builder"
 	"sigs.k8s.io/controller-runtime/pkg/healthz"
 	"sigs.k8s.io/controller-runtime/pkg/log/zap"
 
 	"github.com/opendatahub-io/odh-model-controller/controllers"
-	routev1 "github.com/openshift/api/route/v1"
-	istiosecurityv1beta1 "istio.io/client-go/pkg/apis/security/v1beta1"
-	telemetryv1alpha1 "istio.io/client-go/pkg/apis/telemetry/v1alpha1"
-	corev1 "k8s.io/api/core/v1"
-	authv1 "k8s.io/api/rbac/v1"
-	maistrav1 "maistra.io/api/core/v1"
+	"github.com/opendatahub-io/odh-model-controller/controllers/utils"
+	"github.com/opendatahub-io/odh-model-controller/controllers/webhook"
 	//+kubebuilder:scaffold:imports
 )
 
@@ -51,9 +44,13 @@ var (
 	setupLog = ctrl.Log.WithName("setup")
 )
 
+func init() { //nolint:gochecknoinits //reason this way we ensure schemes are always registered before we start anything
+	utils.RegisterSchemes(scheme)
+}
+
 // ClusterRole permissions
 
-// +kubebuilder:rbac:groups=serving.kserve.io,resources=inferenceservices,verbs=get;list;watch
+// +kubebuilder:rbac:groups=serving.kserve.io,resources=inferenceservices,verbs=get;list;watch;update
 // +kubebuilder:rbac:groups=serving.kserve.io,resources=inferenceservices/finalizers,verbs=get;list;watch;update
 // +kubebuilder:rbac:groups=serving.kserve.io,resources=servingruntimes,verbs=get;list;watch;create;update
 // +kubebuilder:rbac:groups=serving.kserve.io,resources=servingruntimes/finalizers,verbs=get;list;watch;create;update;patch;delete
@@ -69,29 +66,13 @@ var (
 // +kubebuilder:rbac:groups=route.openshift.io,resources=routes/custom-host,verbs=create
 // +kubebuilder:rbac:groups=rbac.authorization.k8s.io,resources=clusterrolebindings;rolebindings,verbs=get;list;watch;create;update;patch;watch;delete
 // +kubebuilder:rbac:groups=networking.k8s.io,resources=networkpolicies,verbs=get;list;watch;create;update;patch;delete
+// +kubebuilder:rbac:groups=networking.k8s.io,resources=ingresses,verbs=get;list;watch
 // +kubebuilder:rbac:groups=monitoring.coreos.com,resources=servicemonitors;podmonitors,verbs=get;list;watch;create;update;patch;delete
+// +kubebuilder:rbac:groups=extensions,resources=ingresses,verbs=get;list;watch
 // +kubebuilder:rbac:groups="",resources=namespaces;pods;services;endpoints,verbs=get;list;watch;create;update;patch
 // +kubebuilder:rbac:groups="",resources=secrets;configmaps;serviceaccounts,verbs=get;list;watch;create;update;patch;delete
-
-func init() {
-	utilruntime.Must(clientgoscheme.AddToScheme(scheme))
-
-	utilruntime.Must(kservev1alpha1.AddToScheme(scheme))
-	utilruntime.Must(kservev1beta1.AddToScheme(scheme))
-	utilruntime.Must(corev1.AddToScheme(scheme))
-	utilruntime.Must(routev1.AddToScheme(scheme))
-	utilruntime.Must(authv1.AddToScheme(scheme))
-	utilruntime.Must(monitoringv1.AddToScheme(scheme))
-	utilruntime.Must(istiosecurityv1beta1.AddToScheme(scheme))
-	utilruntime.Must(telemetryv1alpha1.AddToScheme(scheme))
-	utilruntime.Must(maistrav1.SchemeBuilder.AddToScheme(scheme))
-
-	// The following are related to Service Mesh, uncomment this and other
-	// similar blocks to use with Service Mesh
-	//utilruntime.Must(virtualservicev1.AddToScheme(scheme))
-
-	//+kubebuilder:scaffold:scheme
-}
+// +kubebuilder:rbac:groups=authorino.kuadrant.io,resources=authconfigs,verbs=get;list;watch;create;update;patch;delete
+// +kubebuilder:rbac:groups=datasciencecluster.opendatahub.io,resources=datascienceclusters,verbs=get;list;watch
 
 func getEnvAsBool(name string, defaultValue bool) bool {
 	valStr := os.Getenv(name)
@@ -106,6 +87,8 @@ func main() {
 	var enableLeaderElection bool
 	var monitoringNS string
 	var probeAddr string
+	var enableMRInferenceServiceReconcile bool
+
 	flag.StringVar(&metricsAddr, "metrics-bind-address", ":8080", "The address the metric endpoint binds to.")
 	flag.StringVar(&probeAddr, "health-probe-bind-address", ":8081", "The address the probe endpoint binds to.")
 	flag.BoolVar(&enableLeaderElection, "leader-elect", false,
@@ -113,6 +96,8 @@ func main() {
 			"Enabling this will ensure there is only one active controller manager.")
 	flag.StringVar(&monitoringNS, "monitoring-namespace", "",
 		"The Namespace where the monitoring stack's Prometheus resides.")
+	flag.BoolVar(&enableMRInferenceServiceReconcile, "model-registry-inference-reconcile", false,
+		"Enable model registry inference service reconciliation. ")
 
 	opts := zap.Options{
 		Development: true,
@@ -174,9 +159,39 @@ func main() {
 			setupLog.Error(err, "unable to create controller", "controller", "MonitoringReconciler")
 			os.Exit(1)
 		}
+	}
+
+	if enableMRInferenceServiceReconcile {
+		setupLog.Info("Model registry inference service reconciliation enabled..")
+		if err = (controllers.NewModelRegistryInferenceServiceReconciler(
+			mgr.GetClient(),
+			mgr.GetScheme(),
+			ctrl.Log.WithName("controllers").WithName("ModelRegistryInferenceService"),
+		)).SetupWithManager(mgr); err != nil {
+			setupLog.Error(err, "unable to create controller", "controller", "ModelRegistryInferenceServiceReconciler")
+			os.Exit(1)
+		}
 	} else {
-		setupLog.Info("Monitoring namespace not provided, skipping setup of monitoring controller. To enable " +
-			"monitoring for ModelServing, please provide a monitoring namespace via the (--monitoring-namespace) flag.")
+		setupLog.Info("Model registry inference service reconciliation disabled. To enable model registry " +
+			"reconciliation for InferenceService, please provide --model-registry-inference-reconcile flag.")
+	}
+
+	kserveWithMeshEnabled, kserveWithMeshEnabledErr := utils.VerifyIfComponentIsEnabled(context.Background(), mgr.GetClient(), utils.KserveAuthorinoComponent)
+	if kserveWithMeshEnabledErr != nil {
+		setupLog.Error(kserveWithMeshEnabledErr, "could not determine if kserve have service mesh enabled")
+	}
+
+	if kserveWithMeshEnabled {
+		ksvcValidatorWebhookSetupErr := builder.WebhookManagedBy(mgr).
+			For(&knservingv1.Service{}).
+			WithValidator(webhook.NewKsvcValidator(mgr.GetClient())).
+			Complete()
+		if ksvcValidatorWebhookSetupErr != nil {
+			setupLog.Error(err, "unable to setup Knative Service validating Webhook")
+			os.Exit(1)
+		}
+	} else {
+		setupLog.Info("Skipping setup of Knative Service validating Webhook, because KServe Serverless setup seems to be disabled in the DataScienceCluster resource.")
 	}
 
 	//+kubebuilder:scaffold:builder
