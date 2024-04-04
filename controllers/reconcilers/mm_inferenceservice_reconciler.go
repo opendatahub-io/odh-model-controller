@@ -28,7 +28,6 @@ import (
 var _ Reconciler = (*ModelMeshInferenceServiceReconciler)(nil)
 
 type ModelMeshInferenceServiceReconciler struct {
-	SingleResourcePerNamespace
 	client                 client.Client
 	subResourceReconcilers []SubResourceReconciler
 }
