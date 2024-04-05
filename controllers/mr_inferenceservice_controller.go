@@ -18,7 +18,6 @@ import (
 	"google.golang.org/grpc/credentials/insecure"
 	corev1 "k8s.io/api/core/v1"
 	apierrs "k8s.io/apimachinery/pkg/api/errors"
-	"k8s.io/apimachinery/pkg/runtime"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
@@ -29,15 +28,13 @@ const modelRegistryFinalizer = "modelregistry.opendatahub.io/finalizer"
 // ModelRegistryInferenceServiceReconciler holds the controller configuration.
 type ModelRegistryInferenceServiceReconciler struct {
 	client         client.Client
-	scheme         *runtime.Scheme
 	log            logr.Logger
 	deltaProcessor processors.DeltaProcessor
 }
 
-func NewModelRegistryInferenceServiceReconciler(client client.Client, scheme *runtime.Scheme, log logr.Logger) *ModelRegistryInferenceServiceReconciler {
+func NewModelRegistryInferenceServiceReconciler(client client.Client, log logr.Logger) *ModelRegistryInferenceServiceReconciler {
 	return &ModelRegistryInferenceServiceReconciler{
 		client:         client,
-		scheme:         scheme,
 		log:            log,
 		deltaProcessor: processors.NewDeltaProcessor(),
 	}

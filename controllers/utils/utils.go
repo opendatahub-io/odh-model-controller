@@ -24,9 +24,7 @@ var (
 const (
 	inferenceServiceDeploymentModeAnnotation = "serving.kserve.io/deploymentMode"
 	KserveConfigMapName                      = "inferenceservice-config"
-	dataScienceClusterKind                   = "DataScienceCluster"
-	dataScienceClusterApiVersion             = "datasciencecluster.opendatahub.io/v1"
-	KserveAuthorinoComponent                 = "kserve-authorino"
+	KServeWithServiceMeshComponent           = "kserve-service-mesh"
 )
 
 func GetDeploymentModeForIsvc(ctx context.Context, cli client.Client, isvc *kservev1beta1.InferenceService) (IsvcDeploymentMode, error) {
@@ -77,8 +75,8 @@ func GetDeploymentModeForIsvc(ctx context.Context, cli client.Client, isvc *kser
 func VerifyIfComponentIsEnabled(ctx context.Context, cli client.Client, componentName string) (bool, error) {
 	// Query the custom object
 	objectList := &unstructured.UnstructuredList{}
-	objectList.SetAPIVersion(dataScienceClusterApiVersion)
-	objectList.SetKind(dataScienceClusterKind)
+	objectList.SetAPIVersion(GVK.DataScienceCluster.GroupVersion().String())
+	objectList.SetKind(GVK.DataScienceCluster.Kind)
 
 	if err := cli.List(ctx, objectList); err != nil {
 		return false, fmt.Errorf("not able to read %s: %w", objectList, err)
@@ -87,17 +85,23 @@ func VerifyIfComponentIsEnabled(ctx context.Context, cli client.Client, componen
 	// there must be only one dsc
 	if len(objectList.Items) == 1 {
 		fields := []string{"spec", "components", componentName, "managementState"}
-		if componentName == KserveAuthorinoComponent {
-			// For KServe, Authorino is required when ServiceMesh is enabled
+		if componentName == KServeWithServiceMeshComponent {
+			// For KServe, Authorino is required when serving is enabled
 			// By Disabling ServiceMesh for RawDeployment, it should reflect on disabling
 			// the Authorino integration as well.
 			fields = []string{"spec", "components", "kserve", "serving", "managementState"}
 			kserveFields := []string{"spec", "components", "kserve", "managementState"}
-			serving, _, err := unstructured.NestedString(objectList.Items[0].Object, fields...)
-			kserve, _, err := unstructured.NestedString(objectList.Items[0].Object, kserveFields...)
-			if err != nil {
-				return false, fmt.Errorf("failed to retrieve the component [%s] status from %+v",
-					componentName, objectList.Items[0])
+
+			serving, _, errServing := unstructured.NestedString(objectList.Items[0].Object, fields...)
+			if errServing != nil {
+				return false, fmt.Errorf("failed to retrieve the component [%s] status from %+v. %w",
+					componentName, objectList.Items[0], errServing)
+			}
+
+			kserve, _, errKserve := unstructured.NestedString(objectList.Items[0].Object, kserveFields...)
+			if errKserve != nil {
+				return false, fmt.Errorf("failed to retrieve the component [%s] status from %+v. %w",
+					componentName, objectList.Items[0], errKserve)
 			}
 
 			return (serving == "Managed" || serving == "Unmanaged") && kserve == "Managed", nil
@@ -110,8 +114,55 @@ func VerifyIfComponentIsEnabled(ctx context.Context, cli client.Client, componen
 		}
 		return val == "Managed", nil
 	} else {
-		return false, fmt.Errorf("there is no %s available in the cluster", dataScienceClusterKind)
+		return false, fmt.Errorf("there is no %s available in the cluster", GVK.DataScienceCluster.Kind)
 	}
+}
+
+// AuthorinoEnabledWhenOperatorNotMissing is a helper function to check if Authorino is enabled when the Operator is not missing.
+// This is defined by Condition.Reason=MissingOperator. In any other case, it is assumed that Authorino is enabled but DSC might not be
+// in the Ready state and will reconcile.
+func AuthorinoEnabledWhenOperatorNotMissing(_, reason string) bool {
+	return reason != "MissingOperator"
+}
+
+// VerifyIfCapabilityIsEnabled checks if given DSCI capability is enabled. It only fails if client call to fetch DSCI fails.
+// In other cases it assumes capability is not enabled.
+func VerifyIfCapabilityIsEnabled(ctx context.Context, cli client.Client, capabilityName string, enabledWhen func(status, reason string) bool) (bool, error) {
+	objectList := &unstructured.UnstructuredList{}
+	objectList.SetAPIVersion(GVK.DataScienceClusterInitialization.GroupVersion().String())
+	objectList.SetKind(GVK.DataScienceClusterInitialization.Kind)
+
+	if err := cli.List(ctx, objectList); err != nil {
+		return false, fmt.Errorf("not able to read %s: %w", objectList, err)
+	}
+
+	for _, item := range objectList.Items {
+		statusField, found, err := unstructured.NestedFieldNoCopy(item.Object, "status", "conditions")
+		if err != nil || !found {
+			return false, nil
+		}
+
+		conditions, ok := statusField.([]interface{})
+		if !ok {
+			continue
+		}
+
+		for _, condition := range conditions {
+			condMap, ok := condition.(map[string]interface{})
+			if !ok {
+				continue
+			}
+
+			if condType, ok := condMap["type"].(string); ok && condType == capabilityName {
+				status, _ := condMap["status"].(string)
+				reason, _ := condMap["reason"].(string)
+				return enabledWhen(status, reason), nil
+			}
+		}
+	}
+
+	return false, nil
+
 }
 
 func IsNil(i any) bool {

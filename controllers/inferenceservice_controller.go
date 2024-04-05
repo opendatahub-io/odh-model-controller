@@ -21,6 +21,7 @@ import (
 	kservev1alpha1 "github.com/kserve/kserve/pkg/apis/serving/v1alpha1"
 	kservev1beta1 "github.com/kserve/kserve/pkg/apis/serving/v1beta1"
 	authorinov1beta2 "github.com/kuadrant/authorino/api/v1beta2"
+	"github.com/opendatahub-io/odh-model-controller/controllers/constants"
 	"github.com/opendatahub-io/odh-model-controller/controllers/reconcilers"
 	"github.com/opendatahub-io/odh-model-controller/controllers/utils"
 	routev1 "github.com/openshift/api/route/v1"
@@ -29,7 +30,6 @@ import (
 	networkingv1 "k8s.io/api/networking/v1"
 	authv1 "k8s.io/api/rbac/v1"
 	apierrs "k8s.io/apimachinery/pkg/api/errors"
-	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -40,22 +40,22 @@ import (
 
 // OpenshiftInferenceServiceReconciler holds the controller configuration.
 type OpenshiftInferenceServiceReconciler struct {
-	client               client.Client
-	scheme               *runtime.Scheme
-	log                  logr.Logger
-	MeshDisabled         bool
-	mmISVCReconciler     *reconcilers.ModelMeshInferenceServiceReconciler
-	kserveISVCReconciler *reconcilers.KserveInferenceServiceReconciler
+	client                         client.Client
+	log                            logr.Logger
+	MeshDisabled                   bool
+	mmISVCReconciler               *reconcilers.ModelMeshInferenceServiceReconciler
+	kserveServerlessISVCReconciler *reconcilers.KserveServerlessInferenceServiceReconciler
+	kserveRawISVCReconciler        *reconcilers.KserveRawInferenceServiceReconciler
 }
 
-func NewOpenshiftInferenceServiceReconciler(client client.Client, scheme *runtime.Scheme, log logr.Logger, meshDisabled bool) *OpenshiftInferenceServiceReconciler {
+func NewOpenshiftInferenceServiceReconciler(client client.Client, log logr.Logger, meshDisabled bool) *OpenshiftInferenceServiceReconciler {
 	return &OpenshiftInferenceServiceReconciler{
-		client:               client,
-		scheme:               scheme,
-		log:                  log,
-		MeshDisabled:         meshDisabled,
-		mmISVCReconciler:     reconcilers.NewModelMeshInferenceServiceReconciler(client, scheme),
-		kserveISVCReconciler: reconcilers.NewKServeInferenceServiceReconciler(client, scheme),
+		client:                         client,
+		log:                            log,
+		MeshDisabled:                   meshDisabled,
+		mmISVCReconciler:               reconcilers.NewModelMeshInferenceServiceReconciler(client),
+		kserveServerlessISVCReconciler: reconcilers.NewKServeServerlessInferenceServiceReconciler(client),
+		kserveRawISVCReconciler:        reconcilers.NewKServeRawInferenceServiceReconciler(client),
 	}
 }
 
@@ -98,10 +98,10 @@ func (r *OpenshiftInferenceServiceReconciler) Reconcile(ctx context.Context, req
 		err = r.mmISVCReconciler.Reconcile(ctx, log, isvc)
 	case utils.Serverless:
 		log.Info("Reconciling InferenceService for Kserve in mode Serverless")
-		err = r.kserveISVCReconciler.ReconcileServerless(ctx, log, isvc)
+		err = r.kserveServerlessISVCReconciler.Reconcile(ctx, log, isvc)
 	case utils.RawDeployment:
 		log.Info("Reconciling InferenceService for Kserve in mode RawDeployment")
-		err = r.kserveISVCReconciler.ReconcileRawDeployment(ctx, log, isvc)
+		err = r.kserveRawISVCReconciler.Reconcile(ctx, log, isvc)
 	}
 
 	return ctrl.Result{}, err
@@ -151,26 +151,26 @@ func (r *OpenshiftInferenceServiceReconciler) SetupWithManager(mgr ctrl.Manager)
 				return reconcileRequests
 			}))
 
-	// check if kserve is enabled, otherwise don't require Authorino.
-
-	isAuthorinoRequired, err := utils.VerifyIfComponentIsEnabled(context.TODO(), r.client, utils.KserveAuthorinoComponent)
-	if err != nil {
-		r.log.V(1).Error(err, "could not determine if kserve have service mesh enabled")
+	kserveWithMeshEnabled, kserveWithMeshEnabledErr := utils.VerifyIfComponentIsEnabled(context.Background(), mgr.GetClient(), utils.KServeWithServiceMeshComponent)
+	if kserveWithMeshEnabledErr != nil {
+		r.log.V(1).Error(kserveWithMeshEnabledErr, "could not determine if kserve have service mesh enabled")
 	}
 
-	if isAuthorinoRequired {
+	authorinoEnabled, capabilityErr := utils.VerifyIfCapabilityIsEnabled(context.Background(), r.client, constants.CapabilityServiceMeshAuthorization, utils.AuthorinoEnabledWhenOperatorNotMissing)
+	if capabilityErr != nil {
+		r.log.V(1).Error(capabilityErr, "could not determine if Authorino is enabled")
+	}
+
+	if kserveWithMeshEnabled && authorinoEnabled {
+		r.log.Info("KServe with Service Mesh is enabled and Authorino is registered, enabling Authorization")
 		builder.Owns(&authorinov1beta2.AuthConfig{})
-		r.log.Info("kserve is enabled with Service Mesh, Authorino is a requirement")
+	} else if kserveWithMeshEnabled {
+		r.log.Info("Using KServe with Service Mesh, but Authorino is not installed - skipping authorization.")
 	} else {
-		r.log.Info("didn't find kserve with service mesh, Authorino is not a requirement")
+		r.log.Info("Didn't find KServe with Service Mesh.")
 	}
 
-	err = builder.Complete(r)
-	if err != nil {
-		return err
-	}
-
-	return nil
+	return builder.Complete(r)
 }
 
 // general clean-up, mostly resources in different namespaces from kservev1beta1.InferenceService
@@ -183,13 +183,13 @@ func (r *OpenshiftInferenceServiceReconciler) onDeletion(ctx context.Context, lo
 	}
 	if IsvcDeploymentMode == utils.Serverless {
 		log.V(1).Info("Deleting kserve inference resource (Serverless Mode)")
-		return r.kserveISVCReconciler.OnDeletionOfKserveInferenceService(ctx, log, inferenceService)
+		return r.kserveServerlessISVCReconciler.OnDeletionOfKserveInferenceService(ctx, log, inferenceService)
 	}
 	return nil
 }
 
 func (r *OpenshiftInferenceServiceReconciler) DeleteResourcesIfNoIsvcExists(ctx context.Context, log logr.Logger, isvcNamespace string) error {
-	if err := r.kserveISVCReconciler.DeleteKserveMetricsResourcesIfNoKserveIsvcExists(ctx, log, isvcNamespace); err != nil {
+	if err := r.kserveServerlessISVCReconciler.DeleteKserveMetricsResourcesIfNoKserveIsvcExists(ctx, log, isvcNamespace); err != nil {
 		return err
 	}
 	if err := r.mmISVCReconciler.DeleteModelMeshResourcesIfNoMMIsvcExists(ctx, log, isvcNamespace); err != nil {

@@ -19,6 +19,9 @@ package main
 import (
 	"context"
 	"flag"
+	authorinov1beta2 "github.com/kuadrant/authorino/api/v1beta2"
+	"github.com/opendatahub-io/odh-model-controller/controllers/constants"
+	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
 	"os"
 	"strconv"
 
@@ -73,6 +76,7 @@ func init() { //nolint:gochecknoinits //reason this way we ensure schemes are al
 // +kubebuilder:rbac:groups="",resources=secrets;configmaps;serviceaccounts,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups=authorino.kuadrant.io,resources=authconfigs,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups=datasciencecluster.opendatahub.io,resources=datascienceclusters,verbs=get;list;watch
+// +kubebuilder:rbac:groups=dscinitialization.opendatahub.io,resources=dscinitializations,verbs=get;list;watch
 
 func getEnvAsBool(name string, defaultValue bool) bool {
 	valStr := os.Getenv(name)
@@ -123,7 +127,6 @@ func main() {
 	//Setup InferenceService controller
 	if err = (controllers.NewOpenshiftInferenceServiceReconciler(
 		mgr.GetClient(),
-		mgr.GetScheme(),
 		ctrl.Log.WithName("controllers").WithName("InferenceService"),
 		getEnvAsBool("MESH_DISABLED", false))).
 		SetupWithManager(mgr); err != nil {
@@ -133,7 +136,6 @@ func main() {
 	if err = (&controllers.StorageSecretReconciler{
 		Client: mgr.GetClient(),
 		Log:    ctrl.Log.WithName("controllers").WithName("StorageSecret"),
-		Scheme: mgr.GetScheme(),
 	}).SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "unable to create controller", "controller", "StorageSecret")
 		os.Exit(1)
@@ -142,7 +144,6 @@ func main() {
 	if err = (&controllers.KServeCustomCACertReconciler{
 		Client: mgr.GetClient(),
 		Log:    ctrl.Log.WithName("controllers").WithName("KServeCustomeCABundleConfigMap"),
-		Scheme: mgr.GetScheme(),
 	}).SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "unable to create controller", "controller", "KServeCustomeCABundleConfigMap")
 		os.Exit(1)
@@ -153,7 +154,6 @@ func main() {
 		if err = (&controllers.MonitoringReconciler{
 			Client:       mgr.GetClient(),
 			Log:          ctrl.Log.WithName("controllers").WithName("MonitoringReconciler"),
-			Scheme:       mgr.GetScheme(),
 			MonitoringNS: monitoringNS,
 		}).SetupWithManager(mgr); err != nil {
 			setupLog.Error(err, "unable to create controller", "controller", "MonitoringReconciler")
@@ -165,7 +165,6 @@ func main() {
 		setupLog.Info("Model registry inference service reconciliation enabled..")
 		if err = (controllers.NewModelRegistryInferenceServiceReconciler(
 			mgr.GetClient(),
-			mgr.GetScheme(),
 			ctrl.Log.WithName("controllers").WithName("ModelRegistryInferenceService"),
 		)).SetupWithManager(mgr); err != nil {
 			setupLog.Error(err, "unable to create controller", "controller", "ModelRegistryInferenceServiceReconciler")
@@ -176,7 +175,7 @@ func main() {
 			"reconciliation for InferenceService, please provide --model-registry-inference-reconcile flag.")
 	}
 
-	kserveWithMeshEnabled, kserveWithMeshEnabledErr := utils.VerifyIfComponentIsEnabled(context.Background(), mgr.GetClient(), utils.KserveAuthorinoComponent)
+	kserveWithMeshEnabled, kserveWithMeshEnabledErr := utils.VerifyIfComponentIsEnabled(context.Background(), mgr.GetClient(), utils.KServeWithServiceMeshComponent)
 	if kserveWithMeshEnabledErr != nil {
 		setupLog.Error(kserveWithMeshEnabledErr, "could not determine if kserve have service mesh enabled")
 	}
@@ -192,6 +191,17 @@ func main() {
 		}
 	} else {
 		setupLog.Info("Skipping setup of Knative Service validating Webhook, because KServe Serverless setup seems to be disabled in the DataScienceCluster resource.")
+	}
+
+	authorinoEnabled, capabilityErr := utils.VerifyIfCapabilityIsEnabled(context.Background(), mgr.GetClient(), constants.CapabilityServiceMeshAuthorization, utils.AuthorinoEnabledWhenOperatorNotMissing)
+	if capabilityErr != nil {
+		setupLog.Error(capabilityErr, "unable to determine if Authorino is enabled")
+		os.Exit(1)
+	}
+	if kserveWithMeshEnabled && authorinoEnabled {
+		utilruntime.Must(authorinov1beta2.SchemeBuilder.AddToScheme(scheme))
+	} else {
+		setupLog.Info("Authorino is not enabled, skipping handling")
 	}
 
 	//+kubebuilder:scaffold:builder

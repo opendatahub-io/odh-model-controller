@@ -17,47 +17,59 @@ package controllers
 
 import (
 	"context"
-
 	kservev1beta1 "github.com/kserve/kserve/pkg/apis/serving/v1beta1"
 	authorinov1beta2 "github.com/kuadrant/authorino/api/v1beta2"
 	. "github.com/onsi/ginkgo"
 	. "github.com/onsi/gomega"
 	"github.com/opendatahub-io/odh-model-controller/controllers/constants"
+	"github.com/opendatahub-io/odh-model-controller/controllers/utils"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
+	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/client-go/dynamic"
 	"knative.dev/pkg/apis"
 )
 
-var _ = When("InferenceService is created", func() {
+var _ = Describe("InferenceService Authorization", func() {
 
 	var (
 		namespace *corev1.Namespace
 		isvc      *kservev1beta1.InferenceService
 	)
-	BeforeEach(func() {
-		ctx := context.Background()
-		namespace = &corev1.Namespace{
-			ObjectMeta: metav1.ObjectMeta{
-				Name: Namespaces.Get(),
-			},
-		}
-		Expect(cli.Create(ctx, namespace)).Should(Succeed())
-		inferenceServiceConfig := &corev1.ConfigMap{}
-		Expect(convertToStructuredResource(InferenceServiceConfigPath1, inferenceServiceConfig)).To(Succeed())
-		if err := cli.Create(ctx, inferenceServiceConfig); err != nil && !errors.IsAlreadyExists(err) {
-			Fail(err.Error())
-		}
-	})
-	Context("when not ready", func() {
+
+	When("not configured for the cluster", func() {
 		BeforeEach(func() {
-			isvc = createISVCMissingStatus(namespace.Name)
+			ctx := context.Background()
+			namespace = &corev1.Namespace{
+				ObjectMeta: metav1.ObjectMeta{
+					Name: Namespaces.Get(),
+				},
+			}
+			Expect(cli.Create(ctx, namespace)).Should(Succeed())
+			inferenceServiceConfig := &corev1.ConfigMap{}
+
+			Expect(convertToStructuredResource(InferenceServiceConfigPath1, inferenceServiceConfig)).To(Succeed())
+			if err := cli.Create(ctx, inferenceServiceConfig); err != nil && !errors.IsAlreadyExists(err) {
+				Fail(err.Error())
+			}
+
+			// We need to stub the cluster state and indicate if Authorino is configured as authorization layer
+			if dsciErr := createDSCI(DSCIWithoutAuthorization); dsciErr != nil && !errors.IsAlreadyExists(dsciErr) {
+				Fail(dsciErr.Error())
+			}
+
+			isvc = createISVCWithoutAuth(namespace.Name)
 		})
 
-		It("should not create auth config on missing status.URL", func() {
+		AfterEach(func() {
+			Expect(deleteDSCI(DSCIWithoutAuthorization)).To(Succeed())
+		})
 
-			Consistently(func(g Gomega) error {
+		It("should not create auth config", func() {
+			Consistently(func() error {
 				ac := &authorinov1beta2.AuthConfig{}
 				return getAuthConfig(namespace.Name, isvc.Name, ac)
 			}).
@@ -67,92 +79,138 @@ var _ = When("InferenceService is created", func() {
 		})
 	})
 
-	Context("when ready", func() {
+	When("configured for the cluster", func() {
 
-		Context("auth not enabled", func() {
+		BeforeEach(func() {
+			ctx := context.Background()
+			namespace = &corev1.Namespace{
+				ObjectMeta: metav1.ObjectMeta{
+					Name: Namespaces.Get(),
+				},
+			}
+			Expect(cli.Create(ctx, namespace)).Should(Succeed())
+			inferenceServiceConfig := &corev1.ConfigMap{}
+
+			Expect(convertToStructuredResource(InferenceServiceConfigPath1, inferenceServiceConfig)).To(Succeed())
+			if err := cli.Create(ctx, inferenceServiceConfig); err != nil && !errors.IsAlreadyExists(err) {
+				Fail(err.Error())
+			}
+
+			// We need to stub the cluster state and indicate that Authorino is configured as authorization layer
+			if dsciErr := createDSCI(DSCIWithAuthorization); dsciErr != nil && !errors.IsAlreadyExists(dsciErr) {
+				Fail(dsciErr.Error())
+			}
+		})
+
+		AfterEach(func() {
+			Expect(deleteDSCI(DSCIWithAuthorization)).To(Succeed())
+		})
+
+		Context("when InferenceService is not ready", func() {
 			BeforeEach(func() {
-				isvc = createISVCWithoutAuth(namespace.Name)
+				isvc = createISVCMissingStatus(namespace.Name)
 			})
 
-			It("should create anonymous auth config", func() {
-				Expect(updateISVCStatus(isvc)).To(Succeed())
+			It("should not create auth config on missing status.URL", func() {
 
-				Eventually(func(g Gomega) {
+				Consistently(func() error {
 					ac := &authorinov1beta2.AuthConfig{}
-					g.Expect(getAuthConfig(namespace.Name, isvc.Name, ac)).To(Succeed())
-					g.Expect(ac.Spec.Authorization["anonymous-access"]).NotTo(BeNil())
+					return getAuthConfig(namespace.Name, isvc.Name, ac)
 				}).
 					WithTimeout(timeout).
 					WithPolling(interval).
-					Should(Succeed())
-			})
-
-			It("should update to non anonymous on enable", func() {
-				Expect(updateISVCStatus(isvc)).To(Succeed())
-
-				Eventually(func(g Gomega) {
-					ac := &authorinov1beta2.AuthConfig{}
-					g.Expect(getAuthConfig(namespace.Name, isvc.Name, ac)).To(Succeed())
-					g.Expect(ac.Spec.Authorization["anonymous-access"]).NotTo(BeNil())
-				}).
-					WithTimeout(timeout).
-					WithPolling(interval).
-					Should(Succeed())
-
-				Expect(enableAuth(isvc)).To(Succeed())
-				Eventually(func(g Gomega) {
-					ac := &authorinov1beta2.AuthConfig{}
-					g.Expect(ac.Spec.Authorization["kubernetes-user"]).NotTo(BeNil())
-					g.Expect(getAuthConfig(namespace.Name, isvc.Name, ac)).To(Succeed())
-				}).
-					WithTimeout(timeout).
-					WithPolling(interval).
-					Should(Succeed())
+					Should(Not(Succeed()))
 			})
 		})
 
-		Context("auth enabled", func() {
-			BeforeEach(func() {
-				isvc = createISVCWithAuth(namespace.Name)
+		Context("when InferenceService is ready", func() {
+
+			Context("auth not enabled", func() {
+				BeforeEach(func() {
+					isvc = createISVCWithoutAuth(namespace.Name)
+				})
+
+				It("should create anonymous auth config", func() {
+					Expect(updateISVCStatus(isvc)).To(Succeed())
+
+					Eventually(func(g Gomega) {
+						ac := &authorinov1beta2.AuthConfig{}
+						g.Expect(getAuthConfig(namespace.Name, isvc.Name, ac)).To(Succeed())
+						g.Expect(ac.Spec.Authorization["anonymous-access"]).NotTo(BeNil())
+					}).
+						WithTimeout(timeout).
+						WithPolling(interval).
+						Should(Succeed())
+				})
+
+				It("should update to non anonymous on enable", func() {
+					Expect(updateISVCStatus(isvc)).To(Succeed())
+
+					Eventually(func(g Gomega) {
+						ac := &authorinov1beta2.AuthConfig{}
+						g.Expect(getAuthConfig(namespace.Name, isvc.Name, ac)).To(Succeed())
+						g.Expect(ac.Spec.Authorization["anonymous-access"]).NotTo(BeNil())
+					}).
+						WithTimeout(timeout).
+						WithPolling(interval).
+						Should(Succeed())
+
+					Expect(enableAuth(isvc)).To(Succeed())
+					Eventually(func(g Gomega) {
+						ac := &authorinov1beta2.AuthConfig{}
+						g.Expect(ac.Spec.Authorization["kubernetes-user"]).NotTo(BeNil())
+						g.Expect(getAuthConfig(namespace.Name, isvc.Name, ac)).To(Succeed())
+					}).
+						WithTimeout(timeout).
+						WithPolling(interval).
+						Should(Succeed())
+				})
 			})
 
-			It("should create user defined auth config", func() {
-				Expect(updateISVCStatus(isvc)).To(Succeed())
+			Context("auth enabled", func() {
+				BeforeEach(func() {
+					isvc = createISVCWithAuth(namespace.Name)
+				})
 
-				Eventually(func(g Gomega) {
-					ac := &authorinov1beta2.AuthConfig{}
-					g.Expect(getAuthConfig(namespace.Name, isvc.Name, ac)).To(Succeed())
-					g.Expect(ac.Spec.Authorization["kubernetes-user"]).NotTo(BeNil())
-				}).
-					WithTimeout(timeout).
-					WithPolling(interval).
-					Should(Succeed())
-			})
+				It("should create user defined auth config", func() {
+					Expect(updateISVCStatus(isvc)).To(Succeed())
 
-			It("should update to anonymous on disable", func() {
-				Expect(updateISVCStatus(isvc)).To(Succeed())
+					Eventually(func(g Gomega) {
+						ac := &authorinov1beta2.AuthConfig{}
+						g.Expect(getAuthConfig(namespace.Name, isvc.Name, ac)).To(Succeed())
+						g.Expect(ac.Spec.Authorization["kubernetes-user"]).NotTo(BeNil())
+					}).
+						WithTimeout(timeout).
+						WithPolling(interval).
+						Should(Succeed())
+				})
 
-				Eventually(func(g Gomega) {
-					ac := &authorinov1beta2.AuthConfig{}
-					g.Expect(getAuthConfig(namespace.Name, isvc.Name, ac)).To(Succeed())
-					g.Expect(ac.Spec.Authorization["kubernetes-user"]).NotTo(BeNil())
-				}).
-					WithTimeout(timeout).
-					WithPolling(interval).
-					Should(Succeed())
+				It("should update to anonymous on disable", func() {
+					Expect(updateISVCStatus(isvc)).To(Succeed())
 
-				Expect(disableAuth(isvc)).To(Succeed())
-				Eventually(func(g Gomega) {
-					ac := &authorinov1beta2.AuthConfig{}
-					g.Expect(getAuthConfig(namespace.Name, isvc.Name, ac)).To(Succeed())
-					g.Expect(ac.Spec.Authorization["anonymous-access"]).NotTo(BeNil())
-				}).
-					WithTimeout(timeout).
-					WithPolling(interval).
-					Should(Succeed())
+					Eventually(func(g Gomega) {
+						ac := &authorinov1beta2.AuthConfig{}
+						g.Expect(getAuthConfig(namespace.Name, isvc.Name, ac)).To(Succeed())
+						g.Expect(ac.Spec.Authorization["kubernetes-user"]).NotTo(BeNil())
+					}).
+						WithTimeout(timeout).
+						WithPolling(interval).
+						Should(Succeed())
+
+					Expect(disableAuth(isvc)).To(Succeed())
+					Eventually(func(g Gomega) {
+						ac := &authorinov1beta2.AuthConfig{}
+						g.Expect(getAuthConfig(namespace.Name, isvc.Name, ac)).To(Succeed())
+						g.Expect(ac.Spec.Authorization["anonymous-access"]).NotTo(BeNil())
+					}).
+						WithTimeout(timeout).
+						WithPolling(interval).
+						Should(Succeed())
+				})
 			})
 		})
 	})
+
 })
 
 func getAuthConfig(namespace, name string, ac *authorinov1beta2.AuthConfig) error {
@@ -214,4 +272,62 @@ func enableAuth(isvc *kservev1beta1.InferenceService) error {
 	}
 	isvc.Annotations[constants.LabelEnableAuthODH] = "true"
 	return cli.Update(context.Background(), isvc)
+}
+
+func createDSCI(dsci string) error {
+	obj := &unstructured.Unstructured{}
+	if err := convertToUnstructuredResource(dsci, obj); err != nil {
+		return err
+	}
+
+	gvk := utils.GVK.DataScienceClusterInitialization
+	obj.SetGroupVersionKind(gvk)
+	dynamicClient, err := dynamic.NewForConfig(envTest.Config)
+	if err != nil {
+		return err
+	}
+
+	gvr := schema.GroupVersionResource{
+		Group:    gvk.Group,
+		Version:  gvk.Version,
+		Resource: "dscinitializations",
+	}
+	resource := dynamicClient.Resource(gvr)
+	createdObj, createErr := resource.Create(context.TODO(), obj, metav1.CreateOptions{})
+	if createErr != nil {
+		return nil
+	}
+
+	if status, found, err := unstructured.NestedFieldCopy(obj.Object, "status"); err != nil {
+		return err
+	} else if found {
+		if err := unstructured.SetNestedField(createdObj.Object, status, "status"); err != nil {
+			return err
+		}
+	}
+
+	_, statusErr := resource.UpdateStatus(context.TODO(), createdObj, metav1.UpdateOptions{})
+
+	return statusErr
+}
+
+func deleteDSCI(dsci string) error {
+	obj := &unstructured.Unstructured{}
+	if err := convertToUnstructuredResource(dsci, obj); err != nil {
+		return err
+	}
+
+	gvk := utils.GVK.DataScienceClusterInitialization
+	obj.SetGroupVersionKind(gvk)
+	dynamicClient, err := dynamic.NewForConfig(envTest.Config)
+	if err != nil {
+		return err
+	}
+
+	gvr := schema.GroupVersionResource{
+		Group:    gvk.Group,
+		Version:  gvk.Version,
+		Resource: "dscinitializations",
+	}
+	return dynamicClient.Resource(gvr).Delete(context.TODO(), obj.GetName(), metav1.DeleteOptions{})
 }

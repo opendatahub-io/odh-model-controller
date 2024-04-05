@@ -24,29 +24,30 @@ import (
 	"github.com/opendatahub-io/odh-model-controller/controllers/resources"
 	v1 "github.com/prometheus-operator/prometheus-operator/pkg/apis/monitoring/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
+var _ SubResourceReconciler = (*KserveMetricsServiceMonitorReconciler)(nil)
+
 type KserveMetricsServiceMonitorReconciler struct {
+	NoResourceRemoval
 	client                client.Client
-	scheme                *runtime.Scheme
 	serviceMonitorHandler resources.ServiceMonitorHandler
 	deltaProcessor        processors.DeltaProcessor
 }
 
-func NewKServeMetricsServiceMonitorReconciler(client client.Client, scheme *runtime.Scheme) *KserveMetricsServiceMonitorReconciler {
+func NewKServeMetricsServiceMonitorReconciler(client client.Client) *KserveMetricsServiceMonitorReconciler {
 	return &KserveMetricsServiceMonitorReconciler{
 		client:                client,
-		scheme:                scheme,
 		serviceMonitorHandler: resources.NewServiceMonitorHandler(client),
 		deltaProcessor:        processors.NewDeltaProcessor(),
 	}
 }
 
 func (r *KserveMetricsServiceMonitorReconciler) Reconcile(ctx context.Context, log logr.Logger, isvc *kservev1beta1.InferenceService) error {
+	log.V(1).Info("Reconciling Metrics ServiceMonitor for InferenceService")
 
 	// Create Desired resource
 	desiredResource, err := r.createDesiredResource(isvc)
@@ -92,7 +93,7 @@ func (r *KserveMetricsServiceMonitorReconciler) createDesiredResource(isvc *kser
 			},
 		},
 	}
-	if err := ctrl.SetControllerReference(isvc, desiredServiceMonitor, r.scheme); err != nil {
+	if err := ctrl.SetControllerReference(isvc, desiredServiceMonitor, r.client.Scheme()); err != nil {
 		return nil, err
 	}
 	return desiredServiceMonitor, nil

@@ -21,7 +21,6 @@ import (
 	"github.com/opendatahub-io/odh-model-controller/controllers/comparators"
 	"github.com/opendatahub-io/odh-model-controller/controllers/processors"
 	"github.com/opendatahub-io/odh-model-controller/controllers/resources"
-	"k8s.io/apimachinery/pkg/runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	"k8s.io/apimachinery/pkg/types"
@@ -35,23 +34,25 @@ const (
 	modelMeshServiceAccountName = "modelmesh-serving-sa"
 )
 
+var _ SubResourceReconciler = (*ModelMeshServiceAccountReconciler)(nil)
+
 type ModelMeshServiceAccountReconciler struct {
+	SingleResourcePerNamespace
 	client                client.Client
-	scheme                *runtime.Scheme
 	serviceAccountHandler resources.ServiceAccountHandler
 	deltaProcessor        processors.DeltaProcessor
 }
 
-func NewModelMeshServiceAccountReconciler(client client.Client, scheme *runtime.Scheme) *ModelMeshServiceAccountReconciler {
+func NewModelMeshServiceAccountReconciler(client client.Client) *ModelMeshServiceAccountReconciler {
 	return &ModelMeshServiceAccountReconciler{
 		client:                client,
-		scheme:                scheme,
 		serviceAccountHandler: resources.NewServiceAccountHandler(client),
 		deltaProcessor:        processors.NewDeltaProcessor(),
 	}
 }
 
 func (r *ModelMeshServiceAccountReconciler) Reconcile(ctx context.Context, log logr.Logger, isvc *kservev1beta1.InferenceService) error {
+	log.V(1).Info("Reconciling ServiceAccount for InferenceService")
 	// Create Desired resource
 	desiredResource, err := r.createDesiredResource(isvc)
 	if err != nil {
@@ -69,6 +70,11 @@ func (r *ModelMeshServiceAccountReconciler) Reconcile(ctx context.Context, log l
 		return err
 	}
 	return nil
+}
+
+func (r *ModelMeshServiceAccountReconciler) Cleanup(ctx context.Context, log logr.Logger, isvcNs string) error {
+	log.V(1).Info("Deleting ServiceAccount object for target namespace")
+	return r.serviceAccountHandler.DeleteServiceAccount(ctx, types.NamespacedName{Name: modelMeshServiceAccountName, Namespace: isvcNs})
 }
 
 func (r *ModelMeshServiceAccountReconciler) createDesiredResource(isvc *kservev1beta1.InferenceService) (*corev1.ServiceAccount, error) {
@@ -114,8 +120,4 @@ func (r *ModelMeshServiceAccountReconciler) processDelta(ctx context.Context, lo
 		}
 	}
 	return nil
-}
-
-func (r *ModelMeshServiceAccountReconciler) DeleteServiceAccount(ctx context.Context, isvcNamespace string) error {
-	return r.serviceAccountHandler.DeleteServiceAccount(ctx, types.NamespacedName{Name: modelMeshServiceAccountName, Namespace: isvcNamespace})
 }
