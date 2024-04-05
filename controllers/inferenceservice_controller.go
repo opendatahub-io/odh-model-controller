@@ -29,7 +29,6 @@ import (
 	networkingv1 "k8s.io/api/networking/v1"
 	authv1 "k8s.io/api/rbac/v1"
 	apierrs "k8s.io/apimachinery/pkg/api/errors"
-	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -40,22 +39,22 @@ import (
 
 // OpenshiftInferenceServiceReconciler holds the controller configuration.
 type OpenshiftInferenceServiceReconciler struct {
-	client               client.Client
-	scheme               *runtime.Scheme
-	log                  logr.Logger
-	MeshDisabled         bool
-	mmISVCReconciler     *reconcilers.ModelMeshInferenceServiceReconciler
-	kserveISVCReconciler *reconcilers.KserveInferenceServiceReconciler
+	client                         client.Client
+	log                            logr.Logger
+	MeshDisabled                   bool
+	mmISVCReconciler               *reconcilers.ModelMeshInferenceServiceReconciler
+	kserveServerlessISVCReconciler *reconcilers.KserveServerlessInferenceServiceReconciler
+	kserveRawISVCReconciler        *reconcilers.KserveRawInferenceServiceReconciler
 }
 
-func NewOpenshiftInferenceServiceReconciler(client client.Client, scheme *runtime.Scheme, log logr.Logger, meshDisabled bool) *OpenshiftInferenceServiceReconciler {
+func NewOpenshiftInferenceServiceReconciler(client client.Client, log logr.Logger, meshDisabled bool) *OpenshiftInferenceServiceReconciler {
 	return &OpenshiftInferenceServiceReconciler{
-		client:               client,
-		scheme:               scheme,
-		log:                  log,
-		MeshDisabled:         meshDisabled,
-		mmISVCReconciler:     reconcilers.NewModelMeshInferenceServiceReconciler(client, scheme),
-		kserveISVCReconciler: reconcilers.NewKServeInferenceServiceReconciler(client, scheme),
+		client:                         client,
+		log:                            log,
+		MeshDisabled:                   meshDisabled,
+		mmISVCReconciler:               reconcilers.NewModelMeshInferenceServiceReconciler(client),
+		kserveServerlessISVCReconciler: reconcilers.NewKServeServerlessInferenceServiceReconciler(client),
+		kserveRawISVCReconciler:        reconcilers.NewKServeRawInferenceServiceReconciler(client),
 	}
 }
 
@@ -98,10 +97,10 @@ func (r *OpenshiftInferenceServiceReconciler) Reconcile(ctx context.Context, req
 		err = r.mmISVCReconciler.Reconcile(ctx, log, isvc)
 	case utils.Serverless:
 		log.Info("Reconciling InferenceService for Kserve in mode Serverless")
-		err = r.kserveISVCReconciler.ReconcileServerless(ctx, log, isvc)
+		err = r.kserveServerlessISVCReconciler.Reconcile(ctx, log, isvc)
 	case utils.RawDeployment:
 		log.Info("Reconciling InferenceService for Kserve in mode RawDeployment")
-		err = r.kserveISVCReconciler.ReconcileRawDeployment(ctx, log, isvc)
+		err = r.kserveRawISVCReconciler.Reconcile(ctx, log, isvc)
 	}
 
 	return ctrl.Result{}, err
@@ -183,13 +182,13 @@ func (r *OpenshiftInferenceServiceReconciler) onDeletion(ctx context.Context, lo
 	}
 	if IsvcDeploymentMode == utils.Serverless {
 		log.V(1).Info("Deleting kserve inference resource (Serverless Mode)")
-		return r.kserveISVCReconciler.OnDeletionOfKserveInferenceService(ctx, log, inferenceService)
+		return r.kserveServerlessISVCReconciler.OnDeletionOfKserveInferenceService(ctx, log, inferenceService)
 	}
 	return nil
 }
 
 func (r *OpenshiftInferenceServiceReconciler) DeleteResourcesIfNoIsvcExists(ctx context.Context, log logr.Logger, isvcNamespace string) error {
-	if err := r.kserveISVCReconciler.DeleteKserveMetricsResourcesIfNoKserveIsvcExists(ctx, log, isvcNamespace); err != nil {
+	if err := r.kserveServerlessISVCReconciler.DeleteKserveMetricsResourcesIfNoKserveIsvcExists(ctx, log, isvcNamespace); err != nil {
 		return err
 	}
 	if err := r.mmISVCReconciler.DeleteModelMeshResourcesIfNoMMIsvcExists(ctx, log, isvcNamespace); err != nil {

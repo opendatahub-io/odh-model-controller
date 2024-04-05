@@ -24,7 +24,6 @@ import (
 	"github.com/opendatahub-io/odh-model-controller/controllers/resources"
 	v1 "github.com/prometheus-operator/prometheus-operator/pkg/apis/monitoring/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
@@ -33,23 +32,25 @@ const (
 	istioServiceMonitorName = "istiod-monitor"
 )
 
+var _ SubResourceReconciler = (*KserveIstioServiceMonitorReconciler)(nil)
+
 type KserveIstioServiceMonitorReconciler struct {
+	SingleResourcePerNamespace
 	client                client.Client
-	scheme                *runtime.Scheme
 	serviceMonitorHandler resources.ServiceMonitorHandler
 	deltaProcessor        processors.DeltaProcessor
 }
 
-func NewKServeIstioServiceMonitorReconciler(client client.Client, scheme *runtime.Scheme) *KserveIstioServiceMonitorReconciler {
+func NewKServeIstioServiceMonitorReconciler(client client.Client) *KserveIstioServiceMonitorReconciler {
 	return &KserveIstioServiceMonitorReconciler{
 		client:                client,
-		scheme:                scheme,
 		serviceMonitorHandler: resources.NewServiceMonitorHandler(client),
 		deltaProcessor:        processors.NewDeltaProcessor(),
 	}
 }
 
 func (r *KserveIstioServiceMonitorReconciler) Reconcile(ctx context.Context, log logr.Logger, isvc *kservev1beta1.InferenceService) error {
+	log.V(1).Info("Creating Istio ServiceMonitor for target namespace")
 
 	// Create Desired resource
 	desiredResource, err := r.createDesiredResource(isvc)
@@ -68,6 +69,11 @@ func (r *KserveIstioServiceMonitorReconciler) Reconcile(ctx context.Context, log
 		return err
 	}
 	return nil
+}
+
+func (r *KserveIstioServiceMonitorReconciler) Cleanup(ctx context.Context, log logr.Logger, isvcNs string) error {
+	log.V(1).Info("Deleting ServiceMonitor object for target namespace")
+	return r.serviceMonitorHandler.DeleteServiceMonitor(ctx, types.NamespacedName{Name: istioServiceMonitorName, Namespace: isvcNs})
 }
 
 func (r *KserveIstioServiceMonitorReconciler) createDesiredResource(isvc *kservev1beta1.InferenceService) (*v1.ServiceMonitor, error) {
@@ -131,8 +137,4 @@ func (r *KserveIstioServiceMonitorReconciler) processDelta(ctx context.Context, 
 		}
 	}
 	return nil
-}
-
-func (r *KserveIstioServiceMonitorReconciler) DeleteServiceMonitor(ctx context.Context, isvcNamespace string) error {
-	return r.serviceMonitorHandler.DeleteServiceMonitor(ctx, types.NamespacedName{Name: istioServiceMonitorName, Namespace: isvcNamespace})
 }

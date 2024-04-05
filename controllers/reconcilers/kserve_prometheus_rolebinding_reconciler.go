@@ -24,7 +24,6 @@ import (
 	"github.com/opendatahub-io/odh-model-controller/controllers/resources"
 	v1 "k8s.io/api/rbac/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
@@ -33,23 +32,25 @@ const (
 	clusterPrometheusAccessRoleBinding = "kserve-prometheus-k8s"
 )
 
+var _ SubResourceReconciler = (*KservePrometheusRoleBindingReconciler)(nil)
+
 type KservePrometheusRoleBindingReconciler struct {
+	SingleResourcePerNamespace
 	client             client.Client
-	scheme             *runtime.Scheme
 	roleBindingHandler resources.RoleBindingHandler
 	deltaProcessor     processors.DeltaProcessor
 }
 
-func NewKServePrometheusRoleBindingReconciler(client client.Client, scheme *runtime.Scheme) *KservePrometheusRoleBindingReconciler {
+func NewKServePrometheusRoleBindingReconciler(client client.Client) *KservePrometheusRoleBindingReconciler {
 	return &KservePrometheusRoleBindingReconciler{
 		client:             client,
-		scheme:             scheme,
 		roleBindingHandler: resources.NewRoleBindingHandler(client),
 		deltaProcessor:     processors.NewDeltaProcessor(),
 	}
 }
 
 func (r *KservePrometheusRoleBindingReconciler) Reconcile(ctx context.Context, log logr.Logger, isvc *kservev1beta1.InferenceService) error {
+	log.V(1).Info("Verifying that the role binding to enable prometheus access exists")
 
 	// Create Desired resource
 	desiredResource, err := r.createDesiredResource(isvc)
@@ -68,6 +69,11 @@ func (r *KservePrometheusRoleBindingReconciler) Reconcile(ctx context.Context, l
 		return err
 	}
 	return nil
+}
+
+func (r *KservePrometheusRoleBindingReconciler) Cleanup(ctx context.Context, log logr.Logger, isvcNs string) error {
+	log.V(1).Info("Deleting Prometheus RoleBinding object for target namespace")
+	return r.roleBindingHandler.DeleteRoleBinding(ctx, types.NamespacedName{Name: clusterPrometheusAccessRoleBinding, Namespace: isvcNs})
 }
 
 func (r *KservePrometheusRoleBindingReconciler) createDesiredResource(isvc *kservev1beta1.InferenceService) (*v1.RoleBinding, error) {
@@ -128,8 +134,4 @@ func (r *KservePrometheusRoleBindingReconciler) processDelta(ctx context.Context
 		}
 	}
 	return nil
-}
-
-func (r *KservePrometheusRoleBindingReconciler) DeleteRoleBinding(ctx context.Context, isvcNamespace string) error {
-	return r.roleBindingHandler.DeleteRoleBinding(ctx, types.NamespacedName{Name: clusterPrometheusAccessRoleBinding, Namespace: isvcNamespace})
 }

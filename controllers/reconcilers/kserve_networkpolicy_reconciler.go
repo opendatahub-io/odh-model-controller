@@ -25,7 +25,6 @@ import (
 	"github.com/opendatahub-io/odh-model-controller/controllers/resources"
 	"k8s.io/api/networking/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
@@ -38,23 +37,26 @@ const (
 
 var definedNetworkPolicies = []string{monitoringNetworkPolicyName, openshiftIngressNetworkPolicyName, opendatahubNamespacesNetworkPolicyName}
 
+var _ SubResourceReconciler = (*KserveNetworkPolicyReconciler)(nil)
+
 type KserveNetworkPolicyReconciler struct {
+	SingleResourcePerNamespace
 	client               client.Client
-	scheme               *runtime.Scheme
 	networkPolicyHandler resources.NetworkPolicyHandler
 	deltaProcessor       processors.DeltaProcessor
 }
 
-func NewKServeNetworkPolicyReconciler(client client.Client, scheme *runtime.Scheme) *KserveNetworkPolicyReconciler {
+func NewKServeNetworkPolicyReconciler(client client.Client) *KserveNetworkPolicyReconciler {
 	return &KserveNetworkPolicyReconciler{
 		client:               client,
-		scheme:               scheme,
 		networkPolicyHandler: resources.NewNetworkPolicyHandler(client),
 		deltaProcessor:       processors.NewDeltaProcessor(),
 	}
 }
 
 func (r *KserveNetworkPolicyReconciler) Reconcile(ctx context.Context, log logr.Logger, isvc *kservev1beta1.InferenceService) error {
+	log.V(1).Info("Reconciling NetworkPolicy for target namespace")
+
 	desiredNetworkPolicies := []*v1.NetworkPolicy{
 		r.allowTrafficFromMonitoringNamespace(isvc),
 		r.allowOpenshiftIngressPolicy(isvc),
@@ -71,6 +73,17 @@ func (r *KserveNetworkPolicyReconciler) Reconcile(ctx context.Context, log logr.
 			return err
 		}
 
+	}
+
+	return nil
+}
+
+func (r *KserveNetworkPolicyReconciler) Cleanup(ctx context.Context, log logr.Logger, isvcNamespace string) error {
+	log.V(1).Info("Deleting NetworkPolicy object for target namespace")
+	for _, networkPolicy := range definedNetworkPolicies {
+		if err := r.networkPolicyHandler.DeleteNetworkPolicy(ctx, types.NamespacedName{Name: networkPolicy, Namespace: isvcNamespace}); err != nil {
+			return err
+		}
 	}
 
 	return nil
@@ -217,15 +230,5 @@ func (r *KserveNetworkPolicyReconciler) processDelta(ctx context.Context, log lo
 			return
 		}
 	}
-	return nil
-}
-
-func (r *KserveNetworkPolicyReconciler) DeleteNetworkPolicy(ctx context.Context, isvcNamespace string) error {
-	for _, networkPolicy := range definedNetworkPolicies {
-		if err := r.networkPolicyHandler.DeleteNetworkPolicy(ctx, types.NamespacedName{Name: networkPolicy, Namespace: isvcNamespace}); err != nil {
-			return err
-		}
-	}
-
 	return nil
 }
