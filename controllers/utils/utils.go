@@ -88,16 +88,22 @@ func VerifyIfComponentIsEnabled(ctx context.Context, cli client.Client, componen
 	if len(objectList.Items) == 1 {
 		fields := []string{"spec", "components", componentName, "managementState"}
 		if componentName == KserveAuthorinoComponent {
-			// For KServe, Authorino is required when ServiceMesh is enabled
+			// For KServe, Authorino is required when serving is enabled
 			// By Disabling ServiceMesh for RawDeployment, it should reflect on disabling
 			// the Authorino integration as well.
 			fields = []string{"spec", "components", "kserve", "serving", "managementState"}
 			kserveFields := []string{"spec", "components", "kserve", "managementState"}
-			serving, _, err := unstructured.NestedString(objectList.Items[0].Object, fields...)
-			kserve, _, err := unstructured.NestedString(objectList.Items[0].Object, kserveFields...)
-			if err != nil {
-				return false, fmt.Errorf("failed to retrieve the component [%s] status from %+v",
-					componentName, objectList.Items[0])
+
+			serving, _, errServing := unstructured.NestedString(objectList.Items[0].Object, fields...)
+			if errServing != nil {
+				return false, fmt.Errorf("failed to retrieve the component [%s] status from %+v. %w",
+					componentName, objectList.Items[0], errServing)
+			}
+
+			kserve, _, errKserve := unstructured.NestedString(objectList.Items[0].Object, kserveFields...)
+			if errKserve != nil {
+				return false, fmt.Errorf("failed to retrieve the component [%s] status from %+v. %w",
+					componentName, objectList.Items[0], errKserve)
 			}
 
 			return (serving == "Managed" || serving == "Unmanaged") && kserve == "Managed", nil
