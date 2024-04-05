@@ -17,6 +17,8 @@ package controllers
 
 import (
 	"context"
+	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
+	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
 	"math/rand"
 	"os"
 	"path/filepath"
@@ -38,7 +40,6 @@ import (
 	. "github.com/onsi/gomega"
 	routev1 "github.com/openshift/api/route/v1"
 	corev1 "k8s.io/api/core/v1"
-	"k8s.io/client-go/kubernetes/scheme"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/envtest"
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
@@ -75,6 +76,8 @@ const (
 	InferenceServiceConfigPath1     = "./testdata/configmaps/inferenceservice-config.yaml"
 	ExpectedRoutePath               = "./testdata/results/example-onnx-mnist-route.yaml"
 	ExpectedRouteNoRuntimePath      = "./testdata/results/example-onnx-mnist-no-runtime-route.yaml"
+	DSCIWithAuthorization           = "./testdata/dsci-with-authorino-enabled.yaml"
+	DSCIWithoutAuthorization        = "./testdata/dsci-with-authorino-missing.yaml"
 	odhtrustedcabundleConfigMapPath = "./testdata/configmaps/odh-trusted-ca-bundle-configmap.yaml"
 	timeout                         = time.Second * 20
 	interval                        = time.Millisecond * 10
@@ -116,12 +119,14 @@ var _ = BeforeSuite(func() {
 	Expect(cfg).NotTo(BeNil())
 
 	// Register API objects
-	utils.RegisterSchemes(scheme.Scheme)
+	testScheme := runtime.NewScheme()
+	utils.RegisterSchemes(testScheme)
+	utilruntime.Must(authorinov1beta2.AddToScheme(testScheme))
 
 	// +kubebuilder:scaffold:scheme
 
 	// Initialize Kubernetes client
-	cli, err = client.New(cfg, client.Options{Scheme: scheme.Scheme})
+	cli, err = client.New(cfg, client.Options{Scheme: testScheme})
 	Expect(err).NotTo(HaveOccurred())
 	Expect(cli).NotTo(BeNil())
 
@@ -136,7 +141,7 @@ var _ = BeforeSuite(func() {
 
 	// Setup controller manager
 	mgr, err := ctrl.NewManager(cfg, ctrl.Options{
-		Scheme:             scheme.Scheme,
+		Scheme:             testScheme,
 		LeaderElection:     false,
 		MetricsBindAddress: "0",
 	})
@@ -211,18 +216,22 @@ var _ = AfterEach(func() {
 	Namespaces.Clear()
 })
 
-func convertToStructuredResource(path string, out runtime.Object) (err error) {
+func convertToStructuredResource(path string, out runtime.Object) error {
 	data, err := os.ReadFile(path)
 	if err != nil {
 		return err
 	}
 
-	// Unmarshal the YAML data into the struct
-	err = utils.ConvertToStructuredResource(data, out)
+	return utils.ConvertToStructuredResource(data, out)
+}
+
+func convertToUnstructuredResource(path string, out *unstructured.Unstructured) error {
+	data, err := os.ReadFile(path)
 	if err != nil {
 		return err
 	}
-	return nil
+
+	return utils.ConvertToUnstructuredResource(data, out)
 }
 
 type NamespaceHolder struct {

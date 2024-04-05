@@ -29,6 +29,8 @@ const (
 	LabelEnableAuthODH = "security.opendatahub.io/enable-auth"
 	LabelEnableAuth    = "enable-auth"
 	LabelEnableRoute   = "enable-route"
+
+	CapabilityServiceMeshAuthorization = "CapabilityServiceMeshAuthorization"
 )
 
 // model registry

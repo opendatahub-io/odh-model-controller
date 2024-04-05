@@ -18,6 +18,7 @@ package reconcilers
 import (
 	"context"
 	"fmt"
+	"github.com/opendatahub-io/odh-model-controller/controllers/utils"
 
 	"github.com/go-logr/logr"
 	kservev1beta1 "github.com/kserve/kserve/pkg/apis/serving/v1beta1"
@@ -56,6 +57,15 @@ func NewKserveAuthConfigReconciler(client client.Client) *KserveAuthConfigReconc
 
 func (r *KserveAuthConfigReconciler) Reconcile(ctx context.Context, log logr.Logger, isvc *kservev1beta1.InferenceService) error {
 	log.V(1).Info("Reconciling Authorino AuthConfig for InferenceService")
+	authorinoEnabled, capabilityErr := utils.VerifyIfCapabilityIsEnabled(context.Background(), r.client, constants.CapabilityServiceMeshAuthorization, utils.AuthorinoEnabledWhenOperatorNotMissing)
+	if capabilityErr != nil {
+		log.V(1).Error(capabilityErr, "Error while verifying if Authorino is enabled")
+		return nil
+	}
+	if !authorinoEnabled {
+		log.V(1).Info("Skipping AuthConfig reconciliation, authorization is not enabled")
+		return nil
+	}
 
 	if isvc.Status.URL == nil {
 		log.V(1).Info("Inference Service not ready yet, waiting for URL")
