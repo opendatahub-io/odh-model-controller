@@ -50,14 +50,3 @@ const (
 const (
 	DefaultStorageConfig = "storage-config"
 )
-
-const (
-	KServeCACertFileName       = "cabundle.crt"
-	KServeCACertConfigMapName  = "odh-kserve-custom-ca-bundle"
-	ODHGlobalCertConfigMapName = "odh-trusted-ca-bundle"
-	ODHCustomCACertFileName    = "odh-ca-bundle.crt"
-)
-
-const (
-	DefaultStorageConfig = "storage-config"
-)
