@@ -162,10 +162,12 @@ func (r *OpenshiftInferenceServiceReconciler) SetupWithManager(mgr ctrl.Manager)
 	}
 
 	if kserveWithMeshEnabled && authorinoEnabled {
-		r.log.Info("KServe is enabled and Authorino is registered, enabling Authorization capability")
+		r.log.Info("KServe with Service Mesh is enabled and Authorino is registered, enabling Authorization")
 		builder.Owns(&authorinov1beta2.AuthConfig{})
+	} else if kserveWithMeshEnabled {
+		r.log.Info("Using KServe with Service Mesh, but Authorino is not installed - skipping authorization.")
 	} else {
-		r.log.Info("didn't find kserve with service mesh, and Authorino is not a requirement")
+		r.log.Info("Didn't find KServe with Service Mesh.")
 	}
 
 	return builder.Complete(r)

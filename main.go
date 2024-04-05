@@ -195,7 +195,7 @@ func main() {
 
 	authorinoEnabled, capabilityErr := utils.VerifyIfCapabilityIsEnabled(context.Background(), mgr.GetClient(), constants.CapabilityServiceMeshAuthorization, utils.AuthorinoEnabledWhenOperatorNotMissing)
 	if capabilityErr != nil {
-		setupLog.Error(capabilityErr, "unable to determine if Authorino in service mesh is enabled")
+		setupLog.Error(capabilityErr, "unable to determine if Authorino is enabled")
 		os.Exit(1)
 	}
 	if kserveWithMeshEnabled && authorinoEnabled {

@@ -63,7 +63,7 @@ func (r *KserveAuthConfigReconciler) Reconcile(ctx context.Context, log logr.Log
 		return nil
 	}
 	if !authorinoEnabled {
-		log.V(1).Info("Skipping AuthConfig reconciliation, authorization capability is not enabled")
+		log.V(1).Info("Skipping AuthConfig reconciliation, authorization is not enabled")
 		return nil
 	}
 
