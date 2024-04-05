@@ -17,7 +17,6 @@ package controllers
 
 import (
 	"context"
-	"fmt"
 	kservev1beta1 "github.com/kserve/kserve/pkg/apis/serving/v1beta1"
 	authorinov1beta2 "github.com/kuadrant/authorino/api/v1beta2"
 	. "github.com/onsi/ginkgo"
@@ -261,7 +260,7 @@ func createDSCIWithAuthorinoEnabled() error {
 		}
 	}
 
-	update, statusErr := resource.UpdateStatus(context.TODO(), createdObj, metav1.UpdateOptions{})
-	fmt.Printf("%s", update.GetName())
+	_, statusErr := resource.UpdateStatus(context.TODO(), createdObj, metav1.UpdateOptions{})
+
 	return statusErr
 }
