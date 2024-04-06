@@ -17,52 +17,44 @@ package reconcilers
 
 import (
 	"context"
+	"github.com/hashicorp/go-multierror"
 
 	"github.com/go-logr/logr"
 	kservev1beta1 "github.com/kserve/kserve/pkg/apis/serving/v1beta1"
 	"github.com/opendatahub-io/odh-model-controller/controllers/utils"
-	"k8s.io/apimachinery/pkg/runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
+var _ Reconciler = (*ModelMeshInferenceServiceReconciler)(nil)
+
 type ModelMeshInferenceServiceReconciler struct {
-	client                       client.Client
-	routeReconciler              *ModelMeshRouteReconciler
-	serviceAccountReconciler     *ModelMeshServiceAccountReconciler
-	clusterRoleBindingReconciler *ModelMeshClusterRoleBindingReconciler
+	client                 client.Client
+	subResourceReconcilers []SubResourceReconciler
 }
 
-func NewModelMeshInferenceServiceReconciler(client client.Client, scheme *runtime.Scheme) *ModelMeshInferenceServiceReconciler {
+func NewModelMeshInferenceServiceReconciler(client client.Client) *ModelMeshInferenceServiceReconciler {
 	return &ModelMeshInferenceServiceReconciler{
-		client:                       client,
-		routeReconciler:              NewModelMeshRouteReconciler(client, scheme),
-		serviceAccountReconciler:     NewModelMeshServiceAccountReconciler(client, scheme),
-		clusterRoleBindingReconciler: NewModelMeshClusterRoleBindingReconciler(client, scheme),
+		client: client,
+		subResourceReconcilers: []SubResourceReconciler{
+			NewModelMeshRouteReconciler(client),
+			NewModelMeshServiceAccountReconciler(client),
+			NewModelMeshClusterRoleBindingReconciler(client),
+		},
 	}
 }
 
 func (r *ModelMeshInferenceServiceReconciler) Reconcile(ctx context.Context, log logr.Logger, isvc *kservev1beta1.InferenceService) error {
-
-	log.V(1).Info("Reconciling Route for InferenceService")
-	if err := r.routeReconciler.Reconcile(ctx, log, isvc); err != nil {
-		return err
+	var reconcileErrors *multierror.Error
+	for _, reconciler := range r.subResourceReconcilers {
+		reconcileErrors = multierror.Append(reconcileErrors, reconciler.Reconcile(ctx, log, isvc))
 	}
 
-	log.V(1).Info("Reconciling ServiceAccount for InferenceService")
-	if err := r.serviceAccountReconciler.Reconcile(ctx, log, isvc); err != nil {
-		return err
-	}
-
-	log.V(1).Info("Reconciling ClusterRoleBinding for InferenceService")
-	if err := r.clusterRoleBindingReconciler.Reconcile(ctx, log, isvc); err != nil {
-		return err
-	}
-	return nil
+	return reconcileErrors.ErrorOrNil()
 }
 
-func (r *ModelMeshInferenceServiceReconciler) DeleteModelMeshResourcesIfNoMMIsvcExists(ctx context.Context, log logr.Logger, isvcNamespace string) error {
+func (r *ModelMeshInferenceServiceReconciler) DeleteModelMeshResourcesIfNoMMIsvcExists(ctx context.Context, log logr.Logger, isvcNs string) error {
 	inferenceServiceList := &kservev1beta1.InferenceServiceList{}
-	if err := r.client.List(ctx, inferenceServiceList, client.InNamespace(isvcNamespace)); err != nil {
+	if err := r.client.List(ctx, inferenceServiceList, client.InNamespace(isvcNs)); err != nil {
 		return err
 	}
 
@@ -78,17 +70,12 @@ func (r *ModelMeshInferenceServiceReconciler) DeleteModelMeshResourcesIfNoMMIsvc
 	}
 
 	// If there are no ModelMesh InferenceServices in the namespace, delete namespace-scoped resources needed for ModelMesh
+	var cleanupErrors *multierror.Error
 	if len(inferenceServiceList.Items) == 0 {
-
-		log.V(1).Info("Deleting ServiceAccount object for target namespace")
-		if err := r.serviceAccountReconciler.DeleteServiceAccount(ctx, isvcNamespace); err != nil {
-			return err
-		}
-
-		log.V(1).Info("Deleting ClusterRoleBinding object for target namespace")
-		if err := r.clusterRoleBindingReconciler.DeleteClusterRoleBinding(ctx, isvcNamespace); err != nil {
-			return err
+		for _, reconciler := range r.subResourceReconcilers {
+			cleanupErrors = multierror.Append(cleanupErrors, reconciler.Cleanup(ctx, log, isvcNs))
 		}
 	}
-	return nil
+
+	return cleanupErrors.ErrorOrNil()
 }

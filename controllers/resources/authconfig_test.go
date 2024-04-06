@@ -8,6 +8,7 @@ import (
 	. "github.com/onsi/ginkgo"
 	. "github.com/onsi/gomega"
 	"github.com/opendatahub-io/odh-model-controller/controllers/resources"
+	"github.com/tidwall/gjson"
 	v1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"knative.dev/pkg/apis"
@@ -90,7 +91,7 @@ var _ = When("InferenceService is ready", func() {
 				typeName)
 
 			Expect(err).To(Succeed())
-			Expect("test").To(Equal(ac.Spec.Authorization["kubernetes-rbac"].KubernetesSubjectAccessReview.ResourceAttributes.Namespace))
+			Expect(gjson.ParseBytes(ac.Spec.Authorization["kubernetes-rbac"].KubernetesSubjectAccessReview.ResourceAttributes.Namespace.Value.Raw).String()).To(Equal(typeName.Namespace))
 		})
 
 		It("should default to kubernetes.default.svc Audience", func() {
@@ -105,7 +106,7 @@ var _ = When("InferenceService is ready", func() {
 				typeName)
 
 			Expect(err).To(Succeed())
-			Expect("https://kubernetes.default.svc").To(Equal(ac.Spec.Authentication["kubernetes-user"].KubernetesTokenReview.Audiences))
+			Expect(ac.Spec.Authentication["kubernetes-user"].KubernetesTokenReview.Audiences).To(ContainElement("https://kubernetes.default.svc"))
 		})
 
 		It("should read AUTH_AUDIENCE env var for Audience", func() {
@@ -123,7 +124,40 @@ var _ = When("InferenceService is ready", func() {
 				typeName)
 
 			Expect(err).To(Succeed())
-			Expect("https://test.com").To(Equal(ac.Spec.Authentication["kubernetes-user"].KubernetesTokenReview.Audiences))
+			Expect(ac.Spec.Authentication["kubernetes-user"].KubernetesTokenReview.Audiences).To(ContainElement("http://test.com"))
+		})
+
+		It("should default to opendatahub.io.. AuthorinoLabel", func() {
+			typeName := types.NamespacedName{
+				Name:      "test",
+				Namespace: "test-ns",
+			}
+
+			ac, err := resources.NewStaticTemplateLoader().Load(
+				context.Background(),
+				resources.UserDefined,
+				typeName)
+
+			Expect(err).To(Succeed())
+			Expect(ac.ObjectMeta.Labels["security.opendatahub.io/authorization-group"]).To(Equal("default"))
+		})
+
+		It("should read AUTH_AUDIENCE env var for Audience", func() {
+			typeName := types.NamespacedName{
+				Name:      "test",
+				Namespace: "test-ns",
+			}
+
+			os.Setenv("AUTHORINO_LABEL", "opendatahub=test")
+			defer os.Unsetenv("AUTHORINO_LABEL")
+
+			ac, err := resources.NewStaticTemplateLoader().Load(
+				context.Background(),
+				resources.UserDefined,
+				typeName)
+
+			Expect(err).To(Succeed())
+			Expect(ac.ObjectMeta.Labels["opendatahub"]).To(Equal("test"))
 		})
 	})
 })

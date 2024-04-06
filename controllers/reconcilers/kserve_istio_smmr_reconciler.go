@@ -24,29 +24,30 @@ import (
 	"github.com/opendatahub-io/odh-model-controller/controllers/processors"
 	"github.com/opendatahub-io/odh-model-controller/controllers/resources"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
 	v1 "maistra.io/api/core/v1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
+var _ SubResourceReconciler = (*KserveIstioSMMRReconciler)(nil)
+
 type KserveIstioSMMRReconciler struct {
+	SingleResourcePerNamespace
 	client         client.Client
-	scheme         *runtime.Scheme
 	smmrHandler    resources.ServiceMeshMemberRollHandler
 	deltaProcessor processors.DeltaProcessor
 }
 
-func NewKServeIstioSMMRReconciler(client client.Client, scheme *runtime.Scheme) *KserveIstioSMMRReconciler {
+func NewKServeIstioSMMRReconciler(client client.Client) *KserveIstioSMMRReconciler {
 	return &KserveIstioSMMRReconciler{
 		client:         client,
-		scheme:         scheme,
 		smmrHandler:    resources.NewServiceMeshMemberRole(client),
 		deltaProcessor: processors.NewDeltaProcessor(),
 	}
 }
 
 func (r *KserveIstioSMMRReconciler) Reconcile(ctx context.Context, log logr.Logger, isvc *kservev1beta1.InferenceService) error {
+	log.V(1).Info("Verifying that the default ServiceMeshMemberRoll has the target namespace")
 
 	// Create Desired resource
 	desiredResource, err := r.createDesiredResource(ctx, log, isvc)
@@ -65,6 +66,11 @@ func (r *KserveIstioSMMRReconciler) Reconcile(ctx context.Context, log logr.Logg
 		return err
 	}
 	return nil
+}
+
+func (r *KserveIstioSMMRReconciler) Cleanup(ctx context.Context, log logr.Logger, isvcNs string) error {
+	log.V(1).Info("Removing target namespace from ServiceMeshMemberRole")
+	return r.smmrHandler.RemoveMemberFromSMMR(ctx, types.NamespacedName{Name: constants.ServiceMeshMemberRollName, Namespace: constants.IstioNamespace}, isvcNs)
 }
 
 func (r *KserveIstioSMMRReconciler) createDesiredResource(ctx context.Context, log logr.Logger, isvc *kservev1beta1.InferenceService) (*v1.ServiceMeshMemberRoll, error) {
@@ -136,8 +142,4 @@ func (r *KserveIstioSMMRReconciler) processDelta(ctx context.Context, log logr.L
 		}
 	}
 	return nil
-}
-
-func (r *KserveIstioSMMRReconciler) RemoveMemberFromSMMR(ctx context.Context, isvcNamespace string) error {
-	return r.smmrHandler.RemoveMemberFromSMMR(ctx, types.NamespacedName{Name: constants.ServiceMeshMemberRollName, Namespace: constants.IstioNamespace}, isvcNamespace)
 }

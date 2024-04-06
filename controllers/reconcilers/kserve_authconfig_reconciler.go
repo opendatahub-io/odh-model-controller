@@ -18,6 +18,7 @@ package reconcilers
 import (
 	"context"
 	"fmt"
+	"github.com/opendatahub-io/odh-model-controller/controllers/utils"
 
 	"github.com/go-logr/logr"
 	kservev1beta1 "github.com/kserve/kserve/pkg/apis/serving/v1beta1"
@@ -27,15 +28,15 @@ import (
 	"github.com/opendatahub-io/odh-model-controller/controllers/processors"
 	"github.com/opendatahub-io/odh-model-controller/controllers/resources"
 	k8serror "k8s.io/apimachinery/pkg/api/errors"
-	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
+var _ SubResourceReconciler = (*KserveAuthConfigReconciler)(nil)
+
 type KserveAuthConfigReconciler struct {
 	client         client.Client
-	scheme         *runtime.Scheme
 	deltaProcessor processors.DeltaProcessor
 	detector       resources.AuthTypeDetector
 	store          resources.AuthConfigStore
@@ -43,10 +44,9 @@ type KserveAuthConfigReconciler struct {
 	hostExtractor  resources.InferenceServiceHostExtractor
 }
 
-func NewKserveAuthConfigReconciler(client client.Client, scheme *runtime.Scheme) *KserveAuthConfigReconciler {
+func NewKserveAuthConfigReconciler(client client.Client) *KserveAuthConfigReconciler {
 	return &KserveAuthConfigReconciler{
 		client:         client,
-		scheme:         scheme,
 		deltaProcessor: processors.NewDeltaProcessor(),
 		detector:       resources.NewKServeAuthTypeDetector(client),
 		store:          resources.NewClientAuthConfigStore(client),
@@ -56,6 +56,16 @@ func NewKserveAuthConfigReconciler(client client.Client, scheme *runtime.Scheme)
 }
 
 func (r *KserveAuthConfigReconciler) Reconcile(ctx context.Context, log logr.Logger, isvc *kservev1beta1.InferenceService) error {
+	log.V(1).Info("Reconciling Authorino AuthConfig for InferenceService")
+	authorinoEnabled, capabilityErr := utils.VerifyIfCapabilityIsEnabled(context.Background(), r.client, constants.CapabilityServiceMeshAuthorization, utils.AuthorinoEnabledWhenOperatorNotMissing)
+	if capabilityErr != nil {
+		log.V(1).Error(capabilityErr, "Error while verifying if Authorino is enabled")
+		return nil
+	}
+	if !authorinoEnabled {
+		log.V(1).Info("Skipping AuthConfig reconciliation, authorization is not enabled")
+		return nil
+	}
 
 	if isvc.Status.URL == nil {
 		log.V(1).Info("Inference Service not ready yet, waiting for URL")
@@ -77,7 +87,20 @@ func (r *KserveAuthConfigReconciler) Reconcile(ctx context.Context, log logr.Log
 		return err
 	}
 	return nil
+}
 
+func (r *KserveAuthConfigReconciler) Delete(ctx context.Context, log logr.Logger, isvc *kservev1beta1.InferenceService) error {
+	log.V(1).Info("Deleting Kserve inference service authorino authconfig entry")
+	typeName := types.NamespacedName{
+		Name:      isvc.GetName(),
+		Namespace: isvc.GetNamespace(),
+	}
+	return r.store.Remove(ctx, typeName)
+}
+
+func (r *KserveAuthConfigReconciler) Cleanup(_ context.Context, _ logr.Logger, _ string) error {
+	// NOOP
+	return nil
 }
 
 func (r *KserveAuthConfigReconciler) createDesiredResource(ctx context.Context, isvc *kservev1beta1.InferenceService) (*authorinov1beta2.AuthConfig, error) {
@@ -103,7 +126,7 @@ func (r *KserveAuthConfigReconciler) createDesiredResource(ctx context.Context, 
 	}
 	template.Labels[constants.LabelAuthGroup] = "default"
 
-	ctrl.SetControllerReference(isvc, &template, r.scheme)
+	ctrl.SetControllerReference(isvc, &template, r.client.Scheme())
 
 	return &template, nil
 }
@@ -151,12 +174,4 @@ func (r *KserveAuthConfigReconciler) processDelta(ctx context.Context, log logr.
 		}
 	}
 	return nil
-}
-
-func (r *KserveAuthConfigReconciler) Remove(ctx context.Context, log logr.Logger, isvc *kservev1beta1.InferenceService) error {
-	typeName := types.NamespacedName{
-		Name:      isvc.GetName(),
-		Namespace: isvc.GetNamespace(),
-	}
-	return r.store.Remove(ctx, typeName)
 }

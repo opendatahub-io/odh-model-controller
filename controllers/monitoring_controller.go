@@ -23,7 +23,6 @@ import (
 	k8srbacv1 "k8s.io/api/rbac/v1"
 	apierrs "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
 	"reflect"
 	ctrl "sigs.k8s.io/controller-runtime"
@@ -43,7 +42,6 @@ const (
 
 type MonitoringReconciler struct {
 	client.Client
-	Scheme       *runtime.Scheme
 	Log          logr.Logger
 	MonitoringNS string
 }

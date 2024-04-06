@@ -37,9 +37,10 @@ import (
 type AuthType string
 
 const (
-	UserDefined  AuthType = "userdefined"
-	Anonymous    AuthType = "anonymous"
-	AuthAudience          = "AUTH_AUDIENCE"
+	UserDefined    AuthType = "userdefined"
+	Anonymous      AuthType = "anonymous"
+	AuthAudience            = "AUTH_AUDIENCE"
+	AuthorinoLabel          = "AUTHORINO_LABEL"
 )
 
 type InferenceServiceHostExtractor interface {
@@ -77,9 +78,15 @@ func NewStaticTemplateLoader() AuthConfigTemplateLoader {
 func (s *staticTemplateLoader) Load(ctx context.Context, authType AuthType, key types.NamespacedName) (authorinov1beta2.AuthConfig, error) {
 	authConfig := authorinov1beta2.AuthConfig{}
 
+	authKey, authVal, err := getAuthorinoLabel()
+	if err != nil {
+		return authConfig, err
+	}
+
 	templateData := map[string]interface{}{
-		"Namespace": key.Namespace,
-		"Audiences": getAuthAudience(),
+		"Namespace":      key.Namespace,
+		"Audiences":      getAuthAudience(),
+		"AuthorinoLabel": authKey + ": " + authVal,
 	}
 	template := authConfigTemplateAnonymous
 	if authType == UserDefined {
@@ -278,6 +285,17 @@ func getAuthAudience() []string {
 		audiences[i] = strings.TrimSpace(audiences[i])
 	}
 	return audiences
+}
+
+func getAuthorinoLabel() (string, string, error) {
+	label := getEnvOr(AuthorinoLabel, "security.opendatahub.io/authorization-group=default")
+	keyValue := strings.Split(label, "=")
+
+	if len(keyValue) != 2 {
+		return "", "", fmt.Errorf("expected authorino label to be in format key=value, got [%s]", label)
+	}
+
+	return keyValue[0], keyValue[1], nil
 }
 
 func getEnvOr(key, defaultValue string) string {

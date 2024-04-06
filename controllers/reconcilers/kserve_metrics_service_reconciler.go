@@ -24,7 +24,6 @@ import (
 	"github.com/opendatahub-io/odh-model-controller/controllers/resources"
 	v1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/intstr"
 	ctrl "sigs.k8s.io/controller-runtime"
@@ -35,23 +34,25 @@ const (
 	inferenceServiceLabelName = "serving.kserve.io/inferenceservice"
 )
 
+var _ SubResourceReconciler = (*KserveMetricsServiceReconciler)(nil)
+
 type KserveMetricsServiceReconciler struct {
+	NoResourceRemoval
 	client         client.Client
-	scheme         *runtime.Scheme
 	serviceHandler resources.ServiceHandler
 	deltaProcessor processors.DeltaProcessor
 }
 
-func NewKServeMetricsServiceReconciler(client client.Client, scheme *runtime.Scheme) *KserveMetricsServiceReconciler {
+func NewKServeMetricsServiceReconciler(client client.Client) *KserveMetricsServiceReconciler {
 	return &KserveMetricsServiceReconciler{
 		client:         client,
-		scheme:         scheme,
 		serviceHandler: resources.NewServiceHandler(client),
 		deltaProcessor: processors.NewDeltaProcessor(),
 	}
 }
 
 func (r *KserveMetricsServiceReconciler) Reconcile(ctx context.Context, log logr.Logger, isvc *kservev1beta1.InferenceService) error {
+	log.V(1).Info("Reconciling Metrics Service for InferenceService")
 
 	// Create Desired resource
 	desiredResource, err := r.createDesiredResource(log, isvc)
@@ -102,7 +103,7 @@ func (r *KserveMetricsServiceReconciler) createDesiredResource(log logr.Logger, 
 			},
 		},
 	}
-	if err := ctrl.SetControllerReference(isvc, metricsService, r.scheme); err != nil {
+	if err := ctrl.SetControllerReference(isvc, metricsService, r.client.Scheme()); err != nil {
 		log.Error(err, "Unable to add OwnerReference to the Metrics Service")
 		return nil, err
 	}

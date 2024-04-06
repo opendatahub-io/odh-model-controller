@@ -24,7 +24,6 @@ import (
 	"github.com/opendatahub-io/odh-model-controller/controllers/resources"
 	v1 "github.com/prometheus-operator/prometheus-operator/pkg/apis/monitoring/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
@@ -33,23 +32,25 @@ const (
 	istioPodMonitorName = "istio-proxies-monitor"
 )
 
+var _ SubResourceReconciler = (*KserveIstioPodMonitorReconciler)(nil)
+
 type KserveIstioPodMonitorReconciler struct {
+	SingleResourcePerNamespace
 	client            client.Client
-	scheme            *runtime.Scheme
 	podMonitorHandler resources.PodMonitorHandler
 	deltaProcessor    processors.DeltaProcessor
 }
 
-func NewKServeIstioPodMonitorReconciler(client client.Client, scheme *runtime.Scheme) *KserveIstioPodMonitorReconciler {
+func NewKServeIstioPodMonitorReconciler(client client.Client) *KserveIstioPodMonitorReconciler {
 	return &KserveIstioPodMonitorReconciler{
 		client:            client,
-		scheme:            scheme,
 		podMonitorHandler: resources.NewPodMonitorHandler(client),
 		deltaProcessor:    processors.NewDeltaProcessor(),
 	}
 }
 
 func (r *KserveIstioPodMonitorReconciler) Reconcile(ctx context.Context, log logr.Logger, isvc *kservev1beta1.InferenceService) error {
+	log.V(1).Info("Creating Istio PodMonitor for target namespace")
 
 	// Create Desired resource
 	desiredResource, err := r.createDesiredResource(isvc)
@@ -68,6 +69,11 @@ func (r *KserveIstioPodMonitorReconciler) Reconcile(ctx context.Context, log log
 		return err
 	}
 	return nil
+}
+
+func (r *KserveIstioPodMonitorReconciler) Cleanup(ctx context.Context, log logr.Logger, isvcNs string) error {
+	log.V(1).Info("Deleting PodMonitor object for target namespace")
+	return r.podMonitorHandler.DeletePodMonitor(ctx, types.NamespacedName{Name: istioPodMonitorName, Namespace: isvcNs})
 }
 
 func (r *KserveIstioPodMonitorReconciler) createDesiredResource(isvc *kservev1beta1.InferenceService) (*v1.PodMonitor, error) {
@@ -131,8 +137,4 @@ func (r *KserveIstioPodMonitorReconciler) processDelta(ctx context.Context, log 
 		}
 	}
 	return nil
-}
-
-func (r *KserveIstioPodMonitorReconciler) DeletePodMonitor(ctx context.Context, isvcNamespace string) error {
-	return r.podMonitorHandler.DeletePodMonitor(ctx, types.NamespacedName{Name: istioPodMonitorName, Namespace: isvcNamespace})
 }

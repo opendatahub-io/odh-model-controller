@@ -13,14 +13,21 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package reconcilers
+package resources_test
 
 import (
-	"context"
-	"github.com/go-logr/logr"
-	kservev1beta1 "github.com/kserve/kserve/pkg/apis/serving/v1beta1"
+	"testing"
+
+	. "github.com/onsi/ginkgo"
+	. "github.com/onsi/gomega"
+	//+kubebuilder:scaffold:imports
 )
 
-type Reconciler interface {
-	Reconcile(ctx context.Context, log logr.Logger, isvc *kservev1beta1.InferenceService) error
+// These tests use Ginkgo (BDD-style Go testing framework). Refer to
+// http://onsi.github.io/ginkgo/ to learn more about Ginkgo.
+
+func TestAPIs(t *testing.T) {
+	RegisterFailHandler(Fail)
+
+	RunSpecs(t, "Resources Suite")
 }

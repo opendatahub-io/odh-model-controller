@@ -53,6 +53,12 @@ spec:
                   name: auth-refs
                   key: AUTH_AUDIENCE
                   optional: true
+            - name: AUTHORINO_LABEL
+              valueFrom:
+                configMapKeyRef:
+                  name: auth-refs
+                  key: AUTHORINO_LABEL
+                  optional: true
           livenessProbe:
             httpGet:
               path: /healthz

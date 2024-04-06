@@ -24,28 +24,29 @@ import (
 	"github.com/opendatahub-io/odh-model-controller/controllers/resources"
 	v1 "k8s.io/api/rbac/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
+var _ SubResourceReconciler = (*ModelMeshClusterRoleBindingReconciler)(nil)
+
 type ModelMeshClusterRoleBindingReconciler struct {
+	SingleResourcePerNamespace
 	client                    client.Client
-	scheme                    *runtime.Scheme
 	clusterRoleBindingHandler resources.ClusterRoleBindingHandler
 	deltaProcessor            processors.DeltaProcessor
 }
 
-func NewModelMeshClusterRoleBindingReconciler(client client.Client, scheme *runtime.Scheme) *ModelMeshClusterRoleBindingReconciler {
+func NewModelMeshClusterRoleBindingReconciler(client client.Client) *ModelMeshClusterRoleBindingReconciler {
 	return &ModelMeshClusterRoleBindingReconciler{
 		client:                    client,
-		scheme:                    scheme,
 		clusterRoleBindingHandler: resources.NewClusterRoleBindingHandler(client),
 		deltaProcessor:            processors.NewDeltaProcessor(),
 	}
 }
 
 func (r *ModelMeshClusterRoleBindingReconciler) Reconcile(ctx context.Context, log logr.Logger, isvc *kservev1beta1.InferenceService) error {
+	log.V(1).Info("Reconciling ClusterRoleBinding for InferenceService")
 	// Create Desired resource
 	desiredResource, err := r.createDesiredResource(isvc)
 	if err != nil {
@@ -63,6 +64,11 @@ func (r *ModelMeshClusterRoleBindingReconciler) Reconcile(ctx context.Context, l
 		return err
 	}
 	return nil
+}
+
+func (r *ModelMeshClusterRoleBindingReconciler) Cleanup(ctx context.Context, log logr.Logger, isvcNs string) error {
+	log.V(1).Info("Deleting ClusterRoleBinding object for target namespace")
+	return r.clusterRoleBindingHandler.DeleteClusterRoleBinding(ctx, types.NamespacedName{Name: getClusterRoleBindingName(isvcNs), Namespace: isvcNs})
 }
 
 func (r *ModelMeshClusterRoleBindingReconciler) createDesiredResource(isvc *kservev1beta1.InferenceService) (*v1.ClusterRoleBinding, error) {
@@ -127,8 +133,4 @@ func (r *ModelMeshClusterRoleBindingReconciler) processDelta(ctx context.Context
 
 func getClusterRoleBindingName(isvcNamespace string) string {
 	return isvcNamespace + "-" + modelMeshServiceAccountName + "-auth-delegator"
-}
-
-func (r *ModelMeshClusterRoleBindingReconciler) DeleteClusterRoleBinding(ctx context.Context, isvcNamespace string) error {
-	return r.clusterRoleBindingHandler.DeleteClusterRoleBinding(ctx, types.NamespacedName{Name: getClusterRoleBindingName(isvcNamespace), Namespace: isvcNamespace})
 }

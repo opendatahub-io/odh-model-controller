@@ -26,7 +26,6 @@ import (
 	istiotypes "istio.io/api/type/v1beta1"
 	istiosecv1beta1 "istio.io/client-go/pkg/apis/security/v1beta1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
@@ -35,23 +34,25 @@ const (
 	peerAuthenticationName = "default"
 )
 
+var _ SubResourceReconciler = (*KserveIstioPeerAuthenticationReconciler)(nil)
+
 type KserveIstioPeerAuthenticationReconciler struct {
+	SingleResourcePerNamespace
 	client                    client.Client
-	scheme                    *runtime.Scheme
 	peerAuthenticationHandler resources.PeerAuthenticationHandler
 	deltaProcessor            processors.DeltaProcessor
 }
 
-func NewKServeIstioPeerAuthenticationReconciler(client client.Client, scheme *runtime.Scheme) *KserveIstioPeerAuthenticationReconciler {
+func NewKServeIstioPeerAuthenticationReconciler(client client.Client) *KserveIstioPeerAuthenticationReconciler {
 	return &KserveIstioPeerAuthenticationReconciler{
 		client:                    client,
-		scheme:                    scheme,
 		peerAuthenticationHandler: resources.NewPeerAuthenticationHandler(client),
 		deltaProcessor:            processors.NewDeltaProcessor(),
 	}
 }
 
 func (r *KserveIstioPeerAuthenticationReconciler) Reconcile(ctx context.Context, log logr.Logger, isvc *kservev1beta1.InferenceService) error {
+	log.V(1).Info("Reconciling PeerAuthentication for target namespace")
 
 	// Create Desired resource
 	desiredResource, err := r.createDesiredResource(isvc)
@@ -70,6 +71,11 @@ func (r *KserveIstioPeerAuthenticationReconciler) Reconcile(ctx context.Context,
 		return err
 	}
 	return nil
+}
+
+func (r *KserveIstioPeerAuthenticationReconciler) Cleanup(ctx context.Context, log logr.Logger, isvcNs string) error {
+	log.V(1).Info("Deleting PeerAuthentication object for target namespace")
+	return r.peerAuthenticationHandler.DeletePeerAuthentication(ctx, types.NamespacedName{Name: peerAuthenticationName, Namespace: isvcNs})
 }
 
 func (r *KserveIstioPeerAuthenticationReconciler) createDesiredResource(isvc *kservev1beta1.InferenceService) (*istiosecv1beta1.PeerAuthentication, error) {
@@ -131,8 +137,4 @@ func (r *KserveIstioPeerAuthenticationReconciler) processDelta(ctx context.Conte
 		}
 	}
 	return nil
-}
-
-func (r *KserveIstioPeerAuthenticationReconciler) DeletePeerAuthentication(ctx context.Context, isvcNamespace string) error {
-	return r.peerAuthenticationHandler.DeletePeerAuthentication(ctx, types.NamespacedName{Name: peerAuthenticationName, Namespace: isvcNamespace})
 }
