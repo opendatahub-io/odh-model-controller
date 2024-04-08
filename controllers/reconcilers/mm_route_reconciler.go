@@ -90,16 +90,16 @@ func (r *ModelMeshRouteReconciler) createDesiredResource(ctx context.Context, lo
 	}
 
 	enableAuth := false
-	if enableAuth, err = strconv.ParseBool(desiredServingRuntime.Annotations[constants.LabelEnableAuth]); err != nil {
+	if enableAuth, err = strconv.ParseBool(desiredServingRuntime.Annotations[constants.AnnotationEnableAuth]); err != nil {
 		enableAuth = false
 	}
 	createRoute := false
-	if createRoute, err = strconv.ParseBool(desiredServingRuntime.Annotations[constants.LabelEnableRoute]); err != nil {
+	if createRoute, err = strconv.ParseBool(desiredServingRuntime.Annotations[constants.AnnotationEnableRoute]); err != nil {
 		createRoute = false
 	}
 
 	if !createRoute {
-		log.Info("Serving runtime does not have '" + constants.LabelEnableRoute + "' annotation set to 'True'. Skipping route creation")
+		log.Info("Serving runtime does not have '" + constants.AnnotationEnableRoute + "' annotation set to 'True'. Skipping route creation")
 		return nil, nil
 	}
 

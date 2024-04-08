@@ -17,6 +17,7 @@ package controllers
 
 import (
 	"context"
+
 	kservev1beta1 "github.com/kserve/kserve/pkg/apis/serving/v1beta1"
 	authorinov1beta2 "github.com/kuadrant/authorino/api/v1beta2"
 	. "github.com/onsi/ginkgo"
@@ -228,7 +229,7 @@ func createISVCMissingStatus(namespace string) *kservev1beta1.InferenceService {
 
 func createISVCWithAuth(namespace string) *kservev1beta1.InferenceService {
 	inferenceService := createBasicISVC(namespace)
-	inferenceService.Annotations[constants.LabelEnableAuth] = "true"
+	inferenceService.Annotations[constants.AnnotationEnableAuth] = "true"
 	Expect(cli.Create(ctx, inferenceService)).Should(Succeed())
 
 	return inferenceService
@@ -261,8 +262,8 @@ func updateISVCStatus(isvc *kservev1beta1.InferenceService) error {
 }
 
 func disableAuth(isvc *kservev1beta1.InferenceService) error {
-	delete(isvc.Annotations, constants.LabelEnableAuth)
-	delete(isvc.Annotations, constants.LabelEnableAuthODH)
+	delete(isvc.Annotations, constants.AnnotationEnableAuth)
+	delete(isvc.Annotations, constants.AnnotationEnableAuthODH)
 	return cli.Update(context.Background(), isvc)
 }
 
@@ -270,7 +271,7 @@ func enableAuth(isvc *kservev1beta1.InferenceService) error {
 	if isvc.Annotations == nil {
 		isvc.Annotations = map[string]string{}
 	}
-	isvc.Annotations[constants.LabelEnableAuthODH] = "true"
+	isvc.Annotations[constants.AnnotationEnableAuthODH] = "true"
 	return cli.Update(context.Background(), isvc)
 }
 

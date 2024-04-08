@@ -198,12 +198,12 @@ func NewKServeAuthTypeDetector(client client.Client) AuthTypeDetector {
 }
 
 func (k *kserveAuthTypeDetector) Detect(ctx context.Context, isvc *kservev1beta1.InferenceService) (AuthType, error) {
-	if value, exist := isvc.Annotations[constants.LabelEnableAuthODH]; exist {
+	if value, exist := isvc.Annotations[constants.AnnotationEnableAuthODH]; exist {
 		if strings.ToLower(value) == "true" {
 			return UserDefined, nil
 		}
 	} else { // backward compat
-		if strings.ToLower(isvc.Annotations[constants.LabelEnableAuth]) == "true" {
+		if strings.ToLower(isvc.Annotations[constants.AnnotationEnableAuth]) == "true" {
 			return UserDefined, nil
 		}
 	}

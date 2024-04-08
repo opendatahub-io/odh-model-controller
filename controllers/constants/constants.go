@@ -25,10 +25,11 @@ const (
 	IstioIngressServiceHTTPSPortName = "https"
 	IstioSidecarInjectAnnotationName = "sidecar.istio.io/inject"
 
-	LabelAuthGroup     = "security.opendatahub.io/authorization-group"
-	LabelEnableAuthODH = "security.opendatahub.io/enable-auth"
-	LabelEnableAuth    = "enable-auth"
-	LabelEnableRoute   = "enable-route"
+	LabelAuthGroup = "security.opendatahub.io/authorization-group"
+
+	AnnotationEnableAuthODH = "security.opendatahub.io/enable-auth"
+	AnnotationEnableAuth    = "enable-auth"
+	AnnotationEnableRoute   = "enable-route"
 
 	CapabilityServiceMeshAuthorization = "CapabilityServiceMeshAuthorization"
 )
