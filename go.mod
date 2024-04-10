@@ -12,6 +12,7 @@ require (
 	github.com/opendatahub-io/model-registry v0.1.1
 	github.com/openshift/api v3.9.0+incompatible
 	github.com/prometheus-operator/prometheus-operator/pkg/apis/monitoring v0.64.1
+	github.com/tidwall/gjson v1.14.4
 	go.uber.org/zap v1.26.0
 	google.golang.org/grpc v1.61.0
 	gopkg.in/yaml.v2 v2.4.0
@@ -25,6 +26,7 @@ require (
 	knative.dev/serving v0.37.1
 	maistra.io/api v0.0.0-20230417135504-0536f6c22b1c
 	sigs.k8s.io/controller-runtime v0.14.6
+	sigs.k8s.io/yaml v1.3.0
 )
 
 require (
@@ -76,17 +78,16 @@ require (
 	github.com/prometheus/common v0.44.0 // indirect
 	github.com/prometheus/procfs v0.11.1 // indirect
 	github.com/spf13/pflag v1.0.5 // indirect
-	github.com/tidwall/gjson v1.14.4 // indirect
 	github.com/tidwall/match v1.1.1 // indirect
 	github.com/tidwall/pretty v1.2.1 // indirect
 	go.opencensus.io v0.24.0 // indirect
 	go.uber.org/multierr v1.11.0 // indirect
-	golang.org/x/crypto v0.16.0 // indirect
-	golang.org/x/net v0.19.0 // indirect
+	golang.org/x/crypto v0.21.0 // indirect
+	golang.org/x/net v0.21.0 // indirect
 	golang.org/x/oauth2 v0.14.0 // indirect
 	golang.org/x/sync v0.5.0 // indirect
-	golang.org/x/sys v0.15.0 // indirect
-	golang.org/x/term v0.15.0 // indirect
+	golang.org/x/sys v0.18.0 // indirect
+	golang.org/x/term v0.18.0 // indirect
 	golang.org/x/text v0.14.0 // indirect
 	golang.org/x/time v0.3.0 // indirect
 	golang.org/x/xerrors v0.0.0-20220907171357-04be3eba64a2 // indirect
@@ -107,7 +108,6 @@ require (
 	knative.dev/networking v0.0.0-20231017124814-2a7676e912b7 // indirect
 	sigs.k8s.io/json v0.0.0-20221116044647-bc3834ca7abd // indirect
 	sigs.k8s.io/structured-merge-diff/v4 v4.2.3 // indirect
-	sigs.k8s.io/yaml v1.3.0 // indirect
 )
 
 replace (
@@ -115,11 +115,9 @@ replace (
 	// this dependency comes from k8s.io/component-base@v0.26.4 and k8s.io/apiextensions-apiserver@v0.26.4
 	// before removing it make sure that the next version of the related k8s dependencies contains the fix
 	go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp => go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp v0.44.0
-	// The crypto is pulled from go/compute which is pulled by go/storage
-	// this replace can be removed when version 1.36.1 of go/storage is released.
-	// https://github.com/googleapis/google-cloud-go/tree/main/storage
-	// Fixes CVE-2023-48795 - golang.org/x/crypto Authentication Bypass by Capture-replay
-	golang.org/x/crypto => golang.org/x/crypto v0.17.0
+
+	// Fixes CVE-2023-45288
+	golang.org/x/net => golang.org/x/net v0.23.0
 	// can be removed when the indirect depdency is in the same version or higher
 	// Fixes Stack-based Buffer Overflow on protobuf
 	// https://security.snyk.io/vuln/SNYK-GOLANG-GOOGLEGOLANGORGPROTOBUFENCODINGPROTOJSON-6137908
