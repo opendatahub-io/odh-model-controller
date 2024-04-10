@@ -111,6 +111,11 @@ require (
 )
 
 replace (
+	// sdk-go comes from github.com/kserve/kserve@v0.11.0
+	// Fixes CVE-2024-28110
+	// Can be remove when upgrading kserve to 0.12.1 or higher, before removing please make sure the dependency
+	// is in the same version or higher in the given KServe version
+	github.com/cloudevents/sdk-go/v2 => github.com/cloudevents/sdk-go/v2 v2.15.2
 	// Fixes CVE-2022-21698 and CVE-2023-45142
 	// this dependency comes from k8s.io/component-base@v0.26.4 and k8s.io/apiextensions-apiserver@v0.26.4
 	// before removing it make sure that the next version of the related k8s dependencies contains the fix
