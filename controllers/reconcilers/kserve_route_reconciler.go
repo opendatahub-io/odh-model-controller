@@ -18,12 +18,14 @@ package reconcilers
 import (
 	"context"
 	"fmt"
+	"strconv"
+
 	"github.com/go-logr/logr"
 	kservev1beta1 "github.com/kserve/kserve/pkg/apis/serving/v1beta1"
-	"github.com/kserve/kserve/pkg/constants"
+	kserveconstants "github.com/kserve/kserve/pkg/constants"
 	"github.com/kserve/kserve/pkg/utils"
 	"github.com/opendatahub-io/odh-model-controller/controllers/comparators"
-	constants2 "github.com/opendatahub-io/odh-model-controller/controllers/constants"
+	"github.com/opendatahub-io/odh-model-controller/controllers/constants"
 	"github.com/opendatahub-io/odh-model-controller/controllers/processors"
 	"github.com/opendatahub-io/odh-model-controller/controllers/resources"
 	v1 "github.com/openshift/api/route/v1"
@@ -54,8 +56,21 @@ func NewKserveRouteReconciler(client client.Client) *KserveRouteReconciler {
 func (r *KserveRouteReconciler) Reconcile(ctx context.Context, log logr.Logger, isvc *kservev1beta1.InferenceService) error {
 	log.V(1).Info("Reconciling Generic Route for Kserve InferenceService")
 
+	//migrate annotation on isvcs created before "opt-in" routes for kserve were enabled. See: https://issues.redhat.com/browse/RHOAIENG-5222
+	needsMigration, err := r.DoesIsvcNeedAnnotationMigration(ctx, log, isvc)
+	if err != nil {
+		return err
+	}
+	if needsMigration {
+		isvc1, err := r.MigrateRouteAnnotationForExistingIsvcs(ctx, log, isvc)
+		if err != nil {
+			return err
+		}
+		isvc = isvc1
+	}
+
 	// Create Desired resource
-	desiredResource, err := r.createDesiredResource(isvc)
+	desiredResource, err := r.createDesiredResource(isvc, log)
 	if err != nil {
 		return err
 	}
@@ -73,9 +88,36 @@ func (r *KserveRouteReconciler) Reconcile(ctx context.Context, log logr.Logger, 
 	return nil
 }
 
+func (r *KserveRouteReconciler) DoesIsvcNeedAnnotationMigration(ctx context.Context, log logr.Logger, isvc *kservev1beta1.InferenceService) (bool, error) {
+
+	existingRoute, err := r.routeHandler.FetchRoute(ctx, log, types.NamespacedName{Name: getKServeRouteName(isvc), Namespace: constants.IstioNamespace})
+	if err != nil {
+		return false, err
+	}
+	if existingRoute != nil {
+		return true, nil
+	}
+
+	return false, nil
+}
+
+func (r *KserveRouteReconciler) MigrateRouteAnnotationForExistingIsvcs(ctx context.Context, log logr.Logger, isvc *kservev1beta1.InferenceService) (*kservev1beta1.InferenceService, error) {
+
+	log.Info("Adding annotation '" + constants.AnnotationEnableRoute + "' to Inferenceservice because an existing route was found.")
+	if isvc.Annotations == nil {
+		isvc.Annotations = map[string]string{}
+	}
+	isvc.Annotations[constants.AnnotationEnableRoute] = "true"
+	if err := r.client.Update(ctx, isvc); err != nil {
+		return nil, err
+	}
+
+	return isvc, nil
+}
+
 func (r *KserveRouteReconciler) Delete(ctx context.Context, log logr.Logger, isvc *kservev1beta1.InferenceService) error {
 	log.V(1).Info("Deleting Kserve inference service generic route")
-	return r.routeHandler.DeleteRoute(ctx, types.NamespacedName{Name: getKServeRouteName(isvc), Namespace: constants2.IstioNamespace})
+	return r.routeHandler.DeleteRoute(ctx, types.NamespacedName{Name: getKServeRouteName(isvc), Namespace: constants.IstioNamespace})
 }
 
 func (r *KserveRouteReconciler) Cleanup(_ context.Context, _ logr.Logger, _ string) error {
@@ -83,7 +125,25 @@ func (r *KserveRouteReconciler) Cleanup(_ context.Context, _ logr.Logger, _ stri
 	return nil
 }
 
-func (r *KserveRouteReconciler) createDesiredResource(isvc *kservev1beta1.InferenceService) (*v1.Route, error) {
+func (r *KserveRouteReconciler) createDesiredResource(isvc *kservev1beta1.InferenceService, log logr.Logger) (*v1.Route, error) {
+
+	createRoute, err := strconv.ParseBool(isvc.Annotations[constants.AnnotationEnableRoute])
+	if err != nil {
+		createRoute = false
+	}
+	enableAuth, err := strconv.ParseBool(isvc.Annotations[constants.AnnotationEnableAuth])
+	if err != nil {
+		enableAuth = false
+	}
+
+	if !createRoute {
+		log.Info("InferenceService does not have '" + constants.AnnotationEnableRoute + "' annotation set to 'True'. Skipping route creation")
+		return nil, nil
+	}
+	if !enableAuth {
+		log.Info("InferenceService does not have '" + constants.AnnotationEnableAuth + "' annotation set to 'True'. The created route is not secured.")
+	}
+
 	ingressConfig, err := kservev1beta1.NewIngressConfig(r.client)
 	if err != nil {
 		return nil, err
@@ -98,7 +158,7 @@ func (r *KserveRouteReconciler) createDesiredResource(isvc *kservev1beta1.Infere
 		}
 		isInternal := false
 		//if service is labelled with cluster local or knative domain is configured as internal
-		if val, ok := isvc.Labels[constants.VisibilityLabel]; ok && val == constants.ClusterLocalVisibility {
+		if val, ok := isvc.Labels[kserveconstants.VisibilityLabel]; ok && val == kserveconstants.ClusterLocalVisibility {
 			isInternal = true
 		}
 		serviceInternalHostName := network.GetServiceHostname(isvc.Name, isvc.Namespace)
@@ -113,16 +173,16 @@ func (r *KserveRouteReconciler) createDesiredResource(isvc *kservev1beta1.Infere
 			serviceHost = ingressConfig.IngressDomain
 		}
 		annotations := utils.Filter(isvc.Annotations, func(key string) bool {
-			return !utils.Includes(constants.ServiceAnnotationDisallowedList, key)
+			return !utils.Includes(kserveconstants.ServiceAnnotationDisallowedList, key)
 		})
 
 		urlScheme := ingressConfig.UrlScheme
 		var targetPort intstr.IntOrString
 		var tlsConfig *v1.TLSConfig
 		if urlScheme == "http" {
-			targetPort = intstr.FromString(constants2.IstioIngressServiceHTTPPortName)
+			targetPort = intstr.FromString(constants.IstioIngressServiceHTTPPortName)
 		} else {
-			targetPort = intstr.FromString(constants2.IstioIngressServiceHTTPSPortName)
+			targetPort = intstr.FromString(constants.IstioIngressServiceHTTPSPortName)
 			tlsConfig = &v1.TLSConfig{
 				Termination:                   v1.TLSTerminationPassthrough,
 				InsecureEdgeTerminationPolicy: v1.InsecureEdgeTerminationPolicyRedirect,
@@ -132,7 +192,7 @@ func (r *KserveRouteReconciler) createDesiredResource(isvc *kservev1beta1.Infere
 		route := &v1.Route{
 			ObjectMeta: metav1.ObjectMeta{
 				Name:        getKServeRouteName(isvc),
-				Namespace:   constants2.IstioNamespace,
+				Namespace:   constants.IstioNamespace,
 				Annotations: annotations,
 				Labels:      isvc.Labels,
 			},
@@ -140,7 +200,7 @@ func (r *KserveRouteReconciler) createDesiredResource(isvc *kservev1beta1.Infere
 				Host: serviceHost,
 				To: v1.RouteTargetReference{
 					Kind:   "Service",
-					Name:   constants2.IstioIngressService,
+					Name:   constants.IstioIngressService,
 					Weight: pointer.Int32(100),
 				},
 				Port: &v1.RoutePort{
@@ -159,7 +219,7 @@ func (r *KserveRouteReconciler) createDesiredResource(isvc *kservev1beta1.Infere
 }
 
 func (r *KserveRouteReconciler) getExistingResource(ctx context.Context, log logr.Logger, isvc *kservev1beta1.InferenceService) (*v1.Route, error) {
-	return r.routeHandler.FetchRoute(ctx, log, types.NamespacedName{Name: getKServeRouteName(isvc), Namespace: constants2.IstioNamespace})
+	return r.routeHandler.FetchRoute(ctx, log, types.NamespacedName{Name: getKServeRouteName(isvc), Namespace: constants.IstioNamespace})
 }
 
 func (r *KserveRouteReconciler) processDelta(ctx context.Context, log logr.Logger, desiredRoute *v1.Route, existingRoute *v1.Route) (err error) {
