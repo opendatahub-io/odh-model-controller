@@ -111,6 +111,8 @@ require (
 )
 
 replace (
+	// Fixes CVE-2024-21626
+	github.com/containerd/containerd => github.com/containerd/containerd v1.7.13
 	// Fixes CVE-2022-21698 and CVE-2023-45142
 	// this dependency comes from k8s.io/component-base@v0.26.4 and k8s.io/apiextensions-apiserver@v0.26.4
 	// before removing it make sure that the next version of the related k8s dependencies contains the fix
