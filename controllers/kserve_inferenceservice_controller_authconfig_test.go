@@ -23,6 +23,7 @@ import (
 	. "github.com/onsi/gomega"
 	"github.com/opendatahub-io/odh-model-controller/controllers/constants"
 	"github.com/opendatahub-io/odh-model-controller/controllers/utils"
+	istiosec_v1b1 "istio.io/client-go/pkg/apis/security/v1beta1"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -96,14 +97,20 @@ var _ = Describe("InferenceService Authorization", func() {
 				Fail(err.Error())
 			}
 
-			// We need to stub the cluster state and indicate that Authorino is configured as authorization layer
-			if dsciErr := createDSCI(DSCIWithAuthorization); dsciErr != nil && !errors.IsAlreadyExists(dsciErr) {
-				Fail(dsciErr.Error())
+			//// We need to stub the cluster state and indicate that Authorino is configured as authorization layer
+			//if dsciErr := createDSCI(DSCIWithAuthorization); dsciErr != nil && !errors.IsAlreadyExists(dsciErr) {
+			//	Fail(dsciErr.Error())
+			//}
+
+			// TODO: See utils.VerifyIfMeshAuthorizationIsEnabled func
+			if authPolicyErr := createAuthorizationPolicy(KServeAuthorizationPolicy); authPolicyErr != nil && !errors.IsAlreadyExists(authPolicyErr) {
+				Fail(authPolicyErr.Error())
 			}
 		})
 
 		AfterEach(func() {
-			Expect(deleteDSCI(DSCIWithAuthorization)).To(Succeed())
+			//Expect(deleteDSCI(DSCIWithAuthorization)).To(Succeed())
+			Expect(deleteAuthorizationPolicy(KServeAuthorizationPolicy)).To(Succeed())
 		})
 
 		Context("when InferenceService is not ready", func() {
@@ -311,6 +318,25 @@ func createDSCI(dsci string) error {
 	return statusErr
 }
 
+func createAuthorizationPolicy(authPolicyFile string) error {
+	obj := &unstructured.Unstructured{}
+	if err := convertToUnstructuredResource(authPolicyFile, obj); err != nil {
+		return err
+	}
+
+	obj.SetGroupVersionKind(istiosec_v1b1.SchemeGroupVersion.WithKind("AuthorizationPolicy"))
+	dynamicClient, err := dynamic.NewForConfig(envTest.Config)
+	if err != nil {
+		return err
+	}
+
+	gvr := istiosec_v1b1.SchemeGroupVersion.WithResource("authorizationpolicies")
+	resource := dynamicClient.Resource(gvr)
+	_, createErr := resource.Namespace(constants.IstioNamespace).Create(context.TODO(), obj, metav1.CreateOptions{})
+
+	return createErr
+}
+
 func deleteDSCI(dsci string) error {
 	obj := &unstructured.Unstructured{}
 	if err := convertToUnstructuredResource(dsci, obj); err != nil {
@@ -330,4 +356,20 @@ func deleteDSCI(dsci string) error {
 		Resource: "dscinitializations",
 	}
 	return dynamicClient.Resource(gvr).Delete(context.TODO(), obj.GetName(), metav1.DeleteOptions{})
+}
+
+func deleteAuthorizationPolicy(authPolicyFile string) error {
+	obj := &unstructured.Unstructured{}
+	if err := convertToUnstructuredResource(authPolicyFile, obj); err != nil {
+		return err
+	}
+
+	obj.SetGroupVersionKind(istiosec_v1b1.SchemeGroupVersion.WithKind("AuthorizationPolicy"))
+	dynamicClient, err := dynamic.NewForConfig(envTest.Config)
+	if err != nil {
+		return err
+	}
+
+	gvr := istiosec_v1b1.SchemeGroupVersion.WithResource("authorizationpolicies")
+	return dynamicClient.Resource(gvr).Namespace(constants.IstioNamespace).Delete(context.TODO(), obj.GetName(), metav1.DeleteOptions{})
 }

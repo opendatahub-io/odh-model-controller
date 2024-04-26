@@ -78,6 +78,7 @@ const (
 	ExpectedRouteNoRuntimePath      = "./testdata/results/example-onnx-mnist-no-runtime-route.yaml"
 	DSCIWithAuthorization           = "./testdata/dsci-with-authorino-enabled.yaml"
 	DSCIWithoutAuthorization        = "./testdata/dsci-with-authorino-missing.yaml"
+	KServeAuthorizationPolicy       = "./testdata/kserve-authorization-policy.yaml"
 	odhtrustedcabundleConfigMapPath = "./testdata/configmaps/odh-trusted-ca-bundle-configmap.yaml"
 	timeout                         = time.Second * 20
 	interval                        = time.Millisecond * 10
