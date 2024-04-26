@@ -4,13 +4,18 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"os"
 	"reflect"
 
 	kservev1beta1 "github.com/kserve/kserve/pkg/apis/serving/v1beta1"
+	v1beta12 "istio.io/api/security/v1beta1"
+	"istio.io/client-go/pkg/apis/security/v1beta1"
 	corev1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/api/meta"
+	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+
+	"github.com/opendatahub-io/odh-model-controller/controllers/constants"
 )
 
 type IsvcDeploymentMode string
@@ -163,6 +168,45 @@ func VerifyIfCapabilityIsEnabled(ctx context.Context, cli client.Client, capabil
 
 	return false, nil
 
+}
+
+// VerifyIfMeshAuthorizationIsEnabled func checks if Authorization has been configured for
+// ODH platform. That check is done by verifying the presence of an Istio AuthorizationPolicy
+// resource. This resource is expected to be present for both the ODH managed and unmanaged
+// setups of the authorization capability. If it is not present, it is inferred that the
+// authorization capability is not available.
+func VerifyIfMeshAuthorizationIsEnabled(ctx context.Context, cli client.Client) (bool, error) {
+	// TODO: The VerifyIfCapabilityIsEnabled func was supposed to be a generic way to check
+	// if ODH platform has some capability enabled. So, authorization capabilities would
+	// have been detected using that func. The VerifyIfCapabilityIsEnabled does the check
+	// by fetching the DSCInitialization resource and checking its `status` field.
+	// However, the odh-operator would expose the status of the available capabilities *only* if
+	// such capabilities are managed by the odh-operator. Since ODH allows the user
+	// to manually do the setup of authorization, the user would own the setup and odh-operator
+	// would no longer do the management of the stack. Unfortunately, this means that the
+	// check via the DSCI is not reliable at the moment.
+	// This func is a workaround to (hopefully, more reliably) find if the authorization
+	// capability is available. To remove this workaround, an enhancement to odh-operator
+	// should be done to reliably pass down to components if the authorization capability
+	// is available, taking into account both managed an unmanaged configurations.
+
+	authPolicies := &v1beta1.AuthorizationPolicyList{}
+	if err := cli.List(ctx, authPolicies, client.InNamespace(constants.IstioNamespace)); err != nil && !meta.IsNoMatchError(err) {
+		return false, err
+	}
+	if len(authPolicies.Items) == 0 {
+		return false, nil
+	}
+
+	for _, policy := range authPolicies.Items {
+		if policy.Spec.Action == v1beta12.AuthorizationPolicy_CUSTOM {
+			if policy.Spec.Selector != nil && policy.Spec.Selector.MatchLabels["component"] == "predictor" {
+				return true, nil
+			}
+		}
+	}
+
+	return false, nil
 }
 
 func IsNil(i any) bool {

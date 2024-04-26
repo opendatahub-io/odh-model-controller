@@ -208,6 +208,13 @@ rules:
 - apiGroups:
   - security.istio.io
   resources:
+  - authorizationpolicies
+  verbs:
+  - get
+  - list
+- apiGroups:
+  - security.istio.io
+  resources:
   - peerauthentications
   verbs:
   - create
