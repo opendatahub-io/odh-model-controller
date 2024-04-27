@@ -19,20 +19,22 @@ package main
 import (
 	"context"
 	"flag"
-	authorinov1beta2 "github.com/kuadrant/authorino/api/v1beta2"
-	"github.com/opendatahub-io/odh-model-controller/controllers/constants"
-	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
 	"os"
 	"strconv"
 
-	// Import all Kubernetes client auth plugins (e.g. Azure, GCP, OIDC, etc.)
+	authorinov1beta2 "github.com/kuadrant/authorino/api/v1beta2"
+
 	// to ensure that exec-entrypoint and run can make use of them.
+	// Import all Kubernetes client auth plugins (e.g. Azure, GCP, OIDC, etc.)
 	_ "k8s.io/client-go/plugin/pkg/client/auth"
 
+	"istio.io/client-go/pkg/apis/security/v1beta1"
 	"k8s.io/apimachinery/pkg/runtime"
+	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
 	knservingv1 "knative.dev/serving/pkg/apis/serving/v1"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/builder"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/healthz"
 	"sigs.k8s.io/controller-runtime/pkg/log/zap"
 
@@ -60,6 +62,7 @@ func init() { //nolint:gochecknoinits //reason this way we ensure schemes are al
 // +kubebuilder:rbac:groups=networking.istio.io,resources=virtualservices,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups=networking.istio.io,resources=virtualservices/finalizers,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups=security.istio.io,resources=peerauthentications,verbs=get;list;watch;create;update;patch;delete
+// +kubebuilder:rbac:groups=security.istio.io,resources=authorizationpolicies,verbs=get;list
 // +kubebuilder:rbac:groups=telemetry.istio.io,resources=telemetries,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups=maistra.io,resources=servicemeshmembers,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups=maistra.io,resources=servicemeshmembers/finalizers,verbs=get;list;watch;create;update;patch;delete
@@ -118,6 +121,7 @@ func main() {
 		HealthProbeBindAddress: probeAddr,
 		LeaderElection:         enableLeaderElection,
 		LeaderElectionID:       "odh-model-controller",
+		ClientDisableCacheFor:  []client.Object{&v1beta1.AuthorizationPolicy{}},
 	})
 	if err != nil {
 		setupLog.Error(err, "unable to start manager")
@@ -193,7 +197,7 @@ func main() {
 		setupLog.Info("Skipping setup of Knative Service validating Webhook, because KServe Serverless setup seems to be disabled in the DataScienceCluster resource.")
 	}
 
-	authorinoEnabled, capabilityErr := utils.VerifyIfCapabilityIsEnabled(context.Background(), mgr.GetClient(), constants.CapabilityServiceMeshAuthorization, utils.AuthorinoEnabledWhenOperatorNotMissing)
+	authorinoEnabled, capabilityErr := utils.VerifyIfMeshAuthorizationIsEnabled(context.Background(), mgr.GetClient())
 	if capabilityErr != nil {
 		setupLog.Error(capabilityErr, "unable to determine if Authorino is enabled")
 		os.Exit(1)
