@@ -57,7 +57,7 @@ func NewKserveAuthConfigReconciler(client client.Client) *KserveAuthConfigReconc
 
 func (r *KserveAuthConfigReconciler) Reconcile(ctx context.Context, log logr.Logger, isvc *kservev1beta1.InferenceService) error {
 	log.V(1).Info("Reconciling Authorino AuthConfig for InferenceService")
-	authorinoEnabled, capabilityErr := utils.VerifyIfCapabilityIsEnabled(context.Background(), r.client, constants.CapabilityServiceMeshAuthorization, utils.AuthorinoEnabledWhenOperatorNotMissing)
+	authorinoEnabled, capabilityErr := utils.VerifyIfMeshAuthorizationIsEnabled(context.Background(), r.client)
 	if capabilityErr != nil {
 		log.V(1).Error(capabilityErr, "Error while verifying if Authorino is enabled")
 		return nil
