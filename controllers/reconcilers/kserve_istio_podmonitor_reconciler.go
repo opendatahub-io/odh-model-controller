@@ -17,11 +17,14 @@ package reconcilers
 
 import (
 	"context"
+	"fmt"
 	"github.com/go-logr/logr"
 	kservev1beta1 "github.com/kserve/kserve/pkg/apis/serving/v1beta1"
+	"github.com/kuadrant/authorino/pkg/log"
 	"github.com/opendatahub-io/odh-model-controller/controllers/comparators"
 	"github.com/opendatahub-io/odh-model-controller/controllers/processors"
 	"github.com/opendatahub-io/odh-model-controller/controllers/resources"
+	"github.com/opendatahub-io/odh-model-controller/controllers/utils"
 	v1 "github.com/prometheus-operator/prometheus-operator/pkg/apis/monitoring/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
@@ -53,7 +56,7 @@ func (r *KserveIstioPodMonitorReconciler) Reconcile(ctx context.Context, log log
 	log.V(1).Info("Creating Istio PodMonitor for target namespace")
 
 	// Create Desired resource
-	desiredResource, err := r.createDesiredResource(isvc)
+	desiredResource, err := r.createDesiredResource(ctx, isvc)
 	if err != nil {
 		return err
 	}
@@ -76,7 +79,12 @@ func (r *KserveIstioPodMonitorReconciler) Cleanup(ctx context.Context, log logr.
 	return r.podMonitorHandler.DeletePodMonitor(ctx, types.NamespacedName{Name: istioPodMonitorName, Namespace: isvcNs})
 }
 
-func (r *KserveIstioPodMonitorReconciler) createDesiredResource(isvc *kservev1beta1.InferenceService) (*v1.PodMonitor, error) {
+func (r *KserveIstioPodMonitorReconciler) createDesiredResource(ctx context.Context, isvc *kservev1beta1.InferenceService) (*v1.PodMonitor, error) {
+	dsciName, err := utils.GetDSCIName(ctx, r.client)
+	if err != nil {
+		log.V(1).Error(err, "Error getting DSCI name, default value will be used.")
+	}
+
 	desiredPodMonitor := &v1.PodMonitor{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      istioPodMonitorName,
@@ -95,6 +103,50 @@ func (r *KserveIstioPodMonitorReconciler) createDesiredResource(isvc *kservev1be
 				{
 					Path:     "/stats/prometheus",
 					Interval: "30s",
+					RelabelConfigs: []*v1.RelabelConfig{
+						{
+							Action:       "keep",
+							SourceLabels: []v1.LabelName{"__meta_kubernetes_pod_container_name"},
+							Regex:        "istio-proxy",
+						},
+						{
+							Action:       "keep",
+							SourceLabels: []v1.LabelName{"__meta_kubernetes_pod_annotationpresent_prometheus_io_scrape"},
+						},
+						{
+							Action:       "replace",
+							Regex:        "(\\d+);(([A-Fa-f0-9]{1,4}::?){1,7}[A-Fa-f0-9]{1,4})",
+							Replacement:  "[$2]:$1",
+							SourceLabels: []v1.LabelName{"__meta_kubernetes_pod_annotation_prometheus_io_port", "__meta_kubernetes_pod_ip"},
+							TargetLabel:  "__address__",
+						},
+						{
+							Action:       "replace",
+							Regex:        "(\\d+);((([0-9]+?)(\\.|$)){4})",
+							Replacement:  "$2:$1",
+							SourceLabels: []v1.LabelName{"__meta_kubernetes_pod_annotation_prometheus_io_port", "__meta_kubernetes_pod_ip"},
+							TargetLabel:  "__address__",
+						},
+						{
+							Action: "labeldrop",
+							Regex:  "__meta_kubernetes_pod_label_(.+)",
+						},
+						{
+							Action:       "replace",
+							SourceLabels: []v1.LabelName{"__meta_kubernetes_namespace"},
+							TargetLabel:  "namespace",
+						},
+						{
+							Action:       "replace",
+							SourceLabels: []v1.LabelName{"__meta_kubernetes_pod_name"},
+							TargetLabel:  "pod_name",
+						},
+						{
+							Action:      "replace",
+							Replacement: fmt.Sprintf("%s-istio-system", dsciName),
+							TargetLabel: "mesh_id",
+						},
+					},
 				},
 			},
 		},

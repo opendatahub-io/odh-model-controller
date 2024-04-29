@@ -17,11 +17,14 @@ package reconcilers
 
 import (
 	"context"
+	"fmt"
 	"github.com/go-logr/logr"
 	kservev1beta1 "github.com/kserve/kserve/pkg/apis/serving/v1beta1"
+	"github.com/kuadrant/authorino/pkg/log"
 	"github.com/opendatahub-io/odh-model-controller/controllers/comparators"
 	"github.com/opendatahub-io/odh-model-controller/controllers/processors"
 	"github.com/opendatahub-io/odh-model-controller/controllers/resources"
+	"github.com/opendatahub-io/odh-model-controller/controllers/utils"
 	v1 "github.com/prometheus-operator/prometheus-operator/pkg/apis/monitoring/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
@@ -53,7 +56,7 @@ func (r *KserveIstioServiceMonitorReconciler) Reconcile(ctx context.Context, log
 	log.V(1).Info("Creating Istio ServiceMonitor for target namespace")
 
 	// Create Desired resource
-	desiredResource, err := r.createDesiredResource(isvc)
+	desiredResource, err := r.createDesiredResource(ctx, isvc)
 	if err != nil {
 		return err
 	}
@@ -76,7 +79,12 @@ func (r *KserveIstioServiceMonitorReconciler) Cleanup(ctx context.Context, log l
 	return r.serviceMonitorHandler.DeleteServiceMonitor(ctx, types.NamespacedName{Name: istioServiceMonitorName, Namespace: isvcNs})
 }
 
-func (r *KserveIstioServiceMonitorReconciler) createDesiredResource(isvc *kservev1beta1.InferenceService) (*v1.ServiceMonitor, error) {
+func (r *KserveIstioServiceMonitorReconciler) createDesiredResource(ctx context.Context, isvc *kservev1beta1.InferenceService) (*v1.ServiceMonitor, error) {
+	dsciName, err := utils.GetDSCIName(ctx, r.client)
+	if err != nil {
+		log.V(1).Error(err, "Error getting DSCI name, default value will be used.")
+	}
+
 	desiredServiceMonitor := &v1.ServiceMonitor{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      istioServiceMonitorName,
@@ -93,6 +101,13 @@ func (r *KserveIstioServiceMonitorReconciler) createDesiredResource(isvc *kserve
 				{
 					Port:     "http-monitoring",
 					Interval: "30s",
+					RelabelConfigs: []*v1.RelabelConfig{
+						{
+							TargetLabel: "mesh_id",
+							Replacement: fmt.Sprintf("%s-istio-system", dsciName),
+							Action:      "replace",
+						},
+					},
 				},
 			},
 		},

@@ -27,6 +27,7 @@ var (
 )
 
 const (
+	defaultDSCIName                          = "data-science-smcp"
 	inferenceServiceDeploymentModeAnnotation = "serving.kserve.io/deploymentMode"
 	KserveConfigMapName                      = "inferenceservice-config"
 	KServeWithServiceMeshComponent           = "kserve-service-mesh"
@@ -133,11 +134,9 @@ func AuthorinoEnabledWhenOperatorNotMissing(_, reason string) bool {
 // VerifyIfCapabilityIsEnabled checks if given DSCI capability is enabled. It only fails if client call to fetch DSCI fails.
 // In other cases it assumes capability is not enabled.
 func VerifyIfCapabilityIsEnabled(ctx context.Context, cli client.Client, capabilityName string, enabledWhen func(status, reason string) bool) (bool, error) {
-	objectList := &unstructured.UnstructuredList{}
-	objectList.SetAPIVersion(GVK.DataScienceClusterInitialization.GroupVersion().String())
-	objectList.SetKind(GVK.DataScienceClusterInitialization.Kind)
+	objectList, err := getDSCIObject(ctx, cli)
 
-	if err := cli.List(ctx, objectList); err != nil {
+	if err != nil {
 		return false, fmt.Errorf("not able to read %s: %w", objectList, err)
 	}
 
@@ -167,7 +166,25 @@ func VerifyIfCapabilityIsEnabled(ctx context.Context, cli client.Client, capabil
 	}
 
 	return false, nil
+}
 
+// GetDSCIName returns the name of the DSCI in the cluster. If it fails to read the DSCI,
+// it returns the default DSCI name.
+func GetDSCIName(ctx context.Context, cli client.Client) (string, error) {
+	objectList, err := getDSCIObject(ctx, cli)
+	if err != nil {
+		return defaultDSCIName, fmt.Errorf("not able to read %s: %w, using the default DSCI %s",
+			objectList, err, defaultDSCIName)
+	}
+	for _, item := range objectList.Items {
+		statusField, found, err := unstructured.NestedString(item.Object, "spec", "serviceMesh", "controlPlane", "name")
+		if err != nil || !found {
+			return defaultDSCIName, nil
+		} else if statusField != "" {
+			return statusField, nil
+		}
+	}
+	return defaultDSCIName, nil
 }
 
 // VerifyIfMeshAuthorizationIsEnabled func checks if Authorization has been configured for
@@ -215,4 +232,17 @@ func IsNil(i any) bool {
 
 func IsNotNil(i any) bool {
 	return !IsNil(i)
+}
+
+// Query the DSCI from the cluster
+func getDSCIObject(ctx context.Context, cli client.Client) (*unstructured.UnstructuredList, error) {
+	objectList := &unstructured.UnstructuredList{}
+	objectList.SetAPIVersion(GVK.DataScienceClusterInitialization.GroupVersion().String())
+	objectList.SetKind(GVK.DataScienceClusterInitialization.Kind)
+
+	if err := cli.List(ctx, objectList); err != nil {
+		return objectList, fmt.Errorf("not able to read %s: %w", objectList, err)
+	}
+
+	return objectList, nil
 }
