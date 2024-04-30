@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"github.com/kuadrant/authorino/pkg/log"
 	"os"
 	"reflect"
 
@@ -27,7 +28,8 @@ var (
 )
 
 const (
-	defaultDSCIName                          = "data-science-smcp"
+	defaultIstioControlPlaneName             = "data-science-smcp"
+	defaultMeshNamespace                     = "istio-system"
 	inferenceServiceDeploymentModeAnnotation = "serving.kserve.io/deploymentMode"
 	KserveConfigMapName                      = "inferenceservice-config"
 	KServeWithServiceMeshComponent           = "kserve-service-mesh"
@@ -168,23 +170,46 @@ func VerifyIfCapabilityIsEnabled(ctx context.Context, cli client.Client, capabil
 	return false, nil
 }
 
-// GetDSCIName returns the name of the DSCI in the cluster. If it fails to read the DSCI,
-// it returns the default DSCI name.
-func GetDSCIName(ctx context.Context, cli client.Client) (string, error) {
-	objectList, err := getDSCIObject(ctx, cli)
-	if err != nil {
-		return defaultDSCIName, fmt.Errorf("not able to read %s: %w, using the default DSCI %s",
-			objectList, err, defaultDSCIName)
-	}
-	for _, item := range objectList.Items {
-		statusField, found, err := unstructured.NestedString(item.Object, "spec", "serviceMesh", "controlPlane", "name")
-		if err != nil || !found {
-			return defaultDSCIName, nil
-		} else if statusField != "" {
-			return statusField, nil
+// GetIstioControlPlaneName return the name of the Istio Control Plane and the mesh namespace.
+// It will first try to read the environment variables, if not found will then try to read the DSCI
+// If the required value is not available in the DSCI, it will return the default values
+func GetIstioControlPlaneName(ctx context.Context, cli client.Client) (istioControlPlane string, meshNamespace string) {
+	// first try toi retrieve it from the envs, it should be available through the service-mesh-refs ConfigMap
+	istioControlPlane = os.Getenv("CONTROL_PLANE_NAME")
+	meshNamespace = os.Getenv("MESH_NAMESPACE")
+
+	if len(istioControlPlane) == 0 || len(meshNamespace) == 0 {
+		objectList, _ := getDSCIObject(ctx, cli)
+		log.V(1).Info("Trying to read Istio Control Plane name and namespace from DSCI")
+
+		for _, item := range objectList.Items {
+			if len(istioControlPlane) == 0 {
+				name, _, _ := unstructured.NestedString(item.Object, "spec", "serviceMesh", "controlPlane", "name")
+				if len(name) > 0 {
+					istioControlPlane = name
+				} else {
+					log.V(1).Info("Istio Control Plane name is not set in DSCI")
+					// at this point, it is not set anywhere, lets just use the default
+					istioControlPlane = defaultIstioControlPlaneName
+				}
+			}
+
+			if len(meshNamespace) == 0 {
+				namespace, _, _ := unstructured.NestedString(item.Object, "spec", "serviceMesh", "controlPlane", "name")
+				if len(namespace) > 0 {
+					meshNamespace = namespace
+				} else {
+					log.V(1).Info("Mesh Namespace is not set in DSCI")
+					// at this point, it is not set anywhere, lets just use the default
+					meshNamespace = defaultIstioControlPlaneName
+				}
+			}
 		}
+	} else {
+		log.V(1).Info("Istio Control Plane name and namespace read from environment variables")
 	}
-	return defaultDSCIName, nil
+
+	return istioControlPlane, meshNamespace
 }
 
 // VerifyIfMeshAuthorizationIsEnabled func checks if Authorization has been configured for

@@ -20,7 +20,6 @@ import (
 	"fmt"
 	"github.com/go-logr/logr"
 	kservev1beta1 "github.com/kserve/kserve/pkg/apis/serving/v1beta1"
-	"github.com/kuadrant/authorino/pkg/log"
 	"github.com/opendatahub-io/odh-model-controller/controllers/comparators"
 	"github.com/opendatahub-io/odh-model-controller/controllers/processors"
 	"github.com/opendatahub-io/odh-model-controller/controllers/resources"
@@ -80,10 +79,7 @@ func (r *KserveIstioPodMonitorReconciler) Cleanup(ctx context.Context, log logr.
 }
 
 func (r *KserveIstioPodMonitorReconciler) createDesiredResource(ctx context.Context, isvc *kservev1beta1.InferenceService) (*v1.PodMonitor, error) {
-	dsciName, err := utils.GetDSCIName(ctx, r.client)
-	if err != nil {
-		log.V(1).Error(err, "Error getting DSCI name, default value will be used.")
-	}
+	istioControlPlaneName, meshNamespace := utils.GetIstioControlPlaneName(ctx, r.client)
 
 	desiredPodMonitor := &v1.PodMonitor{
 		ObjectMeta: metav1.ObjectMeta{
@@ -143,7 +139,7 @@ func (r *KserveIstioPodMonitorReconciler) createDesiredResource(ctx context.Cont
 						},
 						{
 							Action:      "replace",
-							Replacement: fmt.Sprintf("%s-istio-system", dsciName),
+							Replacement: fmt.Sprintf("%s-%s", istioControlPlaneName, meshNamespace),
 							TargetLabel: "mesh_id",
 						},
 					},
