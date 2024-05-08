@@ -28,8 +28,6 @@ var (
 )
 
 const (
-	defaultIstioControlPlaneName             = "data-science-smcp"
-	defaultMeshNamespace                     = "istio-system"
 	inferenceServiceDeploymentModeAnnotation = "serving.kserve.io/deploymentMode"
 	KserveConfigMapName                      = "inferenceservice-config"
 	KServeWithServiceMeshComponent           = "kserve-service-mesh"
@@ -174,14 +172,17 @@ func VerifyIfCapabilityIsEnabled(ctx context.Context, cli client.Client, capabil
 // It will first try to read the environment variables, if not found will then try to read the DSCI
 // If the required value is not available in the DSCI, it will return the default values
 func GetIstioControlPlaneName(ctx context.Context, cli client.Client) (istioControlPlane string, meshNamespace string) {
-	// first try toi retrieve it from the envs, it should be available through the service-mesh-refs ConfigMap
+	// first try to retrieve it from the envs, it should be available through the service-mesh-refs ConfigMap
 	istioControlPlane = os.Getenv("CONTROL_PLANE_NAME")
 	meshNamespace = os.Getenv("MESH_NAMESPACE")
 
 	if len(istioControlPlane) == 0 || len(meshNamespace) == 0 {
-		objectList, _ := getDSCIObject(ctx, cli)
 		log.V(1).Info("Trying to read Istio Control Plane name and namespace from DSCI")
-
+		objectList, err := getDSCIObject(ctx, cli)
+		if err != nil {
+			log.V(0).Error(err, "Failed to fetch the DSCI object, using default values")
+			return constants.IstioControlPlaneName, constants.IstioNamespace
+		}
 		for _, item := range objectList.Items {
 			if len(istioControlPlane) == 0 {
 				name, _, _ := unstructured.NestedString(item.Object, "spec", "serviceMesh", "controlPlane", "name")
@@ -190,25 +191,24 @@ func GetIstioControlPlaneName(ctx context.Context, cli client.Client) (istioCont
 				} else {
 					log.V(1).Info("Istio Control Plane name is not set in DSCI")
 					// at this point, it is not set anywhere, lets just use the default
-					istioControlPlane = defaultIstioControlPlaneName
+					istioControlPlane = constants.IstioControlPlaneName
 				}
 			}
 
 			if len(meshNamespace) == 0 {
-				namespace, _, _ := unstructured.NestedString(item.Object, "spec", "serviceMesh", "controlPlane", "name")
+				namespace, _, _ := unstructured.NestedString(item.Object, "spec", "serviceMesh", "controlPlane", "namespace")
 				if len(namespace) > 0 {
 					meshNamespace = namespace
 				} else {
 					log.V(1).Info("Mesh Namespace is not set in DSCI")
 					// at this point, it is not set anywhere, lets just use the default
-					meshNamespace = defaultIstioControlPlaneName
+					meshNamespace = constants.IstioNamespace
 				}
 			}
 		}
 	} else {
 		log.V(1).Info("Istio Control Plane name and namespace read from environment variables")
 	}
-
 	return istioControlPlane, meshNamespace
 }
 
