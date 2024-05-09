@@ -44,6 +44,9 @@ type MetricsDashboardConfigMapData struct {
 }
 
 var _ SubResourceReconciler = (*KserveMetricsDashboardReconciler)(nil)
+var ovmsData []byte
+var tgisData []byte
+var vllmData []byte
 
 type KserveMetricsDashboardReconciler struct {
 	NoResourceRemoval
@@ -83,11 +86,21 @@ func (r *KserveMetricsDashboardReconciler) Reconcile(ctx context.Context, log lo
 
 func (r *KserveMetricsDashboardReconciler) createDesiredResource(log logr.Logger, isvc *kservev1beta1.InferenceService) (*corev1.ConfigMap, error) {
 
+	// resolve SR
+
+	// switch SR :
+	// 	case ovms:
+	// 		if ovmsData == nil
+	// 			read file into ovmsData
+	// 			data == deepcopy of ovmsData
+
 	var configMapData MetricsDashboardConfigMapData
+	//TODO: move read file logic to switch and only read if global variable is nil
 	data, err := os.ReadFile("ovms-metrics.json")
 	if err != nil {
 		log.Error(err, "Unable to load metrics dashboard template file")
 	}
+
 	stringData := string(data)
 	stringDatawithNS := strings.Replace(stringData, "${namespace}", isvc.Namespace, -1)
 	stringDataComplete := strings.Replace(stringDatawithNS, "${model_name}", isvc.Name, -1)
