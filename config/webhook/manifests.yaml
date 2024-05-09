@@ -2,15 +2,14 @@
 apiVersion: admissionregistration.k8s.io/v1
 kind: ValidatingWebhookConfiguration
 metadata:
-  name: validating.odh-model-controller.opendatahub.io
-  annotations:
-    service.beta.openshift.io/inject-cabundle: true
+  name: validating-webhook-configuration
 webhooks:
 - admissionReviewVersions:
   - v1
   clientConfig:
     service:
-      name: odh-model-controller-webhook-service
+      name: webhook-service
+      namespace: system
       path: /validate-serving-knative-dev-v1-service
   failurePolicy: Fail
   name: validating.ksvc.odh-model-controller.opendatahub.io
