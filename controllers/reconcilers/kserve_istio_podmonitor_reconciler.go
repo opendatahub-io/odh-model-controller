@@ -90,8 +90,9 @@ func (r *KserveIstioPodMonitorReconciler) createDesiredResource(ctx context.Cont
 			Selector: metav1.LabelSelector{
 				MatchExpressions: []metav1.LabelSelectorRequirement{
 					{
-						Key:      "istio-prometheus-ignore",
-						Operator: metav1.LabelSelectorOpDoesNotExist,
+						Key:      "component",
+						Operator: metav1.LabelSelectorOpIn,
+						Values:   []string{"predictor", "explainer", "transformer"},
 					},
 				},
 			},

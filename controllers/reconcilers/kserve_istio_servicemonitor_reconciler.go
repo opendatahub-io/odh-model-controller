@@ -17,15 +17,12 @@ package reconcilers
 
 import (
 	"context"
-	"fmt"
 	"github.com/go-logr/logr"
 	kservev1beta1 "github.com/kserve/kserve/pkg/apis/serving/v1beta1"
 	"github.com/opendatahub-io/odh-model-controller/controllers/comparators"
 	"github.com/opendatahub-io/odh-model-controller/controllers/processors"
 	"github.com/opendatahub-io/odh-model-controller/controllers/resources"
-	"github.com/opendatahub-io/odh-model-controller/controllers/utils"
 	v1 "github.com/prometheus-operator/prometheus-operator/pkg/apis/monitoring/v1"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
@@ -55,7 +52,7 @@ func (r *KserveIstioServiceMonitorReconciler) Reconcile(ctx context.Context, log
 	log.V(1).Info("Creating Istio ServiceMonitor for target namespace")
 
 	// Create Desired resource
-	desiredResource, err := r.createDesiredResource(ctx, isvc)
+	desiredResource, err := r.createDesiredResource(isvc)
 	if err != nil {
 		return err
 	}
@@ -78,37 +75,9 @@ func (r *KserveIstioServiceMonitorReconciler) Cleanup(ctx context.Context, log l
 	return r.serviceMonitorHandler.DeleteServiceMonitor(ctx, types.NamespacedName{Name: istioServiceMonitorName, Namespace: isvcNs})
 }
 
-func (r *KserveIstioServiceMonitorReconciler) createDesiredResource(ctx context.Context, isvc *kservev1beta1.InferenceService) (*v1.ServiceMonitor, error) {
-	istioControlPlaneName, meshNamespace := utils.GetIstioControlPlaneName(ctx, r.client)
-
-	desiredServiceMonitor := &v1.ServiceMonitor{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:      istioServiceMonitorName,
-			Namespace: isvc.Namespace,
-		},
-		Spec: v1.ServiceMonitorSpec{
-			Selector: metav1.LabelSelector{
-				MatchLabels: map[string]string{
-					"istio": "pilot",
-				},
-			},
-			TargetLabels: []string{"app"},
-			Endpoints: []v1.Endpoint{
-				{
-					Port:     "http-monitoring",
-					Interval: "30s",
-					RelabelConfigs: []*v1.RelabelConfig{
-						{
-							TargetLabel: "mesh_id",
-							Replacement: fmt.Sprintf("%s-%s", istioControlPlaneName, meshNamespace),
-							Action:      "replace",
-						},
-					},
-				},
-			},
-		},
-	}
-	return desiredServiceMonitor, nil
+// TODO remove this reconcile loop in future versions
+func (r *KserveIstioServiceMonitorReconciler) createDesiredResource(isvc *kservev1beta1.InferenceService) (*v1.ServiceMonitor, error) {
+	return nil, nil
 }
 
 func (r *KserveIstioServiceMonitorReconciler) getExistingResource(ctx context.Context, log logr.Logger, isvc *kservev1beta1.InferenceService) (*v1.ServiceMonitor, error) {

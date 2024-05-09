@@ -50,7 +50,7 @@ func NewKServeIstioPeerAuthenticationReconciler(client client.Client) *KserveIst
 
 // TODO remove this reconcile loop in future versions
 func (r *KserveIstioPeerAuthenticationReconciler) Reconcile(ctx context.Context, log logr.Logger, isvc *kservev1beta1.InferenceService) error {
-	log.V(1).Info("Reconciling PeerAuthentication for target namespace, checking if there are resource for deletion")
+	log.V(1).Info("Reconciling PeerAuthentication for target namespace, checking if there are resources for deletion")
 	// Create Desired resource
 	desiredResource, err := r.createDesiredResource(isvc)
 	if err != nil {
