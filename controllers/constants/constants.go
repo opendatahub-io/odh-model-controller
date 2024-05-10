@@ -19,6 +19,7 @@ const (
 	InferenceServiceKind = "InferenceService"
 
 	IstioNamespace                   = "istio-system"
+	IstioControlPlaneName            = "data-science-smcp"
 	ServiceMeshMemberRollName        = "default"
 	IstioIngressService              = "istio-ingressgateway"
 	IstioIngressServiceHTTPPortName  = "http2"

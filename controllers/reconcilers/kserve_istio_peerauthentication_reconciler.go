@@ -22,10 +22,7 @@ import (
 	"github.com/opendatahub-io/odh-model-controller/controllers/comparators"
 	"github.com/opendatahub-io/odh-model-controller/controllers/processors"
 	"github.com/opendatahub-io/odh-model-controller/controllers/resources"
-	"istio.io/api/security/v1beta1"
-	istiotypes "istio.io/api/type/v1beta1"
 	istiosecv1beta1 "istio.io/client-go/pkg/apis/security/v1beta1"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
@@ -51,9 +48,9 @@ func NewKServeIstioPeerAuthenticationReconciler(client client.Client) *KserveIst
 	}
 }
 
+// TODO remove this reconcile loop in future versions
 func (r *KserveIstioPeerAuthenticationReconciler) Reconcile(ctx context.Context, log logr.Logger, isvc *kservev1beta1.InferenceService) error {
-	log.V(1).Info("Reconciling PeerAuthentication for target namespace")
-
+	log.V(1).Info("Reconciling PeerAuthentication for target namespace, checking if there are resources for deletion")
 	// Create Desired resource
 	desiredResource, err := r.createDesiredResource(isvc)
 	if err != nil {
@@ -79,25 +76,7 @@ func (r *KserveIstioPeerAuthenticationReconciler) Cleanup(ctx context.Context, l
 }
 
 func (r *KserveIstioPeerAuthenticationReconciler) createDesiredResource(isvc *kservev1beta1.InferenceService) (*istiosecv1beta1.PeerAuthentication, error) {
-	desiredPeerAuthentication := &istiosecv1beta1.PeerAuthentication{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:      peerAuthenticationName,
-			Namespace: isvc.Namespace,
-		},
-		Spec: v1beta1.PeerAuthentication{
-			Selector: &istiotypes.WorkloadSelector{
-				MatchLabels: map[string]string{
-					"component": "predictor",
-				},
-			},
-			Mtls: &v1beta1.PeerAuthentication_MutualTLS{Mode: 3},
-			PortLevelMtls: map[uint32]*v1beta1.PeerAuthentication_MutualTLS{
-				8086: {Mode: 2},
-				3000: {Mode: 2},
-			},
-		},
-	}
-	return desiredPeerAuthentication, nil
+	return nil, nil
 }
 
 func (r *KserveIstioPeerAuthenticationReconciler) getExistingResource(ctx context.Context, log logr.Logger, isvc *kservev1beta1.InferenceService) (*istiosecv1beta1.PeerAuthentication, error) {
