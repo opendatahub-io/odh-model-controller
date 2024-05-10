@@ -23,7 +23,6 @@ import (
 	"github.com/opendatahub-io/odh-model-controller/controllers/processors"
 	"github.com/opendatahub-io/odh-model-controller/controllers/resources"
 	v1 "github.com/prometheus-operator/prometheus-operator/pkg/apis/monitoring/v1"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
@@ -76,28 +75,9 @@ func (r *KserveIstioServiceMonitorReconciler) Cleanup(ctx context.Context, log l
 	return r.serviceMonitorHandler.DeleteServiceMonitor(ctx, types.NamespacedName{Name: istioServiceMonitorName, Namespace: isvcNs})
 }
 
+// TODO remove this reconcile loop in future versions
 func (r *KserveIstioServiceMonitorReconciler) createDesiredResource(isvc *kservev1beta1.InferenceService) (*v1.ServiceMonitor, error) {
-	desiredServiceMonitor := &v1.ServiceMonitor{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:      istioServiceMonitorName,
-			Namespace: isvc.Namespace,
-		},
-		Spec: v1.ServiceMonitorSpec{
-			Selector: metav1.LabelSelector{
-				MatchLabels: map[string]string{
-					"istio": "pilot",
-				},
-			},
-			TargetLabels: []string{"app"},
-			Endpoints: []v1.Endpoint{
-				{
-					Port:     "http-monitoring",
-					Interval: "30s",
-				},
-			},
-		},
-	}
-	return desiredServiceMonitor, nil
+	return nil, nil
 }
 
 func (r *KserveIstioServiceMonitorReconciler) getExistingResource(ctx context.Context, log logr.Logger, isvc *kservev1beta1.InferenceService) (*v1.ServiceMonitor, error) {

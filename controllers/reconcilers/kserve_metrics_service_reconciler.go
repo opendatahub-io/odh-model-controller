@@ -23,10 +23,7 @@ import (
 	"github.com/opendatahub-io/odh-model-controller/controllers/processors"
 	"github.com/opendatahub-io/odh-model-controller/controllers/resources"
 	v1 "k8s.io/api/core/v1"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
-	"k8s.io/apimachinery/pkg/util/intstr"
-	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
@@ -51,8 +48,9 @@ func NewKServeMetricsServiceReconciler(client client.Client) *KserveMetricsServi
 	}
 }
 
+// TODO remove this reconcile loop in future versions
 func (r *KserveMetricsServiceReconciler) Reconcile(ctx context.Context, log logr.Logger, isvc *kservev1beta1.InferenceService) error {
-	log.V(1).Info("Reconciling Metrics Service for InferenceService")
+	log.V(1).Info("Reconciling Metrics Service for InferenceService, checking if there are resource for deletion")
 
 	// Create Desired resource
 	desiredResource, err := r.createDesiredResource(log, isvc)
@@ -74,40 +72,7 @@ func (r *KserveMetricsServiceReconciler) Reconcile(ctx context.Context, log logr
 }
 
 func (r *KserveMetricsServiceReconciler) createDesiredResource(log logr.Logger, isvc *kservev1beta1.InferenceService) (*v1.Service, error) {
-	metricsService := &v1.Service{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:      getMetricsServiceName(isvc),
-			Namespace: isvc.Namespace,
-			Labels: map[string]string{
-				"name": getMetricsServiceName(isvc),
-			},
-		},
-		Spec: v1.ServiceSpec{
-			Ports: []v1.ServicePort{
-				{
-					Name:       "caikit-metrics",
-					Protocol:   v1.ProtocolTCP,
-					Port:       8086,
-					TargetPort: intstr.FromInt(8086),
-				},
-				{
-					Name:       "tgis-metrics",
-					Protocol:   v1.ProtocolTCP,
-					Port:       3000,
-					TargetPort: intstr.FromInt(3000),
-				},
-			},
-			Type: v1.ServiceTypeClusterIP,
-			Selector: map[string]string{
-				inferenceServiceLabelName: isvc.Name,
-			},
-		},
-	}
-	if err := ctrl.SetControllerReference(isvc, metricsService, r.client.Scheme()); err != nil {
-		log.Error(err, "Unable to add OwnerReference to the Metrics Service")
-		return nil, err
-	}
-	return metricsService, nil
+	return nil, nil
 }
 
 func (r *KserveMetricsServiceReconciler) getExistingResource(ctx context.Context, log logr.Logger, isvc *kservev1beta1.InferenceService) (*v1.Service, error) {
