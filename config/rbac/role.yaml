@@ -25,9 +25,20 @@ rules:
   - endpoints
   - namespaces
   - pods
+  verbs:
+  - create
+  - get
+  - list
+  - patch
+  - update
+  - watch
+- apiGroups:
+  - ""
+  resources:
   - services
   verbs:
   - create
+  - delete
   - get
   - list
   - patch
