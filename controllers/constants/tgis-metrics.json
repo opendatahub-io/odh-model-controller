@@ -1,0 +1,12 @@
+{
+    "graphs": [
+      {
+        "Title": "Successful Requests",
+        "Query": "sum(increase(ovms_requests_success{namespace='${namespace}',name='${model_name}'}[${rate_interval}]))"
+      }, 
+      {
+        "Title": "Failed Requests",
+        "Query": "sum(increase(ovms_requests_fail{namespace='${namespace}',name='${model_name}'}[${rate_interval}]))"
+      }
+    ]
+  }

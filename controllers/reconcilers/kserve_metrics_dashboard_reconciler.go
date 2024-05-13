@@ -94,6 +94,22 @@ func (r *KserveMetricsDashboardReconciler) createDesiredResource(log logr.Logger
 	// 			read file into ovmsData
 	// 			data == deepcopy of ovmsData
 
+	data, err := os.ReadFile("caikit-tgis-metrics.json")
+	if err != nil {
+		log.Error(err, "Unable to load metrics dashboard template file")
+	}
+	if data == nil {
+		data, err = os.ReadFile("caikit-tgis-metrics.json")
+	}
+
+
+	// data, err = os.ReadFile("tgis-metrics.json")
+	// if err != nil {
+	// 	log.Error(err, "Unable to load metrics dashboard template file")
+	// }
+
+	
+
 	var configMapData MetricsDashboardConfigMapData
 	//TODO: move read file logic to switch and only read if global variable is nil
 	data, err := os.ReadFile("ovms-metrics.json")
