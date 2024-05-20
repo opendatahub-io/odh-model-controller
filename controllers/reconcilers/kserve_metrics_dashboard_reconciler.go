@@ -19,9 +19,11 @@ import (
 	"context"
 	"encoding/json"
 	"os"
+	"regexp"
 	"strings"
 
 	"github.com/go-logr/logr"
+	kservev1alpha1 "github.com/kserve/kserve/pkg/apis/serving/v1alpha1"
 	kservev1beta1 "github.com/kserve/kserve/pkg/apis/serving/v1beta1"
 	"github.com/opendatahub-io/odh-model-controller/controllers/comparators"
 	"github.com/opendatahub-io/odh-model-controller/controllers/processors"
@@ -88,66 +90,33 @@ func (r *KserveMetricsDashboardReconciler) Reconcile(ctx context.Context, log lo
 func (r *KserveMetricsDashboardReconciler) createDesiredResource(ctx context.Context, log logr.Logger, isvc *kservev1beta1.InferenceService) (*corev1.ConfigMap, error) {
 
 	// resolve SR
-	inferenceServiceList := &kservev1beta1.InferenceServiceList{}
-	if err := r.client.List(ctx, inferenceServiceList, client.InNamespace(isvc.Namespace)); err != nil {
-		return nil, err
+	isvcRuntime := isvc.Spec.Predictor.Model.Runtime
+	runtime := &kservev1alpha1.ServingRuntime{}
+	if err := r.client.Get(ctx, types.NamespacedName{Name: *isvcRuntime, Namespace: isvc.Namespace}, runtime); err != nil {
+		log.Error(err, "Could not determine servingruntime for isvc")
 	}
 
-	//create empty list to fill with all runtimes in the cluster
-	isvcServingRuntimeList := &kservev1alpha1.ServingRuntimeList{}
+	servingRuntimeImage := runtime.Spec.Container[0].Image
+	re := regexp.MustCompile(`/([^/@]+)[@:]`)
+	findImageName := re.FindStringSubmatch(servingRuntimeImage)
+	servingRuntime := findImageName[1]
 
-	// go through each inference service to all runtimes
-	for i := len(inferenceServiceList.Items) - 1; i >= 0; i-- {
-		inferenceService := inferenceServiceList.Items[i]
-
-		// as long as the runtime field of isvc is not empty, find the runtime with that name and save it in a list
-		if inferenceService.Spec.Predictor.Model.Runtime != nil {
-			err := r.client.Get(ctx, types.NamespacedName{
-				Name:      *inferenceService.Spec.Predictor.Model.Runtime,
-				Namespace: isvc.Namespace,
-			}, isvcServingRuntimeList.Items[i])
-
-			// if there is error with getting the runtimes, throw an error
+	//Still working on this
+	switch servingRuntime {
+	case "ovms":
+		if ovmsData == nil {
+			ovmsData, err := os.ReadFile("ovms-metrics.json")
 			if err != nil {
-				if apierrs.IsNotFound(err) {
-					return nil, err
-				}
+				log.Error(err, "Unable to load metrics dashboard template file")
 			}
+		}
+
+		err = json.Unmarshal(ovmsData, &data)
+		if err != nil {
+			log.Error(err, "Error unmarshalling JSON:")
+		}
 	}
 
-	// switch SR :
-	// 	case ovms:
-	// 		if ovmsData == nil
-	// 			read file into ovmsData
-	// 			data == deepcopy of ovmsData
-
-	switch resolvedSR{
-		case ovms: 
-			if ovmsData == nil : 
-			 	ovmsData, err := os.ReadFile("ovms-metrics.json") 
-				if err != nil {
-					log.Error(err, "Unable to load ovms-metrics file")
-				}
-
-		case tgis: 
-			if tgisData == nil : 
-					tgisData, err := os.ReadFile("tgis-metrics.json") 
-					if err != nil {
-						log.Error(err, "Unable to load tgis-metrics file")
-					}
-
-		case vllm: 
-			if vllmData == nil : 
-					vllmData, err := os.ReadFile("vllm-metrics.json") 
-					if err != nil {
-						log.Error(err, "Unable to load vllm-metrics file")
-					}
-	}
-
-
-
-
-	
 	var configMapData MetricsDashboardConfigMapData
 	//TODO: move read file logic to switch and only read if global variable is nil
 	data, err := os.ReadFile("ovms-metrics.json")
