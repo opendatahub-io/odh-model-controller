@@ -121,9 +121,8 @@ replace (
 	// Fixes CVE-2023-45288
 	golang.org/x/net => golang.org/x/net v0.23.0
 	// can be removed when the indirect depdency is in the same version or higher
-	// Fixes Stack-based Buffer Overflow on protobuf
-	// https://security.snyk.io/vuln/SNYK-GOLANG-GOOGLEGOLANGORGPROTOBUFENCODINGPROTOJSON-6137908
-	google.golang.org/protobuf => google.golang.org/protobuf v1.32.0
+	// Fixes CVE-2024-24786 - Infinite loop in JSON unmarshaling in google.golang.org/protobuf
+	google.golang.org/protobuf => google.golang.org/protobuf v1.33.0
 	// pin to 0.26.4 to avoid https://github.com/kubernetes-sigs/controller-runtime/issues/2302
 	k8s.io/api => k8s.io/api v0.26.4
 	// remove when upgrade to controller-runtime 0.15.x or apimachinery to 0.27.x
