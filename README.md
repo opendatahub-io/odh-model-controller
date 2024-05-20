@@ -35,7 +35,7 @@ Build a new image with your local changes and push it to `<YOUR_IMAGE>` (by
 default `quay.io/${USER}/odh-model-controller:latest`).
 
 ```shell
-make -e IMG=<YOUR_IMAGE> docker-build docker-push
+make -e IMG=<YOUR_IMAGE> container-build container-push
 ```
 
 Deploy the manager using the image in your registry:
