@@ -37,12 +37,19 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
-type Graph struct {
-	Title string `json:"Title"`
-	Query string `json:"Query"`
+type Query struct {
+	Title string `json:"title"`
+	Query string `json:"query"`
 }
+
+type Config struct {
+	Title   string  `json:"title"`
+	Type    string  `json:"type"`
+	Queries []Query `json:"queries"`
+}
+
 type MetricsDashboardConfigMapData struct {
-	Graphs []Graph `json:"graphs"`
+	Data []Config `json:"data"`
 }
 
 var _ SubResourceReconciler = (*KserveMetricsDashboardReconciler)(nil)
@@ -96,24 +103,33 @@ func (r *KserveMetricsDashboardReconciler) createDesiredResource(ctx context.Con
 		log.Error(err, "Could not determine servingruntime for isvc")
 	}
 
-	servingRuntimeImage := runtime.Spec.Container[0].Image
+	servingRuntimeImage := runtime.Spec.Containers[0].Image
 	re := regexp.MustCompile(`/([^/@]+)[@:]`)
 	findImageName := re.FindStringSubmatch(servingRuntimeImage)
 	servingRuntime := findImageName[1]
 
-	//Still working on this
 	switch servingRuntime {
-	case "ovms":
+	case "openvino_model_server":
 		if ovmsData == nil {
-			ovmsData, err := os.ReadFile("ovms-metrics.json")
+			data, err := os.ReadFile("ovms-metrics.json")
 			if err != nil {
-				log.Error(err, "Unable to load metrics dashboard template file")
+				log.Error(err, "Unable to load metrics dashboard template file:", err)
+			}
+			err = json.Unmarshal(data, &ovmsData)
+			if err != nil {
+				log.Error(err, "Error unmarshalling JSON:", err)
 			}
 		}
-
-		err = json.Unmarshal(ovmsData, &data)
-		if err != nil {
-			log.Error(err, "Error unmarshalling JSON:")
+	case "text-generation-inference":
+		if tgisData == nil {
+			data, err := os.ReadFile("tgis-metrics.json")
+			if err != nil {
+				log.Error(err, "Unable to load metrics dashboard template file:", err)
+			}
+			err = json.Unmarshal(data, &tgisData)
+			if err != nil {
+				log.Error(err, "Error unmarshalling JSON:", err)
+			}
 		}
 	}
 
