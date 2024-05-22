@@ -17,10 +17,8 @@ package reconcilers
 
 import (
 	"context"
-	"encoding/json"
 	"os"
 	"regexp"
-	"strings"
 
 	"github.com/go-logr/logr"
 	kservev1alpha1 "github.com/kserve/kserve/pkg/apis/serving/v1alpha1"
@@ -108,51 +106,27 @@ func (r *KserveMetricsDashboardReconciler) createDesiredResource(ctx context.Con
 	findImageName := re.FindStringSubmatch(servingRuntimeImage)
 	servingRuntime := findImageName[1]
 
+	var data []byte
 	switch servingRuntime {
 	case "openvino_model_server":
 		if ovmsData == nil {
-			data, err := os.ReadFile("ovms-metrics.json")
+			ovmsData, err := os.ReadFile("ovms-metrics.json")
 			if err != nil {
 				log.Error(err, "Unable to load metrics dashboard template file:", err)
 			}
-			err = json.Unmarshal(data, &ovmsData)
-			if err != nil {
-				log.Error(err, "Error unmarshalling JSON:", err)
-			}
+			data = ovmsData
 		}
 	case "text-generation-inference":
 		if tgisData == nil {
-			data, err := os.ReadFile("tgis-metrics.json")
+			tgisData, err := os.ReadFile("tgis-metrics.json")
 			if err != nil {
 				log.Error(err, "Unable to load metrics dashboard template file:", err)
 			}
-			err = json.Unmarshal(data, &tgisData)
-			if err != nil {
-				log.Error(err, "Error unmarshalling JSON:", err)
-			}
+			data = tgisData
 		}
 	}
 
-	var configMapData MetricsDashboardConfigMapData
-	//TODO: move read file logic to switch and only read if global variable is nil
-	data, err := os.ReadFile("ovms-metrics.json")
-	if err != nil {
-		log.Error(err, "Unable to load metrics dashboard template file")
-	}
-
-	stringData := string(data)
-	stringDatawithNS := strings.Replace(stringData, "${namespace}", isvc.Namespace, -1)
-	stringDataComplete := strings.Replace(stringDatawithNS, "${model_name}", isvc.Name, -1)
-	data = []byte(stringDataComplete)
-	err = json.Unmarshal(data, &configMapData)
-	if err != nil {
-		log.Error(err, "Unable to load metrics dashboard templates")
-	}
-	jsonData, err := json.MarshalIndent(configMapData, "", " ")
-	if err != nil {
-		log.Error(err, "Unable to marshal data for metrics dashboard configmap")
-	}
-	log.V(1).Info("jsondata", "value", string(jsonData))
+	finaldata := substituteVariablesInQueries(data, isvc.Namespace, isvc.Name)
 	// Create ConfigMap object
 	configMap := &corev1.ConfigMap{
 		ObjectMeta: metav1.ObjectMeta{
@@ -160,9 +134,10 @@ func (r *KserveMetricsDashboardReconciler) createDesiredResource(ctx context.Con
 			Namespace: isvc.Namespace,
 		},
 		Data: map[string]string{
-			"Data": string(jsonData), //TODO: multiple runtimes support
+			"metrics": finaldata,
 		},
 	}
+
 	// Add labels to the configMap
 	configMap.Labels = map[string]string{
 		"app.opendatahub.io/kserve": "true",
