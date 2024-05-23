@@ -54,7 +54,8 @@ type MetricsDashboardConfigMapData struct {
 var _ SubResourceReconciler = (*KserveMetricsDashboardReconciler)(nil)
 var ovmsData []byte
 var tgisData []byte
-var vllmData []byte
+
+// var vllmData []byte
 
 type KserveMetricsDashboardReconciler struct {
 	NoResourceRemoval
@@ -74,7 +75,7 @@ func NewKserveMetricsDashboardReconciler(client client.Client) *KserveMetricsDas
 func (r *KserveMetricsDashboardReconciler) Reconcile(ctx context.Context, log logr.Logger, isvc *kservev1beta1.InferenceService) error {
 
 	// Create Desired resource
-	desiredResource, err := r.createDesiredResource(log, isvc)
+	desiredResource, err := r.createDesiredResource(ctx, log, isvc)
 	if err != nil {
 		return err
 	}
@@ -126,7 +127,7 @@ func (r *KserveMetricsDashboardReconciler) createDesiredResource(ctx context.Con
 		}
 	}
 
-	finaldata := substituteVariablesInQueries(data, isvc.Namespace, isvc.Name)
+	finaldata := substituteVariablesInQueries(string(data), isvc.Namespace, isvc.Name)
 	// Create ConfigMap object
 	configMap := &corev1.ConfigMap{
 		ObjectMeta: metav1.ObjectMeta{
@@ -149,19 +150,8 @@ func (r *KserveMetricsDashboardReconciler) createDesiredResource(ctx context.Con
 	return configMap, nil
 }
 
-func substituteVariablesInQueries(data string, namespace, name string) string {
-	// Define the variables to substitute
-	vars := map[string]string{
-		"{{.Namespace}}": namespace,
-		"{{.Name}}":      name,
-	}
-
-	// Replace variables in the data string
-	for key, value := range vars {
-		data = strings.ReplaceAll(data, key, value)
-	}
-
-	return data
+func substituteVariablesInQueries(data string, namespace string, name string) string {
+	return strings.ReplaceAll(strings.ReplaceAll(data, "${namespace}", namespace), "${model_name}", name)
 }
 
 func (r *KserveMetricsDashboardReconciler) getExistingResource(ctx context.Context, log logr.Logger, isvc *kservev1beta1.InferenceService) (*corev1.ConfigMap, error) {
