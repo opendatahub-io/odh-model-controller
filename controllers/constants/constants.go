@@ -52,4 +52,5 @@ const (
 
 const (
 	DefaultStorageConfig = "storage-config"
+	KServeImageName      = "openvino_model_server"
 )

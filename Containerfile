@@ -13,6 +13,7 @@ RUN go mod download
 COPY main.go main.go
 #COPY api/ api/
 COPY controllers/ controllers/
+COPY controllers/constants/ovms-metrics.json metrics_dashboards/ovms-metrics.json
 
 # Build
 USER root
@@ -23,6 +24,7 @@ RUN CGO_ENABLED=0 GOOS=linux go build -a -o manager main.go
 FROM registry.access.redhat.com/ubi8/ubi-minimal:8.6
 WORKDIR /
 COPY --from=builder /workspace/manager .
+COPY --from=builder /workspace/metrics_dashboards/ovms-metrics.json .
 USER 65532:65532
 
 ENTRYPOINT ["/manager"]
