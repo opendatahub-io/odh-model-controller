@@ -19,6 +19,7 @@ import (
 	"context"
 	"os"
 	"regexp"
+	"strings"
 
 	"github.com/go-logr/logr"
 	kservev1alpha1 "github.com/kserve/kserve/pkg/apis/serving/v1alpha1"
@@ -91,7 +92,6 @@ func (r *KserveMetricsDashboardReconciler) Reconcile(ctx context.Context, log lo
 	return nil
 }
 
-// func (r *KserveMetricsDashboardReconciler) createDesiredResource(log logr.Logger, isvc *kservev1beta1.InferenceService) (*corev1.ConfigMap, error) {
 func (r *KserveMetricsDashboardReconciler) createDesiredResource(ctx context.Context, log logr.Logger, isvc *kservev1beta1.InferenceService) (*corev1.ConfigMap, error) {
 
 	// resolve SR
@@ -137,7 +137,6 @@ func (r *KserveMetricsDashboardReconciler) createDesiredResource(ctx context.Con
 			"metrics": finaldata,
 		},
 	}
-
 	// Add labels to the configMap
 	configMap.Labels = map[string]string{
 		"app.opendatahub.io/kserve": "true",
@@ -148,6 +147,21 @@ func (r *KserveMetricsDashboardReconciler) createDesiredResource(ctx context.Con
 	}
 
 	return configMap, nil
+}
+
+func substituteVariablesInQueries(data string, namespace, name string) string {
+	// Define the variables to substitute
+	vars := map[string]string{
+		"{{.Namespace}}": namespace,
+		"{{.Name}}":      name,
+	}
+
+	// Replace variables in the data string
+	for key, value := range vars {
+		data = strings.ReplaceAll(data, key, value)
+	}
+
+	return data
 }
 
 func (r *KserveMetricsDashboardReconciler) getExistingResource(ctx context.Context, log logr.Logger, isvc *kservev1beta1.InferenceService) (*corev1.ConfigMap, error) {
