@@ -19,28 +19,27 @@ package main
 import (
 	"context"
 	"flag"
-	"os"
-	"strconv"
-
 	authorinov1beta2 "github.com/kuadrant/authorino/api/v1beta2"
-
+	"github.com/opendatahub-io/odh-model-controller/controllers/webhook"
+	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
+	knservingv1 "knative.dev/serving/pkg/apis/serving/v1"
+	"os"
+	"sigs.k8s.io/controller-runtime/pkg/builder"
+	"sigs.k8s.io/controller-runtime/pkg/metrics/server"
+	"strconv"
 	// to ensure that exec-entrypoint and run can make use of them.
 	// Import all Kubernetes client auth plugins (e.g. Azure, GCP, OIDC, etc.)
 	_ "k8s.io/client-go/plugin/pkg/client/auth"
 
 	"istio.io/client-go/pkg/apis/security/v1beta1"
 	"k8s.io/apimachinery/pkg/runtime"
-	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
-	knservingv1 "knative.dev/serving/pkg/apis/serving/v1"
 	ctrl "sigs.k8s.io/controller-runtime"
-	"sigs.k8s.io/controller-runtime/pkg/builder"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/healthz"
 	"sigs.k8s.io/controller-runtime/pkg/log/zap"
 
 	"github.com/opendatahub-io/odh-model-controller/controllers"
 	"github.com/opendatahub-io/odh-model-controller/controllers/utils"
-	"github.com/opendatahub-io/odh-model-controller/controllers/webhook"
 	//+kubebuilder:scaffold:imports
 )
 
@@ -116,13 +115,18 @@ func main() {
 	ctrl.SetLogger(zap.New(zap.UseFlagOptions(&opts)))
 
 	mgr, err := ctrl.NewManager(ctrl.GetConfigOrDie(), ctrl.Options{
-		Scheme:                 scheme,
-		MetricsBindAddress:     metricsAddr,
-		Port:                   9443,
+		Scheme: scheme,
+		Metrics: server.Options{
+			BindAddress: metricsAddr,
+		},
 		HealthProbeBindAddress: probeAddr,
 		LeaderElection:         enableLeaderElection,
 		LeaderElectionID:       "odh-model-controller",
-		ClientDisableCacheFor:  []client.Object{&v1beta1.AuthorizationPolicy{}},
+		Client: client.Options{
+			Cache: &client.CacheOptions{
+				DisableFor: []client.Object{&v1beta1.AuthorizationPolicy{}},
+			},
+		},
 	})
 	if err != nil {
 		setupLog.Error(err, "unable to start manager")
