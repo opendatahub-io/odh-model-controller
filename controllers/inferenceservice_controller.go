@@ -155,16 +155,17 @@ func (r *OpenshiftInferenceServiceReconciler) SetupWithManager(mgr ctrl.Manager)
 		r.log.V(1).Error(kserveWithMeshEnabledErr, "could not determine if kserve have service mesh enabled")
 	}
 
-	authorinoEnabled, capabilityErr := utils.VerifyIfMeshAuthorizationIsEnabled(context.Background(), r.client)
-	if capabilityErr != nil {
-		r.log.V(1).Error(capabilityErr, "could not determine if Authorino is enabled")
+	isAuthConfigAvailable, crdErr := utils.IsCrdAvailable(mgr.GetConfig(), authorinov1beta2.GroupVersion.String(), "AuthConfig")
+	if crdErr != nil {
+		r.log.V(1).Error(crdErr, "could not determine if AuthConfig CRD is available")
+		return crdErr
 	}
 
-	if kserveWithMeshEnabled && authorinoEnabled {
-		r.log.Info("KServe with Service Mesh is enabled and Authorino is registered, enabling Authorization")
+	if kserveWithMeshEnabled && isAuthConfigAvailable {
+		r.log.Info("KServe is enabled and AuthConfig CRD is available, watching AuthConfigs")
 		builder.Owns(&authorinov1beta2.AuthConfig{})
 	} else if kserveWithMeshEnabled {
-		r.log.Info("Using KServe with Service Mesh, but Authorino is not installed - skipping authorization.")
+		r.log.Info("Using KServe with Service Mesh, but AuthConfig CRD is not installed - skipping AuthConfigs watches.")
 	} else {
 		r.log.Info("Didn't find KServe with Service Mesh.")
 	}
