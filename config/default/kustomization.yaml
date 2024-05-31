@@ -3,3 +3,6 @@ bases:
   - ../manager
   - ../webhook
   - ../runtimes
+
+resources:
+  - networkpolicy.yaml
