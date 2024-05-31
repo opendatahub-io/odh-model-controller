@@ -3,6 +3,7 @@ package utils
 import (
 	kservev1alpha1 "github.com/kserve/kserve/pkg/apis/serving/v1alpha1"
 	kservev1beta1 "github.com/kserve/kserve/pkg/apis/serving/v1beta1"
+	authorinov1beta2 "github.com/kuadrant/authorino/api/v1beta2"
 	routev1 "github.com/openshift/api/route/v1"
 	monitoringv1 "github.com/prometheus-operator/prometheus-operator/pkg/apis/monitoring/v1"
 	istiosecurityv1beta1 "istio.io/client-go/pkg/apis/security/v1beta1"
@@ -32,6 +33,7 @@ func RegisterSchemes(s *runtime.Scheme) {
 	utilruntime.Must(telemetryv1alpha1.AddToScheme(s))
 	utilruntime.Must(maistrav1.SchemeBuilder.AddToScheme(s))
 	utilruntime.Must(knservingv1.AddToScheme(s))
+	utilruntime.Must(authorinov1beta2.SchemeBuilder.AddToScheme(s))
 
 	// The following are related to Service Mesh, uncomment this and other
 	// similar blocks to use with Service Mesh
