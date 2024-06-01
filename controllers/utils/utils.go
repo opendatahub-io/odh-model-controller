@@ -4,16 +4,20 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"github.com/kuadrant/authorino/pkg/log"
 	"os"
 	"reflect"
 
 	kservev1beta1 "github.com/kserve/kserve/pkg/apis/serving/v1beta1"
+	"github.com/kuadrant/authorino/pkg/log"
 	v1beta12 "istio.io/api/security/v1beta1"
 	"istio.io/client-go/pkg/apis/security/v1beta1"
 	corev1 "k8s.io/api/core/v1"
+	apierr "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/meta"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
+	"k8s.io/client-go/discovery"
+	"k8s.io/client-go/rest"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	"github.com/opendatahub-io/odh-model-controller/controllers/constants"
@@ -25,6 +29,8 @@ var (
 	Serverless    IsvcDeploymentMode = "Serverless"
 	RawDeployment IsvcDeploymentMode = "RawDeployment"
 	ModelMesh     IsvcDeploymentMode = "ModelMesh"
+
+	gvResourcesCache map[string]*metav1.APIResourceList
 )
 
 const (
@@ -270,4 +276,63 @@ func getDSCIObject(ctx context.Context, cli client.Client) (*unstructured.Unstru
 	}
 
 	return objectList, nil
+}
+
+// IsCrdAvailable checks if a given CRD is present in the cluster by verifying the
+// existence of its API.
+func IsCrdAvailable(config *rest.Config, groupVersion, kind string) (bool, error) {
+	gvResources, err := GetAvailableResourcesForApi(config, groupVersion)
+	if err != nil {
+		return false, err
+	}
+
+	found := false
+	if gvResources != nil {
+		for _, crd := range gvResources.APIResources {
+			if crd.Kind == kind {
+				found = true
+				break
+			}
+		}
+	}
+
+	return found, nil
+}
+
+// GetAvailableResourcesForApi returns the list of discovered resources that belong
+// to the API specified in groupVersion. The first query to a specifig groupVersion will
+// query the cluster API server to discover the available resources and the discovered
+// resources will be cached and returned to subsequent invocations to prevent additional
+// queries to the API server.
+func GetAvailableResourcesForApi(config *rest.Config, groupVersion string) (*metav1.APIResourceList, error) {
+	var gvResources *metav1.APIResourceList
+	var ok bool
+
+	if gvResources, ok = gvResourcesCache[groupVersion]; !ok {
+		discoveryClient, newClientErr := discovery.NewDiscoveryClientForConfig(config)
+		if newClientErr != nil {
+			return nil, newClientErr
+		}
+
+		var getGvResourcesErr error
+		gvResources, getGvResourcesErr = discoveryClient.ServerResourcesForGroupVersion(groupVersion)
+		if getGvResourcesErr != nil && !apierr.IsNotFound(getGvResourcesErr) {
+			return nil, getGvResourcesErr
+		}
+
+		SetAvailableResourcesForApi(groupVersion, gvResources)
+	}
+
+	return gvResources, nil
+}
+
+// SetAvailableResourcesForApi stores the value fo resources argument in the global cache
+// of discovered API resources. This function should never be called directly. It is exported
+// for usage in tests.
+func SetAvailableResourcesForApi(groupVersion string, resources *metav1.APIResourceList) {
+	if gvResourcesCache == nil {
+		gvResourcesCache = make(map[string]*metav1.APIResourceList)
+	}
+
+	gvResourcesCache[groupVersion] = resources
 }
