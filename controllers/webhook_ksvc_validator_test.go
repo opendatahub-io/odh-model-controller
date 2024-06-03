@@ -75,7 +75,8 @@ var _ = Describe("Knative validator webhook", func() {
 			TypeMeta:   metav1.TypeMeta{},
 			ObjectMeta: metav1.ObjectMeta{},
 		}
-		Expect(validator.ValidateCreate(ctx, &ksvc)).To(Succeed())
+		_, err := validator.ValidateCreate(ctx, &ksvc)
+		Expect(err).ShouldNot(HaveOccurred())
 	})
 
 	It("should accept creating a Knative service that does not have owner references", func() {
@@ -86,8 +87,8 @@ var _ = Describe("Knative validator webhook", func() {
 				OwnerReferences: nil,
 			},
 		}
-
-		Expect(validator.ValidateCreate(ctx, &ksvc)).To(Succeed())
+		_, err := validator.ValidateCreate(ctx, &ksvc)
+		Expect(err).ShouldNot(HaveOccurred())
 	})
 
 	It("should accept creating a Knative service that is now owned by KServe", func() {
@@ -106,7 +107,8 @@ var _ = Describe("Knative validator webhook", func() {
 			},
 		}
 
-		Expect(validator.ValidateCreate(ctx, &ksvc)).To(Succeed())
+		_, err := validator.ValidateCreate(ctx, &ksvc)
+		Expect(err).ShouldNot(HaveOccurred())
 	})
 
 	It("should accept creating a Knative service that is forced to not have an Istio sidecar", func() {
@@ -115,12 +117,14 @@ var _ = Describe("Knative validator webhook", func() {
 			"sidecar.istio.io/inject": "false",
 		}
 
-		Expect(validator.ValidateCreate(ctx, ksvc)).To(Succeed())
+		_, err := validator.ValidateCreate(ctx, ksvc)
+		Expect(err).ShouldNot(HaveOccurred())
 	})
 
 	It("should reject creating a Knative service if there is no ServiceMeshMemberRoll yet", func() {
 		ksvc := createKserveOwnedKsvc()
-		Expect(validator.ValidateCreate(ctx, ksvc)).ToNot(Succeed())
+		_, err := validator.ValidateCreate(ctx, ksvc)
+		Expect(err).Should(HaveOccurred())
 	})
 
 	It("should reject creating a Knative service if the ServiceMeshMemberRoll has null ConfiguredMembers", func() {
@@ -128,7 +132,8 @@ var _ = Describe("Knative validator webhook", func() {
 		smmr := createSmmr(v1.ServiceMeshMemberRollStatus{ConfiguredMembers: nil})
 		defer func() { cli.Delete(ctx, smmr) }()
 
-		Expect(validator.ValidateCreate(ctx, ksvc)).ToNot(Succeed())
+		_, err := validator.ValidateCreate(ctx, ksvc)
+		Expect(err).Should(HaveOccurred())
 	})
 
 	It("should reject creating a Knative service if the namespace is not a configured member of the ServiceMeshMemberRoll", func() {
@@ -136,7 +141,8 @@ var _ = Describe("Knative validator webhook", func() {
 		smmr := createSmmr(v1.ServiceMeshMemberRollStatus{ConfiguredMembers: []string{"foo"}})
 		defer func() { cli.Delete(ctx, smmr) }()
 
-		Expect(validator.ValidateCreate(ctx, ksvc)).ToNot(Succeed())
+		_, err := validator.ValidateCreate(ctx, ksvc)
+		Expect(err).Should(HaveOccurred())
 	})
 
 	It("should accept creating a Knative service if the namespace is a configured member of the ServiceMeshMemberRoll", func() {
@@ -144,14 +150,17 @@ var _ = Describe("Knative validator webhook", func() {
 		smmr := createSmmr(v1.ServiceMeshMemberRollStatus{ConfiguredMembers: []string{ksvc.Namespace}})
 		defer func() { cli.Delete(ctx, smmr) }()
 
-		Expect(validator.ValidateCreate(ctx, ksvc)).To(Succeed())
+		_, err := validator.ValidateCreate(ctx, ksvc)
+		Expect(err).ShouldNot(HaveOccurred())
 	})
 
 	It("should validate on update of Knative service regardless of the received objects", func() {
-		Expect(validator.ValidateUpdate(ctx, nil, nil)).To(Succeed())
+		_, err := validator.ValidateUpdate(ctx, nil, nil)
+		Expect(err).ShouldNot(HaveOccurred())
 	})
 
 	It("should validate on deletion of Knative service regardless of the received object", func() {
-		Expect(validator.ValidateDelete(ctx, nil)).To(Succeed())
+		_, err := validator.ValidateDelete(ctx, nil)
+		Expect(err).ShouldNot(HaveOccurred())
 	})
 })

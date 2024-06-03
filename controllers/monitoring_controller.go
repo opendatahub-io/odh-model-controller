@@ -29,7 +29,6 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/handler"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
-	"sigs.k8s.io/controller-runtime/pkg/source"
 )
 
 const (
@@ -253,8 +252,8 @@ func (r *MonitoringReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	builder := ctrl.NewControllerManagedBy(mgr).
 		For(&kservev1alpha1.ServingRuntime{}).
 		// Watch for changes to ModelMesh Enabled namespaces & a select few others
-		Watches(&source.Kind{Type: &corev1.Namespace{}},
-			handler.EnqueueRequestsFromMapFunc(func(o client.Object) []reconcile.Request {
+		Watches(&corev1.Namespace{},
+			handler.EnqueueRequestsFromMapFunc(func(ctx context.Context, o client.Object) []reconcile.Request {
 				if !r.monitoringThisNameSpace(o.GetName(), o.GetLabels()) {
 					return []reconcile.Request{}
 				}
@@ -267,8 +266,8 @@ func (r *MonitoringReconciler) SetupWithManager(mgr ctrl.Manager) error {
 				return reconcileRequests
 			})).
 		// Watch for RoleBinding in modelmesh enabled namespaces & a select few others
-		Watches(&source.Kind{Type: &k8srbacv1.RoleBinding{}},
-			handler.EnqueueRequestsFromMapFunc(func(o client.Object) []reconcile.Request {
+		Watches(&k8srbacv1.RoleBinding{},
+			handler.EnqueueRequestsFromMapFunc(func(ctx context.Context, o client.Object) []reconcile.Request {
 				// Only reconcile on RoleBindings that this controller creates.
 				// We avoid using owner references, as there is no logical owner
 				// of the RoleBinding this controller creates.
