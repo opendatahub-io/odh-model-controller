@@ -19,14 +19,13 @@ package main
 import (
 	"context"
 	"flag"
-	authorinov1beta2 "github.com/kuadrant/authorino/api/v1beta2"
 	"github.com/opendatahub-io/odh-model-controller/controllers/webhook"
-	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
 	knservingv1 "knative.dev/serving/pkg/apis/serving/v1"
 	"os"
 	"sigs.k8s.io/controller-runtime/pkg/builder"
 	"sigs.k8s.io/controller-runtime/pkg/metrics/server"
 	"strconv"
+
 	// to ensure that exec-entrypoint and run can make use of them.
 	// Import all Kubernetes client auth plugins (e.g. Azure, GCP, OIDC, etc.)
 	_ "k8s.io/client-go/plugin/pkg/client/auth"
@@ -200,17 +199,6 @@ func main() {
 		}
 	} else {
 		setupLog.Info("Skipping setup of Knative Service validating Webhook, because KServe Serverless setup seems to be disabled in the DataScienceCluster resource.")
-	}
-
-	authorinoEnabled, capabilityErr := utils.VerifyIfMeshAuthorizationIsEnabled(context.Background(), mgr.GetClient())
-	if capabilityErr != nil {
-		setupLog.Error(capabilityErr, "unable to determine if Authorino is enabled")
-		os.Exit(1)
-	}
-	if kserveWithMeshEnabled && authorinoEnabled {
-		utilruntime.Must(authorinov1beta2.SchemeBuilder.AddToScheme(scheme))
-	} else {
-		setupLog.Info("Authorino is not enabled, skipping handling")
 	}
 
 	//+kubebuilder:scaffold:builder
