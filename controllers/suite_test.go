@@ -22,6 +22,7 @@ import (
 	"math/rand"
 	"os"
 	"path/filepath"
+	"sigs.k8s.io/controller-runtime/pkg/metrics/server"
 	"testing"
 	"time"
 
@@ -142,9 +143,11 @@ var _ = BeforeSuite(func() {
 
 	// Setup controller manager
 	mgr, err := ctrl.NewManager(cfg, ctrl.Options{
-		Scheme:             testScheme,
-		LeaderElection:     false,
-		MetricsBindAddress: "0",
+		Scheme:         testScheme,
+		LeaderElection: false,
+		Metrics: server.Options{
+			BindAddress: "0",
+		},
 	})
 
 	Expect(err).NotTo(HaveOccurred())
