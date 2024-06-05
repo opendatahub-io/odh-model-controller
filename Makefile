@@ -4,6 +4,8 @@ IMG ?= quay.io/${USER}/odh-model-controller:latest
 # ENVTEST_K8S_VERSION refers to the version of kubebuilder assets to be downloaded by envtest binary.
 ENVTEST_K8S_VERSION = 1.26
 
+ENGINE ?= docker
+
 # Setting SHELL to bash allows bash commands to be executed by recipes.
 # This is a requirement for 'setup-envtest.sh' in the test target.
 # Options are set to exit when a recipe line exits non-zero or a piped command fails.
@@ -83,13 +85,13 @@ build: generate fmt vet ## Build manager binary.
 run: manifests generate fmt vet ## Run a controller from your host.
 	go run ./main.go
 
-.PHONY: docker-build
-docker-build: test ## Build docker image with the manager.
-	docker build . -f ./Containerfile -t ${IMG}
+.PHONY: container-build
+container-build: test ## Build docker image with the manager.
+	${ENGINE} build . -f ./Containerfile -t ${IMG}
 
-.PHONY: docker-push
-docker-push: ## Push docker image with the manager.
-	docker push ${IMG}
+.PHONY: container-push
+container-push: ## Push docker image with the manager.
+	${ENGINE} push ${IMG}
 
 ##@ Deployment
 
