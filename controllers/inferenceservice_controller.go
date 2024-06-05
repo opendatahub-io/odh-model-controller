@@ -34,7 +34,6 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/handler"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
-	"sigs.k8s.io/controller-runtime/pkg/source"
 )
 
 // OpenshiftInferenceServiceReconciler holds the controller configuration.
@@ -120,14 +119,14 @@ func (r *OpenshiftInferenceServiceReconciler) SetupWithManager(mgr ctrl.Manager)
 		Owns(&networkingv1.NetworkPolicy{}).
 		Owns(&monitoringv1.ServiceMonitor{}).
 		Owns(&monitoringv1.PodMonitor{}).
-		Watches(&source.Kind{Type: &kservev1alpha1.ServingRuntime{}},
-			handler.EnqueueRequestsFromMapFunc(func(o client.Object) []reconcile.Request {
+		Watches(&kservev1alpha1.ServingRuntime{},
+			handler.EnqueueRequestsFromMapFunc(func(ctx context.Context, o client.Object) []reconcile.Request {
 				r.log.Info("Reconcile event triggered by serving runtime: " + o.GetName())
 				inferenceServicesList := &kservev1beta1.InferenceServiceList{}
 				opts := []client.ListOption{client.InNamespace(o.GetNamespace())}
 
 				// Todo: Get only Inference Services that are deploying on the specific serving runtime
-				err := r.client.List(context.TODO(), inferenceServicesList, opts...)
+				err := r.client.List(ctx, inferenceServicesList, opts...)
 				if err != nil {
 					r.log.Info("Error getting list of inference services for namespace")
 					return []reconcile.Request{}
