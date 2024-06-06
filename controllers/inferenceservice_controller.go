@@ -187,11 +187,11 @@ func (r *OpenshiftInferenceServiceReconciler) onDeletion(ctx context.Context, lo
 	return nil
 }
 
-func (r *OpenshiftInferenceServiceReconciler) DeleteResourcesIfNoIsvcExists(ctx context.Context, log logr.Logger, isvcNamespace string) error {
-	if err := r.kserveServerlessISVCReconciler.DeleteKserveMetricsResourcesIfNoKserveIsvcExists(ctx, log, isvcNamespace); err != nil {
+func (r *OpenshiftInferenceServiceReconciler) DeleteResourcesIfNoIsvcExists(ctx context.Context, log logr.Logger, namespace string) error {
+	if err := r.kserveServerlessISVCReconciler.CleanupNamespaceIfNoKserveIsvcExists(ctx, log, namespace); err != nil {
 		return err
 	}
-	if err := r.mmISVCReconciler.DeleteModelMeshResourcesIfNoMMIsvcExists(ctx, log, isvcNamespace); err != nil {
+	if err := r.mmISVCReconciler.DeleteModelMeshResourcesIfNoMMIsvcExists(ctx, log, namespace); err != nil {
 		return err
 	}
 	return nil
