@@ -17,6 +17,9 @@ package resources
 
 import (
 	"context"
+	"fmt"
+	"time"
+
 	"github.com/go-logr/logr"
 	v1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/errors"
@@ -26,6 +29,7 @@ import (
 
 type ServiceHandler interface {
 	FetchService(ctx context.Context, log logr.Logger, key types.NamespacedName) (*v1.Service, error)
+	FetchWithRetryAndDelay(ctx context.Context, log logr.Logger, key types.NamespacedName, retryDelay time.Duration, retry int) (*v1.Service, error)
 }
 
 type serviceHandler struct {
@@ -39,8 +43,8 @@ func NewServiceHandler(client client.Client) ServiceHandler {
 }
 
 func (r *serviceHandler) FetchService(ctx context.Context, log logr.Logger, key types.NamespacedName) (*v1.Service, error) {
-	route := &v1.Service{}
-	err := r.client.Get(ctx, key, route)
+	svc := &v1.Service{}
+	err := r.client.Get(ctx, key, svc)
 	if err != nil && errors.IsNotFound(err) {
 		log.V(1).Info("Service not found.")
 		return nil, nil
@@ -48,5 +52,30 @@ func (r *serviceHandler) FetchService(ctx context.Context, log logr.Logger, key 
 		return nil, err
 	}
 	log.V(1).Info("Successfully fetch deployed Service")
-	return route, nil
+	return svc, nil
+}
+
+func (r *serviceHandler) FetchWithRetryAndDelay(ctx context.Context, log logr.Logger, key types.NamespacedName, retryDelay time.Duration, retry int) (*v1.Service, error) {
+	var svc *v1.Service
+	var err error
+
+	for attempt := 1; attempt <= retry; attempt++ {
+		svc, err = r.FetchService(ctx, log, key)
+		if err != nil {
+			if svc == nil || errors.IsNotFound(err) {
+				log.Info(fmt.Sprintf("Service is not created yet, attempt %d", attempt))
+				time.Sleep(retryDelay)
+				continue
+			} else {
+				return nil, err
+			}
+		}
+	}
+
+	if svc != nil {
+		log.Info("Successfully fetched the Service")
+	} else {
+		log.Info(fmt.Sprintf("Failed to fetch the Service(%s) after retries(%d)", key.Name, retry))
+	}
+	return svc, nil
 }

@@ -53,3 +53,8 @@ const (
 const (
 	DefaultStorageConfig = "storage-config"
 )
+
+// openshift
+const (
+	ServingCertAnnotationKey = "service.beta.openshift.io/serving-cert-secret-name"
+)

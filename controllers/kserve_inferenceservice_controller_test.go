@@ -17,6 +17,8 @@ package controllers
 
 import (
 	"context"
+	"fmt"
+	"time"
 
 	"strings"
 
@@ -31,10 +33,15 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	v1 "k8s.io/api/networking/v1"
 	"k8s.io/apimachinery/pkg/api/errors"
+	apierrs "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"knative.dev/pkg/apis"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+)
+
+const (
+	testIsvcSvcPath = "./testdata/servingcert-service/test-isvc-svc.yaml"
 )
 
 var _ = Describe("The Openshift Kserve model controller", func() {
@@ -102,6 +109,40 @@ var _ = Describe("The Openshift Kserve model controller", func() {
 			}, timeout, interval).Should(Succeed())
 		})
 
+		It("With Kserve InferenceService, a runtime Service add serving cert annotation", func() {
+			// Create a isvc
+			inferenceService := &kservev1beta1.InferenceService{}
+			err := convertToStructuredResource(KserveInferenceServicePath1, inferenceService)
+			Expect(err).NotTo(HaveOccurred())
+			inferenceService.SetNamespace(testNs)
+
+			Expect(cli.Create(ctx, inferenceService)).Should(Succeed())
+
+			// Create a expected service that is supposed to be created by KServe operator.
+			svc := &corev1.Service{}
+			err = convertToStructuredResource(testIsvcSvcPath, svc)
+			Expect(err).NotTo(HaveOccurred())
+			svc.SetNamespace(inferenceService.Namespace)
+			Expect(cli.Create(ctx, svc)).Should(Succeed())
+
+			// Update URL of ISVC that means it is ready.
+			deployedInferenceService := &kservev1beta1.InferenceService{}
+			err = cli.Get(ctx, types.NamespacedName{Name: inferenceService.Name, Namespace: inferenceService.Namespace}, deployedInferenceService)
+			Expect(err).NotTo(HaveOccurred())
+
+			url, err := apis.ParseURL("https://example-onnx-mnist-default.test.com")
+			Expect(err).NotTo(HaveOccurred())
+			deployedInferenceService.Status.URL = url
+
+			err = cli.Status().Update(ctx, deployedInferenceService)
+			Expect(err).NotTo(HaveOccurred())
+
+			isvcService, err := waitForService(cli, testNs, inferenceService.Name, 10, 3*time.Second)
+			Expect(err).NotTo(HaveOccurred())
+
+			Expect(isvcService.Annotations[constants.ServingCertAnnotationKey]).Should(Equal(inferenceService.Name))
+		})
+
 		It("should create required network policies when KServe is used", func() {
 			// given
 			inferenceService := &kservev1beta1.InferenceService{}
@@ -157,4 +198,31 @@ func withMatchingNestedField(path string, matcher gomegatypes.GomegaMatcher) gom
 
 func getKServeRouteName(isvc *kservev1beta1.InferenceService) string {
 	return isvc.Name + "-" + isvc.Namespace
+}
+
+func waitForService(cli client.Client, namespace, serviceName string, maxTries int, delay time.Duration) (*corev1.Service, error) {
+	time.Sleep(delay)
+
+	ctx := context.Background()
+	service := &corev1.Service{}
+	for try := 1; try <= maxTries; try++ {
+		err := cli.Get(ctx, client.ObjectKey{Namespace: namespace, Name: serviceName}, service)
+		if err == nil {
+			if service.GetAnnotations() == nil {
+				time.Sleep(1 * time.Second)
+				continue
+			}
+			return service, nil
+		}
+		if !apierrs.IsNotFound(err) {
+			return nil, fmt.Errorf("failed to get service %s/%s: %v", namespace, serviceName, err)
+		}
+
+		if try < maxTries {
+
+			time.Sleep(1 * time.Second)
+			return nil, err
+		}
+	}
+	return service, nil
 }
