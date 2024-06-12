@@ -17,14 +17,15 @@ package controllers
 
 import (
 	"context"
-	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
-	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
 	"math/rand"
 	"os"
 	"path/filepath"
-	"sigs.k8s.io/controller-runtime/pkg/metrics/server"
 	"testing"
 	"time"
+
+	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
+	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
+	"sigs.k8s.io/controller-runtime/pkg/metrics/server"
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
@@ -40,6 +41,7 @@ import (
 	. "github.com/onsi/ginkgo"
 	. "github.com/onsi/gomega"
 	routev1 "github.com/openshift/api/route/v1"
+	istioclientv1beta1 "istio.io/client-go/pkg/apis/networking/v1beta1"
 	corev1 "k8s.io/api/core/v1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/envtest"
@@ -124,6 +126,7 @@ var _ = BeforeSuite(func() {
 	testScheme := runtime.NewScheme()
 	utils.RegisterSchemes(testScheme)
 	utilruntime.Must(authorinov1beta2.AddToScheme(testScheme))
+	utilruntime.Must(istioclientv1beta1.AddToScheme(testScheme))
 
 	// +kubebuilder:scaffold:scheme
 
@@ -204,6 +207,7 @@ var _ = AfterSuite(func() {
 var _ = AfterEach(func() {
 	cleanUp := func(namespace string, cli client.Client) {
 		inNamespace := client.InNamespace(namespace)
+		istioNamespace := client.InNamespace(constants.IstioNamespace)
 		Expect(cli.DeleteAllOf(context.TODO(), &kservev1alpha1.ServingRuntime{}, inNamespace)).ToNot(HaveOccurred())
 		Expect(cli.DeleteAllOf(context.TODO(), &kservev1beta1.InferenceService{}, inNamespace)).ToNot(HaveOccurred())
 		Expect(cli.DeleteAllOf(context.TODO(), &routev1.Route{}, inNamespace)).ToNot(HaveOccurred())
@@ -213,6 +217,7 @@ var _ = AfterEach(func() {
 		Expect(cli.DeleteAllOf(context.TODO(), &authorinov1beta2.AuthConfig{}, inNamespace)).ToNot(HaveOccurred())
 		Expect(cli.DeleteAllOf(context.TODO(), &corev1.ConfigMap{}, inNamespace)).ToNot(HaveOccurred())
 		Expect(cli.DeleteAllOf(context.TODO(), &corev1.Service{}, inNamespace)).ToNot(HaveOccurred())
+		Expect(cli.DeleteAllOf(context.TODO(), &istioclientv1beta1.Gateway{}, istioNamespace)).ToNot(HaveOccurred())
 	}
 	cleanUp(WorkingNamespace, cli)
 	for _, ns := range Namespaces.All() {

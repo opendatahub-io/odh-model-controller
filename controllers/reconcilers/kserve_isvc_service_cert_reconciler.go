@@ -44,26 +44,26 @@ func NewKserveIsvcServiceReconciler(client client.Client) *KserveIsvcServiceReco
 }
 
 func (r *KserveIsvcServiceReconciler) Delete(ctx context.Context, log logr.Logger, isvc *kservev1beta1.InferenceService) error {
-	// NOOP - resources are deleted together with ISVCs
+	// NOOP - Resources are deleted along with the deletion of InferenceServices
 	return nil
 }
 
 func (r *KserveIsvcServiceReconciler) Cleanup(_ context.Context, _ logr.Logger, _ string) error {
-	// NOOP - resources are deleted together with ISVCs
+	// NOOP - Resources are deleted along with the deletion of InferenceServices
 	return nil
 }
 
 func (r *KserveIsvcServiceReconciler) Reconcile(ctx context.Context, log logr.Logger, isvc *kservev1beta1.InferenceService) error {
-	log.V(1).Info("Reconciling ISVC service serving cert for for Kserve InferenceService")
+	log.V(1).Info("Reconciling InferenceService Service serving cert")
 
 	// return if URL is not set
 	if isvc.Status.URL == nil {
-		log.V(1).Info("Inference Service not ready yet, waiting for URL")
+		log.V(1).Info("Waiting for the URL as the Inference Service is not ready yet", "reconcile", isvc)
 		return nil
 	}
 
 	// Create Desired resource
-	desiredResource, err := r.createDesiredResource(isvc, log)
+	desiredResource, err := r.createDesiredResource(isvc)
 	if err != nil {
 		return err
 	}
@@ -81,7 +81,7 @@ func (r *KserveIsvcServiceReconciler) Reconcile(ctx context.Context, log logr.Lo
 	return nil
 }
 
-func (r *KserveIsvcServiceReconciler) createDesiredResource(isvc *kservev1beta1.InferenceService, log logr.Logger) (*v1.Service, error) {
+func (r *KserveIsvcServiceReconciler) createDesiredResource(isvc *kservev1beta1.InferenceService) (*v1.Service, error) {
 	service := &v1.Service{
 		ObjectMeta: metav1.ObjectMeta{
 			Name: "isvc-service",
@@ -94,12 +94,10 @@ func (r *KserveIsvcServiceReconciler) createDesiredResource(isvc *kservev1beta1.
 }
 
 func (r *KserveIsvcServiceReconciler) getExistingResource(ctx context.Context, log logr.Logger, isvc *kservev1beta1.InferenceService) (*v1.Service, error) {
-	// log.Info("Fetching existing KServe runtime Service")
 	return r.serviceHandler.FetchWithRetryAndDelay(ctx, log, types.NamespacedName{Name: isvc.Name, Namespace: isvc.Namespace}, 1*time.Second, 10)
 }
 
 func (r *KserveIsvcServiceReconciler) processDelta(ctx context.Context, log logr.Logger, desiredService *v1.Service, existingService *v1.Service) (err error) {
-
 	if isUpdated(desiredService, existingService, log) {
 		log.V(1).Info("Delta found", "update", existingService.GetName())
 		service := existingService.DeepCopy()
@@ -111,15 +109,13 @@ func (r *KserveIsvcServiceReconciler) processDelta(ctx context.Context, log logr
 		if err = r.client.Update(ctx, service); err != nil {
 			return err
 		}
-
-		// log.V(1).Info("Add Serving cert annotation to kserve inferenceservice Service object", "update", existingService.GetName())
 	}
 	return nil
 }
 
 func isUpdated(desiredService *v1.Service, existingService *v1.Service, log logr.Logger) bool {
 	if existingService == nil {
-		log.Info("Service for a InferenceService is not created yet")
+		log.Info("The service for the InferenceService has not been created yet")
 		return false
 	}
 	deployedAnnotations := existingService.GetAnnotations()

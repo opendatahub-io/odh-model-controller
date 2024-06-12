@@ -46,6 +46,7 @@ func NewKServeServerlessInferenceServiceReconciler(client client.Client) *Kserve
 		NewKServeNetworkPolicyReconciler(client),
 		NewKserveAuthConfigReconciler(client),
 		NewKserveIsvcServiceReconciler(client),
+		NewKserveGatewayReconciler(client),
 	}
 
 	return &KserveServerlessInferenceServiceReconciler{

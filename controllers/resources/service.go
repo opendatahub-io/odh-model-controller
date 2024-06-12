@@ -63,18 +63,17 @@ func (r *serviceHandler) FetchWithRetryAndDelay(ctx context.Context, log logr.Lo
 		svc, err = r.FetchService(ctx, log, key)
 		if err != nil {
 			if svc == nil || errors.IsNotFound(err) {
-				log.Info(fmt.Sprintf("Service is not created yet, attempt %d", attempt))
+				log.Info(fmt.Sprintf("Service not found. Retrying(%d)..", attempt))
 				time.Sleep(retryDelay)
 				continue
 			} else {
 				return nil, err
 			}
 		}
+		break
 	}
 
-	if svc != nil {
-		log.Info("Successfully fetched the Service")
-	} else {
+	if svc == nil {
 		log.Info(fmt.Sprintf("Failed to fetch the Service(%s) after retries(%d)", key.Name, retry))
 	}
 	return svc, nil
