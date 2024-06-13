@@ -17,14 +17,15 @@ package comparators
 
 import (
 	v1 "maistra.io/api/core/v1"
-	"reflect"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
-func GetServiceMeshMemberRollComparator() ResourceComparator {
+func GetServiceMeshMemberComparator() ResourceComparator {
 	return func(deployed client.Object, requested client.Object) bool {
-		deployedSMMR := deployed.(*v1.ServiceMeshMemberRoll)
-		requestedSMMR := requested.(*v1.ServiceMeshMemberRoll)
-		return reflect.DeepEqual(deployedSMMR.Spec, requestedSMMR.Spec)
+		deployedSMM := deployed.(*v1.ServiceMeshMember)
+		requestedSMM := requested.(*v1.ServiceMeshMember)
+
+		return deployedSMM.Spec.ControlPlaneRef.Namespace == requestedSMM.Spec.ControlPlaneRef.Namespace &&
+			deployedSMM.Spec.ControlPlaneRef.Name == requestedSMM.Spec.ControlPlaneRef.Name
 	}
 }
