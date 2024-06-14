@@ -220,14 +220,8 @@ var _ = Describe("The Openshift Kserve model controller", func() {
 
 		BeforeEach(func() {
 			ctx := context.Background()
-			testNs = Namespaces.Get()
-			testNamespace := &corev1.Namespace{
-				ObjectMeta: metav1.ObjectMeta{
-					Name:      testNs,
-					Namespace: testNs,
-				},
-			}
-			Expect(cli.Create(ctx, testNamespace)).Should(Succeed())
+			testNamespace := Namespaces.Create(cli)
+			testNs = testNamespace.Name
 
 			inferenceServiceConfig := &corev1.ConfigMap{}
 			Expect(convertToStructuredResource(InferenceServiceConfigPath1, inferenceServiceConfig)).To(Succeed())
