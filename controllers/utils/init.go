@@ -35,7 +35,7 @@ func RegisterSchemes(s *runtime.Scheme) {
 	utilruntime.Must(maistrav1.SchemeBuilder.AddToScheme(s))
 	utilruntime.Must(knservingv1.AddToScheme(s))
 	utilruntime.Must(authorinov1beta2.SchemeBuilder.AddToScheme(s))
-	utilruntime.Must(istioclientv1beta1.AddToScheme(s))
+	utilruntime.Must(istioclientv1beta1.SchemeBuilder.AddToScheme(s))
 
 	// The following are related to Service Mesh, uncomment this and other
 	// similar blocks to use with Service Mesh

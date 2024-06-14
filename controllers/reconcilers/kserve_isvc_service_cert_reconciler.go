@@ -94,7 +94,7 @@ func (r *KserveIsvcServiceReconciler) createDesiredResource(isvc *kservev1beta1.
 }
 
 func (r *KserveIsvcServiceReconciler) getExistingResource(ctx context.Context, log logr.Logger, isvc *kservev1beta1.InferenceService) (*v1.Service, error) {
-	return r.serviceHandler.FetchWithRetryAndDelay(ctx, log, types.NamespacedName{Name: isvc.Name, Namespace: isvc.Namespace}, 1*time.Second, 10)
+	return r.serviceHandler.FetchServiceWithRetryAndDelay(ctx, log, types.NamespacedName{Name: isvc.Name, Namespace: isvc.Namespace}, 1*time.Second, 10)
 }
 
 func (r *KserveIsvcServiceReconciler) processDelta(ctx context.Context, log logr.Logger, desiredService *v1.Service, existingService *v1.Service) (err error) {

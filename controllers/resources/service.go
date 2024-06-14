@@ -29,7 +29,7 @@ import (
 
 type ServiceHandler interface {
 	FetchService(ctx context.Context, log logr.Logger, key types.NamespacedName) (*v1.Service, error)
-	FetchWithRetryAndDelay(ctx context.Context, log logr.Logger, key types.NamespacedName, retryDelay time.Duration, retry int) (*v1.Service, error)
+	FetchServiceWithRetryAndDelay(ctx context.Context, log logr.Logger, key types.NamespacedName, retryDelay time.Duration, retry int) (*v1.Service, error)
 }
 
 type serviceHandler struct {
@@ -55,7 +55,7 @@ func (r *serviceHandler) FetchService(ctx context.Context, log logr.Logger, key 
 	return svc, nil
 }
 
-func (r *serviceHandler) FetchWithRetryAndDelay(ctx context.Context, log logr.Logger, key types.NamespacedName, retryDelay time.Duration, retry int) (*v1.Service, error) {
+func (r *serviceHandler) FetchServiceWithRetryAndDelay(ctx context.Context, log logr.Logger, key types.NamespacedName, retryDelay time.Duration, retry int) (*v1.Service, error) {
 	var svc *v1.Service
 	var err error
 
@@ -74,7 +74,8 @@ func (r *serviceHandler) FetchWithRetryAndDelay(ctx context.Context, log logr.Lo
 	}
 
 	if svc == nil {
-		log.Info(fmt.Sprintf("Failed to fetch the Service(%s) after retries(%d)", key.Name, retry))
+		log.Error(err, fmt.Sprintf("Failed to fetch the Service(%s) after retries(%d)", key.Name, retry))
+		return nil, err
 	}
 	return svc, nil
 }

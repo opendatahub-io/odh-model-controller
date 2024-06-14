@@ -88,17 +88,16 @@ func (r *KserveGatewayReconciler) Reconcile(ctx context.Context, log logr.Logger
 			}
 			if errors.IsNotFound(getSecretErr) {
 				log.V(2).Info("The certificate secret is not created yet. Retrying...", "attempt_number", attempt)
-
 				time.Sleep(secretCheckInterval)
 			} else {
 				log.Error(getSecretErr, "Failed to retrieve the certificate secret for the InferenceService (ISVC)")
 				return getSecretErr
 			}
 		}
-		if err := r.copyServingCertSecretFromIsvcNamespace(ctx, secret); err != nil {
-			log.V(1).Error(err, "Failed to update KServe local gateway in the istio-system namespace")
 
-			return nil
+		if err := r.copyServingCertSecretFromIsvcNamespace(ctx, secret, isvc); err != nil {
+			log.V(1).Error(err, "Failed to copy the Secret for InferenceService in the istio-system namespace")
+			return err
 		}
 	}
 
@@ -129,7 +128,7 @@ func (r *KserveGatewayReconciler) createDesiredResource(isvc *kservev1beta1.Infe
 
 	desiredGateway := &istioclientv1beta1.Gateway{
 		ObjectMeta: metav1.ObjectMeta{
-			Name:      "kserve-local-gateway",
+			Name:      constants.KServeGatewayName,
 			Namespace: isvc.Namespace,
 		},
 		Spec: istiov1beta1.Gateway{
@@ -234,7 +233,8 @@ func (r *KserveGatewayReconciler) removeServerFromGateway(ctx context.Context, l
 	return nil
 }
 
-func (r *KserveGatewayReconciler) copyServingCertSecretFromIsvcNamespace(ctx context.Context, sourceSecret *corev1.Secret) error {
+func (r *KserveGatewayReconciler) copyServingCertSecretFromIsvcNamespace(ctx context.Context, sourceSecret *corev1.Secret, isvc *kservev1beta1.InferenceService) error {
+
 	destinationSecret := &corev1.Secret{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      sourceSecret.Name,
