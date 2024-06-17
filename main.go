@@ -20,9 +20,12 @@ import (
 	"context"
 	"flag"
 	"github.com/opendatahub-io/odh-model-controller/controllers/webhook"
+	v1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/labels"
 	knservingv1 "knative.dev/serving/pkg/apis/serving/v1"
 	"os"
 	"sigs.k8s.io/controller-runtime/pkg/builder"
+	"sigs.k8s.io/controller-runtime/pkg/cache"
 	"sigs.k8s.io/controller-runtime/pkg/metrics/server"
 	"strconv"
 
@@ -123,6 +126,15 @@ func main() {
 		Client: client.Options{
 			Cache: &client.CacheOptions{
 				DisableFor: []client.Object{&v1beta1.AuthorizationPolicy{}},
+			},
+		},
+		Cache: cache.Options{
+			ByObject: map[client.Object]cache.ByObject{
+				&v1.Secret{}: {
+					Label: labels.SelectorFromSet(labels.Set{
+						"opendatahub.io/managed": "true",
+					}),
+				},
 			},
 		},
 	})
