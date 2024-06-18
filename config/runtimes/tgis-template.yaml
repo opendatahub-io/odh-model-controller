@@ -43,25 +43,6 @@ objects:
           env:
             - name: HF_HOME
               value: /tmp/hf_home
-          readinessProbe:
-            exec:
-              command:
-                - curl
-                - localhost:3000/health
-            initialDelaySeconds: 5
-          livenessProbe:
-            exec:
-              command:
-                - curl
-                - localhost:3000/health
-            initialDelaySeconds: 5
-          startupProbe:
-            httpGet:
-              port: 8080
-              path: /health
-            # Allow 12 mins to start
-            failureThreshold: 24
-            periodSeconds: 30
           ports:
             - containerPort: 8033
               name: h2c
