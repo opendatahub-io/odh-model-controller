@@ -56,26 +56,3 @@ objects:
           ports:
             - containerPort: 8080
               protocol: TCP
-          readinessProbe:
-            exec:
-              command:
-                - python
-                - -m
-                - caikit_health_probe
-                - readiness
-            initialDelaySeconds: 5
-          livenessProbe:
-            exec:
-              command:
-                - python
-                - -m
-                - caikit_health_probe
-                - liveness
-            initialDelaySeconds: 5
-          startupProbe:
-            httpGet:
-              port: 8080
-              path: /health
-            # Allow 12 mins to start
-            failureThreshold: 24
-            periodSeconds: 30
