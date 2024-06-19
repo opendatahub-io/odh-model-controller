@@ -18,7 +18,6 @@ package reconcilers
 import (
 	"context"
 	"fmt"
-	"time"
 
 	"github.com/go-logr/logr"
 	kservev1beta1 "github.com/kserve/kserve/pkg/apis/serving/v1beta1"
@@ -26,6 +25,7 @@ import (
 	"github.com/opendatahub-io/odh-model-controller/controllers/constants"
 	"github.com/opendatahub-io/odh-model-controller/controllers/processors"
 	"github.com/opendatahub-io/odh-model-controller/controllers/resources"
+	"github.com/opendatahub-io/odh-model-controller/controllers/utils"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -36,14 +36,15 @@ import (
 	istioclientv1beta1 "istio.io/client-go/pkg/apis/networking/v1beta1"
 )
 
-const (
-	internalSerivceHostnameDomain = "svc.cluster.local"
-	opendatahubManagedLabelName   = "opendatahub.io/managed='true'"
-	secretCheckInterval           = 1 * time.Second
-	maxSecretCheckAttempts        = 5
-)
+// const (
+// 	internalSerivceHostnameDomain = "svc.cluster.local"
+// 	opendatahubManagedLabelName   = "opendatahub.io/managed='true'"
+// 	secretCheckInterval           = 1 * time.Second
+// 	maxSecretCheckAttempts        = 5
+// )
 
 var _ SubResourceReconciler = (*KserveGatewayReconciler)(nil)
+var meshNamespace string
 
 type KserveGatewayReconciler struct {
 	client         client.Client
@@ -63,46 +64,66 @@ func NewKserveGatewayReconciler(client client.Client) *KserveGatewayReconciler {
 
 func (r *KserveGatewayReconciler) Reconcile(ctx context.Context, log logr.Logger, isvc *kservev1beta1.InferenceService) error {
 	log.V(1).Info("Reconciling KServe local gateway for Kserve InferenceService")
+	_, meshNamespace = utils.GetIstioControlPlaneName(ctx, r.client)
+	log.V(1).Info("AAAAA1", "meshNamespace", meshNamespace)
+	log.V(1).Info("AAAAA2", "isvc", isvc)
 
-	// return if URL is not set
-	if isvc.Status.URL == nil {
+	// return if Address.URL is not set
+	if isvc.Status.Address == nil {
 		log.V(1).Info("Waiting for the URL as the Inference Service is not ready yet")
 		return nil
 	}
 
-	destinationSecretExist := true
-	if _, err := r.secretHandler.Get(ctx, types.NamespacedName{Name: isvc.Name, Namespace: constants.IstioNamespace}); err != nil {
+	// return if serving cert secret in the destination namespace is not created
+	certSecret, err := r.secretHandler.Get(ctx, types.NamespacedName{Name: isvc.Name, Namespace: isvc.Namespace})
+	if err != nil {
 		if errors.IsNotFound(err) {
-			destinationSecretExist = false
-		} else {
-			return err
+			log.V(1).Info("Waiting for creating serving cert secret in the inference service namespace")
+			return nil
 		}
+		return err
+	}
+	// return if serving cert secret in the destination namespace is not created
+	_, err = r.secretHandler.Get(ctx, types.NamespacedName{Name: isvc.Name, Namespace: meshNamespace})
+	if err != nil {
+		if errors.IsNotFound(err) {
+			if err := r.copyServingCertSecretFromIsvcNamespace(ctx, certSecret, isvc); err != nil {
+				log.V(1).Error(err, "Failed to copy the Secret for InferenceService in the istio-system namespace")
+				return err
+			}
+			log.V(1).Info("Waiting for creating serving cert secret in the inference service namespace")
+			return nil
+		}
+		return err
 	}
 
-	if !destinationSecretExist {
-		secret := &corev1.Secret{}
-		for attempt := 1; attempt <= maxSecretCheckAttempts; attempt++ {
-			getSecretErr := r.client.Get(ctx, types.NamespacedName{Name: isvc.Name, Namespace: isvc.Namespace}, secret)
-			if getSecretErr == nil {
-				break
-			}
-			if errors.IsNotFound(getSecretErr) {
-				log.V(2).Info("The certificate secret is not created yet. Retrying...", "attempt_number", attempt)
-				time.Sleep(secretCheckInterval)
-			} else {
-				log.Error(getSecretErr, "Failed to retrieve the certificate secret for the InferenceService (ISVC)")
-				return getSecretErr
-			}
-		}
+	// destinationSecretExist := true
+	// if _, err := r.secretHandler.Get(ctx, types.NamespacedName{Name: isvc.Name, Namespace: meshNamespace}); err != nil {
+	// 	if errors.IsNotFound(err) {
+	// 		destinationSecretExist = false
+	// 	} else {
+	// 		return err
+	// 	}
+	// }
 
-		if err := r.copyServingCertSecretFromIsvcNamespace(ctx, secret, isvc); err != nil {
-			log.V(1).Error(err, "Failed to copy the Secret for InferenceService in the istio-system namespace")
-			return err
-		}
-	}
+	// if !destinationSecretExist {
+	// 	secret := &corev1.Secret{}
+	// 	for attempt := 1; attempt <= maxSecretCheckAttempts; attempt++ {
+	// 		getSecretErr := r.client.Get(ctx, types.NamespacedName{Name: isvc.Name, Namespace: isvc.Namespace}, secret)
+	// 		if getSecretErr == nil {
+	// 			break
+	// 		}
+	// 		if errors.IsNotFound(getSecretErr) {
+	// 			log.V(2).Info("The certificate secret is not created yet. Retrying...", "attempt_number", attempt)
+	// 			time.Sleep(secretCheckInterval)
+	// 		} else {
+	// 			log.Error(getSecretErr, "Failed to retrieve the certificate secret for the InferenceService (ISVC)")
+	// 			return getSecretErr
+	// 		}
+	// 	}
 
 	// Create Desired resource
-	desiredResource, err := r.createDesiredResource(isvc)
+	desiredResource, err := r.getDesiredResource(isvc)
 	if err != nil {
 		return err
 	}
@@ -123,13 +144,13 @@ func (r *KserveGatewayReconciler) Reconcile(ctx context.Context, log logr.Logger
 	return nil
 }
 
-func (r *KserveGatewayReconciler) createDesiredResource(isvc *kservev1beta1.InferenceService) (*istioclientv1beta1.Gateway, error) {
-	hostname := fmt.Sprintf("%s.%s.%s", isvc.Name, isvc.Namespace, internalSerivceHostnameDomain)
+func (r *KserveGatewayReconciler) getDesiredResource(isvc *kservev1beta1.InferenceService) (*istioclientv1beta1.Gateway, error) {
+	hostname := isvc.Status.Address.URL.String()
 
 	desiredGateway := &istioclientv1beta1.Gateway{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      constants.KServeGatewayName,
-			Namespace: isvc.Namespace,
+			Namespace: meshNamespace,
 		},
 		Spec: istiov1beta1.Gateway{
 			Servers: []*istiov1beta1.Server{
@@ -153,7 +174,7 @@ func (r *KserveGatewayReconciler) createDesiredResource(isvc *kservev1beta1.Infe
 }
 
 func (r *KserveGatewayReconciler) getExistingResource(ctx context.Context) (*istioclientv1beta1.Gateway, error) {
-	return r.gatewayHandler.Get(ctx, types.NamespacedName{Name: constants.KServeGatewayName, Namespace: constants.IstioNamespace})
+	return r.gatewayHandler.Get(ctx, types.NamespacedName{Name: constants.KServeGatewayName, Namespace: meshNamespace})
 }
 
 func (r *KserveGatewayReconciler) Delete(ctx context.Context, log logr.Logger, isvc *kservev1beta1.InferenceService) error {
@@ -181,15 +202,6 @@ func (r *KserveGatewayReconciler) processDelta(ctx context.Context, log logr.Log
 	comparator := comparators.GetGatewayComparator()
 	delta := r.deltaProcessor.ComputeDelta(comparator, desiredGateway, existingGateway)
 
-	if !delta.HasChanges() {
-		// Note: This code will not be executed.
-		return nil
-	}
-	if delta.IsAdded() {
-		// Note: This code will not be executed.
-		return nil
-	}
-
 	if delta.IsUpdated() {
 		log.V(1).Info("Delta found", "update", desiredGateway.GetName())
 		gw := existingGateway.DeepCopy()
@@ -203,15 +215,12 @@ func (r *KserveGatewayReconciler) processDelta(ctx context.Context, log logr.Log
 		return nil
 	}
 
-	if delta.IsRemoved() {
-		// Note: This code will not be executed.
-		return nil
-	}
 	return nil
 }
 
 func (r *KserveGatewayReconciler) removeServerFromGateway(ctx context.Context, log logr.Logger, serverToRemove string) error {
-	gateway, err := r.gatewayHandler.Get(ctx, types.NamespacedName{Name: constants.KServeGatewayName, Namespace: constants.IstioNamespace})
+
+	gateway, err := r.gatewayHandler.Get(ctx, types.NamespacedName{Name: constants.KServeGatewayName, Namespace: meshNamespace})
 	if err != nil {
 		log.V(1).Error(err, "Failed to retrieve KServe local gateway in istio-system namespace")
 		return err
@@ -234,11 +243,11 @@ func (r *KserveGatewayReconciler) removeServerFromGateway(ctx context.Context, l
 }
 
 func (r *KserveGatewayReconciler) copyServingCertSecretFromIsvcNamespace(ctx context.Context, sourceSecret *corev1.Secret, isvc *kservev1beta1.InferenceService) error {
-
+	fmt.Print("AAAAA2", "meshNamespace", meshNamespace)
 	destinationSecret := &corev1.Secret{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      sourceSecret.Name,
-			Namespace: constants.IstioNamespace,
+			Namespace: meshNamespace,
 		},
 		Data: sourceSecret.Data,
 		Type: sourceSecret.Type,
@@ -251,7 +260,7 @@ func (r *KserveGatewayReconciler) copyServingCertSecretFromIsvcNamespace(ctx con
 }
 
 func (r *KserveGatewayReconciler) deleteServingCertSecretInIstioNamespace(ctx context.Context, targetSecretName string) error {
-	secret, err := r.secretHandler.Get(ctx, types.NamespacedName{Name: targetSecretName, Namespace: constants.IstioNamespace})
+	secret, err := r.secretHandler.Get(ctx, types.NamespacedName{Name: targetSecretName, Namespace: meshNamespace})
 	if err != nil && errors.IsNotFound(err) {
 		return nil
 	}

@@ -17,7 +17,6 @@ package reconcilers
 
 import (
 	"context"
-	"time"
 
 	"github.com/go-logr/logr"
 	kservev1beta1 "github.com/kserve/kserve/pkg/apis/serving/v1beta1"
@@ -56,28 +55,28 @@ func (r *KserveIsvcServiceReconciler) Cleanup(_ context.Context, _ logr.Logger, 
 func (r *KserveIsvcServiceReconciler) Reconcile(ctx context.Context, log logr.Logger, isvc *kservev1beta1.InferenceService) error {
 	log.V(1).Info("Reconciling InferenceService Service serving cert")
 
-	// return if URL is not set
-	if isvc.Status.URL == nil {
-		log.V(1).Info("Waiting for the URL as the Inference Service is not ready yet", "reconcile", isvc)
-		return nil
-	}
+	// // return if URL is not set
+	// if isvc.Status.URL == nil {
+	// 	log.V(1).Info("Waiting for the URL as the Inference Service is not ready yet", "reconcile", isvc)
+	// 	return nil
+	// }
 
-	// Create Desired resource
-	desiredResource, err := r.createDesiredResource(isvc)
-	if err != nil {
-		return err
-	}
+	// // Create Desired resource
+	// desiredResource, err := r.createDesiredResource(isvc)
+	// if err != nil {
+	// 	return err
+	// }
 
-	// Get Existing resource
-	existingResource, err := r.getExistingResource(ctx, log, isvc)
-	if err != nil {
-		return err
-	}
+	// // Get Existing resource
+	// existingResource, err := r.getExistingResource(ctx, log, isvc)
+	// if err != nil {
+	// 	return err
+	// }
 
-	// Process Delta
-	if err = r.processDelta(ctx, log, desiredResource, existingResource); err != nil {
-		return err
-	}
+	// // Process Delta
+	// if err = r.processDelta(ctx, log, desiredResource, existingResource); err != nil {
+	// 	return err
+	// }
 	return nil
 }
 
@@ -94,7 +93,7 @@ func (r *KserveIsvcServiceReconciler) createDesiredResource(isvc *kservev1beta1.
 }
 
 func (r *KserveIsvcServiceReconciler) getExistingResource(ctx context.Context, log logr.Logger, isvc *kservev1beta1.InferenceService) (*v1.Service, error) {
-	return r.serviceHandler.FetchServiceWithRetryAndDelay(ctx, log, types.NamespacedName{Name: isvc.Name, Namespace: isvc.Namespace}, 1*time.Second, 10)
+	return r.serviceHandler.FetchService(ctx, log, types.NamespacedName{Name: isvc.Name, Namespace: isvc.Namespace})
 }
 
 func (r *KserveIsvcServiceReconciler) processDelta(ctx context.Context, log logr.Logger, desiredService *v1.Service, existingService *v1.Service) (err error) {

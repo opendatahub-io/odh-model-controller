@@ -19,12 +19,14 @@ package main
 import (
 	"context"
 	"flag"
-	"github.com/opendatahub-io/odh-model-controller/controllers/webhook"
-	knservingv1 "knative.dev/serving/pkg/apis/serving/v1"
 	"os"
+	"strconv"
+
+	"github.com/opendatahub-io/odh-model-controller/controllers/webhook"
+	corev1 "k8s.io/api/core/v1"
+	knservingv1 "knative.dev/serving/pkg/apis/serving/v1"
 	"sigs.k8s.io/controller-runtime/pkg/builder"
 	"sigs.k8s.io/controller-runtime/pkg/metrics/server"
-	"strconv"
 
 	// to ensure that exec-entrypoint and run can make use of them.
 	// Import all Kubernetes client auth plugins (e.g. Azure, GCP, OIDC, etc.)
@@ -59,8 +61,7 @@ func init() { //nolint:gochecknoinits //reason this way we ensure schemes are al
 // +kubebuilder:rbac:groups=serving.kserve.io,resources=servingruntimes/finalizers,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups=networking.istio.io,resources=virtualservices,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups=networking.istio.io,resources=virtualservices/finalizers,verbs=get;list;watch;create;update;patch;delete
-// +kubebuilder:rbac:groups=networking.istio.io,resources=gateways,verbs=get;list;watch;create;update;patch;delete
-// +kubebuilder:rbac:groups=networking.istio.io,resources=gateways/finalizers,verbs=get;list;watch;create;update;patch;delete
+// +kubebuilder:rbac:groups=networking.istio.io,resources=gateways,verbs=get;list;watch;update;patch
 // +kubebuilder:rbac:groups=security.istio.io,resources=peerauthentications,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups=security.istio.io,resources=authorizationpolicies,verbs=get;list
 // +kubebuilder:rbac:groups=telemetry.istio.io,resources=telemetries,verbs=get;list;watch;create;update;patch;delete
@@ -196,6 +197,16 @@ func main() {
 			Complete()
 		if ksvcValidatorWebhookSetupErr != nil {
 			setupLog.Error(err, "unable to setup Knative Service validating Webhook")
+			os.Exit(1)
+		}
+
+		// Set up the mutating webhook using the builder
+		err = builder.WebhookManagedBy(mgr).
+			For(&corev1.Service{}).
+			WithDefaulter(webhook.NewKserveServiceMutator(mgr.GetClient())).
+			Complete()
+		if err != nil {
+			setupLog.Error(err, "unable to setup Kserve Service mutating Webhook")
 			os.Exit(1)
 		}
 	} else {

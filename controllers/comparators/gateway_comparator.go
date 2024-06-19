@@ -38,7 +38,7 @@ func GetGatewayComparator() ResourceComparator {
 	}
 }
 
-// Function to compare two Server objects
+// serversEquals compare if the inferenceservice name matches got the given resources
 func serversEqual(s1, s2 *istiov1beta1.Server) bool {
 	return s1.Port.Name == s2.Port.Name
 }

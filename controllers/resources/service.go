@@ -17,8 +17,6 @@ package resources
 
 import (
 	"context"
-	"fmt"
-	"time"
 
 	"github.com/go-logr/logr"
 	v1 "k8s.io/api/core/v1"
@@ -29,7 +27,6 @@ import (
 
 type ServiceHandler interface {
 	FetchService(ctx context.Context, log logr.Logger, key types.NamespacedName) (*v1.Service, error)
-	FetchServiceWithRetryAndDelay(ctx context.Context, log logr.Logger, key types.NamespacedName, retryDelay time.Duration, retry int) (*v1.Service, error)
 }
 
 type serviceHandler struct {
@@ -52,30 +49,5 @@ func (r *serviceHandler) FetchService(ctx context.Context, log logr.Logger, key 
 		return nil, err
 	}
 	log.V(1).Info("Successfully fetch deployed Service")
-	return svc, nil
-}
-
-func (r *serviceHandler) FetchServiceWithRetryAndDelay(ctx context.Context, log logr.Logger, key types.NamespacedName, retryDelay time.Duration, retry int) (*v1.Service, error) {
-	var svc *v1.Service
-	var err error
-
-	for attempt := 1; attempt <= retry; attempt++ {
-		svc, err = r.FetchService(ctx, log, key)
-		if err != nil {
-			if svc == nil || errors.IsNotFound(err) {
-				log.Info(fmt.Sprintf("Service not found. Retrying(%d)..", attempt))
-				time.Sleep(retryDelay)
-				continue
-			} else {
-				return nil, err
-			}
-		}
-		break
-	}
-
-	if svc == nil {
-		log.Error(err, fmt.Sprintf("Failed to fetch the Service(%s) after retries(%d)", key.Name, retry))
-		return nil, err
-	}
 	return svc, nil
 }
