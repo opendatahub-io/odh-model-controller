@@ -31,7 +31,6 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	v1 "k8s.io/api/networking/v1"
 	"k8s.io/apimachinery/pkg/api/errors"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"knative.dev/pkg/apis"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -44,14 +43,8 @@ var _ = Describe("The Openshift Kserve model controller", func() {
 
 		BeforeEach(func() {
 			ctx := context.Background()
-			testNs = Namespaces.Get()
-			testNamespace := &corev1.Namespace{
-				ObjectMeta: metav1.ObjectMeta{
-					Name:      testNs,
-					Namespace: testNs,
-				},
-			}
-			Expect(cli.Create(ctx, testNamespace)).Should(Succeed())
+			testNamespace := Namespaces.Create(cli)
+			testNs = testNamespace.Name
 
 			inferenceServiceConfig := &corev1.ConfigMap{}
 			Expect(convertToStructuredResource(InferenceServiceConfigPath1, inferenceServiceConfig)).To(Succeed())
