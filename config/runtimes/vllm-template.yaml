@@ -5,7 +5,7 @@ metadata:
     opendatahub.io/dashboard: 'true'
     opendatahub.io/ootb: 'true'
   annotations:
-    description: vLLM is a high-throughput and memory-efficient inference and serving engine for LLMs 
+    description: vLLM is a high-throughput and memory-efficient inference and serving engine for LLMs
     openshift.io/display-name: vLLM ServingRuntime for KServe
     openshift.io/provider-display-name: Red Hat, Inc.
     tags: rhods,rhoai,kserve,servingruntime
@@ -35,30 +35,18 @@ objects:
       containers:
         - name: kserve-container
           image: $(vllm-image)
+          command:
+            - python
+            - -m
+            - vllm.entrypoints.openai.api_server
           args:
-            - '--port=8080'
-            - '--model=/mnt/models'
-            - '--served-model-name={{.Name}}'
+            - "--port=8080"
+            - "--model=/mnt/models"
+            - "--served-model-name={{.Name}}"
+            - "--distributed-executor-backend=mp"
           env:
             - name: HF_HOME
               value: /tmp/hf_home
-          readinessProbe:
-            httpGet: 
-              port: 8080
-              path: /health
-            initialDelaySeconds: 5
-          livenessProbe:
-            httpGet: 
-              port: 8080
-              path: /health
-            initialDelaySeconds: 5
-          startupProbe:
-            httpGet:
-              port: 8080
-              path: /health
-            # Allow 12 mins to start
-            failureThreshold: 24
-            periodSeconds: 30
           ports:
             - containerPort: 8080
               protocol: TCP
