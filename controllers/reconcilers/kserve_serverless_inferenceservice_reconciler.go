@@ -34,7 +34,7 @@ type KserveServerlessInferenceServiceReconciler struct {
 
 func NewKServeServerlessInferenceServiceReconciler(client client.Client) *KserveServerlessInferenceServiceReconciler {
 	subResourceReconciler := []SubResourceReconciler{
-		NewKServeIstioSMMRReconciler(client),
+		NewKserveServiceMeshMemberReconciler(client),
 		NewKserveRouteReconciler(client),
 		NewKServeMetricsServiceReconciler(client),
 		NewKServeMetricsServiceMonitorReconciler(client),
@@ -71,9 +71,9 @@ func (r *KserveServerlessInferenceServiceReconciler) OnDeletionOfKserveInference
 	return deleteErrors.ErrorOrNil()
 }
 
-func (r *KserveServerlessInferenceServiceReconciler) DeleteKserveMetricsResourcesIfNoKserveIsvcExists(ctx context.Context, log logr.Logger, isvcNamespace string) error {
+func (r *KserveServerlessInferenceServiceReconciler) CleanupNamespaceIfNoKserveIsvcExists(ctx context.Context, log logr.Logger, namespace string) error {
 	inferenceServiceList := &kservev1beta1.InferenceServiceList{}
-	if err := r.client.List(ctx, inferenceServiceList, client.InNamespace(isvcNamespace)); err != nil {
+	if err := r.client.List(ctx, inferenceServiceList, client.InNamespace(namespace)); err != nil {
 		return err
 	}
 
@@ -92,7 +92,7 @@ func (r *KserveServerlessInferenceServiceReconciler) DeleteKserveMetricsResource
 	var cleanupErrors *multierror.Error
 	if len(inferenceServiceList.Items) == 0 {
 		for _, reconciler := range r.subResourceReconcilers {
-			cleanupErrors = multierror.Append(cleanupErrors, reconciler.Cleanup(ctx, log, isvcNamespace))
+			cleanupErrors = multierror.Append(cleanupErrors, reconciler.Cleanup(ctx, log, namespace))
 		}
 	}
 

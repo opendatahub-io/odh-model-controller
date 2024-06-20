@@ -21,6 +21,13 @@ vars:
       kind: ConfigMap
       name: odh-model-controller-parameters
   - fieldref:
+      fieldPath: data.caikit-standalone-image
+    name: caikit-standalone-image
+    objref:
+      apiVersion: v1
+      kind: ConfigMap
+      name: odh-model-controller-parameters
+  - fieldref:
       fieldPath: data.tgis-image
     name: tgis-image
     objref:

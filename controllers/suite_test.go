@@ -256,6 +256,18 @@ func (n *NamespaceHolder) Clear() {
 	n.namespaces = []string{}
 }
 
+func (n *NamespaceHolder) Create(cli client.Client) *corev1.Namespace {
+	testNs := Namespaces.Get()
+	testNamespace := &corev1.Namespace{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      testNs,
+			Namespace: testNs,
+		},
+	}
+	Expect(cli.Create(ctx, testNamespace)).Should(Succeed())
+	return testNamespace
+}
+
 func createTestNamespaceName() string {
 	n := 5
 	letterRunes := []rune("abcdefghijklmnopqrstuvwxyz")
