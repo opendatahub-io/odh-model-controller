@@ -17,6 +17,7 @@ package controllers
 
 import (
 	"context"
+	"fmt"
 	"time"
 
 	"strings"
@@ -104,49 +105,6 @@ var _ = Describe("The Openshift Kserve model controller", func() {
 			}, timeout, interval).Should(Succeed())
 		})
 
-		// It("With a new Kserve InferenceService, serving cert annotation should be added to the runtime Service object.", func() {
-		// 	// We need to stub the cluster state and indicate where is istio namespace (reusing authConfig test data)
-		// 	if dsciErr := createDSCI(DSCIWithoutAuthorization); dsciErr != nil && !errors.IsAlreadyExists(dsciErr) {
-		// 		Fail(dsciErr.Error())
-		// 	}
-		// 	// Create a new InferenceService
-		// 	inferenceService := &kservev1beta1.InferenceService{}
-		// 	err := convertToStructuredResource(KserveInferenceServicePath1, inferenceService)
-		// 	Expect(err).NotTo(HaveOccurred())
-		// 	inferenceService.SetNamespace(testNs)
-		// 	Expect(cli.Create(ctx, inferenceService)).Should(Succeed())
-
-		// 	// Update the URL of the InferenceService to indicate it is ready.
-		// 	deployedInferenceService := &kservev1beta1.InferenceService{}
-		// 	err = cli.Get(ctx, types.NamespacedName{Name: inferenceService.Name, Namespace: inferenceService.Namespace}, deployedInferenceService)
-		// 	Expect(err).NotTo(HaveOccurred())
-
-		// 	// url, err := apis.ParseURL("https://example-onnx-mnist-default.test.com")
-		// 	Expect(err).NotTo(HaveOccurred())
-		// 	newAddress := &duckv1.Addressable{
-		// 		URL: apis.HTTPS("example-onnx-mnist-default.test.com"),
-		// 	}
-		// 	deployedInferenceService.Status.Address = newAddress
-
-		// 	err = cli.Status().Update(ctx, deployedInferenceService)
-		// 	Expect(err).NotTo(HaveOccurred())
-
-		// 	// Stub: Create a Kserve Service, which must be created by the KServe operator.
-		// 	svc := &corev1.Service{}
-		// 	err = convertToStructuredResource(testIsvcSvcPath, svc)
-		// 	Expect(err).NotTo(HaveOccurred())
-		// 	svc.SetNamespace(inferenceService.Namespace)
-		// 	Expect(cli.Create(ctx, svc)).Should(Succeed())
-
-		// 	err = cli.Status().Update(ctx, deployedInferenceService)
-		// 	Expect(err).NotTo(HaveOccurred())
-
-		// 	isvcService, err := waitForService(cli, testNs, inferenceService.Name, 5, 2*time.Second)
-		// 	Expect(err).NotTo(HaveOccurred())
-
-		// 	Expect(isvcService.Annotations[constants.ServingCertAnnotationKey]).Should(Equal(inferenceService.Name))
-		// })
-
 		It("should create a secret for runtime and update kserve local gateway in the istio-system namespace", func() {
 			// We need to stub the cluster state and indicate where is istio namespace (reusing authConfig test data)
 			if dsciErr := createDSCI(DSCIWithoutAuthorization); dsciErr != nil && !errors.IsAlreadyExists(dsciErr) {
@@ -187,14 +145,27 @@ var _ = Describe("The Openshift Kserve model controller", func() {
 			Expect(err).NotTo(HaveOccurred())
 
 			// Verify that the certificate secret is created in the istio-system namespace.
-			_, err = waitForSecret(cli, constants.IstioNamespace, inferenceService.Name, 5, 5*time.Second)
-			Expect(err).NotTo(HaveOccurred())
+			Eventually(func() error {
+				secret := &corev1.Secret{}
+				err := cli.Get(ctx, client.ObjectKey{Namespace: constants.IstioNamespace, Name: fmt.Sprintf("%s-%s", inferenceService.Name, inferenceService.Namespace)}, secret)
+				if err != nil {
+					return err
+				}
+				return nil
+			}, timeout, interval).Should(Succeed())
 
-			gateway, err := waitForUpdatedGatewayCompletion(cli, "add", constants.IstioNamespace, constants.KServeGatewayName, inferenceService.Name, 5, 2*time.Second)
-			Expect(err).NotTo(HaveOccurred())
+			// Verify that the gateway is updated in the istio-system namespace.
+			var gateway *istioclientv1beta1.Gateway
+			Eventually(func() error {
+				gateway, err = waitForUpdatedGatewayCompletion(cli, "add", constants.IstioNamespace, constants.KServeGatewayName, inferenceService.Name)
+				if err != nil {
+					return err
+				}
+				return nil
+			}, timeout, interval).Should(Succeed())
 
 			// Ensure that the server is successfully added to the KServe local gateway within the istio-system namespace.
-			targetServerExist := isServerExistFromGateway(gateway, inferenceService.Name)
+			targetServerExist := isServerExistFromGateway(gateway, fmt.Sprintf("%s-%s", "https", inferenceService.Name))
 			Expect(targetServerExist).Should(BeTrue())
 		})
 
@@ -291,14 +262,26 @@ var _ = Describe("The Openshift Kserve model controller", func() {
 			Expect(err).NotTo(HaveOccurred())
 
 			// Verify that the certificate secret is created in the istio-system namespace.
-			_, err = waitForSecret(cli, constants.IstioNamespace, inferenceService.Name, 5, 2*time.Second)
-			Expect(err).NotTo(HaveOccurred())
+			Eventually(func() error {
+				secret := &corev1.Secret{}
+				err := cli.Get(ctx, client.ObjectKey{Namespace: constants.IstioNamespace, Name: fmt.Sprintf("%s-%s", inferenceService.Name, inferenceService.Namespace)}, secret)
+				if err != nil {
+					return err
+				}
+				return nil
+			}, timeout, interval).Should(Succeed())
 
-			gateway, err := waitForUpdatedGatewayCompletion(cli, "add", constants.IstioNamespace, constants.KServeGatewayName, inferenceService.Name, 5, 2*time.Second)
-			Expect(err).NotTo(HaveOccurred())
-
+			// Verify that the gateway is updated in the istio-system namespace.
+			var gateway *istioclientv1beta1.Gateway
+			Eventually(func() error {
+				gateway, err = waitForUpdatedGatewayCompletion(cli, "add", constants.IstioNamespace, constants.KServeGatewayName, inferenceService.Name)
+				if err != nil {
+					return err
+				}
+				return nil
+			}, timeout, interval).Should(Succeed())
 			// Ensure that the server is successfully added to the KServe local gateway within the istio-system namespace.
-			targetServerExist := isServerExistFromGateway(gateway, inferenceService.Name)
+			targetServerExist := isServerExistFromGateway(gateway, fmt.Sprintf("%s-%s", "https", inferenceService.Name))
 			Expect(targetServerExist).Should(BeTrue())
 		})
 
@@ -309,8 +292,15 @@ var _ = Describe("The Openshift Kserve model controller", func() {
 			Expect(err).NotTo(HaveOccurred())
 			Expect(cli.Delete(ctx, deployedInferenceService)).Should(Succeed())
 
-			gateway, err := waitForUpdatedGatewayCompletion(cli, "delete", constants.IstioNamespace, constants.KServeGatewayName, isvcName, 5, 2*time.Second)
-			Expect(err).NotTo(HaveOccurred())
+			// Verify that the gateway is updated in the istio-system namespace.
+			var gateway *istioclientv1beta1.Gateway
+			Eventually(func() error {
+				gateway, err = waitForUpdatedGatewayCompletion(cli, "add", constants.IstioNamespace, constants.KServeGatewayName, isvcName)
+				if err != nil {
+					return err
+				}
+				return nil
+			}, timeout, interval).Should(Succeed())
 
 			// Ensure that the server is successfully removed from the KServe local gateway within the istio-system namespace.
 			targetServerExist := isServerExistFromGateway(gateway, isvcName)
@@ -352,61 +342,30 @@ func getKServeRouteName(isvc *kservev1beta1.InferenceService) string {
 	return isvc.Name + "-" + isvc.Namespace
 }
 
-func waitForService(cli client.Client, namespace, serviceName string, maxTries int, delay time.Duration) (*corev1.Service, error) {
-	time.Sleep(delay)
-
-	ctx := context.Background()
-	service := &corev1.Service{}
-	for try := 1; try <= maxTries; try++ {
-		err := cli.Get(ctx, client.ObjectKey{Namespace: namespace, Name: serviceName}, service)
-		if err == nil {
-			if service.GetAnnotations() == nil {
-				time.Sleep(1 * time.Second)
-				continue
-			}
-			return service, nil
-		}
-		if !errors.IsNotFound(err) {
-			continue
-		}
-
-		if try < maxTries {
-			time.Sleep(1 * time.Second)
-			return nil, err
-		}
-	}
-	return service, nil
-}
-
-// This function waits for the updated gateway completion after a specified delay.
-// During the wait, it checks the gateway repeatedly until the specified operation (add or delete) is completed or the maximum number of tries is reached.
-// If the maximum number of tries is exceeded, it returns an error.
-func waitForUpdatedGatewayCompletion(cli client.Client, op string, namespace, gatewayName string, isvcName string, maxTries int, delay time.Duration) (*istioclientv1beta1.Gateway, error) {
-	time.Sleep(delay)
-
+func waitForUpdatedGatewayCompletion(cli client.Client, op string, namespace, gatewayName string, isvcName string) (*istioclientv1beta1.Gateway, error) {
 	ctx := context.Background()
 	gateway := &istioclientv1beta1.Gateway{}
-	for try := 1; try <= maxTries; try++ {
-		err := cli.Get(ctx, client.ObjectKey{Namespace: namespace, Name: gatewayName}, gateway)
-		if err == nil {
-			if op == "add" && !isServerExistFromGateway(gateway, isvcName) {
-				time.Sleep(1 * time.Second)
-				continue
-			} else if op == "delete" && isServerExistFromGateway(gateway, isvcName) {
-				time.Sleep(1 * time.Second)
-				continue
-			}
-			return gateway, nil
-		}
-		if !errors.IsNotFound(err) {
-			continue
-		}
 
-		if try < maxTries {
-			time.Sleep(1 * time.Second)
-			return nil, err
-		}
+	// Get the Gateway resource
+	err := cli.Get(ctx, client.ObjectKey{Namespace: namespace, Name: gatewayName}, gateway)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get Gateway: %w", err)
 	}
+
+	// Check conditions based on operation (op)
+	switch op {
+	case "add":
+		if !isServerExistFromGateway(gateway, fmt.Sprintf("%s-%s", "https", isvcName)) {
+			return nil, fmt.Errorf("server %s not found in Gateway %s", isvcName, gatewayName)
+		}
+	case "delete":
+		if isServerExistFromGateway(gateway, fmt.Sprintf("%s-%s", "https", isvcName)) {
+			return nil, fmt.Errorf("server %s still exists in Gateway %s", isvcName, gatewayName)
+		}
+	default:
+		return nil, fmt.Errorf("unsupported operation: %s", op)
+	}
+
 	return gateway, nil
 }
 

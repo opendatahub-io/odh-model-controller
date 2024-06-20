@@ -36,15 +36,11 @@ import (
 	istioclientv1beta1 "istio.io/client-go/pkg/apis/networking/v1beta1"
 )
 
-// const (
-// 	internalSerivceHostnameDomain = "svc.cluster.local"
-// 	opendatahubManagedLabelName   = "opendatahub.io/managed='true'"
-// 	secretCheckInterval           = 1 * time.Second
-// 	maxSecretCheckAttempts        = 5
-// )
-
 var _ SubResourceReconciler = (*KserveGatewayReconciler)(nil)
 var meshNamespace string
+var destSecretName string
+var srcSecretName string
+var portName string
 
 type KserveGatewayReconciler struct {
 	client         client.Client
@@ -64,12 +60,15 @@ func NewKserveGatewayReconciler(client client.Client) *KserveGatewayReconciler {
 
 func (r *KserveGatewayReconciler) Reconcile(ctx context.Context, log logr.Logger, isvc *kservev1beta1.InferenceService) error {
 	log.V(1).Info("Reconciling KServe local gateway for Kserve InferenceService")
-	_, meshNamespace = utils.GetIstioControlPlaneName(ctx, r.client)
 	log.V(1).Info("AAAAA1", "meshNamespace", meshNamespace)
 	log.V(1).Info("AAAAA2", "isvc", isvc)
 
+	_, meshNamespace = utils.GetIstioControlPlaneName(ctx, r.client)
+	destSecretName = fmt.Sprintf("%s-%s", isvc.Name, isvc.Namespace)
+	portName = fmt.Sprintf("%s-%s", "https", isvc.Name)
+
 	// return if Address.URL is not set
-	if isvc.Status.Address == nil {
+	if isvc.Status.Address != nil && isvc.Status.Address.URL == nil {
 		log.V(1).Info("Waiting for the URL as the Inference Service is not ready yet")
 		return nil
 	}
@@ -84,7 +83,7 @@ func (r *KserveGatewayReconciler) Reconcile(ctx context.Context, log logr.Logger
 		return err
 	}
 	// return if serving cert secret in the destination namespace is not created
-	_, err = r.secretHandler.Get(ctx, types.NamespacedName{Name: isvc.Name, Namespace: meshNamespace})
+	_, err = r.secretHandler.Get(ctx, types.NamespacedName{Name: destSecretName, Namespace: meshNamespace})
 	if err != nil {
 		if errors.IsNotFound(err) {
 			if err := r.copyServingCertSecretFromIsvcNamespace(ctx, certSecret, isvc); err != nil {
@@ -96,31 +95,6 @@ func (r *KserveGatewayReconciler) Reconcile(ctx context.Context, log logr.Logger
 		}
 		return err
 	}
-
-	// destinationSecretExist := true
-	// if _, err := r.secretHandler.Get(ctx, types.NamespacedName{Name: isvc.Name, Namespace: meshNamespace}); err != nil {
-	// 	if errors.IsNotFound(err) {
-	// 		destinationSecretExist = false
-	// 	} else {
-	// 		return err
-	// 	}
-	// }
-
-	// if !destinationSecretExist {
-	// 	secret := &corev1.Secret{}
-	// 	for attempt := 1; attempt <= maxSecretCheckAttempts; attempt++ {
-	// 		getSecretErr := r.client.Get(ctx, types.NamespacedName{Name: isvc.Name, Namespace: isvc.Namespace}, secret)
-	// 		if getSecretErr == nil {
-	// 			break
-	// 		}
-	// 		if errors.IsNotFound(getSecretErr) {
-	// 			log.V(2).Info("The certificate secret is not created yet. Retrying...", "attempt_number", attempt)
-	// 			time.Sleep(secretCheckInterval)
-	// 		} else {
-	// 			log.Error(getSecretErr, "Failed to retrieve the certificate secret for the InferenceService (ISVC)")
-	// 			return getSecretErr
-	// 		}
-	// 	}
 
 	// Create Desired resource
 	desiredResource, err := r.getDesiredResource(isvc)
@@ -157,12 +131,12 @@ func (r *KserveGatewayReconciler) getDesiredResource(isvc *kservev1beta1.Inferen
 				{
 					Hosts: []string{hostname},
 					Port: &istiov1beta1.Port{
-						Name:     isvc.Name,
+						Name:     portName,
 						Number:   8445,
 						Protocol: "HTTPS",
 					},
 					Tls: &istiov1beta1.ServerTLSSettings{
-						CredentialName: isvc.Name,
+						CredentialName: destSecretName,
 						Mode:           istiov1beta1.ServerTLSSettings_SIMPLE,
 					},
 				},
@@ -178,16 +152,22 @@ func (r *KserveGatewayReconciler) getExistingResource(ctx context.Context) (*ist
 }
 
 func (r *KserveGatewayReconciler) Delete(ctx context.Context, log logr.Logger, isvc *kservev1beta1.InferenceService) error {
-	log.V(1).Info(fmt.Sprintf("Deleting serving cert secret(%s) in the namespace(%s)", isvc.Name, isvc.Namespace))
-	if err := r.deleteServingCertSecretInIstioNamespace(ctx, isvc.Name); err != nil {
+	var errs []error
+
+	log.V(1).Info(fmt.Sprintf("Deleting serving cert secret(%s) in the namespace(%s)", destSecretName, isvc.Namespace))
+	if err := r.deleteServingCertSecretInIstioNamespace(ctx, destSecretName); err != nil {
 		log.V(1).Error(err, "Failed to delete the copied serving cert secret in the namespace")
-		return err
+		errs = append(errs, err)
 	}
 
-	log.V(1).Info(fmt.Sprintf("Deleting the Server(%s) from KServe local gateway in the istio-system namespace", isvc.Name))
-	if err := r.removeServerFromGateway(ctx, log, isvc.Name); err != nil {
+	log.V(1).Info(fmt.Sprintf("Deleting the Server(%s) from KServe local gateway in the istio-system namespace", portName))
+	if err := r.removeServerFromGateway(ctx, log, portName); err != nil {
 		log.V(1).Error(err, "Failed to remove the server from KServe local gateway in the istio-system namespace")
-		return err
+		errs = append(errs, err)
+	}
+
+	if len(errs) > 0 {
+		return fmt.Errorf("multiple errors: %v", errs)
 	}
 
 	return nil
@@ -219,7 +199,6 @@ func (r *KserveGatewayReconciler) processDelta(ctx context.Context, log logr.Log
 }
 
 func (r *KserveGatewayReconciler) removeServerFromGateway(ctx context.Context, log logr.Logger, serverToRemove string) error {
-
 	gateway, err := r.gatewayHandler.Get(ctx, types.NamespacedName{Name: constants.KServeGatewayName, Namespace: meshNamespace})
 	if err != nil {
 		log.V(1).Error(err, "Failed to retrieve KServe local gateway in istio-system namespace")
@@ -243,10 +222,9 @@ func (r *KserveGatewayReconciler) removeServerFromGateway(ctx context.Context, l
 }
 
 func (r *KserveGatewayReconciler) copyServingCertSecretFromIsvcNamespace(ctx context.Context, sourceSecret *corev1.Secret, isvc *kservev1beta1.InferenceService) error {
-	fmt.Print("AAAAA2", "meshNamespace", meshNamespace)
 	destinationSecret := &corev1.Secret{
 		ObjectMeta: metav1.ObjectMeta{
-			Name:      sourceSecret.Name,
+			Name:      fmt.Sprintf("%s-%s", sourceSecret.Name, sourceSecret.Namespace),
 			Namespace: meshNamespace,
 		},
 		Data: sourceSecret.Data,
