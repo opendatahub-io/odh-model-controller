@@ -132,7 +132,7 @@ func main() {
 		},
 		Cache: cache.Options{
 			ByObject: map[client.Object]cache.ByObject{
-				&v1.Secret{}: {
+				&corev1.Secret{}: {
 					Label: labels.SelectorFromSet(labels.Set{
 						"opendatahub.io/managed": "true",
 					}),
