@@ -9,3 +9,4 @@ resources:
   - tgis-template.yaml
   - ovms-kserve-template.yaml
   - vllm-template.yaml
+  - caikit-standalone-template.yaml
