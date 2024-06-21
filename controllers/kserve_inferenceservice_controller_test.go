@@ -18,7 +18,6 @@ package controllers
 import (
 	"context"
 	"fmt"
-	"time"
 
 	"strings"
 
@@ -165,7 +164,7 @@ var _ = Describe("The Openshift Kserve model controller", func() {
 			}, timeout, interval).Should(Succeed())
 
 			// Ensure that the server is successfully added to the KServe local gateway within the istio-system namespace.
-			targetServerExist := isServerExistFromGateway(gateway, fmt.Sprintf("%s-%s", "https", inferenceService.Name))
+			targetServerExist := hasServerFromGateway(gateway, fmt.Sprintf("%s-%s", "https", inferenceService.Name))
 			Expect(targetServerExist).Should(BeTrue())
 		})
 
@@ -197,7 +196,7 @@ var _ = Describe("The Openshift Kserve model controller", func() {
 		})
 	})
 
-	Context("when deleting a Kserve InferenceService", func() {
+	Context("when there is a existing inferenceService", func() {
 		var testNs string
 		var isvcName string
 
@@ -280,36 +279,83 @@ var _ = Describe("The Openshift Kserve model controller", func() {
 				}
 				return nil
 			}, timeout, interval).Should(Succeed())
+
 			// Ensure that the server is successfully added to the KServe local gateway within the istio-system namespace.
-			targetServerExist := isServerExistFromGateway(gateway, fmt.Sprintf("%s-%s", "https", inferenceService.Name))
+			targetServerExist := hasServerFromGateway(gateway, fmt.Sprintf("%s-%s", "https", inferenceService.Name))
 			Expect(targetServerExist).Should(BeTrue())
 		})
 
-		It("should remove the Server from the kserve local gateway in istio-system and delete the created Secret", func() {
-			// Delete the existing ISVC
-			deployedInferenceService := &kservev1beta1.InferenceService{}
-			err := cli.Get(ctx, types.NamespacedName{Name: isvcName, Namespace: testNs}, deployedInferenceService)
-			Expect(err).NotTo(HaveOccurred())
-			Expect(cli.Delete(ctx, deployedInferenceService)).Should(Succeed())
+		When("serving cert Secret is rotated", func() {
+			It("should re-sync serving cert Secret to istio-system", func() {
+				deployedInferenceService := &kservev1beta1.InferenceService{}
+				err := cli.Get(ctx, types.NamespacedName{Name: isvcName, Namespace: testNs}, deployedInferenceService)
+				Expect(err).NotTo(HaveOccurred())
 
-			// Verify that the gateway is updated in the istio-system namespace.
-			var gateway *istioclientv1beta1.Gateway
-			Eventually(func() error {
-				gateway, err = waitForUpdatedGatewayCompletion(cli, "add", constants.IstioNamespace, constants.KServeGatewayName, isvcName)
-				if err != nil {
+				// Get source secret
+				srcSecret := &corev1.Secret{}
+				err = cli.Get(ctx, client.ObjectKey{Namespace: testNs, Name: deployedInferenceService.Name}, srcSecret)
+				Expect(err).NotTo(HaveOccurred())
+
+				// Update source secret
+				updatedDataString := "updateData"
+				srcSecret.Data["tls.crt"] = []byte(updatedDataString)
+				srcSecret.Data["tls.key"] = []byte(updatedDataString)
+				Expect(cli.Update(ctx, srcSecret)).Should(Succeed())
+
+				// Get destination secret
+				err = cli.Get(ctx, client.ObjectKey{Namespace: testNs, Name: deployedInferenceService.Name}, srcSecret)
+				Expect(err).NotTo(HaveOccurred())
+
+				// Verify that the certificate secret in the istio-system namespace is updated.
+				destSecret := &corev1.Secret{}
+				Eventually(func() error {
+					err := cli.Get(ctx, client.ObjectKey{Namespace: constants.IstioNamespace, Name: fmt.Sprintf("%s-%s", deployedInferenceService.Name, deployedInferenceService.Namespace)}, destSecret)
+					if err != nil {
+						return err
+					}
+
+					if string(destSecret.Data["tls.crt"]) != updatedDataString {
+						return fmt.Errorf("destSecret is not updated yet")
+					}
+					return nil
+				}, timeout, interval).Should(Succeed())
+
+				Expect(destSecret.Data).To(Equal(srcSecret.Data))
+			})
+		})
+
+		When("infereceService is deleted", func() {
+			It("should remove the Server from the kserve local gateway in istio-system and delete the created Secret", func() {
+				// Delete the existing ISVC
+				deployedInferenceService := &kservev1beta1.InferenceService{}
+				err := cli.Get(ctx, types.NamespacedName{Name: isvcName, Namespace: testNs}, deployedInferenceService)
+				Expect(err).NotTo(HaveOccurred())
+				Expect(cli.Delete(ctx, deployedInferenceService)).Should(Succeed())
+
+				// Verify that the gateway is updated in the istio-system namespace.
+				var gateway *istioclientv1beta1.Gateway
+				Eventually(func() error {
+					gateway, err = waitForUpdatedGatewayCompletion(cli, "delete", constants.IstioNamespace, constants.KServeGatewayName, isvcName)
+					if err != nil {
+						return err
+					}
+					return nil
+				}, timeout, interval).Should(Succeed())
+
+				// Ensure that the server is successfully removed from the KServe local gateway within the istio-system namespace.
+				targetServerExist := hasServerFromGateway(gateway, isvcName)
+				Expect(targetServerExist).Should(BeFalse())
+
+				// Ensure that the synced Secret is successfully deleted within the istio-system namespace.
+				secret := &corev1.Secret{}
+				Eventually(func() error {
+					err := cli.Get(ctx, client.ObjectKey{Namespace: constants.IstioNamespace, Name: fmt.Sprintf("%s-%s", isvcName, constants.IstioNamespace)}, secret)
+					if err != nil && errors.IsNotFound(err) {
+						return nil
+					}
 					return err
-				}
-				return nil
-			}, timeout, interval).Should(Succeed())
-
-			// Ensure that the server is successfully removed from the KServe local gateway within the istio-system namespace.
-			targetServerExist := isServerExistFromGateway(gateway, isvcName)
-			Expect(targetServerExist).Should(BeFalse())
-
-			// Ensure that the created Secret is successfully deleted within the istio-system namespace.
-			secret, err := waitForSecret(cli, constants.IstioNamespace, isvcName, 5, 2*time.Second)
-			Expect(err).To(HaveOccurred())
-			Expect(secret).Should(BeNil())
+				}, timeout, interval).Should(Succeed())
+			})
 		})
 	})
 
@@ -344,6 +390,7 @@ func getKServeRouteName(isvc *kservev1beta1.InferenceService) string {
 
 func waitForUpdatedGatewayCompletion(cli client.Client, op string, namespace, gatewayName string, isvcName string) (*istioclientv1beta1.Gateway, error) {
 	ctx := context.Background()
+	portName := fmt.Sprintf("%s-%s", "https", isvcName)
 	gateway := &istioclientv1beta1.Gateway{}
 
 	// Get the Gateway resource
@@ -355,12 +402,12 @@ func waitForUpdatedGatewayCompletion(cli client.Client, op string, namespace, ga
 	// Check conditions based on operation (op)
 	switch op {
 	case "add":
-		if !isServerExistFromGateway(gateway, fmt.Sprintf("%s-%s", "https", isvcName)) {
-			return nil, fmt.Errorf("server %s not found in Gateway %s", isvcName, gatewayName)
+		if !hasServerFromGateway(gateway, portName) {
+			return nil, fmt.Errorf("server %s not found in Gateway %s", portName, gatewayName)
 		}
 	case "delete":
-		if isServerExistFromGateway(gateway, fmt.Sprintf("%s-%s", "https", isvcName)) {
-			return nil, fmt.Errorf("server %s still exists in Gateway %s", isvcName, gatewayName)
+		if hasServerFromGateway(gateway, portName) {
+			return nil, fmt.Errorf("server %s still exists in Gateway %s", portName, gatewayName)
 		}
 	default:
 		return nil, fmt.Errorf("unsupported operation: %s", op)
@@ -370,10 +417,10 @@ func waitForUpdatedGatewayCompletion(cli client.Client, op string, namespace, ga
 }
 
 // checks if the server exists for the given gateway
-func isServerExistFromGateway(gateway *istioclientv1beta1.Gateway, inferenceServiceName string) bool {
+func hasServerFromGateway(gateway *istioclientv1beta1.Gateway, portName string) bool {
 	targetServerExist := false
 	for _, server := range gateway.Spec.Servers {
-		if server.Port.Name == inferenceServiceName {
+		if server.Port.Name == portName {
 			targetServerExist = true
 			break
 		}

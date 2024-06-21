@@ -18,6 +18,7 @@ package reconcilers
 import (
 	"context"
 	"fmt"
+	"reflect"
 
 	"github.com/go-logr/logr"
 	kservev1beta1 "github.com/kserve/kserve/pkg/apis/serving/v1beta1"
@@ -39,7 +40,6 @@ import (
 var _ SubResourceReconciler = (*KserveGatewayReconciler)(nil)
 var meshNamespace string
 var destSecretName string
-var srcSecretName string
 var portName string
 
 type KserveGatewayReconciler struct {
@@ -60,8 +60,6 @@ func NewKserveGatewayReconciler(client client.Client) *KserveGatewayReconciler {
 
 func (r *KserveGatewayReconciler) Reconcile(ctx context.Context, log logr.Logger, isvc *kservev1beta1.InferenceService) error {
 	log.V(1).Info("Reconciling KServe local gateway for Kserve InferenceService")
-	log.V(1).Info("AAAAA1", "meshNamespace", meshNamespace)
-	log.V(1).Info("AAAAA2", "isvc", isvc)
 
 	_, meshNamespace = utils.GetIstioControlPlaneName(ctx, r.client)
 	destSecretName = fmt.Sprintf("%s-%s", isvc.Name, isvc.Namespace)
@@ -69,31 +67,39 @@ func (r *KserveGatewayReconciler) Reconcile(ctx context.Context, log logr.Logger
 
 	// return if Address.URL is not set
 	if isvc.Status.Address != nil && isvc.Status.Address.URL == nil {
-		log.V(1).Info("Waiting for the URL as the Inference Service is not ready yet")
+		log.V(1).Info("Waiting for the URL as the InferenceService is not ready yet")
 		return nil
 	}
 
-	// return if serving cert secret in the destination namespace is not created
-	certSecret, err := r.secretHandler.Get(ctx, types.NamespacedName{Name: isvc.Name, Namespace: isvc.Namespace})
+	// return if serving cert secret in the source namespace is not created
+	srcCertSecret, err := r.secretHandler.Get(ctx, types.NamespacedName{Name: isvc.Name, Namespace: isvc.Namespace})
 	if err != nil {
 		if errors.IsNotFound(err) {
-			log.V(1).Info("Waiting for creating serving cert secret in the inference service namespace")
+			log.V(1).Info(fmt.Sprintf("Waiting for the creation of the serving certificate Secret(%s) in %s namespace", isvc.Name, isvc.Namespace))
 			return nil
 		}
 		return err
 	}
-	// return if serving cert secret in the destination namespace is not created
-	_, err = r.secretHandler.Get(ctx, types.NamespacedName{Name: destSecretName, Namespace: meshNamespace})
+
+	// Copy src secret to destination namespace when there is not the synced secret.
+	copiedCertSecret, err := r.secretHandler.Get(ctx, types.NamespacedName{Name: destSecretName, Namespace: meshNamespace})
 	if err != nil {
 		if errors.IsNotFound(err) {
-			if err := r.copyServingCertSecretFromIsvcNamespace(ctx, certSecret, isvc); err != nil {
-				log.V(1).Error(err, "Failed to copy the Secret for InferenceService in the istio-system namespace")
+			if err := r.copyServingCertSecretFromIsvcNamespace(ctx, srcCertSecret, nil); err != nil {
+				log.V(1).Error(err, fmt.Sprintf("Failed to copy the serving certificate Secret(%s) for InferenceService in %s namespace", srcCertSecret.Name, meshNamespace))
 				return err
 			}
-			log.V(1).Info("Waiting for creating serving cert secret in the inference service namespace")
-			return nil
 		}
 		return err
+	}
+
+	// Recreate copied secrt when src secret is updated
+	if !reflect.DeepEqual(srcCertSecret.Data, copiedCertSecret.Data) {
+		log.V(1).Info(fmt.Sprintf("Recreating for serving certificate Secret(%s) in %s namespace", copiedCertSecret.Name, meshNamespace))
+		if err := r.copyServingCertSecretFromIsvcNamespace(ctx, srcCertSecret, copiedCertSecret); err != nil {
+			log.V(1).Error(err, fmt.Sprintf("Failed to copy the Secret(%s) for InferenceService in %s namespace", copiedCertSecret.Name, meshNamespace))
+			return err
+		}
 	}
 
 	// Create Desired resource
@@ -106,7 +112,7 @@ func (r *KserveGatewayReconciler) Reconcile(ctx context.Context, log logr.Logger
 	existingResource, err := r.getExistingResource(ctx)
 	if err != nil {
 		if errors.IsNotFound(err) {
-			log.Error(err, "Failed to find KServe local gateway in istio-system namespace")
+			log.Error(err, fmt.Sprintf("Failed to find KServe local gateway in %s namespace", meshNamespace))
 		}
 		return err
 	}
@@ -154,15 +160,15 @@ func (r *KserveGatewayReconciler) getExistingResource(ctx context.Context) (*ist
 func (r *KserveGatewayReconciler) Delete(ctx context.Context, log logr.Logger, isvc *kservev1beta1.InferenceService) error {
 	var errs []error
 
-	log.V(1).Info(fmt.Sprintf("Deleting serving cert secret(%s) in the namespace(%s)", destSecretName, isvc.Namespace))
+	log.V(1).Info(fmt.Sprintf("Deleting serving certificate Secret(%s) in %s namespace", destSecretName, isvc.Namespace))
 	if err := r.deleteServingCertSecretInIstioNamespace(ctx, destSecretName); err != nil {
-		log.V(1).Error(err, "Failed to delete the copied serving cert secret in the namespace")
+		log.V(1).Error(err, fmt.Sprintf("Failed to delete the copied serving certificate Secret(%s) in %s namespace", destSecretName, isvc.Namespace))
 		errs = append(errs, err)
 	}
 
-	log.V(1).Info(fmt.Sprintf("Deleting the Server(%s) from KServe local gateway in the istio-system namespace", portName))
+	log.V(1).Info(fmt.Sprintf("Deleting the Server(%s) from KServe local gateway in the %s namespace", portName, meshNamespace))
 	if err := r.removeServerFromGateway(ctx, log, portName); err != nil {
-		log.V(1).Error(err, "Failed to remove the server from KServe local gateway in the istio-system namespace")
+		log.V(1).Error(err, fmt.Sprintf("Failed to remove the Server(%s) from KServe local gateway in the %s namespace", portName, meshNamespace))
 		errs = append(errs, err)
 	}
 
@@ -191,10 +197,8 @@ func (r *KserveGatewayReconciler) processDelta(ctx context.Context, log logr.Log
 			log.V(1).Error(err, fmt.Sprintf("Failed to add the Server(%s) from KServe local gateway in the istio-system namespace", desiredGateway.Spec.Servers[0].Port.Name))
 			return err
 		}
-
 		return nil
 	}
-
 	return nil
 }
 
@@ -221,14 +225,21 @@ func (r *KserveGatewayReconciler) removeServerFromGateway(ctx context.Context, l
 	return nil
 }
 
-func (r *KserveGatewayReconciler) copyServingCertSecretFromIsvcNamespace(ctx context.Context, sourceSecret *corev1.Secret, isvc *kservev1beta1.InferenceService) error {
+func (r *KserveGatewayReconciler) copyServingCertSecretFromIsvcNamespace(ctx context.Context, sourceSecret *corev1.Secret, preDestSecret *corev1.Secret) error {
 	destinationSecret := &corev1.Secret{
 		ObjectMeta: metav1.ObjectMeta{
-			Name:      fmt.Sprintf("%s-%s", sourceSecret.Name, sourceSecret.Namespace),
+			Name:      destSecretName,
 			Namespace: meshNamespace,
 		},
 		Data: sourceSecret.Data,
 		Type: sourceSecret.Type,
+	}
+
+	// Remove old secret if src secret is updated
+	if preDestSecret != nil {
+		if err := r.client.Delete(ctx, preDestSecret); err != nil {
+			return err
+		}
 	}
 
 	if err := r.client.Create(ctx, destinationSecret); err != nil {
