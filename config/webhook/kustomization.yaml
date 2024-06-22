@@ -5,7 +5,6 @@ resources:
 - manifests.yaml
 - service.yaml
 
-
 patches:
   - path: webhook_patch.yaml
     target:
@@ -13,10 +12,21 @@ patches:
       kind: ValidatingWebhookConfiguration
       name: validating-webhook-configuration
       version: v1
+  - path: mutator_webhook_patch.yaml
+    target:
+      group: admissionregistration.k8s.io
+      kind: MutatingWebhookConfiguration
+      name: mutating-webhook-configuration
+      version: v1      
   - path: field_patch.yaml
     target:
       group: admissionregistration.k8s.io
       kind: ValidatingWebhookConfiguration
       name: validating-webhook-configuration
       version: v1
-
+  - path: mutator_field_patch.yaml
+    target:
+      group: admissionregistration.k8s.io
+      kind: MutatingWebhookConfiguration
+      name: mutating-webhook-configuration
+      version: v1

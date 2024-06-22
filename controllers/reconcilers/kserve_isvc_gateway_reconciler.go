@@ -39,8 +39,6 @@ import (
 
 var _ SubResourceReconciler = (*KserveGatewayReconciler)(nil)
 var meshNamespace string
-var destSecretName string
-var portName string
 
 type KserveGatewayReconciler struct {
 	client         client.Client
@@ -62,8 +60,6 @@ func (r *KserveGatewayReconciler) Reconcile(ctx context.Context, log logr.Logger
 	log.V(1).Info("Reconciling KServe local gateway for Kserve InferenceService")
 
 	_, meshNamespace = utils.GetIstioControlPlaneName(ctx, r.client)
-	destSecretName = fmt.Sprintf("%s-%s", isvc.Name, isvc.Namespace)
-	portName = fmt.Sprintf("%s-%s", "https", isvc.Name)
 
 	// return if Address.URL is not set
 	if isvc.Status.Address != nil && isvc.Status.Address.URL == nil {
@@ -82,7 +78,7 @@ func (r *KserveGatewayReconciler) Reconcile(ctx context.Context, log logr.Logger
 	}
 
 	// Copy src secret to destination namespace when there is not the synced secret.
-	copiedCertSecret, err := r.secretHandler.Get(ctx, types.NamespacedName{Name: destSecretName, Namespace: meshNamespace})
+	copiedCertSecret, err := r.secretHandler.Get(ctx, types.NamespacedName{Name: fmt.Sprintf("%s-%s", isvc.Name, isvc.Namespace), Namespace: meshNamespace})
 	if err != nil {
 		if errors.IsNotFound(err) {
 			if err := r.copyServingCertSecretFromIsvcNamespace(ctx, srcCertSecret, nil); err != nil {
@@ -137,12 +133,12 @@ func (r *KserveGatewayReconciler) getDesiredResource(isvc *kservev1beta1.Inferen
 				{
 					Hosts: []string{hostname},
 					Port: &istiov1beta1.Port{
-						Name:     portName,
+						Name:     fmt.Sprintf("%s-%s", "https", isvc.Name),
 						Number:   8445,
 						Protocol: "HTTPS",
 					},
 					Tls: &istiov1beta1.ServerTLSSettings{
-						CredentialName: destSecretName,
+						CredentialName: fmt.Sprintf("%s-%s", isvc.Name, isvc.Namespace),
 						Mode:           istiov1beta1.ServerTLSSettings_SIMPLE,
 					},
 				},
@@ -160,15 +156,15 @@ func (r *KserveGatewayReconciler) getExistingResource(ctx context.Context) (*ist
 func (r *KserveGatewayReconciler) Delete(ctx context.Context, log logr.Logger, isvc *kservev1beta1.InferenceService) error {
 	var errs []error
 
-	log.V(1).Info(fmt.Sprintf("Deleting serving certificate Secret(%s) in %s namespace", destSecretName, isvc.Namespace))
-	if err := r.deleteServingCertSecretInIstioNamespace(ctx, destSecretName); err != nil {
-		log.V(1).Error(err, fmt.Sprintf("Failed to delete the copied serving certificate Secret(%s) in %s namespace", destSecretName, isvc.Namespace))
+	log.V(1).Info(fmt.Sprintf("Deleting serving certificate Secret(%s) in %s namespace", fmt.Sprintf("%s-%s", isvc.Name, isvc.Namespace), isvc.Namespace))
+	if err := r.deleteServingCertSecretInIstioNamespace(ctx, fmt.Sprintf("%s-%s", isvc.Name, isvc.Namespace)); err != nil {
+		log.V(1).Error(err, fmt.Sprintf("Failed to delete the copied serving certificate Secret(%s) in %s namespace", fmt.Sprintf("%s-%s", isvc.Name, isvc.Namespace), isvc.Namespace))
 		errs = append(errs, err)
 	}
 
-	log.V(1).Info(fmt.Sprintf("Deleting the Server(%s) from KServe local gateway in the %s namespace", portName, meshNamespace))
-	if err := r.removeServerFromGateway(ctx, log, portName); err != nil {
-		log.V(1).Error(err, fmt.Sprintf("Failed to remove the Server(%s) from KServe local gateway in the %s namespace", portName, meshNamespace))
+	log.V(1).Info(fmt.Sprintf("Deleting the Server(%s) from KServe local gateway in the %s namespace", fmt.Sprintf("%s-%s", "https", isvc.Name), meshNamespace))
+	if err := r.removeServerFromGateway(ctx, log, fmt.Sprintf("%s-%s", "https", isvc.Name)); err != nil {
+		log.V(1).Error(err, fmt.Sprintf("Failed to remove the Server(%s) from KServe local gateway in the %s namespace", fmt.Sprintf("%s-%s", "https", isvc.Name), meshNamespace))
 		errs = append(errs, err)
 	}
 
@@ -228,7 +224,7 @@ func (r *KserveGatewayReconciler) removeServerFromGateway(ctx context.Context, l
 func (r *KserveGatewayReconciler) copyServingCertSecretFromIsvcNamespace(ctx context.Context, sourceSecret *corev1.Secret, preDestSecret *corev1.Secret) error {
 	destinationSecret := &corev1.Secret{
 		ObjectMeta: metav1.ObjectMeta{
-			Name:      destSecretName,
+			Name:      fmt.Sprintf("%s-%s", sourceSecret.Name, sourceSecret.Namespace),
 			Namespace: meshNamespace,
 		},
 		Data: sourceSecret.Data,

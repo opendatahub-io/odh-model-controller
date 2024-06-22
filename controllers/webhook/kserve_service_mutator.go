@@ -4,9 +4,7 @@ import (
 	"context"
 	"fmt"
 
-	kservev1beta1 "github.com/kserve/kserve/pkg/apis/serving/v1beta1"
 	corev1 "k8s.io/api/core/v1"
-	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
@@ -27,28 +25,24 @@ func NewKserveServiceMutator(client client.Client) *kserveServiceMutator {
 // Default implements the admission.Defaulter interface to mutate the resources
 func (m *kserveServiceMutator) Default(ctx context.Context, obj runtime.Object) error {
 	log := logf.FromContext(ctx).WithName("KserviceServiceMutateWebhook")
+	log.Info("AAAAAAAAAAAAAAAAAAA - mutatingwebhook Called")
 
 	svc, ok := obj.(*corev1.Service)
 	if !ok {
 		return fmt.Errorf("unexpected object type")
 	}
 
-	// Retrieve the InferenceService directly by name
-	var isvc kservev1beta1.InferenceService
-	err := m.client.Get(ctx, client.ObjectKey{Name: svc.Name, Namespace: svc.Namespace}, &isvc)
-	if err != nil {
-		if apierrors.IsNotFound(err) {
-			// If InferenceService is not found, return without error
-			return nil
-		}
-		return fmt.Errorf("failed to get InferenceService: %w", err)
+	log.Info("AAAAAAAAAAAAAAAAAAA1 - before checking")
+	if !hasInferenceServiceOwner(svc) {
+		return nil
 	}
+	log.Info("AAAAAAAAAAAAAAAAAAA1 - after checking")
 
 	// Add the annotation if a matching InferenceService is found
 	if svc.Annotations == nil {
 		svc.Annotations = make(map[string]string)
 	}
-	svc.Annotations["service.beta.openshift.io/serving-cert-secret-name"] = isvc.Name
+	svc.Annotations["service.beta.openshift.io/serving-cert-secret-name"] = svc.Name
 	log.Info("Added annotation to Service", "ServiceName", svc.Name, "Annotation", svc.Annotations["service.beta.openshift.io/serving-cert-secret-name"])
 
 	return nil
@@ -58,4 +52,15 @@ func (m *kserveServiceMutator) Default(ctx context.Context, obj runtime.Object) 
 func (m *kserveServiceMutator) InjectDecoder(d *admission.Decoder) error {
 	m.Decoder = d
 	return nil
+}
+
+// check if the src secret has ownerReferences for InferenceService
+func hasInferenceServiceOwner(obj client.Object) bool {
+	ownerReferences := obj.GetOwnerReferences()
+	for _, ownerReference := range ownerReferences {
+		if ownerReference.Kind == "InferenceService" {
+			return true
+		}
+	}
+	return false
 }

@@ -19,6 +19,13 @@ var _ = Describe("KServe Service mutator webhook", func() {
 			ObjectMeta: metav1.ObjectMeta{
 				Name:      defaultIsvcName,
 				Namespace: "default",
+				OwnerReferences: []metav1.OwnerReference{
+					{
+						APIVersion: "serving.kserve.io/v1beta1",
+						Kind:       "InferenceService",
+						Name:       "sklearn-example-isvc-iris-v2-rest",
+					},
+				},
 			},
 		}
 	}
@@ -28,7 +35,7 @@ var _ = Describe("KServe Service mutator webhook", func() {
 
 	})
 
-	It("adds serving cert annotation if Service name matches InferenceService name", func() {
+	It("adds serving cert annotation when Service have InferenceService ownerReference", func() {
 		// Create a new InferenceService
 		inferenceService := &kservev1beta1.InferenceService{
 			ObjectMeta: metav1.ObjectMeta{
@@ -48,10 +55,11 @@ var _ = Describe("KServe Service mutator webhook", func() {
 		Expect(kserveService.Annotations["service.beta.openshift.io/serving-cert-secret-name"]).To(Equal(defaultIsvcName))
 	})
 
-	It("skips adding annotation when Service name does not match InferenceService name", func() {
+	It("skips adding annotation when Service does not have InferenceService ownerReference", func() {
 		kserveServiceName := "different-name"
 		kserveService := createServiceOwnedKserve()
 		kserveService.SetName(kserveServiceName)
+		kserveService.SetOwnerReferences([]metav1.OwnerReference{})
 
 		err := mutator.Default(ctx, kserveService)
 		Expect(err).ShouldNot(HaveOccurred())
