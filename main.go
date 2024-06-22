@@ -216,17 +216,8 @@ func main() {
 			os.Exit(1)
 		}
 
-		// Set up the mutating webhook using the builder
-		err = builder.WebhookManagedBy(mgr).
-			For(&corev1.Service{}).
-			WithDefaulter(webhook.NewKserveServiceMutator(mgr.GetClient())).
-			Complete()
-		if err != nil {
-			setupLog.Error(err, "unable to setup Kserve Service mutating Webhook")
-			os.Exit(1)
-		}
 	} else {
-		setupLog.Info("Skipping setup of Knative Service validating Webhook, because KServe Serverless setup seems to be disabled in the DataScienceCluster resource.")
+		setupLog.Info("Skipping setup of Knative Service validating/mutating Webhook, because KServe Serverless setup seems to be disabled in the DataScienceCluster resource.")
 	}
 
 	//+kubebuilder:scaffold:builder

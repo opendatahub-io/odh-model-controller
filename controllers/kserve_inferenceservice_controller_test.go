@@ -103,6 +103,55 @@ var _ = Describe("The Openshift Kserve model controller", func() {
 				return err
 			}, timeout, interval).Should(Succeed())
 		})
+		It("With a new Kserve InferenceService, serving cert annotation should be added to the runtime Service object.", func() {
+			// We need to stub the cluster state and indicate where is istio namespace (reusing authConfig test data)
+			if dsciErr := createDSCI(DSCIWithoutAuthorization); dsciErr != nil && !errors.IsAlreadyExists(dsciErr) {
+				Fail(dsciErr.Error())
+			}
+			// Create a new InferenceService
+			inferenceService := &kservev1beta1.InferenceService{}
+			err := convertToStructuredResource(KserveInferenceServicePath1, inferenceService)
+			Expect(err).NotTo(HaveOccurred())
+			inferenceService.SetNamespace(testNs)
+			Expect(cli.Create(ctx, inferenceService)).Should(Succeed())
+			// Update the URL of the InferenceService to indicate it is ready.
+			deployedInferenceService := &kservev1beta1.InferenceService{}
+			err = cli.Get(ctx, types.NamespacedName{Name: inferenceService.Name, Namespace: inferenceService.Namespace}, deployedInferenceService)
+			Expect(err).NotTo(HaveOccurred())
+			// url, err := apis.ParseURL("https://example-onnx-mnist-default.test.com")
+			Expect(err).NotTo(HaveOccurred())
+			newAddress := &duckv1.Addressable{
+				URL: apis.HTTPS("example-onnx-mnist-default.test.com"),
+			}
+			deployedInferenceService.Status.Address = newAddress
+			err = cli.Status().Update(ctx, deployedInferenceService)
+			Expect(err).NotTo(HaveOccurred())
+			// Stub: Create a Kserve Service, which must be created by the KServe operator.
+			svc := &corev1.Service{}
+			err = convertToStructuredResource(testIsvcSvcPath, svc)
+			Expect(err).NotTo(HaveOccurred())
+			svc.SetNamespace(inferenceService.Namespace)
+			Expect(cli.Create(ctx, svc)).Should(Succeed())
+			err = cli.Status().Update(ctx, deployedInferenceService)
+			Expect(err).NotTo(HaveOccurred())
+			// isvcService, err := waitForService(cli, testNs, inferenceService.Name, 5, 2*time.Second)
+			// Expect(err).NotTo(HaveOccurred())
+
+			isvcService := &corev1.Service{}
+			Eventually(func() error {
+				err := cli.Get(ctx, client.ObjectKey{Namespace: inferenceService.Namespace, Name: inferenceService.Name}, isvcService)
+				if err != nil {
+					return err
+				}
+				if isvcService.Annotations == nil || isvcService.Annotations[constants.ServingCertAnnotationKey] == "" {
+
+					return fmt.Errorf("Annotation[constants.ServingCertAnnotationKey] is not added yet")
+				}
+				return nil
+			}, timeout, interval).Should(Succeed())
+
+			Expect(isvcService.Annotations[constants.ServingCertAnnotationKey]).Should(Equal(inferenceService.Name))
+		})
 
 		It("should create a secret for runtime and update kserve local gateway in the istio-system namespace", func() {
 			// We need to stub the cluster state and indicate where is istio namespace (reusing authConfig test data)

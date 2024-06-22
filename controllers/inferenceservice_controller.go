@@ -32,7 +32,7 @@ import (
 	apierrs "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/types"
 	ctrl "sigs.k8s.io/controller-runtime"
-	"sigs.k8s.io/controller-runtime/pkg/builder"
+	// "sigs.k8s.io/controller-runtime/pkg/builder"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/event"
 	"sigs.k8s.io/controller-runtime/pkg/handler"
@@ -126,9 +126,10 @@ var certSecretPredicate = predicate.Funcs{
 
 // check if the src secret has ownerReferences for InferenceService
 func hasInferenceServiceOwner(obj client.Object) bool {
+
 	ownerReferences := obj.GetOwnerReferences()
 	for _, ownerReference := range ownerReferences {
-		if ownerReference.Kind == "InferenceService" {
+		if ownerReference.Kind == "Service" {
 			return true
 		}
 	}
@@ -195,8 +196,25 @@ func (r *OpenshiftInferenceServiceReconciler) SetupWithManager(mgr ctrl.Manager)
 				return []reconcile.Request{
 					{NamespacedName: types.NamespacedName{Name: o.GetName(), Namespace: o.GetNamespace()}},
 				}
-			}), builder.WithPredicates(certSecretPredicate))
+			}))
 
+		// Watches(&corev1.Secret{},
+		// 	handler.EnqueueRequestsFromMapFunc(func(ctx context.Context, o client.Object) []reconcile.Request {
+		// 		r.log.Info("Reconcile event triggered by Secret: " + o.GetName())
+		// 		isvc := &kservev1beta1.InferenceService{}
+		// 		err := r.client.Get(ctx, types.NamespacedName{Name: o.GetName(), Namespace: o.GetNamespace()}, isvc)
+		// 		if err != nil {
+		// 			if apierrs.IsNotFound(err) {
+		// 				return []reconcile.Request{}
+		// 			}
+		// 			r.log.Error(err, "Error getting the inferenceService", "name", o.GetName())
+		// 			return []reconcile.Request{}
+		// 		}
+
+		// 		return []reconcile.Request{
+		// 			{NamespacedName: types.NamespacedName{Name: o.GetName(), Namespace: o.GetNamespace()}},
+		// 		}
+		// 	}), builder.WithPredicates(certSecretPredicate))
 	kserveWithMeshEnabled, kserveWithMeshEnabledErr := utils.VerifyIfComponentIsEnabled(context.Background(), mgr.GetClient(), utils.KServeWithServiceMeshComponent)
 	if kserveWithMeshEnabledErr != nil {
 		r.log.V(1).Error(kserveWithMeshEnabledErr, "could not determine if kserve have service mesh enabled")
