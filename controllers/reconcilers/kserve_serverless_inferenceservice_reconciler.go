@@ -17,6 +17,7 @@ package reconcilers
 
 import (
 	"context"
+
 	"github.com/hashicorp/go-multierror"
 
 	"github.com/go-logr/logr"
@@ -46,6 +47,7 @@ func NewKServeServerlessInferenceServiceReconciler(client client.Client) *Kserve
 		NewKServeNetworkPolicyReconciler(client),
 		NewKserveAuthConfigReconciler(client),
 		NewKserveGatewayReconciler(client),
+		NewKserveMetricsDashboardReconciler(client),
 	}
 
 	return &KserveServerlessInferenceServiceReconciler{

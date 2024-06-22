@@ -54,6 +54,11 @@ const (
 
 const (
 	DefaultStorageConfig = "storage-config"
+	IntervalValue        = "1m"
+	OvmsImageName        = "openvino_model_server"
+	TgisImageName        = "text-generation-inference"
+	VllmImageName        = "vllm"
+	CaikitImageName      = "caikit-nlp"
 )
 
 // openshift
