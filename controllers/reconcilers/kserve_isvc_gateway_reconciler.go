@@ -18,6 +18,7 @@ package reconcilers
 import (
 	"context"
 	"fmt"
+	"net/url"
 	"reflect"
 
 	"github.com/go-logr/logr"
@@ -31,10 +32,12 @@ import (
 	"k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/client-go/kubernetes"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	istiov1beta1 "istio.io/api/networking/v1beta1"
 	istioclientv1beta1 "istio.io/client-go/pkg/apis/networking/v1beta1"
+	"k8s.io/client-go/rest"
 )
 
 var _ SubResourceReconciler = (*KserveGatewayReconciler)(nil)
@@ -42,14 +45,29 @@ var meshNamespace string
 
 type KserveGatewayReconciler struct {
 	client         client.Client
+	clientset      *kubernetes.Clientset
 	secretHandler  resources.SecretHandler
 	gatewayHandler resources.GatewayHandler
 	deltaProcessor processors.DeltaProcessor
 }
 
 func NewKserveGatewayReconciler(client client.Client) *KserveGatewayReconciler {
+	config, err := rest.InClusterConfig()
+	if err != nil {
+		config, err = rest.InClusterConfig()
+		if err != nil {
+			panic(err.Error())
+		}
+	}
+
+	clientset, err := kubernetes.NewForConfig(config)
+	if err != nil {
+		panic(err.Error())
+	}
+
 	return &KserveGatewayReconciler{
 		client:         client,
+		clientset:      clientset,
 		secretHandler:  resources.NewSecretHandler(client),
 		gatewayHandler: resources.NewGatewayHandler(client),
 		deltaProcessor: processors.NewDeltaProcessor(),
@@ -68,7 +86,8 @@ func (r *KserveGatewayReconciler) Reconcile(ctx context.Context, log logr.Logger
 	}
 
 	// return if serving cert secret in the source namespace is not created
-	srcCertSecret, err := r.secretHandler.Get(ctx, types.NamespacedName{Name: isvc.Name, Namespace: isvc.Namespace})
+	// srcCertSecret, err := r.secretHandler.Get(ctx, types.NamespacedName{Name: isvc.Name, Namespace: isvc.Namespace})
+	srcCertSecret, err := r.clientset.CoreV1().Secrets(isvc.Namespace).Get(ctx, isvc.Name, metav1.GetOptions{})
 	if err != nil {
 		if errors.IsNotFound(err) {
 			log.V(1).Info(fmt.Sprintf("Waiting for the creation of the serving certificate Secret(%s) in %s namespace", isvc.Name, isvc.Namespace))
@@ -78,11 +97,12 @@ func (r *KserveGatewayReconciler) Reconcile(ctx context.Context, log logr.Logger
 	}
 
 	// Copy src secret to destination namespace when there is not the synced secret.
-	copiedCertSecret, err := r.secretHandler.Get(ctx, types.NamespacedName{Name: fmt.Sprintf("%s-%s", isvc.Name, isvc.Namespace), Namespace: meshNamespace})
+	// copiedCertSecret, err := r.secretHandler.Get(ctx, types.NamespacedName{Name: fmt.Sprintf("%s-%s", isvc.Name, isvc.Namespace), Namespace: meshNamespace})
+	copiedCertSecret, err := r.clientset.CoreV1().Secrets(meshNamespace).Get(ctx, fmt.Sprintf("%s-%s", isvc.Name, isvc.Namespace), metav1.GetOptions{})
 	if err != nil {
 		if errors.IsNotFound(err) {
 			if err := r.copyServingCertSecretFromIsvcNamespace(ctx, srcCertSecret, nil); err != nil {
-				log.V(1).Error(err, fmt.Sprintf("Failed to copy the serving certificate Secret(%s) for InferenceService in %s namespace", srcCertSecret.Name, meshNamespace))
+				log.V(1).Error(err, fmt.Sprintf("Failed to copy the serving certificate Secret(%s) to %s namespace", srcCertSecret.Name, meshNamespace))
 				return err
 			}
 		}
@@ -121,7 +141,10 @@ func (r *KserveGatewayReconciler) Reconcile(ctx context.Context, log logr.Logger
 }
 
 func (r *KserveGatewayReconciler) getDesiredResource(isvc *kservev1beta1.InferenceService) (*istioclientv1beta1.Gateway, error) {
-	hostname := isvc.Status.Address.URL.String()
+	hostname,err := getURLWithoutScheme(isvc)
+	if err != nil{
+		return nil, err
+	}
 
 	desiredGateway := &istioclientv1beta1.Gateway{
 		ObjectMeta: metav1.ObjectMeta{
@@ -226,6 +249,9 @@ func (r *KserveGatewayReconciler) copyServingCertSecretFromIsvcNamespace(ctx con
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      fmt.Sprintf("%s-%s", sourceSecret.Name, sourceSecret.Namespace),
 			Namespace: meshNamespace,
+			Labels: map[string]string{
+				"opendatahub.io/managed": "true",
+			},
 		},
 		Data: sourceSecret.Data,
 		Type: sourceSecret.Type,
@@ -254,4 +280,13 @@ func (r *KserveGatewayReconciler) deleteServingCertSecretInIstioNamespace(ctx co
 		return err
 	}
 	return nil
+}
+
+func getURLWithoutScheme(isvc *kservev1beta1.InferenceService) (string, error) {
+	parsedURL, err := url.Parse(isvc.Status.Address.URL.String())
+	if err != nil {
+		return "", err
+	}
+
+	return parsedURL.Host + parsedURL.Path, nil
 }
