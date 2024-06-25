@@ -32,12 +32,10 @@ import (
 	"k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
-	"k8s.io/client-go/kubernetes"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	istiov1beta1 "istio.io/api/networking/v1beta1"
 	istioclientv1beta1 "istio.io/client-go/pkg/apis/networking/v1beta1"
-	"k8s.io/client-go/rest"
 )
 
 var _ SubResourceReconciler = (*KserveGatewayReconciler)(nil)
@@ -45,29 +43,17 @@ var meshNamespace string
 
 type KserveGatewayReconciler struct {
 	client         client.Client
-	clientset      *kubernetes.Clientset
+	clientReader   client.Reader
 	secretHandler  resources.SecretHandler
 	gatewayHandler resources.GatewayHandler
 	deltaProcessor processors.DeltaProcessor
 }
-
-func NewKserveGatewayReconciler(client client.Client) *KserveGatewayReconciler {
-	config, err := rest.InClusterConfig()
-	if err != nil {
-		config, err = rest.InClusterConfig()
-		if err != nil {
-			panic(err.Error())
-		}
-	}
-
-	clientset, err := kubernetes.NewForConfig(config)
-	if err != nil {
-		panic(err.Error())
-	}
+// The clientReader uses the API server to retrieve Secrets that are not cached. By default, only Secrets with the specific label "opendatahub.io/managed: true" are cached.
+func NewKserveGatewayReconciler(client client.Client, clientReader client.Reader) *KserveGatewayReconciler {
 
 	return &KserveGatewayReconciler{
 		client:         client,
-		clientset:      clientset,
+		clientReader:   clientReader,
 		secretHandler:  resources.NewSecretHandler(client),
 		gatewayHandler: resources.NewGatewayHandler(client),
 		deltaProcessor: processors.NewDeltaProcessor(),
@@ -86,8 +72,8 @@ func (r *KserveGatewayReconciler) Reconcile(ctx context.Context, log logr.Logger
 	}
 
 	// return if serving cert secret in the source namespace is not created
-	// srcCertSecret, err := r.secretHandler.Get(ctx, types.NamespacedName{Name: isvc.Name, Namespace: isvc.Namespace})
-	srcCertSecret, err := r.clientset.CoreV1().Secrets(isvc.Namespace).Get(ctx, isvc.Name, metav1.GetOptions{})
+	srcCertSecret := &corev1.Secret{}
+	err := r.clientReader.Get(ctx, types.NamespacedName{Name: isvc.Name, Namespace: isvc.Namespace}, srcCertSecret)
 	if err != nil {
 		if errors.IsNotFound(err) {
 			log.V(1).Info(fmt.Sprintf("Waiting for the creation of the serving certificate Secret(%s) in %s namespace", isvc.Name, isvc.Namespace))
@@ -97,8 +83,9 @@ func (r *KserveGatewayReconciler) Reconcile(ctx context.Context, log logr.Logger
 	}
 
 	// Copy src secret to destination namespace when there is not the synced secret.
-	// copiedCertSecret, err := r.secretHandler.Get(ctx, types.NamespacedName{Name: fmt.Sprintf("%s-%s", isvc.Name, isvc.Namespace), Namespace: meshNamespace})
-	copiedCertSecret, err := r.clientset.CoreV1().Secrets(meshNamespace).Get(ctx, fmt.Sprintf("%s-%s", isvc.Name, isvc.Namespace), metav1.GetOptions{})
+	// This use clientReader because the secret that it looks for is not cached.
+	copiedCertSecret := &corev1.Secret{}
+	err = r.clientReader.Get(ctx, types.NamespacedName{Name: fmt.Sprintf("%s-%s", isvc.Name, isvc.Namespace), Namespace: meshNamespace}, copiedCertSecret)
 	if err != nil {
 		if errors.IsNotFound(err) {
 			if err := r.copyServingCertSecretFromIsvcNamespace(ctx, srcCertSecret, nil); err != nil {
@@ -141,8 +128,8 @@ func (r *KserveGatewayReconciler) Reconcile(ctx context.Context, log logr.Logger
 }
 
 func (r *KserveGatewayReconciler) getDesiredResource(isvc *kservev1beta1.InferenceService) (*istioclientv1beta1.Gateway, error) {
-	hostname,err := getURLWithoutScheme(isvc)
-	if err != nil{
+	hostname, err := getURLWithoutScheme(isvc)
+	if err != nil {
 		return nil, err
 	}
 

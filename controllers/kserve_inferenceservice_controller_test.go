@@ -275,7 +275,6 @@ var _ = Describe("The Openshift Kserve model controller", func() {
 			kserveLocalGateway := &istioclientv1beta1.Gateway{}
 			err := convertToStructuredResource(kserveLocalGatewayPath, kserveLocalGateway)
 			Expect(err).NotTo(HaveOccurred())
-
 			Expect(cli.Create(ctx, kserveLocalGateway)).Should(Succeed())
 
 			// Stub: Create a certificate Secret, which must be created by the openshift service-ca operator.
@@ -312,7 +311,15 @@ var _ = Describe("The Openshift Kserve model controller", func() {
 			// Verify that the certificate secret is created in the istio-system namespace.
 			Eventually(func() error {
 				secret := &corev1.Secret{}
-				err := cli.Get(ctx, client.ObjectKey{Namespace: constants.IstioNamespace, Name: fmt.Sprintf("%s-%s", inferenceService.Name, inferenceService.Namespace)}, secret)
+				err := cli.Get(ctx, types.NamespacedName{Name: inferenceService.Name, Namespace: inferenceService.Namespace}, secret)
+				if err != nil {
+					return err
+				}
+				return nil
+			}, timeout, interval).Should(Succeed())
+
+			Eventually(func() error {
+				err = cli.Get(ctx, client.ObjectKey{Namespace: constants.IstioNamespace, Name: fmt.Sprintf("%s-%s", inferenceService.Name, inferenceService.Namespace)}, secret)
 				if err != nil {
 					return err
 				}

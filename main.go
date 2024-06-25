@@ -32,6 +32,7 @@ import (
 
 	// to ensure that exec-entrypoint and run can make use of them.
 	// Import all Kubernetes client auth plugins (e.g. Azure, GCP, OIDC, etc.)
+
 	_ "k8s.io/client-go/plugin/pkg/client/auth"
 
 	"istio.io/client-go/pkg/apis/security/v1beta1"
@@ -145,6 +146,7 @@ func main() {
 			},
 		},
 	})
+
 	if err != nil {
 		setupLog.Error(err, "unable to start manager")
 		os.Exit(1)
@@ -153,6 +155,7 @@ func main() {
 	//Setup InferenceService controller
 	if err = (controllers.NewOpenshiftInferenceServiceReconciler(
 		mgr.GetClient(),
+		mgr.GetAPIReader(),
 		ctrl.Log.WithName("controllers").WithName("InferenceService"),
 		getEnvAsBool("MESH_DISABLED", false))).
 		SetupWithManager(mgr); err != nil {

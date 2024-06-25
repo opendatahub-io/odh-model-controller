@@ -43,6 +43,8 @@ import (
 	routev1 "github.com/openshift/api/route/v1"
 	istioclientv1beta1 "istio.io/client-go/pkg/apis/networking/v1beta1"
 	corev1 "k8s.io/api/core/v1"
+	"k8s.io/client-go/kubernetes"
+	"k8s.io/client-go/kubernetes/fake"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/envtest"
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
@@ -157,6 +159,7 @@ var _ = BeforeSuite(func() {
 
 	err = (NewOpenshiftInferenceServiceReconciler(
 		mgr.GetClient(),
+		mgr.GetAPIReader(),
 		ctrl.Log.WithName("controllers").WithName("InferenceService-controller"),
 		false)).
 		SetupWithManager(mgr)
@@ -283,4 +286,8 @@ func createTestNamespaceName() string {
 		b[i] = letterRunes[rand.Intn(len(letterRunes))]
 	}
 	return "test-ns-" + string(b)
+}
+
+func NewFakeClientsetWrapper(fakeClient *fake.Clientset) kubernetes.Interface {
+	return fakeClient
 }

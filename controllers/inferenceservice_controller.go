@@ -42,6 +42,7 @@ import (
 // OpenshiftInferenceServiceReconciler holds the controller configuration.
 type OpenshiftInferenceServiceReconciler struct {
 	client                         client.Client
+	clientReader                   client.Reader
 	log                            logr.Logger
 	MeshDisabled                   bool
 	mmISVCReconciler               *reconcilers.ModelMeshInferenceServiceReconciler
@@ -49,13 +50,14 @@ type OpenshiftInferenceServiceReconciler struct {
 	kserveRawISVCReconciler        *reconcilers.KserveRawInferenceServiceReconciler
 }
 
-func NewOpenshiftInferenceServiceReconciler(client client.Client, log logr.Logger, meshDisabled bool) *OpenshiftInferenceServiceReconciler {
+func NewOpenshiftInferenceServiceReconciler(client client.Client, clientReader client.Reader, log logr.Logger, meshDisabled bool) *OpenshiftInferenceServiceReconciler {
 	return &OpenshiftInferenceServiceReconciler{
 		client:                         client,
+		clientReader:                   clientReader,
 		log:                            log,
 		MeshDisabled:                   meshDisabled,
 		mmISVCReconciler:               reconcilers.NewModelMeshInferenceServiceReconciler(client),
-		kserveServerlessISVCReconciler: reconcilers.NewKServeServerlessInferenceServiceReconciler(client),
+		kserveServerlessISVCReconciler: reconcilers.NewKServeServerlessInferenceServiceReconciler(client, clientReader),
 		kserveRawISVCReconciler:        reconcilers.NewKServeRawInferenceServiceReconciler(client),
 	}
 }
@@ -152,7 +154,7 @@ func (r *OpenshiftInferenceServiceReconciler) SetupWithManager(mgr ctrl.Manager)
 				}
 				return reconcileRequests
 			}))
-		
+
 	kserveWithMeshEnabled, kserveWithMeshEnabledErr := utils.VerifyIfComponentIsEnabled(context.Background(), mgr.GetClient(), utils.KServeWithServiceMeshComponent)
 	if kserveWithMeshEnabledErr != nil {
 		r.log.V(1).Error(kserveWithMeshEnabledErr, "could not determine if kserve have service mesh enabled")

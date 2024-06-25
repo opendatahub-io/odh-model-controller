@@ -33,7 +33,8 @@ type KserveServerlessInferenceServiceReconciler struct {
 	subResourceReconcilers []SubResourceReconciler
 }
 
-func NewKServeServerlessInferenceServiceReconciler(client client.Client) *KserveServerlessInferenceServiceReconciler {
+func NewKServeServerlessInferenceServiceReconciler(client client.Client, clientReader client.Reader) *KserveServerlessInferenceServiceReconciler {
+
 	subResourceReconciler := []SubResourceReconciler{
 		NewKserveServiceMeshMemberReconciler(client),
 		NewKserveRouteReconciler(client),
@@ -47,7 +48,7 @@ func NewKServeServerlessInferenceServiceReconciler(client client.Client) *Kserve
 		NewKServeNetworkPolicyReconciler(client),
 		NewKserveAuthConfigReconciler(client),
 		NewKserveIsvcServiceReconciler(client),
-		NewKserveGatewayReconciler(client),
+		NewKserveGatewayReconciler(client, clientReader),
 		NewKserveMetricsDashboardReconciler(client),
 	}
 
