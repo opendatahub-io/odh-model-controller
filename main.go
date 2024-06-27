@@ -23,7 +23,7 @@ import (
 	"strconv"
 
 	"github.com/opendatahub-io/odh-model-controller/controllers/webhook"
-	corev1 "k8s.io/api/core/v1"
+	v1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/labels"
 	knservingv1 "knative.dev/serving/pkg/apis/serving/v1"
 	"sigs.k8s.io/controller-runtime/pkg/builder"
@@ -32,7 +32,6 @@ import (
 
 	// to ensure that exec-entrypoint and run can make use of them.
 	// Import all Kubernetes client auth plugins (e.g. Azure, GCP, OIDC, etc.)
-
 	_ "k8s.io/client-go/plugin/pkg/client/auth"
 
 	"istio.io/client-go/pkg/apis/security/v1beta1"
@@ -64,7 +63,6 @@ func init() { //nolint:gochecknoinits //reason this way we ensure schemes are al
 // +kubebuilder:rbac:groups=serving.kserve.io,resources=servingruntimes/finalizers,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups=networking.istio.io,resources=virtualservices,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups=networking.istio.io,resources=virtualservices/finalizers,verbs=get;list;watch;create;update;patch;delete
-// +kubebuilder:rbac:groups=networking.istio.io,resources=gateways,verbs=get;list;watch;update;patch
 // +kubebuilder:rbac:groups=security.istio.io,resources=peerauthentications,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups=security.istio.io,resources=authorizationpolicies,verbs=get;list
 // +kubebuilder:rbac:groups=telemetry.istio.io,resources=telemetries,verbs=get;list;watch;create;update;patch;delete
@@ -133,12 +131,12 @@ func main() {
 		},
 		Cache: cache.Options{
 			ByObject: map[client.Object]cache.ByObject{
-				&corev1.Secret{}: {
+				&v1.Secret{}: {
 					Label: labels.SelectorFromSet(labels.Set{
 						"opendatahub.io/managed": "true",
 					}),
 				},
-				&corev1.ConfigMap{}: {
+				&v1.ConfigMap{}: {
 					Label: labels.SelectorFromSet(labels.Set{
 						"app.opendatahub.io/kserve": "true",
 					}),
@@ -146,7 +144,6 @@ func main() {
 			},
 		},
 	})
-
 	if err != nil {
 		setupLog.Error(err, "unable to start manager")
 		os.Exit(1)
@@ -155,7 +152,6 @@ func main() {
 	//Setup InferenceService controller
 	if err = (controllers.NewOpenshiftInferenceServiceReconciler(
 		mgr.GetClient(),
-		mgr.GetAPIReader(),
 		ctrl.Log.WithName("controllers").WithName("InferenceService"),
 		getEnvAsBool("MESH_DISABLED", false))).
 		SetupWithManager(mgr); err != nil {
@@ -218,9 +214,8 @@ func main() {
 			setupLog.Error(err, "unable to setup Knative Service validating Webhook")
 			os.Exit(1)
 		}
-
 	} else {
-		setupLog.Info("Skipping setup of Knative Service validating/mutating Webhook, because KServe Serverless setup seems to be disabled in the DataScienceCluster resource.")
+		setupLog.Info("Skipping setup of Knative Service validating Webhook, because KServe Serverless setup seems to be disabled in the DataScienceCluster resource.")
 	}
 
 	//+kubebuilder:scaffold:builder

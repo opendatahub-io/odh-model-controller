@@ -49,7 +49,6 @@ const (
 	KServeCACertConfigMapName  = "odh-kserve-custom-ca-bundle"
 	ODHGlobalCertConfigMapName = "odh-trusted-ca-bundle"
 	ODHCustomCACertFileName    = "odh-ca-bundle.crt"
-	KServeGatewayName          = "kserve-local-gateway"
 )
 
 const (
@@ -59,9 +58,4 @@ const (
 	TgisImageName        = "text-generation-inference"
 	VllmImageName        = "vllm"
 	CaikitImageName      = "caikit-nlp"
-)
-
-// openshift
-const (
-	ServingCertAnnotationKey = "service.beta.openshift.io/serving-cert-secret-name"
 )

@@ -17,7 +17,6 @@ package resources
 
 import (
 	"context"
-
 	"github.com/go-logr/logr"
 	v1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/errors"
@@ -40,8 +39,8 @@ func NewServiceHandler(client client.Client) ServiceHandler {
 }
 
 func (r *serviceHandler) FetchService(ctx context.Context, log logr.Logger, key types.NamespacedName) (*v1.Service, error) {
-	svc := &v1.Service{}
-	err := r.client.Get(ctx, key, svc)
+	route := &v1.Service{}
+	err := r.client.Get(ctx, key, route)
 	if err != nil && errors.IsNotFound(err) {
 		log.V(1).Info("Service not found.")
 		return nil, nil
@@ -49,5 +48,5 @@ func (r *serviceHandler) FetchService(ctx context.Context, log logr.Logger, key 
 		return nil, err
 	}
 	log.V(1).Info("Successfully fetch deployed Service")
-	return svc, nil
+	return route, nil
 }
