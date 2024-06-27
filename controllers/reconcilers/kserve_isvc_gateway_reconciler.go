@@ -48,6 +48,7 @@ type KserveGatewayReconciler struct {
 	gatewayHandler resources.GatewayHandler
 	deltaProcessor processors.DeltaProcessor
 }
+
 // The clientReader uses the API server to retrieve Secrets that are not cached. By default, only Secrets with the specific label "opendatahub.io/managed: true" are cached.
 func NewKserveGatewayReconciler(client client.Client, clientReader client.Reader) *KserveGatewayReconciler {
 
@@ -237,7 +238,11 @@ func (r *KserveGatewayReconciler) copyServingCertSecretFromIsvcNamespace(ctx con
 			Name:      fmt.Sprintf("%s-%s", sourceSecret.Name, sourceSecret.Namespace),
 			Namespace: meshNamespace,
 			Labels: map[string]string{
-				"opendatahub.io/managed": "true",
+				"opendatahub.io/managed":       "true",
+				"app.kubernetes.io/name":       "odh-model-controller",
+				"app.kubernetes.io/component":  "kserve",
+				"app.kubernetes.io/part-of":    "odh-model-serving",
+				"app.kubernetes.io/managed-by": "odh-model-controller",
 			},
 		},
 		Data: sourceSecret.Data,
