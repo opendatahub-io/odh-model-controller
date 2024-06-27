@@ -381,7 +381,7 @@ var _ = Describe("The Openshift Kserve model controller", func() {
 				secret := &corev1.Secret{}
 				Eventually(func() error {
 					return cli.Get(ctx, client.ObjectKey{Namespace: constants.IstioNamespace, Name: fmt.Sprintf("%s-%s", isvcName, constants.IstioNamespace)}, secret)
-				}, timeout, interval).Should(Succeed())
+				}, timeout, interval).ShouldNot(Succeed())
 			})
 		})
 	})
