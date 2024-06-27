@@ -13,4 +13,3 @@ webhooks:
       matchExpressions:
         - key: serving.kserve.io/inferenceservice
           operator: Exists
-

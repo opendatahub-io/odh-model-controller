@@ -32,6 +32,8 @@ import (
 	apierrs "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/types"
 	ctrl "sigs.k8s.io/controller-runtime"
+
+	// "sigs.k8s.io/controller-runtime/pkg/builder"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/handler"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
@@ -40,6 +42,7 @@ import (
 // OpenshiftInferenceServiceReconciler holds the controller configuration.
 type OpenshiftInferenceServiceReconciler struct {
 	client                         client.Client
+	clientReader                   client.Reader
 	log                            logr.Logger
 	MeshDisabled                   bool
 	mmISVCReconciler               *reconcilers.ModelMeshInferenceServiceReconciler
@@ -47,13 +50,14 @@ type OpenshiftInferenceServiceReconciler struct {
 	kserveRawISVCReconciler        *reconcilers.KserveRawInferenceServiceReconciler
 }
 
-func NewOpenshiftInferenceServiceReconciler(client client.Client, log logr.Logger, meshDisabled bool) *OpenshiftInferenceServiceReconciler {
+func NewOpenshiftInferenceServiceReconciler(client client.Client, clientReader client.Reader, log logr.Logger, meshDisabled bool) *OpenshiftInferenceServiceReconciler {
 	return &OpenshiftInferenceServiceReconciler{
 		client:                         client,
+		clientReader:                   clientReader,
 		log:                            log,
 		MeshDisabled:                   meshDisabled,
 		mmISVCReconciler:               reconcilers.NewModelMeshInferenceServiceReconciler(client),
-		kserveServerlessISVCReconciler: reconcilers.NewKServeServerlessInferenceServiceReconciler(client),
+		kserveServerlessISVCReconciler: reconcilers.NewKServeServerlessInferenceServiceReconciler(client, clientReader),
 		kserveRawISVCReconciler:        reconcilers.NewKServeRawInferenceServiceReconciler(client),
 	}
 }
