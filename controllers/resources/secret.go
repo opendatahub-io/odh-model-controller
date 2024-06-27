@@ -18,36 +18,30 @@ package resources
 import (
 	"context"
 
-	"github.com/go-logr/logr"
 	v1 "k8s.io/api/core/v1"
-	"k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
-type ServiceHandler interface {
-	FetchService(ctx context.Context, log logr.Logger, key types.NamespacedName) (*v1.Service, error)
+type SecretHandler interface {
+	Get(ctx context.Context, key types.NamespacedName) (*v1.Secret, error)
 }
 
-type serviceHandler struct {
+type secretHandler struct {
 	client client.Client
 }
 
-func NewServiceHandler(client client.Client) ServiceHandler {
-	return &serviceHandler{
+func NewSecretHandler(client client.Client) SecretHandler {
+	return &secretHandler{
 		client: client,
 	}
 }
 
-func (r *serviceHandler) FetchService(ctx context.Context, log logr.Logger, key types.NamespacedName) (*v1.Service, error) {
-	svc := &v1.Service{}
-	err := r.client.Get(ctx, key, svc)
-	if err != nil && errors.IsNotFound(err) {
-		log.V(1).Info("Service not found.")
-		return nil, nil
-	} else if err != nil {
+func (s *secretHandler) Get(ctx context.Context, key types.NamespacedName) (*v1.Secret, error) {
+	secret := &v1.Secret{}
+	if err := s.client.Get(ctx, key, secret); err != nil {
 		return nil, err
 	}
-	log.V(1).Info("Successfully fetch deployed Service")
-	return svc, nil
+
+	return secret, nil
 }
