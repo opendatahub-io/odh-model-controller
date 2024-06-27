@@ -153,6 +153,23 @@ func (r *OpenshiftInferenceServiceReconciler) SetupWithManager(mgr ctrl.Manager)
 					})
 				}
 				return reconcileRequests
+			})).
+		Watches(&corev1.Secret{},
+			handler.EnqueueRequestsFromMapFunc(func(ctx context.Context, o client.Object) []reconcile.Request {
+				r.log.Info("Reconcile event triggered by Secret: " + o.GetName())
+				isvc := &kservev1beta1.InferenceService{}
+				err := r.client.Get(ctx, types.NamespacedName{Name: o.GetName(), Namespace: o.GetNamespace()}, isvc)
+				if err != nil {
+					if apierrs.IsNotFound(err) {
+						return []reconcile.Request{}
+					}
+					r.log.Error(err, "Error getting the inferenceService", "name", o.GetName())
+					return []reconcile.Request{}
+				}
+
+				return []reconcile.Request{
+					{NamespacedName: types.NamespacedName{Name: o.GetName(), Namespace: o.GetNamespace()}},
+				}
 			}))
 
 	kserveWithMeshEnabled, kserveWithMeshEnabledErr := utils.VerifyIfComponentIsEnabled(context.Background(), mgr.GetClient(), utils.KServeWithServiceMeshComponent)

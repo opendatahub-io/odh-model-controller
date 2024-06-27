@@ -195,21 +195,14 @@ var _ = Describe("The Openshift Kserve model controller", func() {
 			// Verify that the certificate secret is created in the istio-system namespace.
 			Eventually(func() error {
 				secret := &corev1.Secret{}
-				err := cli.Get(ctx, client.ObjectKey{Namespace: constants.IstioNamespace, Name: fmt.Sprintf("%s-%s", inferenceService.Name, inferenceService.Namespace)}, secret)
-				if err != nil {
-					return err
-				}
-				return nil
+				return cli.Get(ctx, client.ObjectKey{Namespace: constants.IstioNamespace, Name: fmt.Sprintf("%s-%s", inferenceService.Name, inferenceService.Namespace)}, secret)
 			}, timeout, interval).Should(Succeed())
 
 			// Verify that the gateway is updated in the istio-system namespace.
 			var gateway *istioclientv1beta1.Gateway
 			Eventually(func() error {
 				gateway, err = waitForUpdatedGatewayCompletion(cli, "add", constants.IstioNamespace, constants.KServeGatewayName, inferenceService.Name)
-				if err != nil {
-					return err
-				}
-				return nil
+				return err
 			}, timeout, interval).Should(Succeed())
 
 			// Ensure that the server is successfully added to the KServe local gateway within the istio-system namespace.
@@ -311,29 +304,18 @@ var _ = Describe("The Openshift Kserve model controller", func() {
 			// Verify that the certificate secret is created in the istio-system namespace.
 			Eventually(func() error {
 				secret := &corev1.Secret{}
-				err := cli.Get(ctx, types.NamespacedName{Name: inferenceService.Name, Namespace: inferenceService.Namespace}, secret)
-				if err != nil {
-					return err
-				}
-				return nil
+				return cli.Get(ctx, types.NamespacedName{Name: inferenceService.Name, Namespace: inferenceService.Namespace}, secret)
 			}, timeout, interval).Should(Succeed())
 
 			Eventually(func() error {
-				err = cli.Get(ctx, client.ObjectKey{Namespace: constants.IstioNamespace, Name: fmt.Sprintf("%s-%s", inferenceService.Name, inferenceService.Namespace)}, secret)
-				if err != nil {
-					return err
-				}
-				return nil
+				return cli.Get(ctx, client.ObjectKey{Namespace: constants.IstioNamespace, Name: fmt.Sprintf("%s-%s", inferenceService.Name, inferenceService.Namespace)}, secret)
 			}, timeout, interval).Should(Succeed())
 
 			// Verify that the gateway is updated in the istio-system namespace.
 			var gateway *istioclientv1beta1.Gateway
 			Eventually(func() error {
 				gateway, err = waitForUpdatedGatewayCompletion(cli, "add", constants.IstioNamespace, constants.KServeGatewayName, inferenceService.Name)
-				if err != nil {
-					return err
-				}
-				return nil
+				return err
 			}, timeout, interval).Should(Succeed())
 
 			// Ensure that the server is successfully added to the KServe local gateway within the istio-system namespace.
@@ -365,11 +347,7 @@ var _ = Describe("The Openshift Kserve model controller", func() {
 				// Verify that the certificate secret in the istio-system namespace is updated.
 				destSecret := &corev1.Secret{}
 				Eventually(func() error {
-					err := cli.Get(ctx, client.ObjectKey{Namespace: constants.IstioNamespace, Name: fmt.Sprintf("%s-%s", deployedInferenceService.Name, deployedInferenceService.Namespace)}, destSecret)
-					if err != nil {
-						return err
-					}
-
+					Expect(cli.Get(ctx, client.ObjectKey{Namespace: constants.IstioNamespace, Name: fmt.Sprintf("%s-%s", deployedInferenceService.Name, deployedInferenceService.Namespace)}, destSecret)).Should(Succeed())
 					if string(destSecret.Data["tls.crt"]) != updatedDataString {
 						return fmt.Errorf("destSecret is not updated yet")
 					}
@@ -392,10 +370,7 @@ var _ = Describe("The Openshift Kserve model controller", func() {
 				var gateway *istioclientv1beta1.Gateway
 				Eventually(func() error {
 					gateway, err = waitForUpdatedGatewayCompletion(cli, "delete", constants.IstioNamespace, constants.KServeGatewayName, isvcName)
-					if err != nil {
-						return err
-					}
-					return nil
+					return err
 				}, timeout, interval).Should(Succeed())
 
 				// Ensure that the server is successfully removed from the KServe local gateway within the istio-system namespace.
@@ -405,12 +380,8 @@ var _ = Describe("The Openshift Kserve model controller", func() {
 				// Ensure that the synced Secret is successfully deleted within the istio-system namespace.
 				secret := &corev1.Secret{}
 				Eventually(func() error {
-					err := cli.Get(ctx, client.ObjectKey{Namespace: constants.IstioNamespace, Name: fmt.Sprintf("%s-%s", isvcName, constants.IstioNamespace)}, secret)
-					if err != nil && errors.IsNotFound(err) {
-						return nil
-					}
-					return err
-				}, timeout, interval).Should(Succeed())
+					return cli.Get(ctx, client.ObjectKey{Namespace: constants.IstioNamespace, Name: fmt.Sprintf("%s-%s", isvcName, constants.IstioNamespace)}, secret)
+				}, timeout, interval).ShouldNot(Succeed())
 			})
 		})
 	})

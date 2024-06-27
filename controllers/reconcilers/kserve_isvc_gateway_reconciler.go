@@ -48,6 +48,7 @@ type KserveGatewayReconciler struct {
 	gatewayHandler resources.GatewayHandler
 	deltaProcessor processors.DeltaProcessor
 }
+
 // The clientReader uses the API server to retrieve Secrets that are not cached. By default, only Secrets with the specific label "opendatahub.io/managed: true" are cached.
 func NewKserveGatewayReconciler(client client.Client, clientReader client.Reader) *KserveGatewayReconciler {
 
@@ -94,14 +95,14 @@ func (r *KserveGatewayReconciler) Reconcile(ctx context.Context, log logr.Logger
 			}
 		}
 		return err
-	}
-
-	// Recreate copied secrt when src secret is updated
-	if !reflect.DeepEqual(srcCertSecret.Data, copiedCertSecret.Data) {
-		log.V(1).Info(fmt.Sprintf("Recreating for serving certificate Secret(%s) in %s namespace", copiedCertSecret.Name, meshNamespace))
-		if err := r.copyServingCertSecretFromIsvcNamespace(ctx, srcCertSecret, copiedCertSecret); err != nil {
-			log.V(1).Error(err, fmt.Sprintf("Failed to copy the Secret(%s) for InferenceService in %s namespace", copiedCertSecret.Name, meshNamespace))
-			return err
+	} else {
+		// Recreate copied secrt when src secret is updated
+		if !reflect.DeepEqual(srcCertSecret.Data, copiedCertSecret.Data) {
+			log.V(2).Info(fmt.Sprintf("Recreating for serving certificate Secret(%s) in %s namespace", copiedCertSecret.Name, meshNamespace))
+			if err := r.copyServingCertSecretFromIsvcNamespace(ctx, srcCertSecret, copiedCertSecret); err != nil {
+				log.V(1).Error(err, fmt.Sprintf("Failed to copy the Secret(%s) for InferenceService in %s namespace", copiedCertSecret.Name, meshNamespace))
+				return err
+			}
 		}
 	}
 
@@ -237,7 +238,11 @@ func (r *KserveGatewayReconciler) copyServingCertSecretFromIsvcNamespace(ctx con
 			Name:      fmt.Sprintf("%s-%s", sourceSecret.Name, sourceSecret.Namespace),
 			Namespace: meshNamespace,
 			Labels: map[string]string{
-				"opendatahub.io/managed": "true",
+				"opendatahub.io/managed":       "true",
+				"app.kubernetes.io/name":       "odh-model-controller",
+				"app.kubernetes.io/component":  "kserve",
+				"app.kubernetes.io/part-of":    "odh-model-serving",
+				"app.kubernetes.io/managed-by": "odh-model-controller",
 			},
 		},
 		Data: sourceSecret.Data,
@@ -254,7 +259,25 @@ func (r *KserveGatewayReconciler) copyServingCertSecretFromIsvcNamespace(ctx con
 	if err := r.client.Create(ctx, destinationSecret); err != nil {
 		return err
 	}
+
+	// add label 'opendatahub.io/managed=true' to original Secret for caching
+	if err := r.addServingCertSecretLabel(ctx, sourceSecret); err != nil {
+		return err
+	}
 	return nil
+}
+
+func (r *KserveGatewayReconciler) addServingCertSecretLabel(ctx context.Context, sourceSecret *corev1.Secret) error {
+	service := sourceSecret.DeepCopy()
+	if service.Labels == nil {
+		service.Labels = make(map[string]string)
+	}
+
+	service.Labels["opendatahub.io/managed"] = "true"
+
+	err := r.client.Update(ctx, service)
+
+	return err
 }
 
 func (r *KserveGatewayReconciler) deleteServingCertSecretInIstioNamespace(ctx context.Context, targetSecretName string) error {

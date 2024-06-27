@@ -52,7 +52,7 @@ func (r *KserveIsvcServiceReconciler) Cleanup(_ context.Context, _ logr.Logger, 
 	return nil
 }
 
-//To support KServe local gateway using HTTPS, each InferenceService (ISVC) needs a certificate. This reconciliation process helps add a serving certificate annotation to the ISVC service.
+// To support KServe local gateway using HTTPS, each InferenceService (ISVC) needs a certificate. This reconciliation process helps add a serving certificate annotation to the ISVC service.
 func (r *KserveIsvcServiceReconciler) Reconcile(ctx context.Context, log logr.Logger, isvc *kservev1beta1.InferenceService) error {
 	log.V(1).Info("Reconciling InferenceService Service serving cert")
 
@@ -104,7 +104,10 @@ func (r *KserveIsvcServiceReconciler) processDelta(ctx context.Context, log logr
 		if service.Annotations == nil {
 			service.Annotations = make(map[string]string)
 		}
-		service.Annotations = desiredService.Annotations
+
+		for key, value := range desiredService.Annotations {
+			service.Annotations[key] = value
+		}
 
 		if err = r.client.Update(ctx, service); err != nil {
 			return err
