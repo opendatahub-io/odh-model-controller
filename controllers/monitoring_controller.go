@@ -17,6 +17,8 @@ package controllers
 
 import (
 	"context"
+	"reflect"
+
 	"github.com/go-logr/logr"
 	kservev1alpha1 "github.com/kserve/kserve/pkg/apis/serving/v1alpha1"
 	corev1 "k8s.io/api/core/v1"
@@ -24,7 +26,6 @@ import (
 	apierrs "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
-	"reflect"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/handler"
@@ -238,12 +239,12 @@ func (r *MonitoringReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 		return ctrl.Result{}, err
 	}
 
-	log.Info("Monitoring Controller reconciling.")
-	err = r.reconcileRoleBinding(ctx, req)
-	if err != nil {
-		return ctrl.Result{}, err
-	}
-	log.Info("Monitoring Controller reconciled successfully.")
+	// log.Info("Monitoring Controller reconciling.")
+	// err = r.reconcileRoleBinding(ctx, req)
+	// if err != nil {
+	// 	return ctrl.Result{}, err
+	// }
+	// log.Info("Monitoring Controller reconciled successfully.")
 	return ctrl.Result{}, nil
 }
 
