@@ -1,0 +1,43 @@
+name: Check ODH Model Controller Image Tag
+
+on:
+  pull_request:
+    branches: [main, release*]
+    paths:
+      - "config/base/params.env"
+
+jobs:
+  check-image-tag:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout PR branch
+        uses: actions/checkout@v4
+
+      - name: Extract image tag from PR branch
+        id: extract-pr
+        run: |
+          IMAGE_TAG=$(grep '^odh-model-controller' config/base/params.env | cut -d '=' -f 2 | cut -d ':' -f 2 | tr -d ' ')
+          echo "PR_IMAGE_TAG=$IMAGE_TAG" >> $GITHUB_ENV
+
+      - name: Compare image tags
+        id: compare-tags
+        run: |
+          if [ "${{ github.base_ref }}" == "main" ]; then
+            EXPECTED_TAG="fast"
+          elif [[ "${{ github.base_ref }}" =~ ^release-(.*) ]]; then
+            VERSION=${BASH_REMATCH[1]}
+            EXPECTED_TAG="v$VERSION"
+          else
+            echo "Unknown destination branch: ${{ github.base_ref }}"
+            exit 1
+          fi
+
+          # Check if PR_IMAGE_TAG matches EXPECTED_TAG followed by a dot and digits
+          PR_IMAGE_TAG=${{ env.PR_IMAGE_TAG }}
+          if [[ ! "$PR_IMAGE_TAG" =~  ^"$EXPECTED_TAG"(\.[0-9]+)?$ ]]; then
+            echo "Image tag mismatch! Expected '$EXPECTED_TAG' but found '$PR_IMAGE_TAG'"
+            exit 1
+          fi
+
+          echo "Image tag ('$PR_IMAGE_TAG') is correct."
