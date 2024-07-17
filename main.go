@@ -19,16 +19,15 @@ package main
 import (
 	"context"
 	"flag"
-	"os"
-	"strconv"
-
 	"github.com/opendatahub-io/odh-model-controller/controllers/webhook"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/labels"
 	knservingv1 "knative.dev/serving/pkg/apis/serving/v1"
+	"os"
 	"sigs.k8s.io/controller-runtime/pkg/builder"
 	"sigs.k8s.io/controller-runtime/pkg/cache"
 	"sigs.k8s.io/controller-runtime/pkg/metrics/server"
+	"strconv"
 
 	// to ensure that exec-entrypoint and run can make use of them.
 	// Import all Kubernetes client auth plugins (e.g. Azure, GCP, OIDC, etc.)
