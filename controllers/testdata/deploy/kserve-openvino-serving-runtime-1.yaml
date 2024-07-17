@@ -1,52 +1,42 @@
 apiVersion: serving.kserve.io/v1alpha1
 kind: ServingRuntime
 metadata:
-  annotations:
-    openshift.io/display-name: OpenVINO Model Server
-    opendatahub.io/recommended-accelerators: '["nvidia.com/gpu"]'
   name: ovms-1.x
   namespace: default
-  labels:
-    opendatahub.io/dashboard: 'true'
 spec:
-  multiModel: false
-  annotations:
-    prometheus.io/port: '8888'
-    prometheus.io/path: /metrics
   supportedModelFormats:
     - name: openvino_ir
-      version: opset13
+      version: opset1
       autoSelect: true
     - name: onnx
-      version: '1'
-    - name: tensorflow
-      version: '1'
-      autoSelect: true
-    - name: tensorflow
-      version: '2'
-      autoSelect: true
-    - name: paddle
-      version: '2'
-      autoSelect: true
-    - name: pytorch
-      version: '2'
+      version: "1"
       autoSelect: true
   protocolVersions:
-    - v2
-    - grpc-v2
+    - grpc-v1
+  grpcEndpoint: "port:8085"
+  grpcDataEndpoint: "port:8001"
   containers:
-    - name: kserve-container
-      image: quay.io/opendatahub/openvino_model_server:fast
+    - name: ovms
+      image: quay.io/modh/odh-openvino-servingruntime-container:v1.19.0-18
       args:
-        - '--model_name=example-onnx-mnist'
-        - '--port=8001'
-        - '--rest_port=8888'
-        - '--model_path=/mnt/models'
-        - '--file_system_poll_wait_seconds=0'
-        - '--grpc_bind_address=0.0.0.0'
-        - '--rest_bind_address=0.0.0.0'
-        - '--target_device=AUTO'
-        - '--metrics_enable'
-      ports:
-        - containerPort: 8888
-          protocol: TCP
+        - --port=8001
+        - --rest_port=8888
+        # must match the default value in the ovms adapter server
+        - --config_path=/models/model_config_list.json
+        # the adapter will call `/v1/config/reload` to trigger reloads
+        - --file_system_poll_wait_seconds=0
+        # bind to localhost only to constrain requests to containers in the pod
+        - --grpc_bind_address=127.0.0.1
+        - --rest_bind_address=127.0.0.1
+      resources:
+        requests:
+          cpu: 500m
+          memory: 1Gi
+        limits:
+          cpu: 5
+          memory: 1Gi
+  builtInAdapter:
+    serverType: ovms
+    runtimeManagementPort: 8888
+    memBufferBytes: 134217728
+    modelLoadingTimeoutMillis: 90000

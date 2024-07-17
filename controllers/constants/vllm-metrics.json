@@ -1,44 +1,47 @@
 {
-    "config": [
-        {
-            "title": "Number of requests",
-            "type": "REQUEST_COUNT",
-            "queries": [
-                {
-                    "title": "Number of successful incoming requests",
-                    "query": "sum(increase(vllm:request_success_total{namespace='${NAMESPACE}',model_name='${model_name}'}[${RATE_INTERVAL}]))"
-                }
-            ]
-        },
-        {
-            "title": "Average response time (ms)",
-            "type": "MEAN_LATENCY",
-            "queries": [
-                {
-                    "title": "Average e2e latency",
-                    "query": "histogram_quantile(0.5, sum(rate(vllm:e2e_request_latency_seconds_bucket{namespace='${NAMESPACE}', model_name='${MODEL_NAME}'}[${RATE_INTERVAL}])) by (le, model_name))"
-                }
-            ]
-        },
-        {
-            "title": "CPU utilization %",
-            "type": "CPU_USAGE",
-            "queries": [
-                {
-                    "title": "CPU usage",
-                    "query": "sum(node_namespace_pod_container:container_cpu_usage_seconds_total:sum_irate{namespace='${NAMESPACE}'} * on(namespace,pod) group_left(workload, workload_type) namespace_workload_pod:kube_pod_owner:relabel{namespace='${NAMESPACE}', workload=~'${MODEL_NAME}-predictor-.*', workload_type=~'deployment'}) by (pod)"
-                }
-            ]
-        },
-        {
-            "title": "Memory utilization %",
-            "type": "MEMORY_USAGE",
-            "queries": [
-                {
-                    "title": "Memory usage",
-                    "query":  "sum(container_memory_working_set_bytes{namespace='${NAMESPACE}', pod=~'${MODEL_NAME}-predictor-.*'}) by (pod)"
-                }
-            ]
-        }
-    ]
+    "metrics": {
+        "supported": "true",
+        "config": [
+            {
+                "title": "Number of requests",
+                "type": "REQUEST_COUNT",
+                "queries": [
+                    {
+                        "title": "Number of successful incoming requests",
+                        "query": "sum(increase(vllm:request_success_total{namespace='${NAMESPACE}',model_name='${model_name}'}[${RATE_INTERVAL}]))"
+                    }
+                ]
+            },
+            {
+                "title": "Average response time (ms)",
+                "type": "MEAN_LATENCY",
+                "queries": [
+                    {
+                        "title": "Average e2e latency",
+                        "query": "histogram_quantile(0.5, sum(rate(vllm:e2e_request_latency_seconds_bucket{namespace=${NAMESPACE}, model_name='${MODEL_NAME}'}[${RATE_INTERVAL}])) by (le, model_name))"
+                    }
+                ]
+            },
+            {
+                "title": "CPU utilization %",
+                "type": "CPU_USAGE",
+                "queries": [
+                    {
+                        "title": "CPU usage",
+                        "query": "sum(node_namespace_pod_container:container_cpu_usage_seconds_total:sum_irate{namespace='${NAMESPACE}'}* on(namespace,pod) group_left(workload, workload_type) namespace_workload_pod:kube_pod_owner:relabel{namespace='${NAMESPACE}', workload=~'${MODEL_NAME}-predictor-.*', workload_type=~'deployment'}) by (pod)"
+                    }
+                ]
+            },
+            {
+                "title": "Memory utilization %",
+                "type": "MEMORY_USAGE",
+                "queries": [
+                    {
+                        "title": "Memory usage",
+                        "query":  "sum(container_memory_working_set_bytes{namespace='$(MODEL_NAMESPACE)', pod=~'${MODEL_NAME}-predictor-.*'}) by (pod)"
+                    }
+                ]
+            }
+        ]
+    }
 }
