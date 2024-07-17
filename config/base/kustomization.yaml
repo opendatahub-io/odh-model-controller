@@ -12,53 +12,70 @@ configMapGenerator:
 generatorOptions:
   disableNameSuffixHash: true
 
-vars:
-  - fieldref:
+replacements:
+  - source:
+      kind: ConfigMap
+      version: v1
+      name: odh-model-controller-parameters
       fieldPath: data.caikit-tgis-image
-    name: caikit-tgis-image
-    objref:
-      apiVersion: v1
+    targets:
+      - select:
+          kind: Template
+          name: caikit-tgis-image
+        fieldPaths:
+          - objects[]/spec/containers[]/image
+  - source:
       kind: ConfigMap
+      version: v1
       name: odh-model-controller-parameters
-  - fieldref:
       fieldPath: data.caikit-standalone-image
-    name: caikit-standalone-image
-    objref:
-      apiVersion: v1
+    targets:
+      - select:
+          kind: Template
+          name: caikit-standalone-image
+        fieldPaths:
+          - objects[]/spec/containers[]/image
+  - source:
       kind: ConfigMap
+      version: v1
       name: odh-model-controller-parameters
-  - fieldref:
       fieldPath: data.tgis-image
-    name: tgis-image
-    objref:
-      apiVersion: v1
+    targets:
+      - select:
+          kind: Template
+          name: tgis-image
+        fieldPaths:
+          - objects[]/spec/containers[]/image
+  - source:
       kind: ConfigMap
+      version: v1
       name: odh-model-controller-parameters
-  - fieldref:
       fieldPath: data.ovms-image
-    name: ovms-image
-    objref:
-      apiVersion: v1
+    targets:
+      - select:
+          kind: Template
+          name: ovms-image
+        fieldPaths:
+          - objects[]/spec/containers[]/image
+  - source:
       kind: ConfigMap
+      version: v1
       name: odh-model-controller-parameters
-  - fieldref:
       fieldPath: data.vllm-image
-    name: vllm-image
-    objref:
-      apiVersion: v1
+    targets:
+      - select:
+          kind: Template
+          name: vllm-image
+        fieldPaths:
+          - objects[]/spec/containers[]/image
+  - source:
       kind: ConfigMap
+      version: v1
       name: odh-model-controller-parameters
-  - fieldref:
       fieldPath: metadata.namespace
-    name: mesh-namespace
-    objref:
-      apiVersion: v1
-      kind: ConfigMap
-      name: odh-model-controller-parameters
-  - fieldref:
-      fieldPath: data.odh-model-controller
-    name: odh-model-controller
-    objref:
-      apiVersion: v1
-      kind: ConfigMap
-      name: odh-model-controller-parameters
+    targets:
+      - select: 
+          kind: Deployment
+          name: odh-model-controller
+        fieldPaths:
+          - spec/template/spec/containers[]/image
