@@ -164,10 +164,6 @@ func (r *KserveMetricsDashboardReconciler) createDesiredResource(ctx context.Con
 				"supported": "false",
 			},
 		}
-		// Add labels to the configMap
-		configMap.Labels = map[string]string{
-			"app.opendatahub.io/kserve": "true",
-		}
 		if err := ctrl.SetControllerReference(isvc, configMap, r.client.Scheme()); err != nil {
 			log.Error(err, "Unable to add OwnerReference to the Metrics Dashboard Configmap")
 			return nil, err
@@ -186,10 +182,6 @@ func (r *KserveMetricsDashboardReconciler) createDesiredResource(ctx context.Con
 			"supported": "true",
 			"metrics":   string(finaldata),
 		},
-	}
-	// Add labels to the configMap
-	configMap.Labels = map[string]string{
-		"app.opendatahub.io/kserve": "true",
 	}
 	if err := ctrl.SetControllerReference(isvc, configMap, r.client.Scheme()); err != nil {
 		log.Error(err, "Unable to add OwnerReference to the Metrics Dashboard Configmap")
