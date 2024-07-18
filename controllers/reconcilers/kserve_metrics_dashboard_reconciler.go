@@ -17,7 +17,6 @@ package reconcilers
 
 import (
 	"context"
-	"os"
 	"regexp"
 	"strings"
 
@@ -52,10 +51,6 @@ type MetricsDashboardConfigMapData struct {
 }
 
 var _ SubResourceReconciler = (*KserveMetricsDashboardReconciler)(nil)
-var ovmsData []byte
-var tgisData []byte
-var vllmData []byte
-var caikitData []byte
 
 type KserveMetricsDashboardReconciler struct {
 	NoResourceRemoval
@@ -94,7 +89,6 @@ func (r *KserveMetricsDashboardReconciler) Reconcile(ctx context.Context, log lo
 }
 
 func (r *KserveMetricsDashboardReconciler) createDesiredResource(ctx context.Context, log logr.Logger, isvc *kservev1beta1.InferenceService) (*corev1.ConfigMap, error) {
-
 	// resolve SR
 	isvcRuntime := isvc.Spec.Predictor.Model.Runtime
 	runtime := &kservev1alpha1.ServingRuntime{}
@@ -112,47 +106,16 @@ func (r *KserveMetricsDashboardReconciler) createDesiredResource(ctx context.Con
 	findImageName := re.FindStringSubmatch(servingRuntimeImage)
 	servingRuntime := findImageName[1]
 
-	var data []byte
+	var data string
 	switch servingRuntime {
 	case constants.OvmsImageName:
-		if ovmsData == nil {
-			ovmsData, err := os.ReadFile("ovms-metrics.json")
-			if err != nil {
-				log.Error(err, "Unable to load metrics dashboard template file:")
-				return nil, err
-			}
-			data = ovmsData
-		}
+		data = constants.OvmsData
 	case constants.TgisImageName:
-		if tgisData == nil {
-			tgisData, err := os.ReadFile("tgis-metrics.json")
-			if err != nil {
-				log.Error(err, "Unable to load metrics dashboard template file:")
-				return nil, err
-			}
-			data = tgisData
-		}
-
+		data = constants.TgisData
 	case constants.VllmImageName:
-		if vllmData == nil {
-			vllmData, err := os.ReadFile("vllm-metrics.json")
-			if err != nil {
-				log.Error(err, "Unable to load metrics dashboard template file:")
-				return nil, err
-			}
-			data = vllmData
-		}
-
+		data = constants.VllmData
 	case constants.CaikitImageName:
-		if caikitData == nil {
-			caikitData, err := os.ReadFile("caikit-metrics.json")
-			if err != nil {
-				log.Error(err, "Unable to load metrics dashboard template file:")
-				return nil, err
-			}
-			data = caikitData
-		}
-
+		data = constants.CaikitData
 	default:
 		log.V(1).Info("Metrics for runtime not supported.", "Runtime:", runtime.Name)
 		configMap := &corev1.ConfigMap{
@@ -180,7 +143,7 @@ func (r *KserveMetricsDashboardReconciler) createDesiredResource(ctx context.Con
 		},
 		Data: map[string]string{
 			"supported": "true",
-			"metrics":   string(finaldata),
+			"metrics":   finaldata,
 		},
 	}
 	if err := ctrl.SetControllerReference(isvc, configMap, r.client.Scheme()); err != nil {
@@ -191,9 +154,9 @@ func (r *KserveMetricsDashboardReconciler) createDesiredResource(ctx context.Con
 	return configMap, nil
 }
 
-func substituteVariablesInQueries(data []byte, namespace string, name string, IntervalValue string) []byte {
+func substituteVariablesInQueries(data string, namespace string, name string, IntervalValue string) string {
 	replacer := strings.NewReplacer("${NAMESPACE}", namespace, "${MODEL_NAME}", name, "${RATE_INTERVAL}", IntervalValue)
-	return []byte(replacer.Replace(string(data)))
+	return replacer.Replace(data)
 }
 
 func (r *KserveMetricsDashboardReconciler) getExistingResource(ctx context.Context, log logr.Logger, isvc *kservev1beta1.InferenceService) (*corev1.ConfigMap, error) {

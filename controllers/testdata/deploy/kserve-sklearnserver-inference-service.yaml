@@ -1,0 +1,15 @@
+apiVersion: serving.kserve.io/v1beta1
+kind: InferenceService
+metadata:
+  name: sklearn-v2-iris
+  namespace: default
+spec:
+  predictor:
+    model:
+      modelFormat:
+        name: sklearn
+      name: ''
+      protocolVersion: v2
+      resources: {}
+      runtime: kserve-sklearnserver
+      storageUri: 'gs://kfserving-examples/models/sklearn/1.0/model'

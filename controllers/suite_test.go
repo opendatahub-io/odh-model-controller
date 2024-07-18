@@ -17,6 +17,8 @@ package controllers
 
 import (
 	"context"
+	"fmt"
+	apierrs "k8s.io/apimachinery/pkg/api/errors"
 	"math/rand"
 	"os"
 	"path/filepath"
@@ -290,4 +292,26 @@ func createTestNamespaceName() string {
 
 func NewFakeClientsetWrapper(fakeClient *fake.Clientset) kubernetes.Interface {
 	return fakeClient
+}
+
+func waitForConfigMap(cli client.Client, namespace, configMapName string, maxTries int, delay time.Duration) (*corev1.ConfigMap, error) {
+	time.Sleep(delay)
+
+	ctx := context.Background()
+	configMap := &corev1.ConfigMap{}
+	for try := 1; try <= maxTries; try++ {
+		err := cli.Get(ctx, client.ObjectKey{Namespace: namespace, Name: configMapName}, configMap)
+		if err == nil {
+			return configMap, nil
+		}
+		if !apierrs.IsNotFound(err) {
+			return nil, fmt.Errorf("failed to get configmap %s/%s: %v", namespace, configMapName, err)
+		}
+
+		if try < maxTries {
+			time.Sleep(1 * time.Second)
+			return nil, err
+		}
+	}
+	return configMap, nil
 }
