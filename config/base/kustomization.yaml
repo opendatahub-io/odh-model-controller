@@ -17,13 +17,24 @@ replacements:
       kind: ConfigMap
       version: v1
       name: odh-model-controller-parameters
+      fieldPath: data.tgis-image
+    targets:
+      - select:
+          kind: Template
+          name: caikit-tgis-serving-template
+        fieldPaths:
+          - objects.0.spec.containers.0.image
+  - source:
+      kind: ConfigMap
+      version: v1
+      name: odh-model-controller-parameters
       fieldPath: data.caikit-tgis-image
     targets:
       - select:
           kind: Template
-          name: caikit-tgis-image
+          name: caikit-tgis-serving-template
         fieldPaths:
-          - objects.0.spec.containers.0.image
+          - objects.0.spec.containers.1.image
   - source:
       kind: ConfigMap
       version: v1
@@ -32,7 +43,7 @@ replacements:
     targets:
       - select:
           kind: Template
-          name: caikit-standalone-image
+          name: caikit-standalone-serving-template
         fieldPaths:
           - objects.0.spec.containers.0.image
   - source:
@@ -43,7 +54,7 @@ replacements:
     targets:
       - select:
           kind: Template
-          name: tgis-image
+          name: tgis-grpc-serving-template
         fieldPaths:
           - objects.0.spec.containers.0.image
   - source:
@@ -54,9 +65,14 @@ replacements:
     targets:
       - select:
           kind: Template
-          name: ovms-image
+          name: kserve-ovms
         fieldPaths:
           - objects.0.spec.containers.0.image
+      - select:
+          kind: Template
+          name: ovms
+        fieldPaths:
+          - objects.0.spec.containers.0.image    
   - source:
       kind: ConfigMap
       version: v1
@@ -65,7 +81,7 @@ replacements:
     targets:
       - select:
           kind: Template
-          name: vllm-image
+          name: vllm-runtime-template
         fieldPaths:
           - objects.0.spec.containers.0.image
   - source:
@@ -79,3 +95,14 @@ replacements:
           name: odh-model-controller
         fieldPaths:
           - spec.template.spec.containers.0.image
+  - source:
+      kind: ConfigMap
+      version: v1
+      name: odh-model-controller-parameters
+      fieldPath: metadata.namespace
+    targets:
+      - select:
+          kind: ClusterRoleBinding
+          name: odh-model-controller-rolebinding-$(mesh-namespace)
+        fieldPaths:
+          - metadata.name
