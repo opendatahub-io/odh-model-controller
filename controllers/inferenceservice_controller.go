@@ -120,6 +120,7 @@ func (r *OpenshiftInferenceServiceReconciler) SetupWithManager(mgr ctrl.Manager)
 		Owns(&corev1.ServiceAccount{}).
 		Owns(&corev1.Service{}).
 		Owns(&corev1.Secret{}).
+		Owns(&corev1.ConfigMap{}).
 		Owns(&authv1.ClusterRoleBinding{}).
 		Owns(&networkingv1.NetworkPolicy{}).
 		Owns(&monitoringv1.ServiceMonitor{}).
