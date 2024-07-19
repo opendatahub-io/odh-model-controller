@@ -144,13 +144,6 @@ func (r *KserveMetricsDashboardReconciler) createDesiredResource(ctx context.Con
 		configMap.Data["metrics"] = finaldata
 	}
 
-	configMap.Labels = map[string]string{
-		"opendatahub.io/managed":       "true",
-		"app.kubernetes.io/name":       "odh-model-controller",
-		"app.kubernetes.io/component":  "kserve",
-		"app.kubernetes.io/part-of":    "odh-model-serving",
-		"app.kubernetes.io/managed-by": "odh-model-controller",
-	}
 	return configMap, nil
 
 }
