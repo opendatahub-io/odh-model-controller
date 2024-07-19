@@ -1,7 +1,6 @@
 package controllers
 
 import (
-	"fmt"
 	"github.com/opendatahub-io/odh-model-controller/controllers/constants"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
@@ -18,11 +17,12 @@ import (
 )
 
 const (
-	KserveOvmsInferenceServiceName    = "example-onnx-mnist"
-	KserveSklearnInferenceServiceName = "sklearn-v2-iris"
-	ConfigMapNameSuffix               = "-metrics-dashboard"
-	SklearnServerInferenceServicePath = "./testdata/deploy/kserve-sklearnserver-inference-service.yaml"
-	SklearnServerServingRuntimePath   = "./testdata/deploy/kserve-sklearnserver-serving-runtime.yaml"
+	KserveOvmsInferenceServiceName         = "example-onnx-mnist"
+	UnsupportedMetricsInferenceServiceName = "sklearn-v2-iris"
+	NilRuntimeInferenceServiceName         = "sklearn-v2-iris-no-runtime"
+	UnsupportedMetricsInferenceServicePath = "./testdata/deploy/kserve-unsupported-metrics-inference-service.yaml"
+	UnsupprtedMetricsServingRuntimePath    = "./testdata/deploy/kserve-unsupported-metrics-serving-runtime.yaml"
+	NilRuntimeInferenceServicePath         = "./testdata/deploy/kserve-nil-runtime-inference-service.yaml"
 )
 
 var _ = Describe("The KServe Dashboard reconciler", func() {
@@ -54,8 +54,7 @@ var _ = Describe("The KServe Dashboard reconciler", func() {
 	}
 
 	BeforeEach(func() {
-		testNamespace := Namespaces.Create(cli)
-		testNs = testNamespace.Name
+		testNs = Namespaces.Create(cli).Name
 
 		inferenceServiceConfig := &corev1.ConfigMap{}
 		Expect(convertToStructuredResource(InferenceServiceConfigPath1, inferenceServiceConfig)).To(Succeed())
@@ -70,15 +69,14 @@ var _ = Describe("The KServe Dashboard reconciler", func() {
 			_ = createServingRuntime(testNs, KserveServingRuntimePath1)
 			_ = createInferenceService(testNs, KserveOvmsInferenceServiceName, KserveInferenceServicePath1)
 
-			metricsConfigMap, err := waitForConfigMap(cli, testNs, KserveOvmsInferenceServiceName+ConfigMapNameSuffix, 30, 1*time.Second)
-			fmt.Println(err)
+			metricsConfigMap, err := waitForConfigMap(cli, testNs, KserveOvmsInferenceServiceName+constants.KserveMetricsConfigMapNameSuffix, 30, 1*time.Second)
 			Expect(err).NotTo(HaveOccurred())
 			Expect(metricsConfigMap).NotTo(BeNil())
 
-			finaldata := substituteVariablesInQueries(constants.OvmsData, testNs, KserveOvmsInferenceServiceName, constants.IntervalValue)
+			finaldata := substituteVariablesInQueries(constants.OvmsMetricsData, testNs, KserveOvmsInferenceServiceName, constants.IntervalValue)
 			expectedmetricsConfigMap := &corev1.ConfigMap{
 				ObjectMeta: metav1.ObjectMeta{
-					Name:      KserveOvmsInferenceServiceName + ConfigMapNameSuffix,
+					Name:      KserveOvmsInferenceServiceName + constants.KserveMetricsConfigMapNameSuffix,
 					Namespace: testNs,
 				},
 				Data: map[string]string{
@@ -90,16 +88,35 @@ var _ = Describe("The KServe Dashboard reconciler", func() {
 		})
 
 		It("if the runtime is not supported for metrics, it should create a configmap with the unsupported config", func() {
-			_ = createServingRuntime(testNs, SklearnServerServingRuntimePath)
-			_ = createInferenceService(testNs, KserveSklearnInferenceServiceName, SklearnServerInferenceServicePath)
+			_ = createServingRuntime(testNs, UnsupprtedMetricsServingRuntimePath)
+			_ = createInferenceService(testNs, UnsupportedMetricsInferenceServiceName, UnsupportedMetricsInferenceServicePath)
 
-			metricsConfigMap, err := waitForConfigMap(cli, testNs, KserveSklearnInferenceServiceName+ConfigMapNameSuffix, 30, 1*time.Second)
+			metricsConfigMap, err := waitForConfigMap(cli, testNs, UnsupportedMetricsInferenceServiceName+constants.KserveMetricsConfigMapNameSuffix, 30, 1*time.Second)
 			Expect(err).NotTo(HaveOccurred())
 			Expect(metricsConfigMap).NotTo(BeNil())
 
 			expectedmetricsConfigMap := &corev1.ConfigMap{
 				ObjectMeta: metav1.ObjectMeta{
-					Name:      KserveSklearnInferenceServiceName + ConfigMapNameSuffix,
+					Name:      UnsupportedMetricsInferenceServiceName + constants.KserveMetricsConfigMapNameSuffix,
+					Namespace: testNs,
+				},
+				Data: map[string]string{
+					"supported": "false",
+				},
+			}
+			Expect(compareConfigMap(metricsConfigMap, expectedmetricsConfigMap)).Should(BeTrue())
+		})
+
+		It("if the isvc does not have a runtime specified, an unsupported metrics configmap should be created", func() {
+			_ = createInferenceService(testNs, NilRuntimeInferenceServiceName, NilRuntimeInferenceServicePath)
+
+			metricsConfigMap, err := waitForConfigMap(cli, testNs, NilRuntimeInferenceServiceName+constants.KserveMetricsConfigMapNameSuffix, 30, 1*time.Second)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(metricsConfigMap).NotTo(BeNil())
+
+			expectedmetricsConfigMap := &corev1.ConfigMap{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      NilRuntimeInferenceServiceName + constants.KserveMetricsConfigMapNameSuffix,
 					Namespace: testNs,
 				},
 				Data: map[string]string{
@@ -118,18 +135,18 @@ var _ = Describe("The KServe Dashboard reconciler", func() {
 			Expect(cli.Delete(ctx, OvmsInferenceService)).Should(Succeed())
 			Eventually(func() error {
 				configmap := &corev1.ConfigMap{}
-				key := types.NamespacedName{Name: KserveOvmsInferenceServiceName + ConfigMapNameSuffix, Namespace: OvmsInferenceService.Namespace}
+				key := types.NamespacedName{Name: KserveOvmsInferenceServiceName + constants.KserveMetricsConfigMapNameSuffix, Namespace: OvmsInferenceService.Namespace}
 				err := cli.Get(ctx, key, configmap)
 				return err
 			}, timeout, interval).ShouldNot(Succeed())
 
-			_ = createServingRuntime(testNs, SklearnServerServingRuntimePath)
-			SklearnInferenceService := createInferenceService(testNs, KserveSklearnInferenceServiceName, SklearnServerInferenceServicePath)
+			_ = createServingRuntime(testNs, UnsupprtedMetricsServingRuntimePath)
+			SklearnInferenceService := createInferenceService(testNs, UnsupportedMetricsInferenceServiceName, UnsupportedMetricsInferenceServicePath)
 
 			Expect(cli.Delete(ctx, SklearnInferenceService)).Should(Succeed())
 			Eventually(func() error {
 				configmap := &corev1.ConfigMap{}
-				key := types.NamespacedName{Name: KserveOvmsInferenceServiceName + ConfigMapNameSuffix, Namespace: SklearnInferenceService.Namespace}
+				key := types.NamespacedName{Name: KserveOvmsInferenceServiceName + constants.KserveMetricsConfigMapNameSuffix, Namespace: SklearnInferenceService.Namespace}
 				err := cli.Get(ctx, key, configmap)
 				return err
 			}, timeout, interval).ShouldNot(Succeed())

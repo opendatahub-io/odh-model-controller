@@ -308,7 +308,7 @@ func waitForConfigMap(cli client.Client, namespace, configMapName string, maxTri
 			return nil, fmt.Errorf("failed to get configmap %s/%s: %v", namespace, configMapName, err)
 		}
 
-		if try < maxTries {
+		if try > maxTries {
 			time.Sleep(1 * time.Second)
 			return nil, err
 		}

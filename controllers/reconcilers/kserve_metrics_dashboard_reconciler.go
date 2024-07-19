@@ -17,7 +17,11 @@ package reconcilers
 
 import (
 	"context"
+	"github.com/hashicorp/errwrap"
+	"github.com/opendatahub-io/odh-model-controller/controllers/utils"
 	"regexp"
+	ctrl "sigs.k8s.io/controller-runtime"
+	"strconv"
 	"strings"
 
 	"github.com/go-logr/logr"
@@ -31,7 +35,6 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
-	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
@@ -89,16 +92,34 @@ func (r *KserveMetricsDashboardReconciler) Reconcile(ctx context.Context, log lo
 }
 
 func (r *KserveMetricsDashboardReconciler) createDesiredResource(ctx context.Context, log logr.Logger, isvc *kservev1beta1.InferenceService) (*corev1.ConfigMap, error) {
+
+	var err error
+	runtime := &kservev1alpha1.ServingRuntime{}
+	supported := false
 	// resolve SR
 	isvcRuntime := isvc.Spec.Predictor.Model.Runtime
-	runtime := &kservev1alpha1.ServingRuntime{}
-	if err := r.client.Get(ctx, types.NamespacedName{Name: *isvcRuntime, Namespace: isvc.Namespace}, runtime); err != nil {
-		log.Error(err, "Could not determine servingruntime for isvc")
+	if isvcRuntime == nil {
+		runtime, err = utils.FindSupportingRuntimeForISvc(ctx, r.client, log, isvc)
+		if err != nil {
+			if errwrap.Contains(err, constants.NoSuitableRuntimeError) {
+				configmap, err := r.createConfigMap(isvc, false, log)
+				if err != nil {
+					return nil, err
+				}
+				return configmap, nil
+			}
+			return nil, err
+		}
+	} else {
+		if err := r.client.Get(ctx, types.NamespacedName{Name: *isvcRuntime, Namespace: isvc.Namespace}, runtime); err != nil {
+			log.Error(err, "Could not determine servingruntime for isvc")
+			return nil, err
+		}
 	}
 
 	if (runtime.Spec.Containers == nil) || (len(runtime.Spec.Containers) < 1) {
 		log.V(1).Info("Could not determine runtime image")
-		return nil, nil
+		supported = false
 	}
 
 	servingRuntimeImage := runtime.Spec.Containers[0].Image
@@ -106,52 +127,32 @@ func (r *KserveMetricsDashboardReconciler) createDesiredResource(ctx context.Con
 	findImageName := re.FindStringSubmatch(servingRuntimeImage)
 	servingRuntime := findImageName[1]
 
-	var data string
-	switch servingRuntime {
-	case constants.OvmsImageName:
-		data = constants.OvmsData
-	case constants.TgisImageName:
-		data = constants.TgisData
-	case constants.VllmImageName:
-		data = constants.VllmData
-	case constants.CaikitImageName:
-		data = constants.CaikitData
-	default:
-		log.V(1).Info("Metrics for runtime not supported.", "Runtime:", runtime.Name)
-		configMap := &corev1.ConfigMap{
-			ObjectMeta: metav1.ObjectMeta{
-				Name:      isvc.Name + "-metrics-dashboard",
-				Namespace: isvc.Namespace,
-			},
-			Data: map[string]string{
-				"supported": "false",
-			},
-		}
-		if err := ctrl.SetControllerReference(isvc, configMap, r.client.Scheme()); err != nil {
-			log.Error(err, "Unable to add OwnerReference to the Metrics Dashboard Configmap")
-			return nil, err
-		}
-		return configMap, nil
+	runtimeMetricsData := map[string]string{
+		constants.OvmsImageName:   constants.OvmsMetricsData,
+		constants.TgisImageName:   constants.TgisMetricsData,
+		constants.VllmImageName:   constants.VllmMetricsData,
+		constants.CaikitImageName: constants.CaikitMetricsData,
 	}
-
-	finaldata := substituteVariablesInQueries(data, isvc.Namespace, isvc.Name, constants.IntervalValue)
-	// Create ConfigMap object
-	configMap := &corev1.ConfigMap{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:      isvc.Name + "-metrics-dashboard",
-			Namespace: isvc.Namespace,
-		},
-		Data: map[string]string{
-			"supported": "true",
-			"metrics":   finaldata,
-		},
-	}
-	if err := ctrl.SetControllerReference(isvc, configMap, r.client.Scheme()); err != nil {
-		log.Error(err, "Unable to add OwnerReference to the Metrics Dashboard Configmap")
+	// supported is true only when a match on this map is found, is false otherwise
+	data, supported := runtimeMetricsData[servingRuntime]
+	configMap, err := r.createConfigMap(isvc, supported, log)
+	if err != nil {
 		return nil, err
 	}
+	if supported {
+		finaldata := substituteVariablesInQueries(data, isvc.Namespace, isvc.Name, constants.IntervalValue)
+		configMap.Data["metrics"] = finaldata
+	}
 
+	configMap.Labels = map[string]string{
+		"opendatahub.io/managed":       "true",
+		"app.kubernetes.io/name":       "odh-model-controller",
+		"app.kubernetes.io/component":  "kserve",
+		"app.kubernetes.io/part-of":    "odh-model-serving",
+		"app.kubernetes.io/managed-by": "odh-model-controller",
+	}
 	return configMap, nil
+
 }
 
 func substituteVariablesInQueries(data string, namespace string, name string, IntervalValue string) string {
@@ -159,8 +160,32 @@ func substituteVariablesInQueries(data string, namespace string, name string, In
 	return replacer.Replace(data)
 }
 
+func (r *KserveMetricsDashboardReconciler) createConfigMap(isvc *kservev1beta1.InferenceService, supported bool, log logr.Logger) (*corev1.ConfigMap, error) {
+	configMap := &corev1.ConfigMap{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      isvc.Name + constants.KserveMetricsConfigMapNameSuffix,
+			Namespace: isvc.Namespace,
+		},
+		Data: map[string]string{
+			"supported": strconv.FormatBool(supported),
+		},
+	}
+	configMap.Labels = map[string]string{
+		"opendatahub.io/managed":       "true",
+		"app.kubernetes.io/name":       "odh-model-controller",
+		"app.kubernetes.io/component":  "kserve",
+		"app.kubernetes.io/part-of":    "odh-model-serving",
+		"app.kubernetes.io/managed-by": "odh-model-controller",
+	}
+	if err := ctrl.SetControllerReference(isvc, configMap, r.client.Scheme()); err != nil {
+		log.Error(err, "Unable to add OwnerReference to the Metrics Dashboard Configmap")
+		return nil, err
+	}
+	return configMap, nil
+}
+
 func (r *KserveMetricsDashboardReconciler) getExistingResource(ctx context.Context, log logr.Logger, isvc *kservev1beta1.InferenceService) (*corev1.ConfigMap, error) {
-	return r.configMapHandler.FetchConfigMap(ctx, log, types.NamespacedName{Name: isvc.Name + "-metrics-dashboard", Namespace: isvc.Namespace})
+	return r.configMapHandler.FetchConfigMap(ctx, log, types.NamespacedName{Name: isvc.Name + constants.KserveMetricsConfigMapNameSuffix, Namespace: isvc.Namespace})
 }
 
 func (r *KserveMetricsDashboardReconciler) processDelta(ctx context.Context, log logr.Logger, desiredResource *corev1.ConfigMap, existingResource *corev1.ConfigMap) (err error) {

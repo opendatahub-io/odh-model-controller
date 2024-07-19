@@ -17,7 +17,7 @@ package constants
 
 const (
 	//Caikit Standalone
-	CaikitData = `{
+	CaikitMetricsData = `{
         "config": [
 			{
 				"title": "Number of requests",
@@ -71,7 +71,7 @@ const (
     }`
 
 	//OpenVino Model Server
-	OvmsData = `{
+	OvmsMetricsData = `{
         "config": [
 			{
 				"title": "Number of requests",
@@ -125,7 +125,7 @@ const (
     }`
 
 	// Caikit + TGIS
-	TgisData = `{
+	TgisMetricsData = `{
         "config": [
 			{
 				"title": "Number of requests",
@@ -179,7 +179,7 @@ const (
     }`
 
 	//vLLM
-	VllmData = `{
+	VllmMetricsData = `{
         "config": [
 			{
 				"title": "Number of requests",
