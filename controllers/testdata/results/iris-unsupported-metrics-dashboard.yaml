@@ -1,0 +1,7 @@
+kind: ConfigMap
+apiVersion: v1
+metadata:
+  name: sklearn-v2-iris-metrics-dashboard
+  namespace: default
+data:
+  supported: 'false'
