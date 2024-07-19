@@ -53,10 +53,21 @@ const (
 )
 
 const (
-	DefaultStorageConfig = "storage-config"
+	KserveMetricsConfigMapNameSuffix = "-metrics-dashboard"
+	DefaultStorageConfig             = "storage-config"
+	IntervalValue                    = "1m"
+	OvmsImageName                    = "openvino_model_server"
+	TgisImageName                    = "text-generation-inference"
+	VllmImageName                    = "vllm"
+	CaikitImageName                  = "caikit-nlp"
 )
 
 // openshift
 const (
 	ServingCertAnnotationKey = "service.beta.openshift.io/serving-cert-secret-name"
+)
+
+// errors
+const (
+	NoSuitableRuntimeError = "not found error: no suitable runtime found."
 )
