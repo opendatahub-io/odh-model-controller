@@ -8,3 +8,6 @@ varReference:
   - path: objects[]/spec/containers[]/image
     kind: Template
     apiVersion: template.openshift.io/v1
+  - path: webhooks/clientConfig[]/service/namespace
+    kind: ValidatingWebhookConfiguration
+    apiVersion: admissionregistration.k8s.io/v1
