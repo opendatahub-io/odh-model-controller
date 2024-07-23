@@ -102,7 +102,7 @@ replacements:
       fieldPath: metadata.namespace
     targets:
       - select:
-          kind: ClusterRoleBinding
-          name: odh-model-controller-rolebinding-$(mesh-namespace)
+          kind: ValidatingWebhookConfiguration
+          name: validating-webhook-configuration
         fieldPaths:
-          - metadata.name
+          - webhooks.0.clientConfig.service.namespace
