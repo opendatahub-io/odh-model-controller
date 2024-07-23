@@ -24,7 +24,6 @@ import (
 	. "github.com/onsi/gomega"
 	"github.com/opendatahub-io/odh-model-controller/controllers/constants"
 	corev1 "k8s.io/api/core/v1"
-	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
 const (
@@ -43,7 +42,7 @@ var _ = Describe("KServe Custom CA Cert ConfigMap controller", func() {
 			Expect(err).NotTo(HaveOccurred())
 			Expect(cli.Create(ctx, odhtrustedcacertConfigMap)).Should(Succeed())
 
-			_, err = waitForConfigMap(cli, WorkingNamespace, constants.KServeCACertConfigMapName, 30*time.Second)
+			_, err = waitForConfigMap(cli, WorkingNamespace, constants.KServeCACertConfigMapName, 30, 1*time.Second)
 			Expect(err).NotTo(HaveOccurred())
 		})
 	})
@@ -56,7 +55,7 @@ var _ = Describe("KServe Custom CA Cert ConfigMap controller", func() {
 			Expect(err).NotTo(HaveOccurred())
 			Expect(cli.Create(ctx, odhtrustedcacertConfigMap)).Should(Succeed())
 
-			_, err = waitForConfigMap(cli, WorkingNamespace, constants.KServeCACertConfigMapName, 30*time.Second)
+			_, err = waitForConfigMap(cli, WorkingNamespace, constants.KServeCACertConfigMapName, 30, 1*time.Second)
 			Expect(err).NotTo(HaveOccurred())
 
 			By("updating odh-trusted-ca-bundle configmap")
@@ -67,7 +66,7 @@ var _ = Describe("KServe Custom CA Cert ConfigMap controller", func() {
 
 			// Wait for updating ConfigMap
 			time.Sleep(1 * time.Second)
-			kserveCACertConfigmap, err := waitForConfigMap(cli, WorkingNamespace, constants.KServeCACertConfigMapName, 30*time.Second)
+			kserveCACertConfigmap, err := waitForConfigMap(cli, WorkingNamespace, constants.KServeCACertConfigMapName, 30, 1*time.Second)
 			Expect(err).NotTo(HaveOccurred())
 			expectedKserveCACertConfigmap := &corev1.ConfigMap{}
 			err = convertToStructuredResource(kservecustomcacertConfigMapUpdatedPath, expectedKserveCACertConfigmap)
@@ -77,21 +76,6 @@ var _ = Describe("KServe Custom CA Cert ConfigMap controller", func() {
 		})
 	})
 })
-
-func waitForConfigMap(cli client.Client, namespace, configmapName string, timeout time.Duration) (*corev1.ConfigMap, error) {
-	ctx, cancel := context.WithTimeout(context.Background(), timeout)
-	defer cancel()
-
-	for {
-		configmap := &corev1.ConfigMap{}
-		err := cli.Get(ctx, client.ObjectKey{Namespace: namespace, Name: configmapName}, configmap)
-		if err != nil {
-			time.Sleep(1 * time.Second)
-			continue
-		}
-		return configmap, nil
-	}
-}
 
 // compareConfigMap checks if two ConfigMap data are equal, if not return false
 func compareConfigMap(s1 *corev1.ConfigMap, s2 *corev1.ConfigMap) bool {
