@@ -60,6 +60,7 @@ const (
 	TgisImageName                    = "text-generation-inference"
 	VllmImageName                    = "vllm"
 	CaikitImageName                  = "caikit-nlp"
+	ServingRuntimeFallBackImageName  = "unsupported"
 )
 
 // openshift

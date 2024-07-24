@@ -94,6 +94,7 @@ func (r *KserveMetricsDashboardReconciler) Reconcile(ctx context.Context, log lo
 func (r *KserveMetricsDashboardReconciler) createDesiredResource(ctx context.Context, log logr.Logger, isvc *kservev1beta1.InferenceService) (*corev1.ConfigMap, error) {
 
 	var err error
+	var servingRuntime string
 	runtime := &kservev1alpha1.ServingRuntime{}
 	supported := false
 	// resolve SR
@@ -125,7 +126,12 @@ func (r *KserveMetricsDashboardReconciler) createDesiredResource(ctx context.Con
 	servingRuntimeImage := runtime.Spec.Containers[0].Image
 	re := regexp.MustCompile(`/([^/@]+)[@:]`)
 	findImageName := re.FindStringSubmatch(servingRuntimeImage)
-	servingRuntime := findImageName[1]
+	// sanity check for regex match, will fall back to a known string that will lead to a configmap for unsupported metrics
+	if len(findImageName) < 2 {
+		servingRuntime = constants.ServingRuntimeFallBackImageName
+	} else {
+		servingRuntime = findImageName[1]
+	}
 
 	runtimeMetricsData := map[string]string{
 		constants.OvmsImageName:   constants.OvmsMetricsData,
