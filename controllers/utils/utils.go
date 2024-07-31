@@ -4,8 +4,13 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"github.com/go-logr/logr"
+	kservev1alpha1 "github.com/kserve/kserve/pkg/apis/serving/v1alpha1"
+	"github.com/pkg/errors"
+	"k8s.io/apimachinery/pkg/types"
 	"os"
 	"reflect"
+	"sort"
 
 	kservev1beta1 "github.com/kserve/kserve/pkg/apis/serving/v1beta1"
 	"github.com/kuadrant/authorino/pkg/log"
@@ -13,6 +18,7 @@ import (
 	"istio.io/client-go/pkg/apis/security/v1beta1"
 	corev1 "k8s.io/api/core/v1"
 	apierr "k8s.io/apimachinery/pkg/api/errors"
+	apierrs "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
@@ -335,4 +341,61 @@ func SetAvailableResourcesForApi(groupVersion string, resources *metav1.APIResou
 	}
 
 	gvResourcesCache[groupVersion] = resources
+}
+
+func FindSupportingRuntimeForISvc(ctx context.Context, cli client.Client, log logr.Logger, isvc *kservev1beta1.InferenceService) (*kservev1alpha1.ServingRuntime, error) {
+	desiredServingRuntime := &kservev1alpha1.ServingRuntime{}
+
+	if isvc.Spec.Predictor.Model.Runtime != nil {
+		err := cli.Get(ctx, types.NamespacedName{
+			Name:      *isvc.Spec.Predictor.Model.Runtime,
+			Namespace: isvc.Namespace,
+		}, desiredServingRuntime)
+		if err != nil {
+			if apierrs.IsNotFound(err) {
+				return nil, err
+			}
+		}
+		return desiredServingRuntime, nil
+	} else {
+		runtimes := &kservev1alpha1.ServingRuntimeList{}
+		err := cli.List(ctx, runtimes, client.InNamespace(isvc.Namespace))
+		if err != nil {
+			return nil, err
+		}
+
+		// Sort by creation date, to be somewhat deterministic
+		sort.Slice(runtimes.Items, func(i, j int) bool {
+			// Sorting descending by creation time leads to picking the most recently created runtimes first
+			if runtimes.Items[i].CreationTimestamp.Before(&runtimes.Items[j].CreationTimestamp) {
+				return false
+			}
+			if runtimes.Items[i].CreationTimestamp.Equal(&runtimes.Items[j].CreationTimestamp) {
+				// For Runtimes created at the same time, use alphabetical order.
+				return runtimes.Items[i].Name < runtimes.Items[j].Name
+			}
+			return true
+		})
+
+		for _, runtime := range runtimes.Items {
+			if runtime.Spec.Disabled != nil && *runtime.Spec.Disabled == true {
+				continue
+			}
+
+			if runtime.Spec.MultiModel != nil && *runtime.Spec.MultiModel == false {
+				continue
+			}
+
+			for _, supportedFormat := range runtime.Spec.SupportedModelFormats {
+				if supportedFormat.AutoSelect != nil && *supportedFormat.AutoSelect == true && supportedFormat.Name == isvc.Spec.Predictor.Model.ModelFormat.Name {
+					desiredServingRuntime = &runtime
+					log.Info("Automatic runtime selection for InferenceService", "runtime", desiredServingRuntime.Name)
+					return desiredServingRuntime, nil
+				}
+			}
+		}
+
+		log.Info("No suitable Runtime available for InferenceService")
+		return desiredServingRuntime, errors.New(constants.NoSuitableRuntimeError)
+	}
 }

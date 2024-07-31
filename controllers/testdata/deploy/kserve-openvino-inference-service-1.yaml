@@ -8,7 +8,7 @@ spec:
     model:
       modelFormat:
         name: onnx
-      runtime: ovms-1.x
+      runtime: kserve-ovms
       storage:
         key: testkey
         path: /testpath/test
