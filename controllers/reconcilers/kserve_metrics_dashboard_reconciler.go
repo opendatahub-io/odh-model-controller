@@ -25,7 +25,6 @@ import (
 	"strings"
 
 	"github.com/go-logr/logr"
-	kservev1alpha1 "github.com/kserve/kserve/pkg/apis/serving/v1alpha1"
 	kservev1beta1 "github.com/kserve/kserve/pkg/apis/serving/v1beta1"
 	"github.com/opendatahub-io/odh-model-controller/controllers/comparators"
 	"github.com/opendatahub-io/odh-model-controller/controllers/constants"
@@ -93,37 +92,26 @@ func (r *KserveMetricsDashboardReconciler) Reconcile(ctx context.Context, log lo
 
 func (r *KserveMetricsDashboardReconciler) createDesiredResource(ctx context.Context, log logr.Logger, isvc *kservev1beta1.InferenceService) (*corev1.ConfigMap, error) {
 
-	var err error
 	var servingRuntime string
-	runtime := &kservev1alpha1.ServingRuntime{}
 	supported := false
-	// resolve SR
-	isvcRuntime := isvc.Spec.Predictor.Model.Runtime
-	if isvcRuntime == nil {
-		runtime, err = utils.FindSupportingRuntimeForISvc(ctx, r.client, log, isvc)
-		if err != nil {
-			if errwrap.Contains(err, constants.NoSuitableRuntimeError) {
-				configmap, err := r.createConfigMap(isvc, false, log)
-				if err != nil {
-					return nil, err
-				}
-				return configmap, nil
+	isvcRuntime, err := utils.FindSupportingRuntimeForISvc(ctx, r.client, log, isvc)
+	if err != nil {
+		if errwrap.Contains(err, constants.NoSuitableRuntimeError) {
+			configmap, err := r.createConfigMap(isvc, false, log)
+			if err != nil {
+				return nil, err
 			}
-			return nil, err
+			return configmap, nil
 		}
-	} else {
-		if err := r.client.Get(ctx, types.NamespacedName{Name: *isvcRuntime, Namespace: isvc.Namespace}, runtime); err != nil {
-			log.Error(err, "Could not determine servingruntime for isvc")
-			return nil, err
-		}
+		return nil, err
 	}
 
-	if (runtime.Spec.Containers == nil) || (len(runtime.Spec.Containers) < 1) {
+	if (isvcRuntime.Spec.Containers == nil) || (len(isvcRuntime.Spec.Containers) < 1) {
 		log.V(1).Info("Could not determine runtime image")
 		supported = false
 	}
 
-	servingRuntimeImage := runtime.Spec.Containers[0].Image
+	servingRuntimeImage := isvcRuntime.Spec.Containers[0].Image
 	re := regexp.MustCompile(`/([^/@]+)[@:]`)
 	findImageName := re.FindStringSubmatch(servingRuntimeImage)
 	// sanity check for regex match, will fall back to a known string that will lead to a configmap for unsupported metrics

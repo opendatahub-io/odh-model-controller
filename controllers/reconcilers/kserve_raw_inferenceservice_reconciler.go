@@ -17,6 +17,7 @@ package reconcilers
 
 import (
 	"context"
+	"github.com/hashicorp/go-multierror"
 
 	"github.com/go-logr/logr"
 	kservev1beta1 "github.com/kserve/kserve/pkg/apis/serving/v1beta1"
@@ -26,16 +27,30 @@ import (
 var _ Reconciler = (*KserveRawInferenceServiceReconciler)(nil)
 
 type KserveRawInferenceServiceReconciler struct {
-	client client.Client
+	client                 client.Client
+	subResourceReconcilers []SubResourceReconciler
 }
 
 func NewKServeRawInferenceServiceReconciler(client client.Client) *KserveRawInferenceServiceReconciler {
+
+	subResourceReconciler := []SubResourceReconciler{
+		NewKserveRawRouteReconciler(client),
+		NewKServeRawMetricsServiceReconciler(client),
+		NewRawKServeMetricsServiceMonitorReconciler(client),
+		NewKserveMetricsDashboardReconciler(client),
+	}
+
 	return &KserveRawInferenceServiceReconciler{
-		client: client,
+		client:                 client,
+		subResourceReconcilers: subResourceReconciler,
 	}
 }
 
-func (r *KserveRawInferenceServiceReconciler) Reconcile(_ context.Context, log logr.Logger, _ *kservev1beta1.InferenceService) error {
-	log.V(1).Info("No Reconciliation to be done for inferenceservice as it is using RawDeployment mode")
-	return nil
+func (r *KserveRawInferenceServiceReconciler) Reconcile(ctx context.Context, log logr.Logger, isvc *kservev1beta1.InferenceService) error {
+	var reconcileErrors *multierror.Error
+	for _, reconciler := range r.subResourceReconcilers {
+		reconcileErrors = multierror.Append(reconcileErrors, reconciler.Reconcile(ctx, log, isvc))
+	}
+
+	return reconcileErrors.ErrorOrNil()
 }
