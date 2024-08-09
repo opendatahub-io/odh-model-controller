@@ -2,8 +2,8 @@ resources:
 - ../../crd/external
 - ../../default
 
-patchesStrategicMerge:
-- odh_model_controller_manager_patch.yaml
+patches:
+- path: odh_model_controller_manager_patch.yaml
 
 namespace: default
 configMapGenerator:
@@ -13,18 +13,16 @@ configMapGenerator:
 generatorOptions:
   disableNameSuffixHash: true
 
-vars:
-- fieldref:
-    fieldPath: metadata.namespace
-  name: mesh-namespace
-  objref:
-    apiVersion: v1
+
+replacements:
+- source:
     kind: ConfigMap
+    version: v1
     name: odh-model-controller-parameters
-- fieldref:
     fieldPath: data.monitoring-namespace
-  name: monitoring-namespace
-  objref:
-    apiVersion: v1
-    kind: ConfigMap
-    name: odh-model-controller-parameters
+  targets:
+  - select:
+      kind: Deployment
+      name: odh-model-controller
+    fieldPaths:
+      - spec.template.spec.containers.0.env.0.value

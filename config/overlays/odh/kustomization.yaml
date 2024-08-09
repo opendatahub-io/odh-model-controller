@@ -3,8 +3,8 @@ kind: Kustomization
 resources:
   - ../../default
 
-patchesStrategicMerge:
-  - odh_model_controller_manager_patch.yaml
-
+patches:
+- path: odh_model_controller_manager_patch.yaml
+  
 configurations:
   - params.yaml

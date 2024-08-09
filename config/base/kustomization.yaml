@@ -12,53 +12,111 @@ configMapGenerator:
 generatorOptions:
   disableNameSuffixHash: true
 
-vars:
-  - fieldref:
-      fieldPath: data.caikit-tgis-image
-    name: caikit-tgis-image
-    objref:
-      apiVersion: v1
+replacements:
+  - source:
       kind: ConfigMap
+      version: v1
       name: odh-model-controller-parameters
-  - fieldref:
-      fieldPath: data.caikit-standalone-image
-    name: caikit-standalone-image
-    objref:
-      apiVersion: v1
-      kind: ConfigMap
-      name: odh-model-controller-parameters
-  - fieldref:
       fieldPath: data.tgis-image
-    name: tgis-image
-    objref:
-      apiVersion: v1
+    targets:
+      - select:
+          kind: Template
+          name: caikit-tgis-serving-template
+        fieldPaths:
+          - objects.0.spec.containers.0.image
+  - source:
       kind: ConfigMap
+      version: v1
       name: odh-model-controller-parameters
-  - fieldref:
+      fieldPath: data.caikit-tgis-image
+    targets:
+      - select:
+          kind: Template
+          name: caikit-tgis-serving-template
+        fieldPaths:
+          - objects.0.spec.containers.1.image
+  - source:
+      kind: ConfigMap
+      version: v1
+      name: odh-model-controller-parameters
+      fieldPath: data.caikit-standalone-image
+    targets:
+      - select:
+          kind: Template
+          name: caikit-standalone-serving-template
+        fieldPaths:
+          - objects.0.spec.containers.0.image
+  - source:
+      kind: ConfigMap
+      version: v1
+      name: odh-model-controller-parameters
+      fieldPath: data.tgis-image
+    targets:
+      - select:
+          kind: Template
+          name: tgis-grpc-serving-template
+        fieldPaths:
+          - objects.0.spec.containers.0.image
+  - source:
+      kind: ConfigMap
+      version: v1
+      name: odh-model-controller-parameters
       fieldPath: data.ovms-image
-    name: ovms-image
-    objref:
-      apiVersion: v1
+    targets:
+      - select:
+          kind: Template
+          name: kserve-ovms
+        fieldPaths:
+          - objects.0.spec.containers.0.image
+      - select:
+          kind: Template
+          name: ovms
+        fieldPaths:
+          - objects.0.spec.containers.0.image    
+  - source:
       kind: ConfigMap
+      version: v1
       name: odh-model-controller-parameters
-  - fieldref:
       fieldPath: data.vllm-image
-    name: vllm-image
-    objref:
-      apiVersion: v1
+    targets:
+      - select:
+          kind: Template
+          name: vllm-runtime-template
+        fieldPaths:
+          - objects.0.spec.containers.0.image
+  - source:
       kind: ConfigMap
+      version: v1
       name: odh-model-controller-parameters
-  - fieldref:
-      fieldPath: metadata.namespace
-    name: mesh-namespace
-    objref:
-      apiVersion: v1
-      kind: ConfigMap
-      name: odh-model-controller-parameters
-  - fieldref:
       fieldPath: data.odh-model-controller
-    name: odh-model-controller
-    objref:
-      apiVersion: v1
+    targets:
+      - select: 
+          kind: Deployment
+          name: odh-model-controller
+        fieldPaths:
+          - spec.template.spec.containers.0.image
+  - source:
       kind: ConfigMap
+      version: v1
       name: odh-model-controller-parameters
+      fieldPath: metadata.namespace
+    targets:
+      - select:
+          kind: ValidatingWebhookConfiguration
+          name: validating-webhook-configuration
+        fieldPaths:
+          - webhooks.0.clientConfig.service.namespace
+  - source:
+      kind: ConfigMap
+      version: v1
+      name: odh-model-controller-parameters
+      fieldPath: metadata.namespace
+    targets:
+      - select:
+          kind: ClusterRoleBinding
+          name: odh-model-controller-rolebinding-$(mesh_namespace)
+        options:
+          delimiter: '-'
+          index: 4
+        fieldPaths:
+          - metadata.name
