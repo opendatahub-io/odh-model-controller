@@ -14,6 +14,7 @@ import (
 
 	kservev1beta1 "github.com/kserve/kserve/pkg/apis/serving/v1beta1"
 	"github.com/kuadrant/authorino/pkg/log"
+	"github.com/opendatahub-io/odh-model-controller/controllers/constants"
 	v1beta12 "istio.io/api/security/v1beta1"
 	"istio.io/client-go/pkg/apis/security/v1beta1"
 	corev1 "k8s.io/api/core/v1"
@@ -25,8 +26,6 @@ import (
 	"k8s.io/client-go/discovery"
 	"k8s.io/client-go/rest"
 	"sigs.k8s.io/controller-runtime/pkg/client"
-
-	"github.com/opendatahub-io/odh-model-controller/controllers/constants"
 )
 
 type IsvcDeploymentMode string
@@ -192,8 +191,8 @@ func GetIstioControlPlaneName(ctx context.Context, cli client.Client) (istioCont
 		log.V(1).Info("Trying to read Istio Control Plane name and namespace from DSCI")
 		objectList, err := getDSCIObject(ctx, cli)
 		if err != nil {
-			log.V(0).Error(err, "Failed to fetch the DSCI object, using default values")
-			return constants.IstioControlPlaneName, constants.IstioNamespace
+			log.V(0).Error(err, "Failed to fetch the DSCI object")
+			panic("error reading Istio Control Plane name and namespace from DSCI.")
 		}
 		for _, item := range objectList.Items {
 			if len(istioControlPlane) == 0 {
@@ -202,8 +201,8 @@ func GetIstioControlPlaneName(ctx context.Context, cli client.Client) (istioCont
 					istioControlPlane = name
 				} else {
 					log.V(1).Info("Istio Control Plane name is not set in DSCI")
-					// at this point, it is not set anywhere, lets just use the default
-					istioControlPlane = constants.IstioControlPlaneName
+					// at this point, it is not set anywhere, lets return an error
+					panic("error setting Istio Control Plane in DSCI.")
 				}
 			}
 
@@ -213,8 +212,8 @@ func GetIstioControlPlaneName(ctx context.Context, cli client.Client) (istioCont
 					meshNamespace = namespace
 				} else {
 					log.V(1).Info("Mesh Namespace is not set in DSCI")
-					// at this point, it is not set anywhere, lets just use the default
-					meshNamespace = constants.IstioNamespace
+					// at this point, it is not set anywhere, lets return an error
+					panic("error setting Mesh Namespace in DSCI.")
 				}
 			}
 		}
@@ -245,7 +244,8 @@ func VerifyIfMeshAuthorizationIsEnabled(ctx context.Context, cli client.Client) 
 	// is available, taking into account both managed an unmanaged configurations.
 
 	authPolicies := &v1beta1.AuthorizationPolicyList{}
-	if err := cli.List(ctx, authPolicies, client.InNamespace(constants.IstioNamespace)); err != nil && !meta.IsNoMatchError(err) {
+	_, meshNamespace := GetIstioControlPlaneName(ctx, cli)
+	if err := cli.List(ctx, authPolicies, client.InNamespace(meshNamespace)); err != nil && !meta.IsNoMatchError(err) {
 		return false, err
 	}
 	if len(authPolicies.Items) == 0 {

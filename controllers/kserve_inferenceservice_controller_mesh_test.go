@@ -15,6 +15,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	"github.com/opendatahub-io/odh-model-controller/controllers/constants"
+	"github.com/opendatahub-io/odh-model-controller/controllers/utils"
 )
 
 var _ = Describe("The KServe mesh reconciler", func() {
@@ -43,6 +44,7 @@ var _ = Describe("The KServe mesh reconciler", func() {
 	}
 
 	createUserOwnedMeshEnrolment := func(namespace string) *maistrav1.ServiceMeshMember {
+		controlPlaneName, meshNamespace := utils.GetIstioControlPlaneName(ctx, cli)
 		smm := &maistrav1.ServiceMeshMember{
 			ObjectMeta: metav1.ObjectMeta{
 				Name:        constants.ServiceMeshMemberName,
@@ -52,8 +54,8 @@ var _ = Describe("The KServe mesh reconciler", func() {
 			},
 			Spec: maistrav1.ServiceMeshMemberSpec{
 				ControlPlaneRef: maistrav1.ServiceMeshControlPlaneRef{
-					Name:      constants.IstioControlPlaneName,
-					Namespace: constants.IstioNamespace,
+					Name:      controlPlaneName,
+					Namespace: meshNamespace,
 				}},
 			Status: maistrav1.ServiceMeshMemberStatus{},
 		}

@@ -3,8 +3,9 @@ package webhook
 import (
 	"context"
 	"fmt"
-	"sigs.k8s.io/controller-runtime/pkg/webhook/admission"
 	"strings"
+
+	"sigs.k8s.io/controller-runtime/pkg/webhook/admission"
 
 	kservev1beta1 "github.com/kserve/kserve/pkg/apis/serving/v1beta1"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -15,6 +16,7 @@ import (
 
 	"github.com/opendatahub-io/odh-model-controller/controllers/constants"
 	"github.com/opendatahub-io/odh-model-controller/controllers/resources"
+	"github.com/opendatahub-io/odh-model-controller/controllers/utils"
 )
 
 // +kubebuilder:webhook:admissionReviewVersions=v1,path=/validate-serving-knative-dev-v1-service,mutating=false,failurePolicy=fail,groups="serving.knative.dev",resources=services,verbs=create,versions=v1,name=validating.ksvc.odh-model-controller.opendatahub.io,sideEffects=None
@@ -76,13 +78,14 @@ func (v *ksvcValidator) ValidateCreate(ctx context.Context, obj runtime.Object) 
 	// member. If it is still not a member, reject creation of the Ksvc to prevent
 	// creation of a Pod that would not be in the Mesh.
 	smmrQuerier := resources.NewServiceMeshMemberRole(v.client)
-	smmr, fetchSmmrErr := smmrQuerier.FetchSMMR(ctx, log, types2.NamespacedName{Name: constants.ServiceMeshMemberRollName, Namespace: constants.IstioNamespace})
+	_, meshNamespace := utils.GetIstioControlPlaneName(ctx, v.client)
+	smmr, fetchSmmrErr := smmrQuerier.FetchSMMR(ctx, log, types2.NamespacedName{Name: constants.ServiceMeshMemberRollName, Namespace: meshNamespace})
 	if fetchSmmrErr != nil {
-		log.Error(fetchSmmrErr, "Error when fetching ServiceMeshMemberRoll", "smmr.namespace", constants.IstioNamespace, "smmr.name", constants.ServiceMeshMemberRollName)
+		log.Error(fetchSmmrErr, "Error when fetching ServiceMeshMemberRoll", "smmr.namespace", meshNamespace, "smmr.name", constants.ServiceMeshMemberRollName)
 		return nil, fetchSmmrErr
 	}
 	if smmr == nil {
-		log.Info("Rejecting Knative service because the ServiceMeshMemberRoll does not exist", "smmr.namespace", constants.IstioNamespace, "smmr.name", constants.ServiceMeshMemberRollName)
+		log.Info("Rejecting Knative service because the ServiceMeshMemberRoll does not exist", "smmr.namespace", meshNamespace, "smmr.name", constants.ServiceMeshMemberRollName)
 		return nil, fmt.Errorf("rejecting creation of Knative service %s on namespace %s because the ServiceMeshMemberRoll does not exist", ksvc.Name, ksvc.Namespace)
 	}
 
