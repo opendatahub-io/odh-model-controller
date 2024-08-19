@@ -315,3 +315,47 @@ func waitForConfigMap(cli client.Client, namespace, configMapName string, maxTri
 	}
 	return configMap, nil
 }
+
+func waitForService(cli client.Client, namespace, serviceName string, maxTries int, delay time.Duration) (*corev1.Service, error) {
+	time.Sleep(delay)
+
+	ctx := context.Background()
+	service := &corev1.Service{}
+	for try := 1; try <= maxTries; try++ {
+		err := cli.Get(ctx, client.ObjectKey{Namespace: namespace, Name: serviceName}, service)
+		if err == nil {
+			return service, nil
+		}
+		if !apierrs.IsNotFound(err) {
+			return nil, fmt.Errorf("failed to get configmap %s/%s: %v", namespace, serviceName, err)
+		}
+
+		if try > maxTries {
+			time.Sleep(1 * time.Second)
+			return nil, err
+		}
+	}
+	return service, nil
+}
+
+func waitForServiceMonitor(cli client.Client, namespace, serviceMonitorName string, maxTries int, delay time.Duration) (*monitoringv1.ServiceMonitor, error) {
+	time.Sleep(delay)
+
+	ctx := context.Background()
+	serviceMonitor := &monitoringv1.ServiceMonitor{}
+	for try := 1; try <= maxTries; try++ {
+		err := cli.Get(ctx, client.ObjectKey{Namespace: namespace, Name: serviceMonitorName}, serviceMonitor)
+		if err == nil {
+			return serviceMonitor, nil
+		}
+		if !apierrs.IsNotFound(err) {
+			return nil, fmt.Errorf("failed to get configmap %s/%s: %v", namespace, serviceMonitorName, err)
+		}
+
+		if try > maxTries {
+			time.Sleep(1 * time.Second)
+			return nil, err
+		}
+	}
+	return serviceMonitor, nil
+}
