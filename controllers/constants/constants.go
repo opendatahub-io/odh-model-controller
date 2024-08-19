@@ -32,7 +32,10 @@ const (
 	LabelEnableAuth    = "enable-auth"
 	LabelEnableRoute   = "enable-route"
 
-	CapabilityServiceMeshAuthorization = "CapabilityServiceMeshAuthorization"
+	CapabilityServiceMeshAuthorization       = "CapabilityServiceMeshAuthorization"
+	InferenceServiceDeploymentModeAnnotation = "serving.kserve.io/deploymentMode"
+	KserveConfigMapName                      = "inferenceservice-config"
+	KServeWithServiceMeshComponent           = "kserve-service-mesh"
 )
 
 // model registry

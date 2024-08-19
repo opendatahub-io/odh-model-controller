@@ -39,16 +39,10 @@ var (
 	gvResourcesCache map[string]*metav1.APIResourceList
 )
 
-const (
-	inferenceServiceDeploymentModeAnnotation = "serving.kserve.io/deploymentMode"
-	KserveConfigMapName                      = "inferenceservice-config"
-	KServeWithServiceMeshComponent           = "kserve-service-mesh"
-)
-
 func GetDeploymentModeForIsvc(ctx context.Context, cli client.Client, isvc *kservev1beta1.InferenceService) (IsvcDeploymentMode, error) {
 
 	// If ISVC specifically sets deployment mode using an annotation, return bool depending on value
-	value, exists := isvc.Annotations[inferenceServiceDeploymentModeAnnotation]
+	value, exists := isvc.Annotations[constants.InferenceServiceDeploymentModeAnnotation]
 	if exists {
 		switch value {
 		case string(ModelMesh):
@@ -66,14 +60,14 @@ func GetDeploymentModeForIsvc(ctx context.Context, cli client.Client, isvc *kser
 		inferenceServiceConfigMap := &corev1.ConfigMap{}
 		err := cli.Get(ctx, client.ObjectKey{
 			Namespace: controllerNs,
-			Name:      KserveConfigMapName,
+			Name:      constants.KserveConfigMapName,
 		}, inferenceServiceConfigMap)
 		if err != nil {
 			return "", fmt.Errorf("error getting configmap 'inferenceservice-config'. %w", err)
 		}
 		var deployData map[string]interface{}
 		if err = json.Unmarshal([]byte(inferenceServiceConfigMap.Data["deploy"]), &deployData); err != nil {
-			return "", fmt.Errorf("error retrieving value for key 'deploy' from configmap %s. %w", KserveConfigMapName, err)
+			return "", fmt.Errorf("error retrieving value for key 'deploy' from configmap %s. %w", constants.KserveConfigMapName, err)
 		}
 		defaultDeploymentMode := deployData["defaultDeploymentMode"]
 		switch defaultDeploymentMode {
@@ -103,7 +97,7 @@ func VerifyIfComponentIsEnabled(ctx context.Context, cli client.Client, componen
 	// there must be only one dsc
 	if len(objectList.Items) == 1 {
 		fields := []string{"spec", "components", componentName, "managementState"}
-		if componentName == KServeWithServiceMeshComponent {
+		if componentName == constants.KServeWithServiceMeshComponent {
 			// For KServe, Authorino is required when serving is enabled
 			// By Disabling ServiceMesh for RawDeployment, it should reflect on disabling
 			// the Authorino integration as well.
