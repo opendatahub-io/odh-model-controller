@@ -19,6 +19,7 @@ package main
 import (
 	"context"
 	"flag"
+	"github.com/opendatahub-io/odh-model-controller/controllers/constants"
 	"os"
 	"strconv"
 
@@ -199,7 +200,7 @@ func main() {
 			"reconciliation for InferenceService, please provide --model-registry-inference-reconcile flag.")
 	}
 
-	kserveWithMeshEnabled, kserveWithMeshEnabledErr := utils.VerifyIfComponentIsEnabled(context.Background(), mgr.GetClient(), utils.KServeWithServiceMeshComponent)
+	kserveWithMeshEnabled, kserveWithMeshEnabledErr := utils.VerifyIfComponentIsEnabled(context.Background(), mgr.GetClient(), constants.KServeWithServiceMeshComponent)
 	if kserveWithMeshEnabledErr != nil {
 		setupLog.Error(kserveWithMeshEnabledErr, "could not determine if kserve have service mesh enabled")
 	}
