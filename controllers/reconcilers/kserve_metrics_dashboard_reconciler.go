@@ -17,20 +17,18 @@ package reconcilers
 
 import (
 	"context"
-	"github.com/hashicorp/errwrap"
-	"github.com/opendatahub-io/odh-model-controller/controllers/utils"
-	"regexp"
-	ctrl "sigs.k8s.io/controller-runtime"
-	"strconv"
-	"strings"
-
 	"github.com/go-logr/logr"
+	"github.com/hashicorp/errwrap"
 	kservev1alpha1 "github.com/kserve/kserve/pkg/apis/serving/v1alpha1"
 	kservev1beta1 "github.com/kserve/kserve/pkg/apis/serving/v1beta1"
 	"github.com/opendatahub-io/odh-model-controller/controllers/comparators"
 	"github.com/opendatahub-io/odh-model-controller/controllers/constants"
 	"github.com/opendatahub-io/odh-model-controller/controllers/processors"
 	"github.com/opendatahub-io/odh-model-controller/controllers/resources"
+	"github.com/opendatahub-io/odh-model-controller/controllers/utils"
+	"regexp"
+	ctrl "sigs.k8s.io/controller-runtime"
+	"strconv"
 
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -146,17 +144,12 @@ func (r *KserveMetricsDashboardReconciler) createDesiredResource(ctx context.Con
 		return nil, err
 	}
 	if supported {
-		finaldata := substituteVariablesInQueries(data, isvc.Namespace, isvc.Name, constants.IntervalValue)
+		finaldata := utils.SubstituteVariablesInQueries(data, isvc.Namespace, isvc.Name)
 		configMap.Data["metrics"] = finaldata
 	}
 
 	return configMap, nil
 
-}
-
-func substituteVariablesInQueries(data string, namespace string, name string, IntervalValue string) string {
-	replacer := strings.NewReplacer("${NAMESPACE}", namespace, "${MODEL_NAME}", name, "${RATE_INTERVAL}", IntervalValue)
-	return replacer.Replace(data)
 }
 
 func (r *KserveMetricsDashboardReconciler) createConfigMap(isvc *kservev1beta1.InferenceService, supported bool, log logr.Logger) (*corev1.ConfigMap, error) {
