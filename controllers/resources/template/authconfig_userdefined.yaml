@@ -22,14 +22,14 @@ spec:
           verb:
             value: get
           group:
-            value: ""
+            value: "serving.kserve.io"
           resource:
-            value: services
+            value: inferenceservices
           namespace:
             value: {{ .Namespace }}
           subresource:
             value: ""
           name:
-            value: ""
+            value: "{{ .InferenceServiceName }}"
         user:
           selector: auth.identity.user.username
