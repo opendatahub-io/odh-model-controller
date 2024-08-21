@@ -43,7 +43,6 @@ objects:
             - "--port=8080"
             - "--model=/mnt/models"
             - "--served-model-name={{.Name}}"
-            - "--distributed-executor-backend=mp"
           env:
             - name: HF_HOME
               value: /tmp/hf_home
