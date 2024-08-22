@@ -44,8 +44,8 @@ jobs:
         if: github.event_name != 'pull_request'
         uses: docker/login-action@v3
         with:
-          username: nishan321
-          password: Nishan@123
+          username: ${{ secrets.QUAY_USER }}
+          password: ${{ secrets.QUAY_ACCESS_TOKEN }}
 
       - name: Export docker build args
         run: |
@@ -98,7 +98,8 @@ jobs:
         with:
           platforms: linux/amd64,linux/arm64,linux/ppc64le,linux/s390x
           context: .
-          target: runtime
+#          target: runtime
+          file: Dockerfile 
           pull: true
           push: ${{ github.event_name != 'pull_request' }}
           tags: ${{ env.IMAGE_NAME }}:latest
