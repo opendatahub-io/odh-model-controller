@@ -1,0 +1,143 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: odh-model-controller
+  labels:
+    app.kubernetes.io/name: odh-model-controller
+    app.kubernetes.io/instance: odh-model-controller
+    app.kubernetes.io/managed-by: odh-model-controller
+spec:
+  replicas: 3
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: odh-model-controller
+  template:
+    metadata:
+      annotations:
+        prometheus.io/path: /metrics
+        prometheus.io/port: "8080"
+        prometheus.io/scheme: http
+        prometheus.io/scrape: "true"
+      labels:
+        app.kubernetes.io/name: odh-model-controller
+        app.kubernetes.io/instance: odh-model-controller
+    spec:
+      serviceAccountName: odh-model-controller-sa
+      volumes:
+        - name: proxy-tls
+          secret:
+            secretName: model-serving-proxy-tls
+      containers:
+        - name: odh-model-controller
+          image: quay.io/nishan_acharya123/odh-model-controller:latest
+          ports:
+            - name: grpc
+              containerPort: 8080
+            - name: prometheus
+              containerPort: 8081
+          env:
+            - name: MM_SERVICE_NAME
+              value: odh-model-controller
+            - name: MM_SVC_GRPC_PORT
+              value: "8080"
+            - name: WKUBE_POD_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.name
+            - name: WKUBE_POD_IPADDR
+              valueFrom:
+                fieldRef:
+                  fieldPath: status.podIP
+            - name: MM_LOCATION
+              valueFrom:
+                fieldRef:
+                  fieldPath: status.hostIP
+            - name: KV_STORE
+              value: etcd:odh-model-controller-etcd:2379
+            - name: MM_METRICS
+              value: prometheus:port=8081;scheme=http
+            - name: SHUTDOWN_TIMEOUT_MS
+              value: "90000"
+          readinessProbe:
+            httpGet:
+              path: /ready
+              port: 8080
+            initialDelaySeconds: 5
+            periodSeconds: 5
+            timeoutSeconds: 1
+          resources:
+            limits:
+              cpu: "500m"
+              memory: "512Mi"
+            requests:
+              cpu: "250m"
+              memory: "256Mi"
+          livenessProbe:
+            httpGet:
+              path: /live
+              port: 8080
+            initialDelaySeconds: 30
+            periodSeconds: 30
+            timeoutSeconds: 5
+          lifecycle:
+            preStop:
+              exec:
+                command: ["/bin/sh", "-c", "echo 'Stopping...'; sleep 10"]
+          securityContext:
+            capabilities:
+              drop:
+                - ALL
+        - name: oauth-proxy
+          args:
+            - --https-address=:8443
+            - --provider=openshift
+            - --openshift-service-account="odh-model-controller-sa"
+            - --upstream=http://localhost:8080
+            - --tls-cert=/etc/tls/private/tls.crt
+            - --tls-key=/etc/tls/private/tls.key
+            - --cookie-secret=SECRET
+            - '--openshift-delegate-urls={"/": {"namespace": "default", "resource": "services", "verb": "get"}}'
+            - '--openshift-sar={"namespace": "default", "resource": "services", "verb": "get"}'
+            - --skip-auth-regex='(^/metrics|^/apis/v1beta1/healthz)'
+          image: registry.redhat.io/openshift4/ose-oauth-proxy@sha256:4bef31eb993feb6f1096b51b4876c65a6fb1f4401fee97fa4f4542b6b7c9bc46
+          ports:
+            - containerPort: 8443
+              name: https
+          livenessProbe:
+            httpGet:
+              path: /oauth/healthz
+              port: 8443
+              scheme: HTTPS
+            initialDelaySeconds: 30
+            timeoutSeconds: 1
+            periodSeconds: 5
+            successThreshold: 1
+            failureThreshold: 3
+          readinessProbe:
+            httpGet:
+              path: /oauth/healthz
+              port: 8443
+              scheme: HTTPS
+            initialDelaySeconds: 5
+            timeoutSeconds: 1
+            periodSeconds: 5
+            successThreshold: 1
+            failureThreshold: 3
+          resources:
+            limits:
+              cpu: 100m
+              memory: 256Mi
+            requests:
+              cpu: 100m
+              memory: 256Mi
+          volumeMounts:
+            - mountPath: /etc/tls/private
+              name: proxy-tls
+
+      terminationGracePeriodSeconds: 90
+
+  strategy:
+    rollingUpdate:
+      maxSurge: 75%
+      maxUnavailable: 15%
+
