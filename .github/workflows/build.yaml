@@ -58,7 +58,7 @@ jobs:
           DEV_IMG_TAG=$(cat $(ls ${DEV_DEPS}) | sha1sum | head -c 16)
           DEV_IMAGE="quay.io/${{ env.DEV_IMAGE_NAME }}:$DEV_IMG_TAG"
           DEV_IMAGE_EXISTS=false
-          if $(docker manifest inspect $DEV_IMAGE >/dev/null ); then
+          if docker manifest inspect $DEV_IMAGE >/dev/null 2>&1; then
             DEV_IMAGE_EXISTS=true
           else
             if [ "${{ github.event_name }}" == "pull_request" ]; then
