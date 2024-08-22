@@ -1,0 +1,4 @@
+# Version information
+upstream opendatahub-io/odh-model-controller version: v0.12.0.4
+opendatahub version: latest
+opendatahub odh-model-controller branch: integration
