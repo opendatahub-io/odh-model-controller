@@ -14,8 +14,8 @@ on:
       - 'proto/**'
 
 env:
-  IMAGE_NAME: "quay.io/opendatahub/odh-model-controller"
-  DEV_IMAGE_NAME: "quay.io/opendatahub/odh-model-controller-develop"
+  IMAGE_NAME: "quay.io/nishan_acharya123/odh-model-controller"
+  DEV_IMAGE_NAME: "quay.io/nishan_acharya123/odh-model-controller-develop"
 
 jobs:
   build:
