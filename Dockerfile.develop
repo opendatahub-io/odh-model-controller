@@ -63,13 +63,17 @@ COPY .pre-commit-config.yaml go.mod go.sum ./
 RUN git init \
     && pre-commit install-hooks \
     && rm -rf .git \
+    && go mod tidy \
     && go mod download
 
 # Set up Go environment
 ENV PATH $HOME/go/bin:$PATH
 
+# Check the Go Version
+RUN go version
+
 # Install controller-gen
-RUN go install sigs.k8s.io/controller-tools/cmd/controller-gen@${CONTROLLER_GEN_VERSION} \
+RUN go install sigs.k8s.io/controller-tools/cmd/controller-gen@latest \
     && controller-gen --version
 
 # Install Ginkgo test framework
