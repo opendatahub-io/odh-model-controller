@@ -34,10 +34,10 @@ LABEL image="build"
 
 # Copy the go sources
 COPY main.go main.go
-COPY apis/ apis/
+#COPY apis/ apis/
 COPY controllers/ controllers/
-COPY generated/ generated/
-COPY pkg/ pkg/
+#COPY generated/ generated/
+#COPY pkg/ pkg/
 COPY version /etc/odh-model-controller-version
 
 # Build using native go compiler from BUILDPLATFORM but compiled output for TARGETPLATFORM
