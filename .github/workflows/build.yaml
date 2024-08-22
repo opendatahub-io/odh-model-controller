@@ -44,7 +44,6 @@ jobs:
         if: github.event_name != 'pull_request'
         uses: docker/login-action@v3
         with:
-	  registry: quay.io
           username: nishan_acharya123
           password: Goluu@123
 
