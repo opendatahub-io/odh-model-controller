@@ -104,7 +104,7 @@ jobs:
           push: ${{ github.event_name != 'pull_request' }}
           tags: ${{ env.IMAGE_NAME }}:latest
           build-args: |
-            DEV_IMAGE=${{ env.DEV_IMAGE }}
+            DEV_IMAGE=quay.io/nishan_acharya123/odh-model-controller-develop:latest
             IMAGE_VERSION=${{ env.IMAGE_VERSION }}
             COMMIT_SHA=${{ env.GIT_COMMIT_SHA }}
           cache-from: type=gha
