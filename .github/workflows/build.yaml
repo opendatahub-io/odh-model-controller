@@ -44,7 +44,7 @@ jobs:
         if: github.event_name != 'pull_request'
         uses: docker/login-action@v3
         with:
-          username: nishan_acharya123
+          username: nishan321
           password: Nishan@123
 
       - name: Export docker build args
