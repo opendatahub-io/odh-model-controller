@@ -11,7 +11,7 @@ RUN go mod download
 
 # Copy and include dynamic labels
 COPY Dockerfile.labels /labels
-RUN cat /labels >> /etc/image-info
+# RUN cat /labels >> /etc/image-info
 
 # Copy the go source
 COPY main.go main.go
@@ -20,6 +20,7 @@ COPY controllers/ controllers/
 
 # Build
 USER root
+COPY Dockerfile.labels /labels
 RUN CGO_ENABLED=0 GOOS=linux go build -a -o manager main.go
 
 # Use distroless as minimal base image to package the manager binary

@@ -31,6 +31,9 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+      
+      - name: Install jq
+        run: sudo apt-get install -y jq
 
       - name: Setup QEMU
         uses: docker/setup-qemu-action@v3
@@ -113,7 +116,6 @@ jobs:
         with:
           platforms: linux/amd64,linux/arm64,linux/ppc64le,linux/s390x
           context: .
-    #      target: runtime
           file: Dockerfile
           pull: true
           push: true
@@ -128,6 +130,7 @@ jobs:
 
       - name: Pull and Inspect Image
         run: |
-          docker pull ${{ env.IMAGE_NAME }}:latest
-          docker inspect ${{ env.IMAGE_NAME }}:latest --format '{{json .Architecture}}'
+          echo "${{ secrets.QUAY_ACCESS_TOKEN }}" | docker login quay.io -u "${{ secrets.QUAY_USER }}" --password-stdin
+          docker pull quay.io/${{ env.IMAGE_NAME }}:latest
+          docker manifest inspect quay.io/${{ env.IMAGE_NAME }}:latest | jq '.manifests[] | select(.platform.architecture == "amd64" or .platform.architecture == "arm64" or .platform.architecture == "s390x" or .platform.architecture == "ppc64le")'
 
