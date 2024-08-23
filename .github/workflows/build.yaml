@@ -108,6 +108,7 @@ jobs:
       
       - name: Generate Dockerfile labels
         run: |
+          echo "${{ secrets.QUAY_ACCESS_TOKEN }}" | docker login quay.io -u "${{ secrets.QUAY_USER }}" --password-stdin
           chmod +x ./scripts/generate_labels.sh
           ./scripts/generate_labels.sh
 
