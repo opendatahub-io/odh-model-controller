@@ -48,6 +48,10 @@ jobs:
           username: ${{ secrets.QUAY_USER }}
           password: ${{ secrets.QUAY_ACCESS_TOKEN }}
 
+#      - name: Remove Docker Hub Auth
+#        run: |
+#          jq 'del(.auths["https://index.docker.io/v1/"])' ~/.docker/config.json > ~/.docker/config.json.tmp && mv ~/.docker/config.json.tmp ~/.docker/config.json
+
       - name: Verify Quay Login
         run: |
           echo "Verifying Quay login status..."
@@ -98,6 +102,11 @@ jobs:
 
       - name: Run unit test
         run: ./scripts/develop.sh make test
+      
+      - name: Generate Dockerfile labels
+        run: |
+          chmod +x ./scripts/generate_labels.sh
+          ./scripts/generate_labels.sh
 
       - name: Build and push controller image
         uses: docker/build-push-action@v6
@@ -115,6 +124,7 @@ jobs:
             COMMIT_SHA=${{ env.GIT_COMMIT_SHA }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
+          debug: true
 
       - name: Pull and Inspect Image
         run: |

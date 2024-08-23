@@ -9,6 +9,10 @@ COPY go.sum go.sum
 # and so that source changes don't invalidate our downloaded layer
 RUN go mod download
 
+# Copy and include dynamic labels
+COPY Dockerfile.labels /labels
+RUN cat /labels >> /etc/image-info
+
 # Copy the go source
 COPY main.go main.go
 #COPY api/ api/
