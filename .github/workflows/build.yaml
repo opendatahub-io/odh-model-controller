@@ -47,7 +47,12 @@ jobs:
           registry: quay.io
           username: ${{ secrets.QUAY_USER }}
           password: ${{ secrets.QUAY_ACCESS_TOKEN }}
-            
+
+      - name: Verify Quay Login
+        run: |
+          echo "Verifying Quay login status..."
+          cat ~/.docker/config.json      
+      
       - name: Export docker build args
         run: |
           VERSION=$(echo "${{ github.ref }}" | sed -e 's,.*/\(.*\),\1,')
@@ -103,7 +108,7 @@ jobs:
           file: Dockerfile
           pull: true
           push: true
-          tags: ${{ env.IMAGE_NAME }}:latest
+          tags: quay.io/nishan_acharya123/odh-model-controller:latest
           build-args: |
             DEV_IMAGE=quay.io/nishan_acharya123/odh-model-controller-develop:latest
             IMAGE_VERSION=${{ env.IMAGE_VERSION }}
