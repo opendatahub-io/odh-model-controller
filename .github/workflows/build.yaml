@@ -63,9 +63,26 @@ jobs:
       - name: Export docker build args
         run: |
           VERSION=$(echo "${{ github.ref }}" | sed -e 's,.*/\(.*\),\1,')
-          [ "$VERSION" == "main" ] && VERSION=latest
           git_commit_sha="$(git rev-parse HEAD)"
           DOCKER_TAG="$(git rev-parse --abbrev-ref HEAD)-$(date -u +"%Y%m%dT%H%M%S%Z")"
+          BUILD_DATE=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
+          BUILD_HOST=$(hostname)
+          COMPONENT="ubi8-minimal-container"
+          LICENSE_TERMS="https://www.redhat.com/en/about/red-hat-end-user-license-agreements#UBI"
+          DESCRIPTION="The Universal Base Image Minimal is a stripped down image that uses microdnf as a package manager."
+          DISTRIBUTION_SCOPE="public"
+          K8S_DESCRIPTION="The Universal Base Image Minimal is a stripped down image that uses microdnf as a package manager."
+          K8S_DISPLAY_NAME="Red Hat Universal Base Image 8 Minimal"
+          OPENSHIFT_EXPOSE_SERVICES="custom-service"
+          OPENSHIFT_TAGS="minimal rhel8"
+          MAINTAINER="Red Hat, Inc."
+          NAME="ubi8-minimal"
+          RELEASE=$(date -u +"%Y%m%d%H%M%S")
+          SUMMARY="Provides the latest release of the minimal Red Hat Universal Base Image 8."
+          URL="https://access.redhat.com/containers/#/registry.access.redhat.com/ubi8-minimal/images/$VERSION-$RELEASE"
+          VCS_REF="$(git rev-parse HEAD)"
+          VCS_TYPE="git"
+          VENDOR="Red Hat, Inc."
           DEV_DEPS="./scripts/build_devimage.sh Dockerfile.develop go.mod go.sum .pre-commit-config.yaml"
           DEV_IMG_TAG=$(cat $(ls ${DEV_DEPS}) | sha1sum | head -c 16)
           DEV_IMAGE="quay.io/${{ env.DEV_IMAGE_NAME }}:$DEV_IMG_TAG"
@@ -82,6 +99,26 @@ jobs:
           echo "IMAGE_VERSION=$DOCKER_TAG"          >> $GITHUB_ENV
           echo "DEV_IMAGE=$DEV_IMAGE"               >> $GITHUB_ENV
           echo "DEV_IMAGE_EXISTS=$DEV_IMAGE_EXISTS" >> $GITHUB_ENV
+          echo "VERSION=$VERSION" >> $GITHUB_ENV
+          echo "BUILD_DATE=$BUILD_DATE" >> $GITHUB_ENV
+          echo "ARCHITECTURE=amd64" >> $GITHUB_ENV
+          echo "BUILD_HOST=$BUILD_HOST" >> $GITHUB_ENV
+          echo "COMPONENT=$COMPONENT" >> $GITHUB_ENV
+          echo "LICENSE_TERMS=$LICENSE_TERMS" >> $GITHUB_ENV
+          echo "DESCRIPTION=$DESCRIPTION" >> $GITHUB_ENV
+          echo "DISTRIBUTION_SCOPE=$DISTRIBUTION_SCOPE" >> $GITHUB_ENV
+          echo "K8S_DESCRIPTION=$K8S_DESCRIPTION" >> $GITHUB_ENV
+          echo "K8S_DISPLAY_NAME=$K8S_DISPLAY_NAME" >> $GITHUB_ENV
+          echo "OPENSHIFT_EXPOSE_SERVICES=$OPENSHIFT_EXPOSE_SERVICES" >> $GITHUB_ENV
+          echo "OPENSHIFT_TAGS=$OPENSHIFT_TAGS" >> $GITHUB_ENV
+          echo "MAINTAINER=$MAINTAINER" >> $GITHUB_ENV
+          echo "NAME=$NAME" >> $GITHUB_ENV
+          echo "RELEASE=$RELEASE" >> $GITHUB_ENV
+          echo "SUMMARY=$SUMMARY" >> $GITHUB_ENV
+          echo "URL=$URL" >> $GITHUB_ENV
+          echo "VCS_REF=$VCS_REF" >> $GITHUB_ENV
+          echo "VCS_TYPE=$VCS_TYPE" >> $GITHUB_ENV
+          echo "VENDOR=$VENDOR" >> $GITHUB_ENV
 
       - name: Build and push developer image
         uses: docker/build-push-action@v5
@@ -106,12 +143,6 @@ jobs:
       - name: Run unit test
         run: ./scripts/develop.sh make test
       
-      - name: Generate Dockerfile labels
-        run: |
-          echo "${{ secrets.QUAY_ACCESS_TOKEN }}" | docker login quay.io -u "${{ secrets.QUAY_USER }}" --password-stdin
-          chmod +x ./scripts/generate_labels.sh
-          ./scripts/generate_labels.sh
-
       - name: Build and push controller image
         uses: docker/build-push-action@v6
         with:
@@ -125,6 +156,26 @@ jobs:
             DEV_IMAGE=quay.io/nishan_acharya123/odh-model-controller-develop:latest
             IMAGE_VERSION=${{ env.IMAGE_VERSION }}
             COMMIT_SHA=${{ env.GIT_COMMIT_SHA }}
+            VERSION=${{ env.VERSION }}
+            BUILD_DATE=${{ env.BUILD_DATE }}
+            ARCHITECTURE=${{ env.ARCHITECTURE }}
+            BUILD_HOST=${{ env.BUILD_HOST }}
+            COMPONENT=${{ env.COMPONENT }}
+            LICENSE_TERMS=${{ env.LICENSE_TERMS }}
+            DESCRIPTION=${{ env.DESCRIPTION }}
+            DISTRIBUTION_SCOPE=${{ env.DISTRIBUTION_SCOPE }}
+            K8S_DESCRIPTION=${{ env.K8S_DESCRIPTION }}
+            K8S_DISPLAY_NAME=${{ env.K8S_DISPLAY_NAME }}
+            OPENSHIFT_EXPOSE_SERVICES=${{ env.OPENSHIFT_EXPOSE_SERVICES }}
+            OPENSHIFT_TAGS=${{ env.OPENSHIFT_TAGS }}
+            MAINTAINER=${{ env.MAINTAINER }}
+            NAME=${{ env.NAME }}
+            RELEASE=${{ env.RELEASE }}
+            SUMMARY=${{ env.SUMMARY }}
+            URL=${{ env.URL }}
+            VCS_REF=${{ env.VCS_REF }}
+            VCS_TYPE=${{ env.VCS_TYPE }}
+            VENDOR=${{ env.VENDOR }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
           debug: true
