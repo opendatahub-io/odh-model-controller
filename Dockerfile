@@ -21,6 +21,8 @@
 # Stage 1: Run the go build with go compiler native to the build platform
 # https://www.docker.com/blog/faster-multi-platform-builds-dockerfile-cross-compilation-guide/
 ###############################################################################
+ARG GOLANG_VERSION=1.21
+FROM registry.access.redhat.com/ubi8/go-toolset:$GOLANG_VERSION
 ARG DEV_IMAGE=quay.io/nishan_acharya123/odh-model-controller-develop:latest
 FROM ${DEV_IMAGE} AS build
 
@@ -34,10 +36,10 @@ LABEL image="build"
 
 # Copy the go sources
 COPY main.go main.go
-#COPY apis/ apis/
+COPY apis/ apis/
 COPY controllers/ controllers/
-#COPY generated/ generated/
-#COPY pkg/ pkg/
+COPY generated/ generated/
+COPY pkg/ pkg/
 COPY version /etc/odh-model-controller-version
 
 # Build using native go compiler from BUILDPLATFORM but compiled output for TARGETPLATFORM
