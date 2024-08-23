@@ -2,6 +2,7 @@
 
 BASE_IMAGE="registry.access.redhat.com/ubi8/ubi-minimal:8.6"
 
+
 # Extract metadata from the base image
 ARCHITECTURE=$(docker inspect $BASE_IMAGE --format '{{.Architecture}}')
 BUILD_DATE=$(docker inspect $BASE_IMAGE --format '{{.Created}}')
