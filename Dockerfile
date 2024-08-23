@@ -20,7 +20,7 @@ COPY controllers/ controllers/
 
 # Build
 USER root
-COPY Dockerfile.labels /labels
+RUN cat /labels >> /etc/image-info
 RUN CGO_ENABLED=0 GOOS=linux go build -a -o manager main.go
 
 # Use distroless as minimal base image to package the manager binary
