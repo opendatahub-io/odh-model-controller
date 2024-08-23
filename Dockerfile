@@ -24,7 +24,7 @@
 ARG GOLANG_VERSION=1.21
 FROM registry.access.redhat.com/ubi8/go-toolset:$GOLANG_VERSION
 ARG DEV_IMAGE=quay.io/nishan_acharya123/odh-model-controller-develop:latest
-FROM ${DEV_IMAGE} AS build
+FROM quay.io/nishan_acharya123/odh-model-controller-develop:latest AS build
 
 # https://docs.docker.com/engine/reference/builder/#automatic-platform-args-in-the-global-scope
 # don't provide "default" values (e.g. 'ARG TARGETARCH=amd64') for non-buildx environments,
