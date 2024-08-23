@@ -52,6 +52,32 @@ FROM registry.access.redhat.com/ubi8/ubi-minimal:8.6
 WORKDIR /
 COPY --from=builder /workspace/manager .
 
+# Install the latest security patches
+RUN yum update -y && \
+    yum install -y \
+    glibc-2.28-251.el8_10.2 \
+    glibc-minimal-langpack-2.28-251.el8_10.2 \
+    glibc-common-2.28-251.el8_10.2 \
+    libnghttp2-1.33.0-6.el8_10.1 \
+    krb5-libs-1.18.2-29.el8_10 \
+    openssl-libs-1.1.1k-12.el8_9 \
+    libksba-1.3.5-9.el8_7 \
+    libcap-2.48-5.el8_8 \
+    libssh-0.9.6-13.el8_9 \
+    libssh-config-0.9.6-14.el8 \
+    systemd-libs-239-82.el8 \
+    gmp-1:6.1.2-11.el8 \
+    libtasn1-4.13-4.el8_7 \
+    rpm-libs-4.14.3-28.el8_9 \
+    ncurses-base-6.1-9.20180224.el8_8.1 \
+    libxml2-2.9.7-18.el8_9 \
+    curl-7.61.1-34.el8_10.2 \
+    sqlite-libs-3.26.0-19.el8_9 \
+    libarchive-3.3.3-5.el8 \
+    gnutls-3.6.16-8.el8_9 \
+    openldap-2.4.46-19.el8_10 && \
+    yum clean all
+
 # Set labels using build-time arguments
 LABEL architecture=$ARCHITECTURE \
       build-date=$BUILD_DATE \
