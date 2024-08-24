@@ -153,9 +153,6 @@ jobs:
           push: true
           tags: quay.io/nishan_acharya123/odh-model-controller:latest
           build-args: |
-            DEV_IMAGE=quay.io/nishan_acharya123/odh-model-controller-develop:latest
-            IMAGE_VERSION=${{ env.IMAGE_VERSION }}
-            COMMIT_SHA=${{ env.GIT_COMMIT_SHA }}
             VERSION=${{ env.VERSION }}
             BUILD_DATE=${{ env.BUILD_DATE }}
             ARCHITECTURE=${{ env.ARCHITECTURE }}
