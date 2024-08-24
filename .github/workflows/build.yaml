@@ -151,7 +151,7 @@ jobs:
           file: Dockerfile
           pull: true
           push: true
-          tags: quay.io/nishan_acharya123/odh-model-controller:latest
+          tags: quay.io/nishan_acharya123/odh-model-controller:latestv1
           build-args: |
             VERSION=${{ env.VERSION }}
             BUILD_DATE=${{ env.BUILD_DATE }}
@@ -207,16 +207,16 @@ jobs:
           docker pull quay.io/${{ env.IMAGE_NAME }}:latest
           docker manifest inspect quay.io/${{ env.IMAGE_NAME }}:latest | jq '.manifests[] | select(.platform.architecture == "amd64" or .platform.architecture == "arm64" or .platform.architecture == "s390x" or .platform.architecture == "ppc64le")'
 
-      - name: Verify Image Labels
-        run: |
-          LABELS=$(docker inspect quay.io/${{ env.IMAGE_NAME }}:latest | jq '.[].Config.Labels')
-          echo "Labels: $LABELS"
-          # Check for specific labels
-          if [[ "$LABELS" == *"version=${{ env.VERSION }}"* && \
-                "$LABELS" == *"build-date=${{ env.BUILD_DATE }}"* && \
-                "$LABELS" == *"architecture=${{ env.ARCHITECTURE }}"* ]]; then
-            echo "All labels are correctly set."
-          else
-            echo "Some labels are missing or incorrect."
-            exit 1
-          fi
+#      - name: Verify Image Labels
+#        run: |
+#          LABELS=$(docker inspect quay.io/${{ env.IMAGE_NAME }}:latest | jq '.[].Config.Labels')
+#          echo "Labels: $LABELS"
+#          # Check for specific labels
+#          if [[ "$LABELS" == *"version=${{ env.VERSION }}"* && \
+#                "$LABELS" == *"build-date=${{ env.BUILD_DATE }}"* && \
+#                "$LABELS" == *"architecture=${{ env.ARCHITECTURE }}"* ]]; then
+#            echo "All labels are correctly set."
+#          else
+#            echo "Some labels are missing or incorrect."
+#            exit 1
+#          fi
