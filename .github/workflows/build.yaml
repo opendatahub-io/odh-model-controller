@@ -179,6 +179,30 @@ jobs:
           cache-from: type=gha
           cache-to: type=gha,mode=max
           debug: true
+      
+      - name: Debug Environment Variables
+        run: |
+          echo "VERSION=${{ env.VERSION }}"
+          echo "BUILD_DATE=${{ env.BUILD_DATE }}"
+          echo "ARCHITECTURE=${{ env.ARCHITECTURE }}"
+          echo "BUILD_HOST=${{ env.BUILD_HOST }}"
+          echo "COMPONENT=${{ env.COMPONENT }}"
+          echo "LICENSE_TERMS=${{ env.LICENSE_TERMS }}"
+          echo "DESCRIPTION=${{ env.DESCRIPTION }}"
+          echo "DISTRIBUTION_SCOPE=${{ env.DISTRIBUTION_SCOPE }}"
+          echo "K8S_DESCRIPTION=${{ env.K8S_DESCRIPTION }}"
+          echo "K8S_DISPLAY_NAME=${{ env.K8S_DISPLAY_NAME }}"
+          echo "OPENSHIFT_EXPOSE_SERVICES=${{ env.OPENSHIFT_EXPOSE_SERVICES }}"
+          echo "OPENSHIFT_TAGS=${{ env.OPENSHIFT_TAGS }}"
+          echo "MAINTAINER=${{ env.MAINTAINER }}"
+          echo "NAME=${{ env.NAME }}"
+          echo "RELEASE=${{ env.RELEASE }}"
+          echo "SUMMARY=${{ env.SUMMARY }}"
+          echo "URL=${{ env.URL }}"
+          echo "VCS_REF=${{ env.VCS_REF }}"
+          echo "VCS_TYPE=${{ env.VCS_TYPE }}"
+          echo "VENDOR=${{ env.VENDOR }}"
+      
 
       - name: Pull and Inspect Image
         run: |

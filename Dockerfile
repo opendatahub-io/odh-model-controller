@@ -80,26 +80,27 @@ COPY --from=builder /workspace/manager .
 #    yum clean all
 
 # Set labels using build-time arguments
-LABEL architecture=$ARCHITECTURE \
-      build-date=$BUILD_DATE \
-      version=$VERSION \
-      com.redhat.build-host=$BUILD_HOST \
-      com.redhat.component=$COMPONENT \
-      com.redhat.license_terms=$LICENSE_TERMS \
-      description=$DESCRIPTION \
-      distribution-scope=$DISTRIBUTION_SCOPE \
-      io.k8s.description=$K8S_DESCRIPTION \
-      io.k8s.display-name=$K8S_DISPLAY_NAME \
-      io.openshift.expose-services=$OPENSHIFT_EXPOSE_SERVICES \
-      io.openshift.tags=$OPENSHIFT_TAGS \
-      maintainer=$MAINTAINER \
-      name=$NAME \
-      release=$RELEASE \
-      summary=$SUMMARY \
-      url=$URL \
-      vcs-ref=$VCS_REF \
-      vcs-type=$VCS_TYPE \
-      vendor=$VENDOR
+LABEL version="${VERSION}" \
+      build-date="${BUILD_DATE}" \
+      architecture="${ARCHITECTURE}" \
+      build-host="${BUILD_HOST}" \
+      component="${COMPONENT}" \
+      license-terms="${LICENSE_TERMS}" \
+      description="${DESCRIPTION}" \
+      distribution-scope="${DISTRIBUTION_SCOPE}" \
+      io.k8s.description="${K8S_DESCRIPTION}" \
+      io.k8s.display-name="${K8S_DISPLAY_NAME}" \
+      io.openshift.expose-services="${OPENSHIFT_EXPOSE_SERVICES}" \
+      io.openshift.tags="${OPENSHIFT_TAGS}" \
+      maintainer="${MAINTAINER}" \
+      name="${NAME}" \
+      release="${RELEASE}" \
+      summary="${SUMMARY}" \
+      url="${URL}" \
+      vcs-ref="${VCS_REF}" \
+      vcs-type="${VCS_TYPE}" \
+      vendor="${VENDOR}"
+
 
 USER 65532:65532
 
