@@ -84,9 +84,10 @@ func (s *staticTemplateLoader) Load(ctx context.Context, authType AuthType, key 
 	}
 
 	templateData := map[string]interface{}{
-		"Namespace":      key.Namespace,
-		"Audiences":      getAuthAudience(),
-		"AuthorinoLabel": authKey + ": " + authVal,
+		"Namespace":            key.Namespace,
+		"Audiences":            getAuthAudience(),
+		"AuthorinoLabel":       authKey + ": " + authVal,
+		"InferenceServiceName": key.Name,
 	}
 	template := authConfigTemplateAnonymous
 	if authType == UserDefined {
