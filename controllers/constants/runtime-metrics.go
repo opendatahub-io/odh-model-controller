@@ -20,16 +20,16 @@ const (
 	CaikitMetricsData = `{
         "config": [
 			{
-				"title": "Number of requests",
+				"title": "Requests per 5 minutes",
 				"type": "REQUEST_COUNT",
 				"queries": [
 					{
 						"title": "Number of successful incoming requests",
-						"query": "round(sum(increase(predict_rpc_count_total{namespace='${NAMESPACE}',code='OK',model_id='${MODEL_NAME}'}[${RATE_INTERVAL}])))"
+						"query": "round(sum(increase(predict_rpc_count_total{namespace='${NAMESPACE}',code='OK',model_id='${MODEL_NAME}'}[${REQUEST_RATE_INTERVAL}])))"
 					},
 					{
 						"title": "Number of failed incoming requests",
-						"query": "round(sum(increase(predict_rpc_count_total{namespace='${NAMESPACE}',code!='OK',model_id='${MODEL_NAME}'}[${RATE_INTERVAL}])))"
+						"query": "round(sum(increase(predict_rpc_count_total{namespace='${NAMESPACE}',code!='OK',model_id='${MODEL_NAME}'}[${REQUEST_RATE_INTERVAL}])))"
 					}
 				]
 			},
@@ -74,16 +74,16 @@ const (
 	OvmsMetricsData = `{
         "config": [
 			{
-				"title": "Number of requests",
+				"title": "Requests per 5 minutes",
 				"type": "REQUEST_COUNT",
 				"queries": [
 					{
 						"title": "Number of successful incoming requests",
-						"query": "round(sum(increase(ovms_requests_success{namespace='${NAMESPACE}',name='${MODEL_NAME}'}[${RATE_INTERVAL}])))"
+						"query": "round(sum(increase(ovms_requests_success{namespace='${NAMESPACE}',name='${MODEL_NAME}'}[${REQUEST_RATE_INTERVAL}])))"
 					},
 					{
 						"title": "Number of failed incoming requests",
-						"query": "round(sum(increase(ovms_requests_fail{namespace='${NAMESPACE}',name='${MODEL_NAME}'}[${RATE_INTERVAL}])))"
+						"query": "round(sum(increase(ovms_requests_fail{namespace='${NAMESPACE}',name='${MODEL_NAME}'}[${REQUEST_RATE_INTERVAL}])))"
 					}
 				]
 			},
@@ -128,16 +128,16 @@ const (
 	TgisMetricsData = `{
         "config": [
 			{
-				"title": "Number of requests",
+				"title": "Requests per 5 minutes",
 				"type": "REQUEST_COUNT",
 				"queries": [
 					{
 						"title": "Number of successful incoming requests",
-						"query": "round(sum(increase(tgi_request_success{namespace='${NAMESPACE}', pod=~'${MODEL_NAME}-predictor-.*'}[${RATE_INTERVAL}])))"
+						"query": "round(sum(increase(tgi_request_success{namespace='${NAMESPACE}', pod=~'${MODEL_NAME}-predictor-.*'}[${REQUEST_RATE_INTERVAL}])))"
 					},
 					{
 						"title": "Number of failed incoming requests",
-						"query": "round(sum(increase(tgi_request_failure{namespace='${NAMESPACE}', pod=~'${MODEL_NAME}-predictor-.*'}[${RATE_INTERVAL}])))"
+						"query": "round(sum(increase(tgi_request_failure{namespace='${NAMESPACE}', pod=~'${MODEL_NAME}-predictor-.*'}[${REQUEST_RATE_INTERVAL}])))"
 					}
 				]
 			},
@@ -182,12 +182,12 @@ const (
 	VllmMetricsData = `{
         "config": [
 			{
-				"title": "Number of requests",
+				"title": "Requests per 5 minutes",
 				"type": "REQUEST_COUNT",
 				"queries": [
 					{
 						"title": "Number of successful incoming requests",
-						"query": "round(sum(increase(vllm:request_success_total{namespace='${NAMESPACE}',model_name='${model_name}'}[${RATE_INTERVAL}])))"
+						"query": "round(sum(increase(vllm:request_success_total{namespace='${NAMESPACE}',model_name='${model_name}'}[${REQUEST_RATE_INTERVAL}])))"
 					}
 				]
 			},

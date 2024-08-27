@@ -56,6 +56,7 @@ const (
 	KserveMetricsConfigMapNameSuffix = "-metrics-dashboard"
 	DefaultStorageConfig             = "storage-config"
 	IntervalValue                    = "1m"
+	RequestRateInterval              = "5m"
 	OvmsImageName                    = "openvino_model_server"
 	TgisImageName                    = "text-generation-inference"
 	VllmImageName                    = "vllm"
