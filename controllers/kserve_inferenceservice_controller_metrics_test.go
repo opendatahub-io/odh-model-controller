@@ -2,9 +2,9 @@ package controllers
 
 import (
 	"github.com/opendatahub-io/odh-model-controller/controllers/constants"
+	"github.com/opendatahub-io/odh-model-controller/controllers/utils"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
-	"strings"
 	"time"
 
 	. "github.com/onsi/ginkgo"
@@ -73,8 +73,8 @@ var _ = Describe("The KServe Dashboard reconciler", func() {
 			Expect(err).NotTo(HaveOccurred())
 			Expect(metricsConfigMap).NotTo(BeNil())
 
-			finaldata := substituteVariablesInQueries(constants.OvmsMetricsData, testNs, KserveOvmsInferenceServiceName, constants.IntervalValue)
-			expectedmetricsConfigMap := &corev1.ConfigMap{
+			finaldata := utils.SubstituteVariablesInQueries(constants.OvmsMetricsData, testNs, KserveOvmsInferenceServiceName)
+			expectedMetricsConfigMap := &corev1.ConfigMap{
 				ObjectMeta: metav1.ObjectMeta{
 					Name:      KserveOvmsInferenceServiceName + constants.KserveMetricsConfigMapNameSuffix,
 					Namespace: testNs,
@@ -84,7 +84,8 @@ var _ = Describe("The KServe Dashboard reconciler", func() {
 					"metrics":   finaldata,
 				},
 			}
-			Expect(compareConfigMap(metricsConfigMap, expectedmetricsConfigMap)).Should(BeTrue())
+			Expect(compareConfigMap(metricsConfigMap, expectedMetricsConfigMap)).Should(BeTrue())
+			Expect(expectedMetricsConfigMap.Data).NotTo(HaveKeyWithValue("metrics", ContainSubstring("${REQUEST_RATE_INTERVAL}")))
 		})
 
 		It("if the runtime is not supported for metrics, it should create a configmap with the unsupported config", func() {
@@ -95,7 +96,7 @@ var _ = Describe("The KServe Dashboard reconciler", func() {
 			Expect(err).NotTo(HaveOccurred())
 			Expect(metricsConfigMap).NotTo(BeNil())
 
-			expectedmetricsConfigMap := &corev1.ConfigMap{
+			expectedMetricsConfigMap := &corev1.ConfigMap{
 				ObjectMeta: metav1.ObjectMeta{
 					Name:      UnsupportedMetricsInferenceServiceName + constants.KserveMetricsConfigMapNameSuffix,
 					Namespace: testNs,
@@ -104,7 +105,7 @@ var _ = Describe("The KServe Dashboard reconciler", func() {
 					"supported": "false",
 				},
 			}
-			Expect(compareConfigMap(metricsConfigMap, expectedmetricsConfigMap)).Should(BeTrue())
+			Expect(compareConfigMap(metricsConfigMap, expectedMetricsConfigMap)).Should(BeTrue())
 		})
 
 		It("if the isvc does not have a runtime specified, an unsupported metrics configmap should be created", func() {
@@ -153,8 +154,3 @@ var _ = Describe("The KServe Dashboard reconciler", func() {
 		})
 	})
 })
-
-func substituteVariablesInQueries(data string, namespace string, name string, IntervalValue string) string {
-	replacer := strings.NewReplacer("${NAMESPACE}", namespace, "${MODEL_NAME}", name, "${RATE_INTERVAL}", IntervalValue)
-	return replacer.Replace(data)
-}
