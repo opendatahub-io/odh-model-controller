@@ -11,6 +11,7 @@ import (
 	"os"
 	"reflect"
 	"sort"
+	"strings"
 
 	kservev1beta1 "github.com/kserve/kserve/pkg/apis/serving/v1beta1"
 	"github.com/kuadrant/authorino/pkg/log"
@@ -398,4 +399,13 @@ func FindSupportingRuntimeForISvc(ctx context.Context, cli client.Client, log lo
 		log.Info("No suitable Runtime available for InferenceService")
 		return desiredServingRuntime, errors.New(constants.NoSuitableRuntimeError)
 	}
+}
+
+func SubstituteVariablesInQueries(data string, namespace string, name string) string {
+	replacer := strings.NewReplacer(
+		"${NAMESPACE}", namespace,
+		"${MODEL_NAME}", name,
+		"${RATE_INTERVAL}", constants.IntervalValue,
+		"${REQUEST_RATE_INTERVAL}", constants.RequestRateInterval)
+	return replacer.Replace(data)
 }
