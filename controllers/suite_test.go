@@ -18,12 +18,13 @@ package controllers
 import (
 	"context"
 	"fmt"
-	apierrs "k8s.io/apimachinery/pkg/api/errors"
 	"math/rand"
 	"os"
 	"path/filepath"
 	"testing"
 	"time"
+
+	apierrs "k8s.io/apimachinery/pkg/api/errors"
 
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
@@ -52,7 +53,6 @@ import (
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
 	"sigs.k8s.io/controller-runtime/pkg/log/zap"
 
-	"github.com/opendatahub-io/odh-model-controller/controllers/constants"
 	"github.com/opendatahub-io/odh-model-controller/controllers/utils"
 	//+kubebuilder:scaffold:imports
 )
@@ -140,10 +140,11 @@ var _ = BeforeSuite(func() {
 	Expect(cli).NotTo(BeNil())
 
 	// Create istio-system namespace
+	_, meshNamespace := utils.GetIstioControlPlaneName(ctx, cli)
 	istioNamespace := &corev1.Namespace{
 		ObjectMeta: metav1.ObjectMeta{
-			Name:      constants.IstioNamespace,
-			Namespace: constants.IstioNamespace,
+			Name:      meshNamespace,
+			Namespace: meshNamespace,
 		},
 	}
 	Expect(cli.Create(ctx, istioNamespace)).Should(Succeed())
@@ -212,7 +213,8 @@ var _ = AfterSuite(func() {
 var _ = AfterEach(func() {
 	cleanUp := func(namespace string, cli client.Client) {
 		inNamespace := client.InNamespace(namespace)
-		istioNamespace := client.InNamespace(constants.IstioNamespace)
+		_, meshNamespace := utils.GetIstioControlPlaneName(ctx, cli)
+		istioNamespace := client.InNamespace(meshNamespace)
 		Expect(cli.DeleteAllOf(context.TODO(), &kservev1alpha1.ServingRuntime{}, inNamespace)).ToNot(HaveOccurred())
 		Expect(cli.DeleteAllOf(context.TODO(), &kservev1beta1.InferenceService{}, inNamespace)).ToNot(HaveOccurred())
 		Expect(cli.DeleteAllOf(context.TODO(), &routev1.Route{}, inNamespace)).ToNot(HaveOccurred())
