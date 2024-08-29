@@ -28,6 +28,7 @@ import (
 	. "github.com/onsi/gomega/gstruct"
 	gomegatypes "github.com/onsi/gomega/types"
 	"github.com/opendatahub-io/odh-model-controller/controllers/constants"
+	"github.com/opendatahub-io/odh-model-controller/controllers/utils"
 	routev1 "github.com/openshift/api/route/v1"
 	istioclientv1beta1 "istio.io/client-go/pkg/apis/networking/v1beta1"
 	corev1 "k8s.io/api/core/v1"
@@ -69,6 +70,7 @@ var _ = Describe("The Openshift Kserve model controller", func() {
 		})
 
 		It("With Kserve InferenceService a Route be created", func() {
+			_, meshNamespace := utils.GetIstioControlPlaneName(ctx, cli)
 			inferenceService := &kservev1beta1.InferenceService{}
 			err := convertToStructuredResource(KserveInferenceServicePath1, inferenceService)
 			Expect(err).NotTo(HaveOccurred())
@@ -79,7 +81,7 @@ var _ = Describe("The Openshift Kserve model controller", func() {
 			By("By checking that the controller has not created the Route")
 			Consistently(func() error {
 				route := &routev1.Route{}
-				key := types.NamespacedName{Name: getKServeRouteName(inferenceService), Namespace: constants.IstioNamespace}
+				key := types.NamespacedName{Name: getKServeRouteName(inferenceService), Namespace: meshNamespace}
 				err = cli.Get(ctx, key, route)
 				return err
 			}, timeout, interval).Should(HaveOccurred())
@@ -98,7 +100,7 @@ var _ = Describe("The Openshift Kserve model controller", func() {
 			By("By checking that the controller has created the Route")
 			Eventually(func() error {
 				route := &routev1.Route{}
-				key := types.NamespacedName{Name: getKServeRouteName(inferenceService), Namespace: constants.IstioNamespace}
+				key := types.NamespacedName{Name: getKServeRouteName(inferenceService), Namespace: meshNamespace}
 				err = cli.Get(ctx, key, route)
 				return err
 			}, timeout, interval).Should(Succeed())
@@ -192,16 +194,18 @@ var _ = Describe("The Openshift Kserve model controller", func() {
 			err = cli.Status().Update(ctx, deployedInferenceService)
 			Expect(err).NotTo(HaveOccurred())
 
+			_, meshNamespace := utils.GetIstioControlPlaneName(ctx, cli)
+
 			// Verify that the certificate secret is created in the istio-system namespace.
 			Eventually(func() error {
 				secret := &corev1.Secret{}
-				return cli.Get(ctx, client.ObjectKey{Namespace: constants.IstioNamespace, Name: fmt.Sprintf("%s-%s", inferenceService.Name, inferenceService.Namespace)}, secret)
+				return cli.Get(ctx, client.ObjectKey{Namespace: meshNamespace, Name: fmt.Sprintf("%s-%s", inferenceService.Name, inferenceService.Namespace)}, secret)
 			}, timeout, interval).Should(Succeed())
 
 			// Verify that the gateway is updated in the istio-system namespace.
 			var gateway *istioclientv1beta1.Gateway
 			Eventually(func() error {
-				gateway, err = waitForUpdatedGatewayCompletion(cli, "add", constants.IstioNamespace, constants.KServeGatewayName, inferenceService.Name)
+				gateway, err = waitForUpdatedGatewayCompletion(cli, "add", meshNamespace, constants.KServeGatewayName, inferenceService.Name)
 				return err
 			}, timeout, interval).Should(Succeed())
 
@@ -246,6 +250,7 @@ var _ = Describe("The Openshift Kserve model controller", func() {
 			ctx := context.Background()
 			testNamespace := Namespaces.Create(cli)
 			testNs = testNamespace.Name
+			_, meshNamespace := utils.GetIstioControlPlaneName(ctx, cli)
 
 			inferenceServiceConfig := &corev1.ConfigMap{}
 			Expect(convertToStructuredResource(InferenceServiceConfigPath1, inferenceServiceConfig)).To(Succeed())
@@ -308,13 +313,13 @@ var _ = Describe("The Openshift Kserve model controller", func() {
 			}, timeout, interval).Should(Succeed())
 
 			Eventually(func() error {
-				return cli.Get(ctx, client.ObjectKey{Namespace: constants.IstioNamespace, Name: fmt.Sprintf("%s-%s", inferenceService.Name, inferenceService.Namespace)}, secret)
+				return cli.Get(ctx, client.ObjectKey{Namespace: meshNamespace, Name: fmt.Sprintf("%s-%s", inferenceService.Name, inferenceService.Namespace)}, secret)
 			}, timeout, interval).Should(Succeed())
 
 			// Verify that the gateway is updated in the istio-system namespace.
 			var gateway *istioclientv1beta1.Gateway
 			Eventually(func() error {
-				gateway, err = waitForUpdatedGatewayCompletion(cli, "add", constants.IstioNamespace, constants.KServeGatewayName, inferenceService.Name)
+				gateway, err = waitForUpdatedGatewayCompletion(cli, "add", meshNamespace, constants.KServeGatewayName, inferenceService.Name)
 				return err
 			}, timeout, interval).Should(Succeed())
 
@@ -345,9 +350,10 @@ var _ = Describe("The Openshift Kserve model controller", func() {
 				Expect(err).NotTo(HaveOccurred())
 
 				// Verify that the certificate secret in the istio-system namespace is updated.
+				_, meshNamespace := utils.GetIstioControlPlaneName(ctx, cli)
 				destSecret := &corev1.Secret{}
 				Eventually(func() error {
-					Expect(cli.Get(ctx, client.ObjectKey{Namespace: constants.IstioNamespace, Name: fmt.Sprintf("%s-%s", deployedInferenceService.Name, deployedInferenceService.Namespace)}, destSecret)).Should(Succeed())
+					Expect(cli.Get(ctx, client.ObjectKey{Namespace: meshNamespace, Name: fmt.Sprintf("%s-%s", deployedInferenceService.Name, deployedInferenceService.Namespace)}, destSecret)).Should(Succeed())
 					if string(destSecret.Data["tls.crt"]) != updatedDataString {
 						return fmt.Errorf("destSecret is not updated yet")
 					}
@@ -366,10 +372,12 @@ var _ = Describe("The Openshift Kserve model controller", func() {
 				Expect(err).NotTo(HaveOccurred())
 				Expect(cli.Delete(ctx, deployedInferenceService)).Should(Succeed())
 
+				_, meshNamespace := utils.GetIstioControlPlaneName(ctx, cli)
+
 				// Verify that the gateway is updated in the istio-system namespace.
 				var gateway *istioclientv1beta1.Gateway
 				Eventually(func() error {
-					gateway, err = waitForUpdatedGatewayCompletion(cli, "delete", constants.IstioNamespace, constants.KServeGatewayName, isvcName)
+					gateway, err = waitForUpdatedGatewayCompletion(cli, "delete", meshNamespace, constants.KServeGatewayName, isvcName)
 					return err
 				}, timeout, interval).Should(Succeed())
 
@@ -380,7 +388,7 @@ var _ = Describe("The Openshift Kserve model controller", func() {
 				// Ensure that the synced Secret is successfully deleted within the istio-system namespace.
 				secret := &corev1.Secret{}
 				Eventually(func() error {
-					return cli.Get(ctx, client.ObjectKey{Namespace: constants.IstioNamespace, Name: fmt.Sprintf("%s-%s", isvcName, constants.IstioNamespace)}, secret)
+					return cli.Get(ctx, client.ObjectKey{Namespace: meshNamespace, Name: fmt.Sprintf("%s-%s", isvcName, meshNamespace)}, secret)
 				}, timeout, interval).ShouldNot(Succeed())
 			})
 		})
