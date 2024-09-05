@@ -34,6 +34,7 @@ import (
 const (
 	dataconnectionStringPath            = "./testdata/secrets/dataconnection-string.yaml"
 	storageconfigEncodedPath            = "./testdata/secrets/storageconfig-encoded.yaml"
+	storageconfigCertString             = "./testdata/secrets/storageconfig-cert-string.yaml"
 	storageconfigEncodedUnmanagedPath   = "./testdata/secrets/storageconfig-encoded-unmanaged.yaml"
 	storageconfigCertEncodedPath        = "./testdata/secrets/storageconfig-cert-encoded.yaml"
 	storageconfigUpdatedCertEncodedPath = "./testdata/secrets/storageconfig-updated-cert-encoded.yaml"
@@ -183,6 +184,39 @@ var _ = Describe("StorageConfig controller", func() {
 			Expect(compareSecrets(updatedStorageconfigSecret, expectedUpdatedStorageConfigSecret)).Should((BeTrue()))
 		})
 	})
+
+	Context("when a configmap odh-trusted-ca-bundle does not exists", func() {
+		It("should not return error", func() {
+			dataconnectionStringSecret := &corev1.Secret{}
+
+			By("creating data connection secret")
+			err := convertToStructuredResource(dataconnectionStringPath, dataconnectionStringSecret)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(cli.Create(ctx, dataconnectionStringSecret)).Should(Succeed())
+
+			storageconfigSecret, err := waitForSecret(cli, WorkingNamespace, constants.DefaultStorageConfig, 30, 1*time.Second)
+			Expect(err).NotTo(HaveOccurred())
+
+			// Check storage-config secret
+			expectedStorageConfigSecret := &corev1.Secret{}
+			err = convertToStructuredResource(storageconfigEncodedPath, expectedStorageConfigSecret)
+			Expect(err).NotTo(HaveOccurred())
+
+			stringMap := make(map[string]string)
+			for key, value := range storageconfigSecret.Data {
+				stringValue := string(value)
+				stringMap[key] = stringValue
+			}
+			fmt.Printf("storageconfigSecret %s\n", stringMap)
+			stringMap1 := make(map[string]string)
+			for key, value := range expectedStorageConfigSecret.Data {
+				stringValue := string(value)
+				stringMap1[key] = stringValue
+			}
+			Expect(compareSecrets(storageconfigSecret, expectedStorageConfigSecret)).Should((BeTrue()))
+		})
+	})
+
 })
 
 func updateSecretData(cli client.Client, namespace, secretName string, dataKey string, dataValue string) error {
