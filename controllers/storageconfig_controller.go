@@ -108,7 +108,14 @@ func (r *StorageSecretReconciler) reconcileSecret(secret *corev1.Secret,
 		Namespace: secret.Namespace,
 	}, odhGlobalCertConfigMap)
 
-	if err == nil {
+	if err != nil {
+		if apierrs.IsNotFound(err) {
+			log.Info("unable to fetch the ODH Global Cert ConfigMap", "error", err)
+
+		} else {
+			return err
+		}
+	} else {
 		odhCustomCertData = odhGlobalCertConfigMap.Data[constants.ODHCustomCACertFileName]
 	}
 
