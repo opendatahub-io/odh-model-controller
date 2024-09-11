@@ -44,7 +44,7 @@ jobs:
             echo "TAG=latest" >> $GITHUB_ENV
           elif [[ "${GITHUB_REF}" == refs/heads/release-* ]]; then
             VERSION="${GITHUB_REF#refs/heads/release-}"
-            echo "TAG=v${VERSION}" >> $GITHUB_ENV
+            echo "TAG=v${VERSION}-latest" >> $GITHUB_ENV
           elif [[ "${GITHUB_REF}" == refs/tags/v* ]]; then
             TAG="${GITHUB_REF#refs/tags/}"
             echo "TAG=${TAG}" >> $GITHUB_ENV
