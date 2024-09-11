@@ -95,17 +95,24 @@ func (r *KserveMetricsDashboardReconciler) createDesiredResource(ctx context.Con
 	var servingRuntime string
 	runtime := &kservev1alpha1.ServingRuntime{}
 	supported := false
+
+	// there is the possibility to also have and nil model field, e.g:
+	//predictor:
+	//	containers:
+	//		- name: kserve-container
+	//		image: user/custom-model:v1
+	if nil == isvc.Spec.Predictor.Model {
+		log.V(1).Info("no `predictor.model` field found in InferenceService, no metrics will be available")
+		return r.createConfigMap(isvc, false, log)
+	}
+
 	// resolve SR
 	isvcRuntime := isvc.Spec.Predictor.Model.Runtime
 	if isvcRuntime == nil {
 		runtime, err = utils.FindSupportingRuntimeForISvc(ctx, r.client, log, isvc)
 		if err != nil {
 			if errwrap.Contains(err, constants.NoSuitableRuntimeError) {
-				configmap, err := r.createConfigMap(isvc, false, log)
-				if err != nil {
-					return nil, err
-				}
-				return configmap, nil
+				return r.createConfigMap(isvc, false, log)
 			}
 			return nil, err
 		}
