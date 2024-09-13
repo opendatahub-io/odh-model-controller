@@ -18,6 +18,7 @@ package reconcilers
 import (
 	"context"
 	"fmt"
+
 	"github.com/opendatahub-io/odh-model-controller/controllers/utils"
 
 	"github.com/go-logr/logr"
@@ -57,7 +58,7 @@ func NewKserveAuthConfigReconciler(client client.Client) *KserveAuthConfigReconc
 
 func (r *KserveAuthConfigReconciler) Reconcile(ctx context.Context, log logr.Logger, isvc *kservev1beta1.InferenceService) error {
 	log.V(1).Info("Reconciling Authorino AuthConfig for InferenceService")
-	authorinoEnabled, capabilityErr := utils.VerifyIfMeshAuthorizationIsEnabled(context.Background(), r.client)
+	authorinoEnabled, capabilityErr := utils.VerifyIfMeshAuthorizationIsEnabled(ctx, r.client)
 	if capabilityErr != nil {
 		log.V(1).Error(capabilityErr, "Error while verifying if Authorino is enabled")
 		return nil
