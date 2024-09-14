@@ -18,8 +18,6 @@ package constants
 const (
 	InferenceServiceKind = "InferenceService"
 
-	IstioNamespace                   = "istio-system"
-	IstioControlPlaneName            = "data-science-smcp"
 	ServiceMeshMemberRollName        = "default"
 	ServiceMeshMemberName            = "default"
 	IstioIngressService              = "istio-ingressgateway"

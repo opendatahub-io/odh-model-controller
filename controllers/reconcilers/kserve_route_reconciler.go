@@ -26,6 +26,7 @@ import (
 	constants2 "github.com/opendatahub-io/odh-model-controller/controllers/constants"
 	"github.com/opendatahub-io/odh-model-controller/controllers/processors"
 	"github.com/opendatahub-io/odh-model-controller/controllers/resources"
+	utils2 "github.com/opendatahub-io/odh-model-controller/controllers/utils"
 	v1 "github.com/openshift/api/route/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
@@ -75,7 +76,8 @@ func (r *KserveRouteReconciler) Reconcile(ctx context.Context, log logr.Logger, 
 
 func (r *KserveRouteReconciler) Delete(ctx context.Context, log logr.Logger, isvc *kservev1beta1.InferenceService) error {
 	log.V(1).Info("Deleting Kserve inference service generic route")
-	return r.routeHandler.DeleteRoute(ctx, types.NamespacedName{Name: getKServeRouteName(isvc), Namespace: constants2.IstioNamespace})
+	_, meshNamespace := utils2.GetIstioControlPlaneName(ctx, r.client)
+	return r.routeHandler.DeleteRoute(ctx, types.NamespacedName{Name: getKServeRouteName(isvc), Namespace: meshNamespace})
 }
 
 func (r *KserveRouteReconciler) Cleanup(_ context.Context, _ logr.Logger, _ string) error {
@@ -129,10 +131,12 @@ func (r *KserveRouteReconciler) createDesiredResource(isvc *kservev1beta1.Infere
 			}
 		}
 
+		_, meshNamespace := utils2.GetIstioControlPlaneName(context.Background(), r.client)
+
 		route := &v1.Route{
 			ObjectMeta: metav1.ObjectMeta{
 				Name:        getKServeRouteName(isvc),
-				Namespace:   constants2.IstioNamespace,
+				Namespace:   meshNamespace,
 				Annotations: annotations,
 				Labels:      isvc.Labels,
 			},
@@ -159,7 +163,8 @@ func (r *KserveRouteReconciler) createDesiredResource(isvc *kservev1beta1.Infere
 }
 
 func (r *KserveRouteReconciler) getExistingResource(ctx context.Context, log logr.Logger, isvc *kservev1beta1.InferenceService) (*v1.Route, error) {
-	return r.routeHandler.FetchRoute(ctx, log, types.NamespacedName{Name: getKServeRouteName(isvc), Namespace: constants2.IstioNamespace})
+	_, meshNamespace := utils2.GetIstioControlPlaneName(ctx, r.client)
+	return r.routeHandler.FetchRoute(ctx, log, types.NamespacedName{Name: getKServeRouteName(isvc), Namespace: meshNamespace})
 }
 
 func (r *KserveRouteReconciler) processDelta(ctx context.Context, log logr.Logger, desiredRoute *v1.Route, existingRoute *v1.Route) (err error) {

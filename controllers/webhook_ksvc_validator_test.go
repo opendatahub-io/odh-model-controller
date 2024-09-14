@@ -5,6 +5,7 @@ import (
 	. "github.com/onsi/ginkgo"
 	. "github.com/onsi/gomega"
 	"github.com/opendatahub-io/odh-model-controller/controllers/constants"
+	"github.com/opendatahub-io/odh-model-controller/controllers/utils"
 	"k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
@@ -17,6 +18,7 @@ import (
 
 var _ = Describe("Knative validator webhook", func() {
 	var validator admission.CustomValidator
+	var meshNamespace string
 
 	createKserveOwnedKsvc := func() *knservingv1.Service {
 		return &knservingv1.Service{
@@ -39,7 +41,7 @@ var _ = Describe("Knative validator webhook", func() {
 		smmr := &v1.ServiceMeshMemberRoll{
 			ObjectMeta: metav1.ObjectMeta{
 				Name:      constants.ServiceMeshMemberRollName,
-				Namespace: constants.IstioNamespace,
+				Namespace: meshNamespace,
 			},
 		}
 
@@ -52,13 +54,14 @@ var _ = Describe("Knative validator webhook", func() {
 	}
 
 	BeforeEach(func() {
+		_, meshNamespace = utils.GetIstioControlPlaneName(ctx, cli)
 		validator = webhook.NewKsvcValidator(cli)
 
 		// Other tests may create a ServiceMeshMemberRoll.
 		// If there is one, delete it because it conflicts with tests in this file.
 		smmr := v1.ServiceMeshMemberRoll{}
 		getErr := cli.Get(ctx, types.NamespacedName{
-			Namespace: constants.IstioNamespace,
+			Namespace: meshNamespace,
 			Name:      constants.ServiceMeshMemberRollName,
 		}, &smmr)
 		if getErr != nil {
