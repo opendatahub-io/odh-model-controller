@@ -31,6 +31,9 @@ const (
 	LabelEnableRoute   = "enable-route"
 
 	CapabilityServiceMeshAuthorization = "CapabilityServiceMeshAuthorization"
+
+	ModelMeshServiceAccountName = "modelmesh-serving-sa"
+	KserveServiceAccountName    = "kserve-sa"
 )
 
 // model registry

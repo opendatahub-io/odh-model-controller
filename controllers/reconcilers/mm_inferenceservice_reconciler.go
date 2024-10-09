@@ -18,6 +18,7 @@ package reconcilers
 import (
 	"context"
 	"github.com/hashicorp/go-multierror"
+	"github.com/opendatahub-io/odh-model-controller/controllers/constants"
 
 	"github.com/go-logr/logr"
 	kservev1beta1 "github.com/kserve/kserve/pkg/apis/serving/v1beta1"
@@ -37,8 +38,8 @@ func NewModelMeshInferenceServiceReconciler(client client.Client) *ModelMeshInfe
 		client: client,
 		subResourceReconcilers: []SubResourceReconciler{
 			NewModelMeshRouteReconciler(client),
-			NewModelMeshServiceAccountReconciler(client),
-			NewModelMeshClusterRoleBindingReconciler(client),
+			NewServiceAccountReconciler(client, constants.ModelMeshServiceAccountName),
+			NewClusterRoleBindingReconciler(client, constants.ModelMeshServiceAccountName),
 		},
 	}
 }

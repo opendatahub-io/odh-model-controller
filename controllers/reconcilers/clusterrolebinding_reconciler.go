@@ -28,24 +28,26 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
-var _ SubResourceReconciler = (*ModelMeshClusterRoleBindingReconciler)(nil)
+var _ SubResourceReconciler = (*ClusterRoleBindingReconciler)(nil)
 
-type ModelMeshClusterRoleBindingReconciler struct {
+type ClusterRoleBindingReconciler struct {
 	SingleResourcePerNamespace
 	client                    client.Client
 	clusterRoleBindingHandler resources.ClusterRoleBindingHandler
 	deltaProcessor            processors.DeltaProcessor
+	serviceAccountName        string
 }
 
-func NewModelMeshClusterRoleBindingReconciler(client client.Client) *ModelMeshClusterRoleBindingReconciler {
-	return &ModelMeshClusterRoleBindingReconciler{
+func NewClusterRoleBindingReconciler(client client.Client, serviceAccountName string) *ClusterRoleBindingReconciler {
+	return &ClusterRoleBindingReconciler{
 		client:                    client,
 		clusterRoleBindingHandler: resources.NewClusterRoleBindingHandler(client),
 		deltaProcessor:            processors.NewDeltaProcessor(),
+		serviceAccountName:        serviceAccountName,
 	}
 }
 
-func (r *ModelMeshClusterRoleBindingReconciler) Reconcile(ctx context.Context, log logr.Logger, isvc *kservev1beta1.InferenceService) error {
+func (r *ClusterRoleBindingReconciler) Reconcile(ctx context.Context, log logr.Logger, isvc *kservev1beta1.InferenceService) error {
 	log.V(1).Info("Reconciling ClusterRoleBinding for InferenceService")
 	// Create Desired resource
 	desiredResource, err := r.createDesiredResource(isvc)
@@ -66,22 +68,22 @@ func (r *ModelMeshClusterRoleBindingReconciler) Reconcile(ctx context.Context, l
 	return nil
 }
 
-func (r *ModelMeshClusterRoleBindingReconciler) Cleanup(ctx context.Context, log logr.Logger, isvcNs string) error {
+func (r *ClusterRoleBindingReconciler) Cleanup(ctx context.Context, log logr.Logger, isvcNs string) error {
 	log.V(1).Info("Deleting ClusterRoleBinding object for target namespace")
-	return r.clusterRoleBindingHandler.DeleteClusterRoleBinding(ctx, types.NamespacedName{Name: getClusterRoleBindingName(isvcNs), Namespace: isvcNs})
+	return r.clusterRoleBindingHandler.DeleteClusterRoleBinding(ctx, types.NamespacedName{Name: r.getClusterRoleBindingName(isvcNs), Namespace: isvcNs})
 }
 
-func (r *ModelMeshClusterRoleBindingReconciler) createDesiredResource(isvc *kservev1beta1.InferenceService) (*v1.ClusterRoleBinding, error) {
+func (r *ClusterRoleBindingReconciler) createDesiredResource(isvc *kservev1beta1.InferenceService) (*v1.ClusterRoleBinding, error) {
 	desiredClusterRoleBinding := &v1.ClusterRoleBinding{
 		ObjectMeta: metav1.ObjectMeta{
-			Name:      getClusterRoleBindingName(isvc.Namespace),
+			Name:      r.getClusterRoleBindingName(isvc.Namespace),
 			Namespace: isvc.Namespace,
 		},
 		Subjects: []v1.Subject{
 			{
 				Kind:      "ServiceAccount",
 				Namespace: isvc.Namespace,
-				Name:      modelMeshServiceAccountName,
+				Name:      r.serviceAccountName,
 			},
 		},
 		RoleRef: v1.RoleRef{
@@ -93,11 +95,11 @@ func (r *ModelMeshClusterRoleBindingReconciler) createDesiredResource(isvc *kser
 	return desiredClusterRoleBinding, nil
 }
 
-func (r *ModelMeshClusterRoleBindingReconciler) getExistingResource(ctx context.Context, log logr.Logger, isvc *kservev1beta1.InferenceService) (*v1.ClusterRoleBinding, error) {
-	return r.clusterRoleBindingHandler.FetchClusterRoleBinding(ctx, log, types.NamespacedName{Name: getClusterRoleBindingName(isvc.Namespace), Namespace: isvc.Namespace})
+func (r *ClusterRoleBindingReconciler) getExistingResource(ctx context.Context, log logr.Logger, isvc *kservev1beta1.InferenceService) (*v1.ClusterRoleBinding, error) {
+	return r.clusterRoleBindingHandler.FetchClusterRoleBinding(ctx, log, types.NamespacedName{Name: r.getClusterRoleBindingName(isvc.Namespace), Namespace: isvc.Namespace})
 }
 
-func (r *ModelMeshClusterRoleBindingReconciler) processDelta(ctx context.Context, log logr.Logger, desiredCRB *v1.ClusterRoleBinding, existingCRB *v1.ClusterRoleBinding) (err error) {
+func (r *ClusterRoleBindingReconciler) processDelta(ctx context.Context, log logr.Logger, desiredCRB *v1.ClusterRoleBinding, existingCRB *v1.ClusterRoleBinding) (err error) {
 	comparator := comparators.GetClusterRoleBindingComparator()
 	delta := r.deltaProcessor.ComputeDelta(comparator, desiredCRB, existingCRB)
 
@@ -131,6 +133,6 @@ func (r *ModelMeshClusterRoleBindingReconciler) processDelta(ctx context.Context
 	return nil
 }
 
-func getClusterRoleBindingName(isvcNamespace string) string {
-	return isvcNamespace + "-" + modelMeshServiceAccountName + "-auth-delegator"
+func (r *ClusterRoleBindingReconciler) getClusterRoleBindingName(isvcNamespace string) string {
+	return isvcNamespace + "-" + r.serviceAccountName + "-auth-delegator"
 }
