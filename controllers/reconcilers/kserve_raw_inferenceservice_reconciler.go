@@ -17,6 +17,9 @@ package reconcilers
 
 import (
 	"context"
+	"github.com/hashicorp/go-multierror"
+	"github.com/opendatahub-io/odh-model-controller/controllers/constants"
+	"github.com/opendatahub-io/odh-model-controller/controllers/utils"
 
 	"github.com/go-logr/logr"
 	kservev1beta1 "github.com/kserve/kserve/pkg/apis/serving/v1beta1"
@@ -26,16 +29,65 @@ import (
 var _ Reconciler = (*KserveRawInferenceServiceReconciler)(nil)
 
 type KserveRawInferenceServiceReconciler struct {
-	client client.Client
+	client                 client.Client
+	subResourceReconcilers []SubResourceReconciler
 }
 
 func NewKServeRawInferenceServiceReconciler(client client.Client) *KserveRawInferenceServiceReconciler {
+
+	subResourceReconciler := []SubResourceReconciler{
+		NewServiceAccountReconciler(client, constants.KserveServiceAccountName),
+		NewClusterRoleBindingReconciler(client, constants.KserveServiceAccountName),
+	}
+
 	return &KserveRawInferenceServiceReconciler{
-		client: client,
+		client:                 client,
+		subResourceReconcilers: subResourceReconciler,
 	}
 }
 
-func (r *KserveRawInferenceServiceReconciler) Reconcile(_ context.Context, log logr.Logger, _ *kservev1beta1.InferenceService) error {
-	log.V(1).Info("No Reconciliation to be done for inferenceservice as it is using RawDeployment mode")
-	return nil
+func (r *KserveRawInferenceServiceReconciler) Reconcile(ctx context.Context, log logr.Logger, isvc *kservev1beta1.InferenceService) error {
+	var reconcileErrors *multierror.Error
+	for _, reconciler := range r.subResourceReconcilers {
+		reconcileErrors = multierror.Append(reconcileErrors, reconciler.Reconcile(ctx, log, isvc))
+	}
+
+	return reconcileErrors.ErrorOrNil()
+}
+
+func (r *KserveRawInferenceServiceReconciler) OnDeletionOfKserveInferenceService(ctx context.Context, log logr.Logger, isvc *kservev1beta1.InferenceService) error {
+	var deleteErrors *multierror.Error
+	for _, reconciler := range r.subResourceReconcilers {
+		deleteErrors = multierror.Append(deleteErrors, reconciler.Delete(ctx, log, isvc))
+	}
+
+	return deleteErrors.ErrorOrNil()
+}
+
+func (r *KserveRawInferenceServiceReconciler) CleanupNamespaceIfNoKserveIsvcExists(ctx context.Context, log logr.Logger, namespace string) error {
+	inferenceServiceList := &kservev1beta1.InferenceServiceList{}
+	if err := r.client.List(ctx, inferenceServiceList, client.InNamespace(namespace)); err != nil {
+		return err
+	}
+
+	for i := len(inferenceServiceList.Items) - 1; i >= 0; i-- {
+		inferenceService := inferenceServiceList.Items[i]
+		isvcDeploymentMode, err := utils.GetDeploymentModeForIsvc(ctx, r.client, &inferenceService)
+		if err != nil {
+			return err
+		}
+		if isvcDeploymentMode != utils.RawDeployment {
+			inferenceServiceList.Items = append(inferenceServiceList.Items[:i], inferenceServiceList.Items[i+1:]...)
+		}
+	}
+
+	// If there are no Kserve InferenceServices in the namespace, delete namespace-scoped resources needed for Kserve Metrics
+	var cleanupErrors *multierror.Error
+	if len(inferenceServiceList.Items) == 0 {
+		for _, reconciler := range r.subResourceReconcilers {
+			cleanupErrors = multierror.Append(cleanupErrors, reconciler.Cleanup(ctx, log, namespace))
+		}
+	}
+
+	return cleanupErrors.ErrorOrNil()
 }
