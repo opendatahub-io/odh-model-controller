@@ -5,20 +5,19 @@ import (
 	"fmt"
 	. "github.com/onsi/ginkgo"
 	. "github.com/onsi/gomega"
+	"github.com/opendatahub-io/odh-model-controller/controllers/constants"
+	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"time"
 
 	kservev1alpha1 "github.com/kserve/kserve/pkg/apis/serving/v1alpha1"
 	kservev1beta1 "github.com/kserve/kserve/pkg/apis/serving/v1beta1"
 	corev1 "k8s.io/api/core/v1"
+	rbacv1 "k8s.io/api/rbac/v1"
 	apierrs "k8s.io/apimachinery/pkg/api/errors"
 )
 
-const (
-	KserveSA = "kserve-sa"
-)
-
-var _ = Describe("The KServe Dashboard reconciler", func() {
+var _ = Describe("The KServe Raw reconciler", func() {
 	var testNs string
 
 	createServingRuntime := func(namespace, path string) *kservev1alpha1.ServingRuntime {
@@ -64,10 +63,25 @@ var _ = Describe("The KServe Dashboard reconciler", func() {
 			_ = createServingRuntime(testNs, KserveServingRuntimePath1)
 			_ = createInferenceService(testNs, KserveOvmsInferenceServiceName, KserveInferenceServicePath1)
 
-			sa, err := waitForServiceAccount(cli, testNs, KserveSA, 30, 1*time.Second)
+			sa, err := waitForServiceAccount(cli, testNs, constants.KserveServiceAccountName, 30, 1*time.Second)
 			Expect(err).NotTo(HaveOccurred())
 			Expect(sa).NotTo(BeNil())
 
+		})
+	})
+	When("namespace no longer has any RawDeployment models", func() {
+		It("should delete the service account and clusterrolebinding", func() {
+			sr := createServingRuntime(testNs, KserveServingRuntimePath1)
+			isvc := createInferenceService(testNs, KserveOvmsInferenceServiceName, KserveInferenceServicePath1)
+
+			Expect(cli.Delete(ctx, isvc)).Should(Succeed())
+			Expect(cli.Delete(ctx, sr)).Should(Succeed())
+			sa := &corev1.ServiceAccount{}
+			key := types.NamespacedName{Name: constants.KserveServiceAccountName, Namespace: isvc.Namespace}
+			Expect(cli.Get(ctx, key, sa)).ShouldNot(Succeed())
+			crb := &rbacv1.ClusterRoleBinding{}
+			key = types.NamespacedName{Name: isvc.Namespace + "-" + constants.KserveServiceAccountName + "-auth-delegator", Namespace: isvc.Namespace}
+			Expect(cli.Get(ctx, key, crb)).ShouldNot(Succeed())
 		})
 	})
 })
