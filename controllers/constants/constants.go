@@ -24,6 +24,7 @@ const (
 	IstioIngressServiceHTTPPortName  = "http2"
 	IstioIngressServiceHTTPSPortName = "https"
 	IstioSidecarInjectAnnotationName = "sidecar.istio.io/inject"
+	KserveNetworkVisibility          = "networking.kserve.io/visibility"
 
 	LabelAuthGroup     = "security.opendatahub.io/authorization-group"
 	LabelEnableAuthODH = "security.opendatahub.io/enable-auth"
