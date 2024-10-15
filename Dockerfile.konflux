@@ -1,6 +1,5 @@
 # Build arguments
 ARG SOURCE_CODE=.
-ARG CI_CONTAINER_VERSION="unknown"
 
 # Build the manager binary
 FROM registry.redhat.io/ubi8/go-toolset@sha256:4ec05fd5b355106cc0d990021a05b71bbfb9231e4f5bdc0c5316515edf6a1c96 as builder
@@ -24,19 +23,16 @@ RUN CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -a -o manager main.go
 
 FROM registry.redhat.io/ubi8/ubi-minimal@sha256:7583ca0ea52001562bd81a961da3f75222209e6192e4e413ee226cff97dbd48c AS runtime
 
-ARG CI_CONTAINER_VERSION
 ARG USER=2000
 
 LABEL com.redhat.component="odh-model-controller-container" \
       name="managed-open-data-hub/odh-model-controller-rhel8" \
-      version="${CI_CONTAINER_VERSION}" \
-      git.url="${CI_ODH_MODEL_CONTROLLER_UPSTREAM_URL}" \
-      git.commit="${CI_ODH_MODEL_CONTROLLER_UPSTREAM_COMMIT}" \
+      description="The controller removes the need for users to perform manual steps when deploying their models" \
       summary="odh-model-controller" \
+      maintainer="['managed-open-data-hub@redhat.com']" \
       io.openshift.expose-services="" \
       io.k8s.display-name="odh-model-controller" \
-      maintainer="['managed-open-data-hub@redhat.com']" \
-      description="The controller removes the need for users to perform manual steps when deploying their models" \
+      io.k8s.description="odh-model-controller" \
       com.redhat.license_terms="https://www.redhat.com/licenses/Red_Hat_Standard_EULA_20191108.pdf"
 
 WORKDIR /
