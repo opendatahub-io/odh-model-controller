@@ -9,7 +9,7 @@ spec:
   selector:
     matchLabels:
       control-plane: odh-model-controller
-  replicas: 3
+  replicas: 1
   template:
     metadata:
       annotations:

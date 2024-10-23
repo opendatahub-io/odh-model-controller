@@ -3,7 +3,7 @@ kind: Deployment
 metadata:
   name: odh-model-controller
 spec:
-  replicas: 3
+  replicas: 1
   template:
     spec:
       containers:
