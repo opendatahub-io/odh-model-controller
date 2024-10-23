@@ -24,6 +24,7 @@ const (
 	IstioIngressServiceHTTPPortName  = "http2"
 	IstioIngressServiceHTTPSPortName = "https"
 	IstioSidecarInjectAnnotationName = "sidecar.istio.io/inject"
+	KserveNetworkVisibility          = "networking.kserve.io/visibility"
 
 	LabelAuthGroup     = "security.opendatahub.io/authorization-group"
 	LabelEnableAuthODH = "security.opendatahub.io/enable-auth"
@@ -31,6 +32,9 @@ const (
 	LabelEnableRoute   = "enable-route"
 
 	CapabilityServiceMeshAuthorization = "CapabilityServiceMeshAuthorization"
+
+	ModelMeshServiceAccountName = "modelmesh-serving-sa"
+	KserveServiceAccountName    = "kserve-sa"
 )
 
 // model registry
