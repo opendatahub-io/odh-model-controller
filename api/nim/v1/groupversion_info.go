@@ -1,6 +1,6 @@
 // Copyright (c) 2024 Red Hat, Inc.
 
-package v1alpha1
+package v1
 
 import (
 	"k8s.io/apimachinery/pkg/runtime/schema"
@@ -12,7 +12,7 @@ import (
 // +kubebuilder:validation:Required
 
 var (
-	GroupVersion  = schema.GroupVersion{Group: "nim.opendatahub.io", Version: "v1alpha1"}
+	GroupVersion  = schema.GroupVersion{Group: "nim.opendatahub.io", Version: "v1"}
 	SchemeBuilder = &scheme.Builder{GroupVersion: GroupVersion}
 	Install       = SchemeBuilder.AddToScheme
 )

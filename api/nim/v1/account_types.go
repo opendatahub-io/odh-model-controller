@@ -1,6 +1,6 @@
 // Copyright (c) 2024 Red Hat, Inc.
 
-package v1alpha1
+package v1
 
 import (
 	corev1 "k8s.io/api/core/v1"
@@ -11,19 +11,18 @@ type (
 	// AccountSpec defines the desired state of an Account object.
 	AccountSpec struct {
 		// A reference to the Secret containing the NGC API Key.
-		SecretRef corev1.ObjectReference `json:"secretRef"`
+		APIKeySecret corev1.ObjectReference `json:"apiKeySecret"`
 	}
 
 	// AccountStatus defines the observed state of an Account object.
 	AccountStatus struct {
 		// A reference to the Template for NIM ServingRuntime.
-		TemplateRef *corev1.ObjectReference `json:"templateRef,omitempty"`
+		RuntimeTemplate *corev1.ObjectReference `json:"runtimeTemplate,omitempty"`
 		// A reference to the ConfigMap with data for NIM deployment.
-		ConfigMapRef *corev1.ObjectReference `json:"configMapRef,omitempty"`
+		NIMConfig *corev1.ObjectReference `json:"nimConfig,omitempty"`
 		// A reference to the Secret for pulling NIM images.
-		SecretMapRef *corev1.ObjectReference `json:"secretRef,omitempty"`
+		ImageSecret *corev1.ObjectReference `json:"imageSecret,omitempty"`
 
-		// +operator-sdk:csv:customresourcedefinitions:type=status,xDescriptors={"urn:alm:descriptor:io.kubernetes.conditions"}
 		Conditions []metav1.Condition `json:"conditions,omitempty"`
 	}
 
@@ -32,11 +31,9 @@ type (
 	// +kubebuilder:object:root=true
 	// +kubebuilder:subresource:status
 	//
-	// +kubebuilder:printcolumn:name="Template",type="string",JSONPath=".status.templateRef.name",description="The name of the Template"
-	// +kubebuilder:printcolumn:name="ConfigMap",type="string",JSONPath=".status.configMapRef.name",description="The name of the ConfigMap"
-	//
-	// +operator-sdk:csv:customresourcedefinitions:displayName="Account"
-	// +operator-sdk:csv:customresourcedefinitions:resources={{ConfigMap,v1},{Secret,v1},{Template,template.openshift.io/v1}}
+	// +kubebuilder:printcolumn:name="Template",type="string",JSONPath=".status.runtimeTemplate.name",description="Template for ServingRuntime"
+	// +kubebuilder:printcolumn:name="ConfigMap",type="string",JSONPath=".status.nimConfig.name",description="ConfigMap of NIM data"
+	// +kubebuilder:printcolumn:name="Secret",type="string",JSONPath=".status.imageSecret.name",description="Secret for pulling NIM images"
 	Account struct {
 		metav1.TypeMeta   `json:",inline"`
 		metav1.ObjectMeta `json:"metadata,omitempty"`
