@@ -9,7 +9,7 @@ webhooks:
   clientConfig:
     service:
       name: webhook-service
-      namespace: $(mesh-namespace)
+      namespace: system
       path: /validate-serving-knative-dev-v1-service
   failurePolicy: Fail
   name: validating.ksvc.odh-model-controller.opendatahub.io
