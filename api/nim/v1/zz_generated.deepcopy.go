@@ -114,8 +114,8 @@ func (in *AccountStatus) DeepCopyInto(out *AccountStatus) {
 		*out = new(corev1.ObjectReference)
 		**out = **in
 	}
-	if in.ImageSecret != nil {
-		in, out := &in.ImageSecret, &out.ImageSecret
+	if in.NIMPullSecret != nil {
+		in, out := &in.NIMPullSecret, &out.NIMPullSecret
 		*out = new(corev1.ObjectReference)
 		**out = **in
 	}

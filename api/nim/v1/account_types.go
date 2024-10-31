@@ -21,7 +21,7 @@ type (
 		// A reference to the ConfigMap with data for NIM deployment.
 		NIMConfig *corev1.ObjectReference `json:"nimConfig,omitempty"`
 		// A reference to the Secret for pulling NIM images.
-		ImageSecret *corev1.ObjectReference `json:"imageSecret,omitempty"`
+		NIMPullSecret *corev1.ObjectReference `json:"nimPullSecret,omitempty"`
 
 		Conditions []metav1.Condition `json:"conditions,omitempty"`
 	}
@@ -33,7 +33,7 @@ type (
 	//
 	// +kubebuilder:printcolumn:name="Template",type="string",JSONPath=".status.runtimeTemplate.name",description="Template for ServingRuntime"
 	// +kubebuilder:printcolumn:name="ConfigMap",type="string",JSONPath=".status.nimConfig.name",description="ConfigMap of NIM data"
-	// +kubebuilder:printcolumn:name="Secret",type="string",JSONPath=".status.imageSecret.name",description="Secret for pulling NIM images"
+	// +kubebuilder:printcolumn:name="Secret",type="string",JSONPath=".status.nimPullSecret.name",description="Secret for pulling NIM images"
 	Account struct {
 		metav1.TypeMeta   `json:",inline"`
 		metav1.ObjectMeta `json:"metadata,omitempty"`
