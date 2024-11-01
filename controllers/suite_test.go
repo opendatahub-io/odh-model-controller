@@ -116,7 +116,8 @@ var _ = BeforeSuite(func() {
 	By("Bootstrapping test environment")
 	envTest = &envtest.Environment{
 		CRDInstallOptions: envtest.CRDInstallOptions{
-			Paths:              []string{filepath.Join("..", "config", "crd", "external")},
+			Paths: []string{filepath.Join("..", "config", "crd", "external"),
+				filepath.Join("..", "config", "crd", "bases")},
 			ErrorIfPathMissing: true,
 			CleanUpAfterUse:    false,
 		},
