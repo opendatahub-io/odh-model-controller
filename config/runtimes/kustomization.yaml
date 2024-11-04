@@ -11,5 +11,6 @@ resources:
   - tgis-template.yaml
   - ovms-kserve-template.yaml
   - vllm-template.yaml
+  - vllm-multinode-template.yaml
   - vllm-rocm-template.yaml
   - caikit-standalone-template.yaml
