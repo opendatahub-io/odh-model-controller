@@ -86,6 +86,8 @@ func init() { //nolint:gochecknoinits //reason this way we ensure schemes are al
 // +kubebuilder:rbac:groups=authorino.kuadrant.io,resources=authconfigs,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups=datasciencecluster.opendatahub.io,resources=datascienceclusters,verbs=get;list;watch
 // +kubebuilder:rbac:groups=dscinitialization.opendatahub.io,resources=dscinitializations,verbs=get;list;watch
+// +kubebuilder:rbac:groups=nim.opendatahub.io,resources=accounts,verbs=get;list;watch;update
+// +kubebuilder:rbac:groups=template.openshift.io,resources=templates,verbs=get;list;watch;update;delete
 
 func getEnvAsBool(name string, defaultValue bool) bool {
 	valStr := os.Getenv(name)
@@ -220,7 +222,16 @@ func main() {
 		setupLog.Info("Skipping setup of Knative Service validating/mutating Webhook, because KServe Serverless setup seems to be disabled in the DataScienceCluster resource.")
 	}
 
-	if err := builder.WebhookManagedBy(mgr).
+	ctx := ctrl.SetupSignalHandler()
+	if err = (&controllers.NimAccountReconciler{
+		Client: mgr.GetClient(),
+		Log:    ctrl.Log.WithName("controllers").WithName("NimAccountReconciler"),
+	}).SetupWithManager(mgr, ctx); err != nil {
+		setupLog.Error(err, "unable to create controller NIM Account controller")
+		os.Exit(1)
+	}
+
+	if err = builder.WebhookManagedBy(mgr).
 		For(&nimv1.Account{}).
 		WithValidator(webhook.NewNimAccountValidator(mgr.GetClient())).
 		Complete(); err != nil {
@@ -241,7 +252,7 @@ func main() {
 	}
 
 	setupLog.Info("starting manager")
-	if err := mgr.Start(ctrl.SetupSignalHandler()); err != nil {
+	if err := mgr.Start(ctx); err != nil {
 		setupLog.Error(err, "problem running manager")
 		os.Exit(1)
 	}

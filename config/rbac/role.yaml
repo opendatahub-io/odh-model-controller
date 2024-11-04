@@ -177,6 +177,15 @@ rules:
   - update
   - watch
 - apiGroups:
+  - nim.opendatahub.io
+  resources:
+  - accounts
+  verbs:
+  - get
+  - list
+  - update
+  - watch
+- apiGroups:
   - rbac.authorization.k8s.io
   resources:
   - clusterrolebindings
@@ -276,5 +285,15 @@ rules:
   - get
   - list
   - patch
+  - update
+  - watch
+- apiGroups:
+  - template.openshift.io
+  resources:
+  - templates
+  verbs:
+  - delete
+  - get
+  - list
   - update
   - watch
