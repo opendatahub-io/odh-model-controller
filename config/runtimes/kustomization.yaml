@@ -12,4 +12,5 @@ resources:
   - ovms-kserve-template.yaml
   - vllm-template.yaml
   - vllm-rocm-template.yaml
+  - vllm-gaudi-template.yaml
   - caikit-standalone-template.yaml
