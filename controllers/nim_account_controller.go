@@ -90,7 +90,6 @@ func (r *NimAccountReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 	if err := r.Client.Get(ctx, req.NamespacedName, account); err != nil {
 		if k8serrors.IsNotFound(err) {
 			logger.V(1).Info("account deleted")
-			r.cleanupResources(ctx, req.Namespace)
 		} else {
 			logger.V(1).Error(err, "failed to fetch object")
 		}
@@ -98,7 +97,7 @@ func (r *NimAccountReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 	}
 
 	if !account.DeletionTimestamp.IsZero() {
-		logger.V(1).Info("account being deleted, cleanups done")
+		logger.V(1).Info("account being deleted")
 		return ctrl.Result{}, nil
 	}
 
@@ -135,8 +134,6 @@ func (r *NimAccountReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 			meta.SetStatusCondition(&targetStatus.Conditions, makeConfigMapFailureCondition(account.Generation, msg))
 			meta.SetStatusCondition(&targetStatus.Conditions, makeTemplateFailureCondition(account.Generation, msg))
 			meta.SetStatusCondition(&targetStatus.Conditions, makePullSecretFailureCondition(account.Generation, msg))
-
-			r.cleanupResources(ctx, account.Namespace)
 		} else {
 			logger.V(1).Error(err, "failed to fetch api key secret")
 		}
@@ -336,37 +333,6 @@ func (r *NimAccountReconciler) updateStatus(ctx context.Context, subject types.N
 		account.Status = *status.DeepCopy()
 		if err = r.Client.Status().Update(ctx, account); err != nil {
 			logger.Error(err, "failed to update account status")
-		}
-	}
-}
-
-// cleanupResources is used for deleting the integration related resources (configmap, template, pull secret)
-func (r *NimAccountReconciler) cleanupResources(ctx context.Context, namespace string) {
-	logger := log.FromContext(ctx)
-	logger.V(1).Info("cleaning up")
-	delObjs := []client.Object{
-		&corev1.Secret{
-			ObjectMeta: metav1.ObjectMeta{
-				Name:      constants.NimPullSecretName,
-				Namespace: namespace,
-			}},
-		&templatev1.Template{
-			ObjectMeta: metav1.ObjectMeta{
-				Name:      constants.NimRuntimeTemplateName,
-				Namespace: namespace,
-			}},
-		&corev1.ConfigMap{
-			ObjectMeta: metav1.ObjectMeta{
-				Name:      constants.NimDataConfigMapName,
-				Namespace: namespace,
-			}},
-	}
-
-	for _, obj := range delObjs {
-		if err := r.Client.Delete(ctx, obj); err != nil {
-			if !k8serrors.IsNotFound(err) {
-				logger.Error(err, fmt.Sprintf("failed to delete %s", obj.GetObjectKind()))
-			}
 		}
 	}
 }

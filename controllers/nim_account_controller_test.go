@@ -18,6 +18,7 @@ package controllers
 import (
 	"context"
 	"errors"
+	"fmt"
 	. "github.com/onsi/ginkgo"
 	. "github.com/onsi/gomega"
 	v1 "github.com/opendatahub-io/odh-model-controller/api/nim/v1"
@@ -29,7 +30,6 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/tools/reference"
-	"time"
 )
 
 var _ = Describe("NIM Account Controller Test Cases", func() {
@@ -37,103 +37,66 @@ var _ = Describe("NIM Account Controller Test Cases", func() {
 	// mock nvidia nim api client
 	utils.NimHttpClient = &testdata.NimHttpClientMock{}
 
-	Context("For an Account with a valid API Key", func() {
-		It("Should create resources when Account created and remove when removed", func() {
-			ctx := context.TODO()
+	It("Should reconcile resources for an Account with a valid API key", func() {
+		ctx := context.TODO()
 
-			By("Create an Account and an API Key Secret")
-			acctSubject := types.NamespacedName{Name: "testing-account-1", Namespace: WorkingNamespace}
-			createApiKeySecretAndAccount(acctSubject, testdata.FakeApiKey)
+		By("Create an Account and an API Key Secret")
+		acctSubject := types.NamespacedName{Name: "testing-account-1", Namespace: WorkingNamespace}
+		createApiKeySecretAndAccount(acctSubject, testdata.FakeApiKey)
 
-			By("Verify successful Account")
-			account := &v1.Account{}
-			assertSuccessfulAccount(acctSubject, account).Should(Succeed())
+		By("Verify successful Account")
+		account := &v1.Account{}
+		assertSuccessfulAccount(acctSubject, account).Should(Succeed())
 
-			By("Verify resources created")
-			dataCmapSubject := namespacedNameFromReference(account.Status.NIMConfig)
-			Expect(cli.Get(ctx, dataCmapSubject, &corev1.ConfigMap{})).To(Succeed())
-			runtimeTemplateSubject := namespacedNameFromReference(account.Status.RuntimeTemplate)
-			Expect(cli.Get(ctx, runtimeTemplateSubject, &templatev1.Template{})).To(Succeed())
-			pullSecretSubject := namespacedNameFromReference(account.Status.NIMPullSecret)
-			Expect(cli.Get(ctx, pullSecretSubject, &corev1.Secret{})).To(Succeed())
+		By("Verify resources created")
+		isController := true
 
-			By("Delete the Account")
-			apiKeyRef := account.Spec.APIKeySecret
-			Expect(cli.Delete(ctx, account)).To(Succeed())
+		dataCmap := &corev1.ConfigMap{}
+		dataCmapSubject := namespacedNameFromReference(account.Status.NIMConfig)
+		Expect(cli.Get(ctx, dataCmapSubject, dataCmap)).To(Succeed())
+		Expect(dataCmap.OwnerReferences[0].Controller).To(Equal(&isController))
 
-			time.Sleep(time.Second * 20)
+		runtimeTemplate := &templatev1.Template{}
+		runtimeTemplateSubject := namespacedNameFromReference(account.Status.RuntimeTemplate)
+		Expect(cli.Get(ctx, runtimeTemplateSubject, runtimeTemplate)).To(Succeed())
+		Expect(runtimeTemplate.OwnerReferences[0].Controller).To(Equal(&isController))
 
-			By("Verify resources removed")
-			Expect(cli.Get(ctx, acctSubject, &v1.Account{})).NotTo(Succeed())
-			Expect(cli.Get(ctx, dataCmapSubject, &corev1.ConfigMap{})).NotTo(Succeed())
-			Expect(cli.Get(ctx, runtimeTemplateSubject, &templatev1.Template{})).NotTo(Succeed())
-			Expect(cli.Get(ctx, pullSecretSubject, &corev1.Secret{})).NotTo(Succeed())
+		pullSecret := &corev1.Secret{}
+		pullSecretSubject := namespacedNameFromReference(account.Status.NIMPullSecret)
+		Expect(cli.Get(ctx, pullSecretSubject, pullSecret)).To(Succeed())
+		Expect(pullSecret.OwnerReferences[0].Controller).To(Equal(&isController))
 
-			By("Cleanup (remove API Key Secret)")
-			apiKeySecret := &corev1.Secret{}
-			apiKeySubject := namespacedNameFromReference(&apiKeyRef)
-			Expect(cli.Get(ctx, apiKeySubject, apiKeySecret)).Should(Succeed())
-			Expect(cli.Delete(ctx, apiKeySecret)).Should(Succeed())
-		})
+		By("Cleanups")
+		apiKeySecret := &corev1.Secret{}
+		apiKeySubject := namespacedNameFromReference(&account.Spec.APIKeySecret)
+		Expect(cli.Get(ctx, apiKeySubject, apiKeySecret)).Should(Succeed())
 
-		It("Should create resources when Account created and remove when API Key secret removed", func() {
-			ctx := context.TODO()
-
-			By("Create an Account and an API Key Secret")
-			acctSubject := types.NamespacedName{Name: "testing-account-2", Namespace: WorkingNamespace}
-			createApiKeySecretAndAccount(acctSubject, testdata.FakeApiKey)
-
-			By("Verify successful Account")
-			account := &v1.Account{}
-			assertSuccessfulAccount(acctSubject, account).Should(Succeed())
-
-			By("Verify resources created")
-			dataCmapSubject := namespacedNameFromReference(account.Status.NIMConfig)
-			Expect(cli.Get(ctx, dataCmapSubject, &corev1.ConfigMap{})).To(Succeed())
-			runtimeTemplateSubject := namespacedNameFromReference(account.Status.RuntimeTemplate)
-			Expect(cli.Get(ctx, runtimeTemplateSubject, &templatev1.Template{})).To(Succeed())
-			pullSecretSubject := namespacedNameFromReference(account.Status.NIMPullSecret)
-			Expect(cli.Get(ctx, pullSecretSubject, &corev1.Secret{})).To(Succeed())
-
-			By("Delete the API Key Secret")
-			apiKeySubject := namespacedNameFromReference(&account.Spec.APIKeySecret)
-			apiKeySecret := &corev1.Secret{}
-			Expect(cli.Get(ctx, apiKeySubject, apiKeySecret)).To(Succeed())
-			Expect(cli.Delete(ctx, apiKeySecret)).To(Succeed())
-
-			time.Sleep(time.Second * 20)
-
-			By("Verify resources removed")
-			Expect(cli.Get(ctx, dataCmapSubject, &corev1.ConfigMap{})).NotTo(Succeed())
-			Expect(cli.Get(ctx, runtimeTemplateSubject, &templatev1.Template{})).NotTo(Succeed())
-			Expect(cli.Get(ctx, pullSecretSubject, &corev1.Secret{})).NotTo(Succeed())
-
-			By("Cleanup (remove Account)")
-			updatedAccount := &v1.Account{}
-			Expect(cli.Get(ctx, acctSubject, updatedAccount)).Should(Succeed())
-			Expect(cli.Delete(ctx, account)).Should(Succeed())
-		})
+		Expect(cli.Delete(ctx, account)).To(Succeed())
+		Expect(cli.Delete(ctx, apiKeySecret)).To(Succeed())
+		Expect(cli.Delete(ctx, dataCmap)).To(Succeed())
+		Expect(cli.Delete(ctx, runtimeTemplate)).To(Succeed())
+		Expect(cli.Delete(ctx, pullSecret)).To(Succeed())
 	})
 
-	Context("For an Account without a valid API Key", func() {
-		It("Should create resources when Account created and remove when API Key secret removed", func() {
-			By("Create an Account and a wrong API Key Secret")
-			acctSubject := types.NamespacedName{Name: "testing-account-3", Namespace: WorkingNamespace}
-			createApiKeySecretAndAccount(acctSubject, "not-a-valid-key-should-fail")
+	It("Should not reconcile resources for an account with an invalid API key", func() {
+		By("Create an Account and a wrong API Key Secret")
+		acctSubject := types.NamespacedName{Name: "testing-account-3", Namespace: WorkingNamespace}
+		createApiKeySecretAndAccount(acctSubject, "not-a-valid-key-should-fail")
 
-			By("Verify failed Account")
-			account := &v1.Account{}
-			assertFailedAccount(acctSubject, account).Should(Succeed())
+		By("Verify failed Account")
+		account := &v1.Account{}
+		assertFailedAccount(acctSubject, account).Should(Succeed())
 
-			By("Cleanup (remove Account and API Key Secret)")
-			apiKeySecret := &corev1.Secret{}
-			apiKeySubject := namespacedNameFromReference(&account.Spec.APIKeySecret)
-			Expect(cli.Get(ctx, apiKeySubject, apiKeySecret)).Should(Succeed())
-			Expect(cli.Delete(ctx, apiKeySecret)).Should(Succeed())
-			updatedAccount := &v1.Account{}
-			Expect(cli.Get(ctx, acctSubject, updatedAccount)).Should(Succeed())
-			Expect(cli.Delete(ctx, account)).Should(Succeed())
-		})
+		//By("Verify resources not created")
+		//Expect(account)
+
+		By("Cleanups")
+		apiKeySecret := &corev1.Secret{}
+		apiKeySubject := namespacedNameFromReference(&account.Spec.APIKeySecret)
+		Expect(cli.Get(ctx, apiKeySubject, apiKeySecret)).Should(Succeed())
+
+		Expect(cli.Delete(ctx, apiKeySecret)).Should(Succeed())
+		Expect(cli.Delete(ctx, account)).Should(Succeed())
 	})
 })
 
@@ -208,6 +171,16 @@ func assertFailedAccount(acctSubject types.NamespacedName, account *v1.Account) 
 			current := cond.String()
 			if !meta.IsStatusConditionPresentAndEqual(account.Status.Conditions, current, metav1.ConditionUnknown) {
 				return errors.New("unknown account status not updated yet for " + current)
+			}
+		}
+
+		for _, ref := range []*corev1.ObjectReference{
+			account.Status.NIMPullSecret,
+			account.Status.RuntimeTemplate,
+			account.Status.NIMConfig,
+		} {
+			if ref != nil {
+				return fmt.Errorf("found referenced object named %s of kind %s", ref.Name, ref.Kind)
 			}
 		}
 		return nil
