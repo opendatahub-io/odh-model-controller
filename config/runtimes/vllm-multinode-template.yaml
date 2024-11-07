@@ -50,7 +50,7 @@ objects:
               export SERVED_MODEL_NAME=${MODEL_NAME}
               export MODEL_NAME=${MODEL_DIR} 
             
-              exec python3 -m vllm.entrypoints.openai.api_server --model=${MODEL_NAME} --served-model-name=${SERVED_MODEL_NAME}
+              exec python3 -m vllm.entrypoints.openai.api_server --distributed-executor-backend ray --model=${MODEL_NAME} --served-model-name=${SERVED_MODEL_NAME}
           env:
             - name: RAY_PORT
               value: "6379"
@@ -59,35 +59,15 @@ objects:
             - name: POD_NAMESPACE
               valueFrom:
                 fieldRef:
-                  fieldPath: metadata.namespace
-            - name: VLLM_CONFIG_ROOT
-              value: /tmp           
-            - name: DISTRIBUTED_EXECUTOR_BACKEND
-              value: "ray"
-            - name: DISABLE_CUSTOM_ALL_REDUCE
-              value: "true"
-            - name: MAX_SEQUENCE_LENGTH
-              value: "8192"
-            - name: MAX_NEW_TOKENS
-              value: "2048"
-            - name: MAX_BATCH_SIZE
-              value: "256"
-            - name: MAX_CONCURRENT_REQUESTS
-              value: "320"
-            - name: PORT
-              value: "8080"
-            - name: MAX_LOG_LEN
-              value: "100"
+                  fieldPath: metadata.namespace            
             - name: HF_HUB_CACHE
               value: /tmp
           resources:
             limits:
               cpu: "16"
               memory: 48Gi
-              nvidia.com/gpu: "1"
             requests:
               cpu: "8"
-              nvidia.com/gpu: "1"
           volumeMounts:
             - name: shm
               mountPath: /dev/shm
@@ -204,8 +184,8 @@ objects:
                   sleep 5
                 done
 
-                echo "Attempting to connect to Ray cluster at $RAY_HEAD_ADDRESS ..."
                 RAY_HEAD_ADDRESS="${HEAD_SVC}.${POD_NAMESPACE}.svc.cluster.local:6379"
+                echo "Attempting to connect to Ray cluster at $RAY_HEAD_ADDRESS ..."
                 ray start --address="$RAY_HEAD_ADDRESS" --block
             env:
               - name: POD_NAME
@@ -220,10 +200,8 @@ objects:
               limits:
                 cpu: "16"
                 memory: 48Gi
-                nvidia.com/gpu: "1"
               requests:
                 cpu: "8"
-                nvidia.com/gpu: "1"
             volumeMounts:
               - name: shm
                 mountPath: /dev/shm                
