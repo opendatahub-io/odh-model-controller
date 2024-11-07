@@ -87,9 +87,6 @@ var _ = Describe("NIM Account Controller Test Cases", func() {
 		account := &v1.Account{}
 		assertFailedAccount(acctSubject, account).Should(Succeed())
 
-		//By("Verify resources not created")
-		//Expect(account)
-
 		By("Cleanups")
 		apiKeySecret := &corev1.Secret{}
 		apiKeySubject := namespacedNameFromReference(&account.Spec.APIKeySecret)

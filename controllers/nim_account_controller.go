@@ -103,15 +103,17 @@ func (r *NimAccountReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 
 	logger.V(1).Info("account active")
 
-	targetStatus := account.Status.DeepCopy()
-
-	// initial account status condition and set initial api key status condition
-	meta.SetStatusCondition(&targetStatus.Conditions, makeAccountFailureCondition(account.Generation, "api key secret not available"))
-	meta.SetStatusCondition(&targetStatus.Conditions, makeApiKeyFailureCondition(account.Generation, "api key secret not available"))
-	// initial unknown for the resources conditions
-	meta.SetStatusCondition(&targetStatus.Conditions, makeConfigMapUnknownCondition(account.Generation, "not reconciled yet"))
-	meta.SetStatusCondition(&targetStatus.Conditions, makeTemplateUnknownCondition(account.Generation, "not reconciled yet"))
-	meta.SetStatusCondition(&targetStatus.Conditions, makePullSecretUnknownCondition(account.Generation, "not reconciled yet"))
+	initialMsg := "not reconciled yet"
+	targetStatus := &v1.AccountStatus{
+		Conditions: []metav1.Condition{
+			// initial unknown status
+			makeAccountSuccessfulCondition(account.Generation, initialMsg),
+			makeApiKeyUnknownCondition(account.Generation, initialMsg),
+			makeConfigMapUnknownCondition(account.Generation, initialMsg),
+			makeTemplateUnknownCondition(account.Generation, initialMsg),
+			makePullSecretUnknownCondition(account.Generation, initialMsg),
+		},
+	}
 
 	defer func() {
 		r.updateStatus(ctx, req.NamespacedName, *targetStatus)
@@ -125,52 +127,65 @@ func (r *NimAccountReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 	apiKeySecret := &corev1.Secret{}
 	apiKeySecretSubject := types.NamespacedName{Name: account.Spec.APIKeySecret.Name, Namespace: secretNs}
 	if err := r.Client.Get(ctx, apiKeySecretSubject, apiKeySecret); err != nil {
+		var msg string
 		if k8serrors.IsNotFound(err) {
-			msg := "api key secret was deleted"
+			msg = "api key secret was deleted"
 			logger.Info(msg)
-			// mark all status conditions for failure
-			meta.SetStatusCondition(&targetStatus.Conditions, makeAccountFailureCondition(account.Generation, msg))
-			meta.SetStatusCondition(&targetStatus.Conditions, makeApiKeyFailureCondition(account.Generation, msg))
-			meta.SetStatusCondition(&targetStatus.Conditions, makeConfigMapFailureCondition(account.Generation, msg))
-			meta.SetStatusCondition(&targetStatus.Conditions, makeTemplateFailureCondition(account.Generation, msg))
-			meta.SetStatusCondition(&targetStatus.Conditions, makePullSecretFailureCondition(account.Generation, msg))
 		} else {
+			msg = "failed to fetch api key secret"
 			logger.V(1).Error(err, "failed to fetch api key secret")
 		}
+		meta.SetStatusCondition(&targetStatus.Conditions, makeAccountFailureCondition(account.Generation, msg))
 		return ctrl.Result{}, client.IgnoreNotFound(err)
 	}
+	foundApiKeySec := "found api key secret"
+	logger.V(1).Info(foundApiKeySec)
+	meta.SetStatusCondition(&targetStatus.Conditions, makeAccountFailureCondition(account.Generation, foundApiKeySec))
 
 	apiKeyBytes, foundKey := apiKeySecret.Data["api_key"]
 	if !foundKey {
 		err := fmt.Errorf("secret %+v has no api_key data", apiKeySecretSubject)
-		logger.V(1).Error(err, "failed to find api key data in secret")
+		msg := "failed to find api key data in secret"
+		logger.V(1).Error(err, msg)
+		meta.SetStatusCondition(&targetStatus.Conditions, makeAccountFailureCondition(account.Generation, msg))
 		return ctrl.Result{}, err
 	}
-
 	apiKeyStr := string(apiKeyBytes)
-	logger.V(1).Info("got api key")
+	gotApiKey := "got api key"
+	logger.V(1).Info(gotApiKey)
+	meta.SetStatusCondition(&targetStatus.Conditions, makeAccountFailureCondition(account.Generation, gotApiKey))
 
+	// fetch available runtimes
 	availableRuntimes, runtimesErr := utils.GetAvailableNimRuntimes()
 	if runtimesErr != nil {
-		logger.V(1).Error(runtimesErr, "failed to fetch NIM available custom runtimes")
+		msg := "failed to fetch NIM available custom runtimes"
+		logger.V(1).Error(runtimesErr, msg)
+		meta.SetStatusCondition(&targetStatus.Conditions, makeAccountFailureCondition(account.Generation, msg))
 		return ctrl.Result{}, runtimesErr
 	}
-	logger.V(1).Info("got custom runtimes")
+	runtimesOk := "got custom runtimes"
+	logger.V(1).Info(runtimesOk)
+	meta.SetStatusCondition(&targetStatus.Conditions, makeAccountFailureCondition(account.Generation, runtimesOk))
 
+	// validate api key
 	if err := utils.ValidateApiKey(apiKeyStr, availableRuntimes[0]); err != nil {
-		logger.Error(err, "api key failed validation")
+		msg := "api key failed validation"
+		logger.Error(err, msg)
+		meta.SetStatusCondition(&targetStatus.Conditions, makeAccountFailureCondition(account.Generation, msg))
+		meta.SetStatusCondition(&targetStatus.Conditions, makeApiKeyFailureCondition(account.Generation, msg))
 		return ctrl.Result{}, nil
 	}
-	logger.V(1).Info("api key validated successfully")
+	apiKeyOk := "api key validated successfully"
+	logger.V(1).Info(apiKeyOk)
+	meta.SetStatusCondition(&targetStatus.Conditions, makeAccountFailureCondition(account.Generation, apiKeyOk))
+	meta.SetStatusCondition(&targetStatus.Conditions, makeApiKeySuccessfulCondition(account.Generation, apiKeyOk))
 
-	// set successful api key status condition
-	meta.SetStatusCondition(&targetStatus.Conditions, makeApiKeySuccessfulCondition(account.Generation, ""))
-	// progress account status condition and set initial configmap status condition
-	meta.SetStatusCondition(&targetStatus.Conditions, makeAccountFailureCondition(account.Generation, "configmap not reconciled"))
-	meta.SetStatusCondition(&targetStatus.Conditions, makeConfigMapFailureCondition(account.Generation, "configmap not reconciled"))
-
+	// reconcile data configmap
 	if cmap, err := r.reconcileNimConfig(ctx, account, apiKeyStr, availableRuntimes); err != nil {
-		logger.V(1).Error(err, "nim configmap reconcile failed")
+		msg := "nim configmap reconcile failed"
+		logger.V(1).Error(err, msg)
+		meta.SetStatusCondition(&targetStatus.Conditions, makeAccountFailureCondition(account.Generation, msg))
+		meta.SetStatusCondition(&targetStatus.Conditions, makeConfigMapFailureCondition(account.Generation, msg))
 		return ctrl.Result{}, err
 	} else {
 		ref, refErr := reference.GetReference(r.Scheme(), cmap)
@@ -179,16 +194,17 @@ func (r *NimAccountReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 		}
 		targetStatus.NIMConfig = ref
 	}
-	logger.V(1).Info("data config map reconciled successfully")
+	dataCmapOk := "data config map reconciled successfully"
+	logger.V(1).Info(dataCmapOk)
+	meta.SetStatusCondition(&targetStatus.Conditions, makeAccountFailureCondition(account.Generation, dataCmapOk))
+	meta.SetStatusCondition(&targetStatus.Conditions, makeConfigMapSuccessfulCondition(account.Generation, dataCmapOk))
 
-	// set successful configmap status condition
-	meta.SetStatusCondition(&targetStatus.Conditions, makeConfigMapSuccessfulCondition(account.Generation, ""))
-	// progress account status condition and set initial template status condition
-	meta.SetStatusCondition(&targetStatus.Conditions, makeAccountFailureCondition(account.Generation, "template not reconciled"))
-	meta.SetStatusCondition(&targetStatus.Conditions, makeTemplateFailureCondition(account.Generation, "template not reconciled"))
-
+	// reconcile template
 	if template, err := r.reconcileRuntimeTemplate(ctx, account); err != nil {
-		logger.V(1).Error(err, "runtime template reconcile failed")
+		msg := "runtime template reconcile failed"
+		logger.V(1).Error(err, msg)
+		meta.SetStatusCondition(&targetStatus.Conditions, makeAccountFailureCondition(account.Generation, msg))
+		meta.SetStatusCondition(&targetStatus.Conditions, makeTemplateFailureCondition(account.Generation, msg))
 		return ctrl.Result{}, err
 	} else {
 		ref, refErr := reference.GetReference(r.Scheme(), template)
@@ -197,16 +213,17 @@ func (r *NimAccountReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 		}
 		targetStatus.RuntimeTemplate = ref
 	}
-	logger.V(1).Info("runtime template reconciled successfully")
+	templateOk := "runtime template reconciled successfully"
+	logger.V(1).Info(templateOk)
+	meta.SetStatusCondition(&targetStatus.Conditions, makeAccountFailureCondition(account.Generation, templateOk))
+	meta.SetStatusCondition(&targetStatus.Conditions, makeTemplateSuccessfulCondition(account.Generation, templateOk))
 
-	// set successful template status condition
-	meta.SetStatusCondition(&targetStatus.Conditions, makeTemplateSuccessfulCondition(account.Generation, ""))
-	// progress account status condition and set initial pull secret status condition
-	meta.SetStatusCondition(&targetStatus.Conditions, makeAccountFailureCondition(account.Generation, "pull secret not reconciled"))
-	meta.SetStatusCondition(&targetStatus.Conditions, makePullSecretFailureCondition(account.Generation, "pull secret not reconciled"))
-
+	// reconcile pull secret
 	if pullSecret, err := r.reconcileNimPullSecret(ctx, account, apiKeyStr); err != nil {
-		logger.V(1).Error(err, "pull secret reconcile failed")
+		msg := "pull secret reconcile failed"
+		logger.V(1).Error(err, msg)
+		meta.SetStatusCondition(&targetStatus.Conditions, makeAccountFailureCondition(account.Generation, msg))
+		meta.SetStatusCondition(&targetStatus.Conditions, makePullSecretFailureCondition(account.Generation, msg))
 		return ctrl.Result{}, err
 	} else {
 		ref, refErr := reference.GetReference(r.Scheme(), pullSecret)
@@ -215,11 +232,10 @@ func (r *NimAccountReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 		}
 		targetStatus.NIMPullSecret = ref
 	}
-	logger.V(1).Info("pull secret reconciled successfully")
-
-	// set successful account and pull secret status conditions
-	meta.SetStatusCondition(&targetStatus.Conditions, makeAccountSuccessfulCondition(account.Generation, ""))
-	meta.SetStatusCondition(&targetStatus.Conditions, makePullSecretSuccessfulCondition(account.Generation, ""))
+	pullSecOk := "pull secret reconciled successfully"
+	logger.V(1).Info(pullSecOk)
+	meta.SetStatusCondition(&targetStatus.Conditions, makeAccountSuccessfulCondition(account.Generation, "reconciled successfully"))
+	meta.SetStatusCondition(&targetStatus.Conditions, makePullSecretSuccessfulCondition(account.Generation, pullSecOk))
 
 	return ctrl.Result{}, nil
 }
@@ -337,6 +353,8 @@ func (r *NimAccountReconciler) updateStatus(ctx context.Context, subject types.N
 	}
 }
 
+// ACCOUNT CONDITIONS
+
 func makeAccountFailureCondition(gen int64, msg string) metav1.Condition {
 	return utils.MakeNimCondition(utils.NimConditionAccountStatus, metav1.ConditionFalse, gen, "AccountNotSuccessful", msg)
 }
@@ -345,6 +363,8 @@ func makeAccountSuccessfulCondition(gen int64, msg string) metav1.Condition {
 	return utils.MakeNimCondition(utils.NimConditionAccountStatus, metav1.ConditionTrue, gen, "AccountSuccessful", msg)
 }
 
+// API KEY VALIDATION CONDITIONS
+
 func makeApiKeyFailureCondition(gen int64, msg string) metav1.Condition {
 	return utils.MakeNimCondition(utils.NimConditionAPIKeyValidation, metav1.ConditionFalse, gen, "ApiKeyNotValidated", msg)
 }
@@ -352,6 +372,12 @@ func makeApiKeyFailureCondition(gen int64, msg string) metav1.Condition {
 func makeApiKeySuccessfulCondition(gen int64, msg string) metav1.Condition {
 	return utils.MakeNimCondition(utils.NimConditionAPIKeyValidation, metav1.ConditionTrue, gen, "ApiKeyValidated", msg)
 }
+
+func makeApiKeyUnknownCondition(gen int64, msg string) metav1.Condition {
+	return utils.MakeNimCondition(utils.NimConditionAPIKeyValidation, metav1.ConditionUnknown, gen, "ApiKeyNotReconciled", msg)
+}
+
+// CONFIGMAP CONDITIONS
 
 func makeConfigMapFailureCondition(gen int64, msg string) metav1.Condition {
 	return utils.MakeNimCondition(utils.NimConditionConfigMapUpdate, metav1.ConditionFalse, gen, "ConfigMapNotUpdated", msg)
@@ -362,8 +388,10 @@ func makeConfigMapSuccessfulCondition(gen int64, msg string) metav1.Condition {
 }
 
 func makeConfigMapUnknownCondition(gen int64, msg string) metav1.Condition {
-	return utils.MakeNimCondition(utils.NimConditionConfigMapUpdate, metav1.ConditionUnknown, gen, "ConfigMapUpdated", msg)
+	return utils.MakeNimCondition(utils.NimConditionConfigMapUpdate, metav1.ConditionUnknown, gen, "ConfigMapNotReconciled", msg)
 }
+
+// TEMPLATE CONDITIONS
 
 func makeTemplateFailureCondition(gen int64, msg string) metav1.Condition {
 	return utils.MakeNimCondition(utils.NimConditionTemplateUpdate, metav1.ConditionFalse, gen, "TemplateNotUpdated", msg)
@@ -374,8 +402,10 @@ func makeTemplateSuccessfulCondition(gen int64, msg string) metav1.Condition {
 }
 
 func makeTemplateUnknownCondition(gen int64, msg string) metav1.Condition {
-	return utils.MakeNimCondition(utils.NimConditionTemplateUpdate, metav1.ConditionUnknown, gen, "TemplateUpdated", msg)
+	return utils.MakeNimCondition(utils.NimConditionTemplateUpdate, metav1.ConditionUnknown, gen, "TemplateNotReconciled", msg)
 }
+
+// PULL SECRET CONDITIONS
 
 func makePullSecretFailureCondition(gen int64, msg string) metav1.Condition {
 	return utils.MakeNimCondition(utils.NimConditionSecretUpdate, metav1.ConditionFalse, gen, "SecretNotUpdated", msg)
@@ -386,5 +416,5 @@ func makePullSecretSuccessfulCondition(gen int64, msg string) metav1.Condition {
 }
 
 func makePullSecretUnknownCondition(gen int64, msg string) metav1.Condition {
-	return utils.MakeNimCondition(utils.NimConditionSecretUpdate, metav1.ConditionUnknown, gen, "SecretUpdated", msg)
+	return utils.MakeNimCondition(utils.NimConditionSecretUpdate, metav1.ConditionUnknown, gen, "SecretNotReconciled", msg)
 }
