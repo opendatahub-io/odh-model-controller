@@ -1,0 +1,219 @@
+/*
+
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at
+
+    http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS IS" BASIS,
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+See the License for the specific language governing permissions and
+limitations under the License.
+*/
+
+package controllers
+
+import (
+	"context"
+	"errors"
+	. "github.com/onsi/ginkgo"
+	. "github.com/onsi/gomega"
+	v1 "github.com/opendatahub-io/odh-model-controller/api/nim/v1"
+	"github.com/opendatahub-io/odh-model-controller/controllers/testdata"
+	"github.com/opendatahub-io/odh-model-controller/controllers/utils"
+	templatev1 "github.com/openshift/api/template/v1"
+	corev1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/api/meta"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/client-go/tools/reference"
+	"time"
+)
+
+var _ = Describe("NIM Account Controller Test Cases", func() {
+
+	// mock nvidia nim api client
+	utils.NimHttpClient = &testdata.NimHttpClientMock{}
+
+	Context("For an Account with a valid API Key", func() {
+		It("Should create resources when Account created and remove when removed", func() {
+			ctx := context.TODO()
+
+			By("Create an Account and an API Key Secret")
+			acctSubject := types.NamespacedName{Name: "testing-account-1", Namespace: WorkingNamespace}
+			createApiKeySecretAndAccount(acctSubject, testdata.FakeApiKey)
+
+			By("Verify successful Account")
+			account := &v1.Account{}
+			assertSuccessfulAccount(acctSubject, account).Should(Succeed())
+
+			By("Verify resources created")
+			dataCmapSubject := namespacedNameFromReference(account.Status.NIMConfig)
+			Expect(cli.Get(ctx, dataCmapSubject, &corev1.ConfigMap{})).To(Succeed())
+			runtimeTemplateSubject := namespacedNameFromReference(account.Status.RuntimeTemplate)
+			Expect(cli.Get(ctx, runtimeTemplateSubject, &templatev1.Template{})).To(Succeed())
+			pullSecretSubject := namespacedNameFromReference(account.Status.NIMPullSecret)
+			Expect(cli.Get(ctx, pullSecretSubject, &corev1.Secret{})).To(Succeed())
+
+			By("Delete the Account")
+			apiKeyRef := account.Spec.APIKeySecret
+			Expect(cli.Delete(ctx, account)).To(Succeed())
+
+			time.Sleep(time.Second * 20)
+
+			By("Verify resources removed")
+			Expect(cli.Get(ctx, acctSubject, &v1.Account{})).NotTo(Succeed())
+			Expect(cli.Get(ctx, dataCmapSubject, &corev1.ConfigMap{})).NotTo(Succeed())
+			Expect(cli.Get(ctx, runtimeTemplateSubject, &templatev1.Template{})).NotTo(Succeed())
+			Expect(cli.Get(ctx, pullSecretSubject, &corev1.Secret{})).NotTo(Succeed())
+
+			By("Cleanup (remove API Key Secret)")
+			apiKeySecret := &corev1.Secret{}
+			apiKeySubject := namespacedNameFromReference(&apiKeyRef)
+			Expect(cli.Get(ctx, apiKeySubject, apiKeySecret)).Should(Succeed())
+			Expect(cli.Delete(ctx, apiKeySecret)).Should(Succeed())
+		})
+
+		It("Should create resources when Account created and remove when API Key secret removed", func() {
+			ctx := context.TODO()
+
+			By("Create an Account and an API Key Secret")
+			acctSubject := types.NamespacedName{Name: "testing-account-2", Namespace: WorkingNamespace}
+			createApiKeySecretAndAccount(acctSubject, testdata.FakeApiKey)
+
+			By("Verify successful Account")
+			account := &v1.Account{}
+			assertSuccessfulAccount(acctSubject, account).Should(Succeed())
+
+			By("Verify resources created")
+			dataCmapSubject := namespacedNameFromReference(account.Status.NIMConfig)
+			Expect(cli.Get(ctx, dataCmapSubject, &corev1.ConfigMap{})).To(Succeed())
+			runtimeTemplateSubject := namespacedNameFromReference(account.Status.RuntimeTemplate)
+			Expect(cli.Get(ctx, runtimeTemplateSubject, &templatev1.Template{})).To(Succeed())
+			pullSecretSubject := namespacedNameFromReference(account.Status.NIMPullSecret)
+			Expect(cli.Get(ctx, pullSecretSubject, &corev1.Secret{})).To(Succeed())
+
+			By("Delete the API Key Secret")
+			apiKeySubject := namespacedNameFromReference(&account.Spec.APIKeySecret)
+			apiKeySecret := &corev1.Secret{}
+			Expect(cli.Get(ctx, apiKeySubject, apiKeySecret)).To(Succeed())
+			Expect(cli.Delete(ctx, apiKeySecret)).To(Succeed())
+
+			time.Sleep(time.Second * 20)
+
+			By("Verify resources removed")
+			Expect(cli.Get(ctx, dataCmapSubject, &corev1.ConfigMap{})).NotTo(Succeed())
+			Expect(cli.Get(ctx, runtimeTemplateSubject, &templatev1.Template{})).NotTo(Succeed())
+			Expect(cli.Get(ctx, pullSecretSubject, &corev1.Secret{})).NotTo(Succeed())
+
+			By("Cleanup (remove Account)")
+			updatedAccount := &v1.Account{}
+			Expect(cli.Get(ctx, acctSubject, updatedAccount)).Should(Succeed())
+			Expect(cli.Delete(ctx, account)).Should(Succeed())
+		})
+	})
+
+	Context("For an Account without a valid API Key", func() {
+		It("Should create resources when Account created and remove when API Key secret removed", func() {
+			By("Create an Account and a wrong API Key Secret")
+			acctSubject := types.NamespacedName{Name: "testing-account-3", Namespace: WorkingNamespace}
+			createApiKeySecretAndAccount(acctSubject, "not-a-valid-key-should-fail")
+
+			By("Verify failed Account")
+			account := &v1.Account{}
+			assertFailedAccount(acctSubject, account).Should(Succeed())
+
+			By("Cleanup (remove Account and API Key Secret)")
+			apiKeySecret := &corev1.Secret{}
+			apiKeySubject := namespacedNameFromReference(&account.Spec.APIKeySecret)
+			Expect(cli.Get(ctx, apiKeySubject, apiKeySecret)).Should(Succeed())
+			Expect(cli.Delete(ctx, apiKeySecret)).Should(Succeed())
+			updatedAccount := &v1.Account{}
+			Expect(cli.Get(ctx, acctSubject, updatedAccount)).Should(Succeed())
+			Expect(cli.Delete(ctx, account)).Should(Succeed())
+		})
+	})
+})
+
+func createApiKeySecretAndAccount(account types.NamespacedName, apiKey string) {
+	apiKeySecret := &corev1.Secret{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      account.Name + "-api-key",
+			Namespace: account.Namespace,
+		},
+		Data: map[string][]byte{
+			"api_key": []byte(apiKey),
+		},
+	}
+	Expect(cli.Create(ctx, apiKeySecret)).To(Succeed())
+
+	apiKeyRef, _ := reference.GetReference(cli.Scheme(), apiKeySecret)
+	acct := &v1.Account{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      account.Name,
+			Namespace: account.Namespace,
+		},
+		Spec: v1.AccountSpec{
+			APIKeySecret: *apiKeyRef,
+		},
+	}
+	Expect(cli.Create(ctx, acct)).To(Succeed())
+}
+
+func assertSuccessfulAccount(acctSubject types.NamespacedName, account *v1.Account) AsyncAssertion {
+	return Eventually(func() error {
+		if err := cli.Get(ctx, acctSubject, account); err != nil {
+			return err
+		}
+
+		for _, cond := range []utils.NimConditionType{
+			utils.NimConditionAccountStatus,
+			utils.NimConditionAPIKeyValidation,
+			utils.NimConditionConfigMapUpdate,
+			utils.NimConditionTemplateUpdate,
+			utils.NimConditionSecretUpdate,
+		} {
+			current := cond.String()
+			if !meta.IsStatusConditionTrue(account.Status.Conditions, current) {
+				return errors.New("successful account status not updated yet for " + current)
+			}
+		}
+		return nil
+	}, timeout, interval)
+}
+
+func assertFailedAccount(acctSubject types.NamespacedName, account *v1.Account) AsyncAssertion {
+	return Eventually(func() error {
+		if err := cli.Get(ctx, acctSubject, account); err != nil {
+			return err
+		}
+
+		for _, cond := range []utils.NimConditionType{
+			utils.NimConditionAccountStatus,
+			utils.NimConditionAPIKeyValidation,
+		} {
+			current := cond.String()
+			if !meta.IsStatusConditionFalse(account.Status.Conditions, current) {
+				return errors.New("failed account status not updated yet for " + current)
+			}
+		}
+
+		for _, cond := range []utils.NimConditionType{
+			utils.NimConditionConfigMapUpdate,
+			utils.NimConditionTemplateUpdate,
+			utils.NimConditionSecretUpdate,
+		} {
+			current := cond.String()
+			if !meta.IsStatusConditionPresentAndEqual(account.Status.Conditions, current, metav1.ConditionUnknown) {
+				return errors.New("unknown account status not updated yet for " + current)
+			}
+		}
+		return nil
+	}, timeout, interval)
+}
+
+func namespacedNameFromReference(ref *corev1.ObjectReference) types.NamespacedName {
+	return types.NamespacedName{Name: ref.Name, Namespace: ref.Namespace}
+}
