@@ -31,6 +31,7 @@ import (
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/tools/reference"
+	"sigs.k8s.io/controller-runtime/pkg/client/apiutil"
 )
 
 var _ = Describe("NIM Account Controller Test Cases", func() {
@@ -186,12 +187,13 @@ func assertFailedAccount(acctSubject types.NamespacedName, account *v1.Account) 
 }
 
 func createOwnerReference(scheme *runtime.Scheme, account *v1.Account) metav1.OwnerReference {
-	gvks, _, _ := scheme.ObjectKinds(account)
+	// check func createOwnerReferenceCfg for info about the gvk usage.
+	gvk, _ := apiutil.GVKForObject(account, scheme)
 	pTrue := true
 	return metav1.OwnerReference{
-		Kind:               gvks[0].Kind,
+		Kind:               gvk.Kind,
 		Name:               account.Name,
-		APIVersion:         gvks[0].GroupVersion().String(),
+		APIVersion:         gvk.GroupVersion().String(),
 		UID:                account.GetUID(),
 		BlockOwnerDeletion: &pTrue,
 		Controller:         &pTrue,

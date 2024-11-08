@@ -37,6 +37,7 @@ import (
 	"k8s.io/client-go/tools/reference"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/client/apiutil"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 	"sigs.k8s.io/controller-runtime/pkg/handler"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
@@ -351,11 +352,14 @@ func (r *NimAccountReconciler) updateStatus(ctx context.Context, subject types.N
 
 // createOwnerReferenceCfg is used to create an owner reference config to use with server side apply
 func (r *NimAccountReconciler) createOwnerReferenceCfg(account *v1.Account) *ssametav1.OwnerReferenceApplyConfiguration {
-	gvks, _, _ := r.Scheme().ObjectKinds(account)
+	// we fetch the gvk instead of getting the kind and apiversion from the object, because of an alleged envtest bug
+	// stripping down all objects typemeta. This is the PR comment discussing this:
+	// https://github.com/opendatahub-io/odh-model-controller/pull/289#discussion_r1833811970
+	gvk, _ := apiutil.GVKForObject(account, r.Scheme())
 	return ssametav1.OwnerReference().
-		WithKind(gvks[0].Kind).
+		WithKind(gvk.Kind).
 		WithName(account.Name).
-		WithAPIVersion(gvks[0].GroupVersion().String()).
+		WithAPIVersion(gvk.GroupVersion().String()).
 		WithUID(account.GetUID()).
 		WithBlockOwnerDeletion(true).
 		WithController(true)
