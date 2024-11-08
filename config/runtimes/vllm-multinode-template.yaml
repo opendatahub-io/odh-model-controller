@@ -50,7 +50,7 @@ objects:
               export SERVED_MODEL_NAME=${MODEL_NAME}
               export MODEL_NAME=${MODEL_DIR} 
             
-              exec python3 -m vllm.entrypoints.openai.api_server --distributed-executor-backend ray --model=${MODEL_NAME} --served-model-name=${SERVED_MODEL_NAME}
+              exec python3 -m vllm.entrypoints.openai.api_server --port=8080 --distributed-executor-backend ray --model=${MODEL_NAME} --served-model-name=${SERVED_MODEL_NAME} 
           env:
             - name: RAY_PORT
               value: "6379"
@@ -59,7 +59,9 @@ objects:
             - name: POD_NAMESPACE
               valueFrom:
                 fieldRef:
-                  fieldPath: metadata.namespace            
+                  fieldPath: metadata.namespace
+            - name: VLLM_NO_USAGE_STATS
+              value: "1"
             - name: HF_HUB_CACHE
               value: /tmp
           resources:
@@ -72,17 +74,17 @@ objects:
             - name: shm
               mountPath: /dev/shm
           livenessProbe:
-            failureThreshold: 3
-            periodSeconds: 30
+            failureThreshold: 2
+            periodSeconds: 5
             successThreshold: 1
-            timeoutSeconds: 8
+            timeoutSeconds: 15
             exec:
               command:
                 - bash
                 - -c
                 - |
                   # Check if the registered ray nodes count is the same as PIPELINE_PARALLEL_SIZE
-                  gpu_status=$(ray status | grep GPU)
+                  gpu_status=$(ray status --address $RAY_ADDRESS | grep GPU)
                   if [[ -z $gpu_status ]]; then
                     echo "$1: GPU does not exist"
                     exit 1
@@ -97,17 +99,17 @@ objects:
                     exit 1
                   fi
           readinessProbe:
-            failureThreshold: 2
-            periodSeconds: 10
+            failureThreshold: 3
+            periodSeconds: 5
             successThreshold: 1
-            timeoutSeconds: 5
+            timeoutSeconds: 15
             exec:
               command:
                 - bash
                 - -c
                 - |
                   # Check if the registered nodes count matches PIPELINE_PARALLEL_SIZE
-                  registered_node_count=$(ray status | grep -c node_)
+                  registered_node_count=$(ray status --address $RAY_ADDRESS | grep -c node_)
                   if [[ $registered_node_count -ne "$PIPELINE_PARALLEL_SIZE" ]]; then
                     echo "Readiness Probe: Unhealthy - Registered nodes count ($registered_node_count) does not match PIPELINE_PARALLEL_SIZE ($PIPELINE_PARALLEL_SIZE)."
                     exit 1
@@ -132,16 +134,16 @@ objects:
                   # Check model health
                   curl --silent --max-time 5 --fail-with-body http://localhost:8080/health
           startupProbe:
-            failureThreshold: 40
+            failureThreshold: 30
             periodSeconds: 30
             successThreshold: 1
-            timeoutSeconds: 5
+            timeoutSeconds: 30
             exec:
               command:
                 - bash
                 - -c
                 - |
-                  ray status
+                  ray status --address $RAY_ADDRESS > /dev/null 2>&1
 
                   # Check model health
                   curl --silent --max-time 5 --fail-with-body http://localhost:8080/health
@@ -184,7 +186,7 @@ objects:
                   sleep 5
                 done
 
-                RAY_HEAD_ADDRESS="${HEAD_SVC}.${POD_NAMESPACE}.svc.cluster.local:6379"
+                export RAY_HEAD_ADDRESS="${HEAD_SVC}.${POD_NAMESPACE}.svc.cluster.local:6379"
                 echo "Attempting to connect to Ray cluster at $RAY_HEAD_ADDRESS ..."
                 ray start --address="$RAY_HEAD_ADDRESS" --block
             env:
@@ -206,30 +208,32 @@ objects:
               - name: shm
                 mountPath: /dev/shm                
             livenessProbe:
-              failureThreshold: 3
+              failureThreshold: 2
               periodSeconds: 5
               successThreshold: 1
-              timeoutSeconds: 5
+              timeoutSeconds: 15
               exec:
                 command:
                   - bash
                   - -c
                   - |
                     # Check if the registered nodes count matches PIPELINE_PARALLEL_SIZE
-                    registered_node_count=$(ray status | grep -c node_)
+                    registered_node_count=$(ray status --address ${HEAD_SVC}.${POD_NAMESPACE}.svc.cluster.local:6379 | grep -c node_)
                     if [[ $registered_node_count -ne "$PIPELINE_PARALLEL_SIZE" ]]; then
                       echo "Readiness Probe: Unhealthy - Registered nodes count ($registered_node_count) does not match PIPELINE_PARALLEL_SIZE ($PIPELINE_PARALLEL_SIZE)."
                       exit 1
-                    fi
+                    fi 
             startupProbe:
               failureThreshold: 12
               periodSeconds: 5
               successThreshold: 1
-              timeoutSeconds: 5
+              timeoutSeconds: 30
               exec:
                 command:
-                  - ray
-                  - status
+                  - /bin/sh
+                  - -c
+                  - |
+                    ray status --address ${HEAD_SVC}.${POD_NAMESPACE}.svc.cluster.local:6379 > /dev/null 2>&1
         volumes:
           - name: shm
             emptyDir:
