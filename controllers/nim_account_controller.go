@@ -246,6 +246,7 @@ func (r *NimAccountReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 	return ctrl.Result{}, nil
 }
 
+// reconcileNimConfig is used for reconciling the configmap encapsulating the model data used for constructing inference services
 func (r *NimAccountReconciler) reconcileNimConfig(
 	ctx context.Context, ownerCfg *ssametav1.OwnerReferenceApplyConfiguration,
 	namespace, apiKey string, runtimes []utils.NimRuntime,
@@ -268,6 +269,7 @@ func (r *NimAccountReconciler) reconcileNimConfig(
 	return cmap, nil
 }
 
+// reconcileRuntimeTemplate is used for reconciling the template encapsulating the serving runtime
 func (r *NimAccountReconciler) reconcileRuntimeTemplate(ctx context.Context, account *v1.Account) (*templatev1.Template, error) {
 	template := &templatev1.Template{
 		ObjectMeta: metav1.ObjectMeta{
@@ -297,6 +299,7 @@ func (r *NimAccountReconciler) reconcileRuntimeTemplate(ctx context.Context, acc
 	return template, nil
 }
 
+// reconcileNimPullSecret is used to reconcile the pull secret for pulling the custom runtime images
 func (r *NimAccountReconciler) reconcileNimPullSecret(
 	ctx context.Context, ownerCfg *ssametav1.OwnerReferenceApplyConfiguration, namespace, apiKey string,
 ) (*corev1.Secret, error) {
@@ -346,6 +349,7 @@ func (r *NimAccountReconciler) updateStatus(ctx context.Context, subject types.N
 	}
 }
 
+// createOwnerReferenceCfg is used to create an owner reference config to use with server side apply
 func (r *NimAccountReconciler) createOwnerReferenceCfg(account *v1.Account) *ssametav1.OwnerReferenceApplyConfiguration {
 	gvks, _, _ := r.Scheme().ObjectKinds(account)
 	return ssametav1.OwnerReference().
