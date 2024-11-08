@@ -52,7 +52,8 @@ func main() {
 	if rErr != nil {
 		panic(rErr)
 	}
-	fmt.Println("Got available runtimes successfully")
+	fmt.Printf("Got %d available runtimes successfully", len(runtimes))
+	fmt.Println()
 
 	if *verbose {
 		for _, runtime := range runtimes {
@@ -73,7 +74,8 @@ func main() {
 	if dErr != nil {
 		panic(dErr)
 	}
-	fmt.Println("Got models info successfully")
+	fmt.Printf("Got %d models info successfully", len(models))
+	fmt.Println()
 
 	if *verbose {
 		for k, v := range models {
