@@ -196,9 +196,11 @@ var _ = BeforeSuite(func() {
 	}).SetupWithManager(mgr)
 	Expect(err).ToNot(HaveOccurred())
 
+	kclient, _ := kubernetes.NewForConfig(cfg)
 	err = (&NimAccountReconciler{
-		Client: cli,
-		Log:    ctrl.Log.WithName("controllers").WithName("NimAccountReconciler"),
+		Client:  cli,
+		Log:     ctrl.Log.WithName("controllers").WithName("NimAccountReconciler"),
+		KClient: kclient,
 	}).SetupWithManager(mgr, ctx)
 	Expect(err).ToNot(HaveOccurred())
 

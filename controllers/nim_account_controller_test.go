@@ -28,6 +28,7 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/tools/reference"
 )
@@ -49,22 +50,22 @@ var _ = Describe("NIM Account Controller Test Cases", func() {
 		assertSuccessfulAccount(acctSubject, account).Should(Succeed())
 
 		By("Verify resources created")
-		isController := true
+		expectedOwner := createOwnerReference(cli.Scheme(), account)
 
 		dataCmap := &corev1.ConfigMap{}
 		dataCmapSubject := namespacedNameFromReference(account.Status.NIMConfig)
 		Expect(cli.Get(ctx, dataCmapSubject, dataCmap)).To(Succeed())
-		Expect(dataCmap.OwnerReferences[0].Controller).To(Equal(&isController))
+		Expect(dataCmap.OwnerReferences[0]).To(Equal(expectedOwner))
 
 		runtimeTemplate := &templatev1.Template{}
 		runtimeTemplateSubject := namespacedNameFromReference(account.Status.RuntimeTemplate)
 		Expect(cli.Get(ctx, runtimeTemplateSubject, runtimeTemplate)).To(Succeed())
-		Expect(runtimeTemplate.OwnerReferences[0].Controller).To(Equal(&isController))
+		Expect(runtimeTemplate.OwnerReferences[0]).To(Equal(expectedOwner))
 
 		pullSecret := &corev1.Secret{}
 		pullSecretSubject := namespacedNameFromReference(account.Status.NIMPullSecret)
 		Expect(cli.Get(ctx, pullSecretSubject, pullSecret)).To(Succeed())
-		Expect(pullSecret.OwnerReferences[0].Controller).To(Equal(&isController))
+		Expect(pullSecret.OwnerReferences[0]).To(Equal(expectedOwner))
 
 		By("Cleanups")
 		apiKeySecret := &corev1.Secret{}
@@ -182,6 +183,19 @@ func assertFailedAccount(acctSubject types.NamespacedName, account *v1.Account) 
 		}
 		return nil
 	}, timeout, interval)
+}
+
+func createOwnerReference(scheme *runtime.Scheme, account *v1.Account) metav1.OwnerReference {
+	gvks, _, _ := scheme.ObjectKinds(account)
+	pTrue := true
+	return metav1.OwnerReference{
+		Kind:               gvks[0].Kind,
+		Name:               account.Name,
+		APIVersion:         gvks[0].GroupVersion().String(),
+		UID:                account.GetUID(),
+		BlockOwnerDeletion: &pTrue,
+		Controller:         &pTrue,
+	}
 }
 
 func namespacedNameFromReference(ref *corev1.ObjectReference) types.NamespacedName {

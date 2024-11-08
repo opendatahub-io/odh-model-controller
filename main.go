@@ -19,6 +19,7 @@ package main
 import (
 	"context"
 	"flag"
+	"k8s.io/client-go/kubernetes"
 	"os"
 	"strconv"
 
@@ -122,7 +123,8 @@ func main() {
 
 	ctrl.SetLogger(zap.New(zap.UseFlagOptions(&opts)))
 
-	mgr, err := ctrl.NewManager(ctrl.GetConfigOrDie(), ctrl.Options{
+	cfg := ctrl.GetConfigOrDie()
+	mgr, err := ctrl.NewManager(cfg, ctrl.Options{
 		Scheme: scheme,
 		Metrics: server.Options{
 			BindAddress: metricsAddr,
@@ -222,10 +224,17 @@ func main() {
 		setupLog.Info("Skipping setup of Knative Service validating/mutating Webhook, because KServe Serverless setup seems to be disabled in the DataScienceCluster resource.")
 	}
 
+	kclient, kcErr := kubernetes.NewForConfig(cfg)
+	if kcErr != nil {
+		setupLog.Error(err, "unable to create clientset")
+		os.Exit(1)
+	}
+
 	ctx := ctrl.SetupSignalHandler()
 	if err = (&controllers.NimAccountReconciler{
-		Client: mgr.GetClient(),
-		Log:    ctrl.Log.WithName("controllers").WithName("NimAccountReconciler"),
+		Client:  mgr.GetClient(),
+		Log:     ctrl.Log.WithName("controllers").WithName("NimAccountReconciler"),
+		KClient: kclient,
 	}).SetupWithManager(mgr, ctx); err != nil {
 		setupLog.Error(err, "unable to create controller NIM Account controller")
 		os.Exit(1)

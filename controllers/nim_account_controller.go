@@ -31,6 +31,9 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
+	ssacorev1 "k8s.io/client-go/applyconfigurations/core/v1"
+	ssametav1 "k8s.io/client-go/applyconfigurations/meta/v1"
+	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/tools/reference"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -42,7 +45,8 @@ import (
 type (
 	NimAccountReconciler struct {
 		client.Client
-		Log logr.Logger
+		Log     logr.Logger
+		KClient kubernetes.Interface
 	}
 )
 
@@ -180,8 +184,10 @@ func (r *NimAccountReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 	meta.SetStatusCondition(&targetStatus.Conditions, makeAccountFailureCondition(account.Generation, apiKeyOk))
 	meta.SetStatusCondition(&targetStatus.Conditions, makeApiKeySuccessfulCondition(account.Generation, apiKeyOk))
 
+	ownerRefCfg := r.createOwnerReferenceCfg(account)
+
 	// reconcile data configmap
-	if cmap, err := r.reconcileNimConfig(ctx, account, apiKeyStr, availableRuntimes); err != nil {
+	if cmap, err := r.reconcileNimConfig(ctx, ownerRefCfg, account.Namespace, apiKeyStr, availableRuntimes); err != nil {
 		msg := "nim configmap reconcile failed"
 		logger.V(1).Error(err, msg)
 		meta.SetStatusCondition(&targetStatus.Conditions, makeAccountFailureCondition(account.Generation, msg))
@@ -219,7 +225,7 @@ func (r *NimAccountReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 	meta.SetStatusCondition(&targetStatus.Conditions, makeTemplateSuccessfulCondition(account.Generation, templateOk))
 
 	// reconcile pull secret
-	if pullSecret, err := r.reconcileNimPullSecret(ctx, account, apiKeyStr); err != nil {
+	if pullSecret, err := r.reconcileNimPullSecret(ctx, ownerRefCfg, account.Namespace, apiKeyStr); err != nil {
 		msg := "pull secret reconcile failed"
 		logger.V(1).Error(err, msg)
 		meta.SetStatusCondition(&targetStatus.Conditions, makeAccountFailureCondition(account.Generation, msg))
@@ -240,27 +246,22 @@ func (r *NimAccountReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 	return ctrl.Result{}, nil
 }
 
-func (r *NimAccountReconciler) reconcileNimConfig(ctx context.Context, account *v1.Account, apiKey string, runtimes []utils.NimRuntime) (*corev1.ConfigMap, error) {
-	cmap := &corev1.ConfigMap{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:      constants.NimDataConfigMapName,
-			Namespace: account.Namespace,
-		},
+func (r *NimAccountReconciler) reconcileNimConfig(
+	ctx context.Context, ownerCfg *ssametav1.OwnerReferenceApplyConfiguration,
+	namespace, apiKey string, runtimes []utils.NimRuntime,
+) (*corev1.ConfigMap, error) {
+	data, dErr := utils.GetNimModelData(apiKey, runtimes)
+	if dErr != nil {
+		return nil, dErr
 	}
 
-	if _, err := controllerutil.CreateOrUpdate(ctx, r.Client, cmap, func() error {
-		if err := controllerutil.SetControllerReference(account, cmap, r.Scheme()); err != nil {
-			return err
-		}
+	cmapCfg := ssacorev1.ConfigMap(constants.NimDataConfigMapName, namespace).
+		WithData(data).
+		WithOwnerReferences(ownerCfg)
 
-		if data, err := utils.GetNimModelData(apiKey, runtimes); err != nil {
-			return err
-		} else {
-			cmap.Data = data
-		}
-
-		return nil
-	}); err != nil {
+	cmap, err := r.KClient.CoreV1().ConfigMaps(namespace).
+		Apply(ctx, cmapCfg, metav1.ApplyOptions{FieldManager: constants.NimApplyConfigFieldManager, Force: true})
+	if err != nil {
 		return nil, err
 	}
 
@@ -296,7 +297,9 @@ func (r *NimAccountReconciler) reconcileRuntimeTemplate(ctx context.Context, acc
 	return template, nil
 }
 
-func (r *NimAccountReconciler) reconcileNimPullSecret(ctx context.Context, account *v1.Account, apiKey string) (*corev1.Secret, error) {
+func (r *NimAccountReconciler) reconcileNimPullSecret(
+	ctx context.Context, ownerCfg *ssametav1.OwnerReferenceApplyConfiguration, namespace, apiKey string,
+) (*corev1.Secret, error) {
 	creds := map[string]map[string]map[string]string{
 		"auths": {
 			"nvcr.io": {
@@ -311,27 +314,17 @@ func (r *NimAccountReconciler) reconcileNimPullSecret(ctx context.Context, accou
 		return nil, marshErr
 	}
 
-	secret := &corev1.Secret{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:      constants.NimPullSecretName,
-			Namespace: account.Namespace,
-		},
-	}
+	secretCfg := ssacorev1.
+		Secret(constants.NimPullSecretName, namespace).
+		WithData(map[string][]byte{".dockercfg": credsJson}).
+		WithType(corev1.SecretTypeDockercfg).
+		WithOwnerReferences(ownerCfg)
 
-	if _, err := controllerutil.CreateOrUpdate(ctx, r.Client, secret, func() error {
-		if err := controllerutil.SetControllerReference(account, secret, r.Scheme()); err != nil {
-			return err
-		}
-
-		secret.Data = map[string][]byte{
-			".dockercfg": credsJson,
-		}
-		secret.Type = corev1.SecretTypeDockercfg
-		return nil
-	}); err != nil {
+	secret, err := r.KClient.CoreV1().Secrets(namespace).
+		Apply(ctx, secretCfg, metav1.ApplyOptions{FieldManager: constants.NimApplyConfigFieldManager, Force: true})
+	if err != nil {
 		return nil, err
 	}
-
 	return secret, nil
 }
 
@@ -351,6 +344,17 @@ func (r *NimAccountReconciler) updateStatus(ctx context.Context, subject types.N
 			logger.Error(err, "failed to update account status")
 		}
 	}
+}
+
+func (r *NimAccountReconciler) createOwnerReferenceCfg(account *v1.Account) *ssametav1.OwnerReferenceApplyConfiguration {
+	gvks, _, _ := r.Scheme().ObjectKinds(account)
+	return ssametav1.OwnerReference().
+		WithKind(gvks[0].Kind).
+		WithName(account.Name).
+		WithAPIVersion(gvks[0].GroupVersion().String()).
+		WithUID(account.GetUID()).
+		WithBlockOwnerDeletion(true).
+		WithController(true)
 }
 
 // ACCOUNT CONDITIONS
