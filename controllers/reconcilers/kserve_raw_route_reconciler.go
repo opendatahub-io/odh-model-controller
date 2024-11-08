@@ -94,24 +94,29 @@ func (r *KserveRawRouteReconciler) createDesiredResource(ctx context.Context, lo
 		enableAuth = false
 	}
 	createRoute := false
-	if val, ok := isvc.Labels[constants.KserveNetworkVisibility]; ok && val == constants.LabelEnableRoute {
+	if val, ok := isvc.Labels[constants.KserveNetworkVisibility]; ok && val == constants.LabelEnableKserveRawRoute {
 		createRoute = true
 	}
 	if !createRoute {
 		log.Info("InferenceService does not have label '" + constants.KserveNetworkVisibility + "' annotation" +
-			" set to '" + constants.LabelEnableRoute + "'. Skipping route creation")
+			" set to '" + constants.LabelEnableKserveRawRoute + "'. Skipping route creation")
 		return nil, nil
 	}
 
 	// Fetch the service with the label "serving.kserve.io/inferenceservice=isvc.Name" in the isvc namespace
 	serviceList := &corev1.ServiceList{}
-	labelSelector := client.MatchingLabels{"serving.kserve.io/inferenceservice": isvc.Name}
+	labelSelector := client.MatchingLabels{constants.KserveGroupAnnotation: isvc.Name}
 	err = r.client.List(ctx, serviceList, client.InNamespace(isvc.Namespace), labelSelector)
 	if err != nil || len(serviceList.Items) == 0 {
 		log.Error(err, "Failed to fetch service for InferenceService", "InferenceService", isvc.Name)
 		return nil, err
 	}
-	targetServiceName := serviceList.Items[0].Name
+	var targetServiceName string
+	for _, service := range serviceList.Items {
+		if val, ok := service.Labels["component"]; ok && val == "predictor" {
+			targetServiceName = service.Name
+		}
+	}
 
 	desiredRoute := &v1.Route{
 		ObjectMeta: metav1.ObjectMeta{

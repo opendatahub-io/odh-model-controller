@@ -1,24 +1,20 @@
 package controllers
 
 import (
-	"context"
-	"fmt"
+	kservev1alpha1 "github.com/kserve/kserve/pkg/apis/serving/v1alpha1"
+	kservev1beta1 "github.com/kserve/kserve/pkg/apis/serving/v1beta1"
 	. "github.com/onsi/ginkgo"
 	. "github.com/onsi/gomega"
 	"github.com/opendatahub-io/odh-model-controller/controllers/constants"
 	routev1 "github.com/openshift/api/route/v1"
-	"k8s.io/apimachinery/pkg/types"
-	"sigs.k8s.io/controller-runtime/pkg/client"
-	"time"
-
-	kservev1alpha1 "github.com/kserve/kserve/pkg/apis/serving/v1alpha1"
-	kservev1beta1 "github.com/kserve/kserve/pkg/apis/serving/v1beta1"
+	monitoringv1 "github.com/prometheus-operator/prometheus-operator/pkg/apis/monitoring/v1"
 	corev1 "k8s.io/api/core/v1"
 	rbacv1 "k8s.io/api/rbac/v1"
 	apierrs "k8s.io/apimachinery/pkg/api/errors"
+	"k8s.io/apimachinery/pkg/types"
 )
 
-var _ = FDescribe("The KServe Raw reconciler", func() {
+var _ = Describe("The KServe Raw reconciler", func() {
 	var testNs string
 
 	createServingRuntime := func(namespace, path string) *kservev1alpha1.ServingRuntime {
@@ -62,10 +58,25 @@ var _ = FDescribe("The KServe Raw reconciler", func() {
 		if err := cli.Create(ctx, inferenceService); err != nil && !apierrs.IsAlreadyExists(err) {
 			Expect(err).NotTo(HaveOccurred())
 		}
-		It("it should create a service account and clusterrolebinding for auth", func() {
-			sa, err := waitForServiceAccount(cli, testNs, constants.KserveServiceAccountName, 30, 1*time.Second)
-			Expect(err).NotTo(HaveOccurred())
-			Expect(sa).NotTo(BeNil())
+		It("it should create a clusterrolebinding for auth", func() {
+			crb := &rbacv1.ClusterRoleBinding{}
+			Eventually(func() error {
+				key := types.NamespacedName{Name: inferenceService.Namespace + constants.KserveServiceAccountName + "-auth-delegator",
+					Namespace: inferenceService.Namespace}
+				return cli.Get(ctx, key, crb)
+			}, timeout, interval).ShouldNot(HaveOccurred())
+		})
+		It("it should create a metrics service and servicemonitor", func() {
+			metricsService := &corev1.Service{}
+			Eventually(func() error {
+				key := types.NamespacedName{Name: inferenceService.Name + "-metrics", Namespace: inferenceService.Namespace}
+				return cli.Get(ctx, key, metricsService)
+			}, timeout, interval).ShouldNot(HaveOccurred())
+			metricsServiceMonitor := &monitoringv1.ServiceMonitor{}
+			Eventually(func() error {
+				key := types.NamespacedName{Name: inferenceService.Name + "-metrics", Namespace: inferenceService.Namespace}
+				return cli.Get(ctx, key, metricsServiceMonitor)
+			}, timeout, interval).ShouldNot(HaveOccurred())
 		})
 		It("it should not create a route", func() {
 			route := &routev1.Route{}
@@ -81,7 +92,7 @@ var _ = FDescribe("The KServe Raw reconciler", func() {
 		if inferenceService.Labels == nil {
 			inferenceService.Labels = map[string]string{}
 		}
-		inferenceService.Labels[constants.KserveNetworkVisibility] = constants.LabelEnableRoute
+		inferenceService.Labels[constants.KserveNetworkVisibility] = constants.LabelEnableKserveRawRoute
 		if err := cli.Create(ctx, inferenceService); err != nil && !apierrs.IsAlreadyExists(err) {
 			Expect(err).NotTo(HaveOccurred())
 		}
@@ -102,34 +113,9 @@ var _ = FDescribe("The KServe Raw reconciler", func() {
 			}
 			Expect(cli.Delete(ctx, inferenceService)).Should(Succeed())
 			Expect(cli.Delete(ctx, servingRuntime)).Should(Succeed())
-			sa := &corev1.ServiceAccount{}
-			key := types.NamespacedName{Name: constants.KserveServiceAccountName, Namespace: inferenceService.Namespace}
-			Expect(cli.Get(ctx, key, sa)).ShouldNot(Succeed())
 			crb := &rbacv1.ClusterRoleBinding{}
-			key = types.NamespacedName{Name: inferenceService.Namespace + "-" + constants.KserveServiceAccountName + "-auth-delegator", Namespace: inferenceService.Namespace}
+			key := types.NamespacedName{Name: inferenceService.Namespace + "-" + constants.KserveServiceAccountName + "-auth-delegator", Namespace: inferenceService.Namespace}
 			Expect(cli.Get(ctx, key, crb)).ShouldNot(Succeed())
 		})
 	})
 })
-
-func waitForServiceAccount(cli client.Client, namespace, saName string, maxTries int, delay time.Duration) (*corev1.ServiceAccount, error) {
-	time.Sleep(delay)
-
-	ctx := context.Background()
-	sa := &corev1.ServiceAccount{}
-	for try := 1; try <= maxTries; try++ {
-		err := cli.Get(ctx, client.ObjectKey{Namespace: namespace, Name: saName}, sa)
-		if err == nil {
-			return sa, nil
-		}
-		if apierrs.IsNotFound(err) {
-			return nil, fmt.Errorf("failed to get configmap %s/%s: %v", namespace, saName, err)
-		}
-
-		if try > maxTries {
-			time.Sleep(1 * time.Second)
-			return nil, err
-		}
-	}
-	return sa, nil
-}

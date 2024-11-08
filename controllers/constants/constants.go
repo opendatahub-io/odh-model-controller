@@ -25,16 +25,18 @@ const (
 	IstioIngressServiceHTTPSPortName = "https"
 	IstioSidecarInjectAnnotationName = "sidecar.istio.io/inject"
 	KserveNetworkVisibility          = "networking.kserve.io/visibility"
+	KserveGroupAnnotation            = "serving.kserve.io/inferenceservice"
 
-	LabelAuthGroup     = "security.opendatahub.io/authorization-group"
-	LabelEnableAuthODH = "security.opendatahub.io/enable-auth"
-	LabelEnableAuth    = "enable-auth"
-	LabelEnableRoute   = "enable-route"
+	LabelAuthGroup            = "security.opendatahub.io/authorization-group"
+	LabelEnableAuthODH        = "security.opendatahub.io/enable-auth"
+	LabelEnableAuth           = "enable-auth"
+	LabelEnableRoute          = "enable-route"
+	LabelEnableKserveRawRoute = "exposed"
 
 	CapabilityServiceMeshAuthorization = "CapabilityServiceMeshAuthorization"
 
 	ModelMeshServiceAccountName = "modelmesh-serving-sa"
-	KserveServiceAccountName    = "kserve-sa"
+	KserveServiceAccountName    = "default"
 )
 
 // model registry
