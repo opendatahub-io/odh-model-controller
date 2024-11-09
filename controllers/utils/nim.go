@@ -33,8 +33,9 @@ import (
 type (
 	// NimCatalogQuery is used for constructing a query for NIM catalog fetch
 	NimCatalogQuery struct {
-		Query string `json:"query"`
-		Page  int    `json:"page"`
+		Query    string `json:"query"`
+		Page     int    `json:"page"`
+		PageSize int    `json:"pageSize"`
 	}
 
 	// NimCatalogResponse represents the NIM catalog fetch response
@@ -103,7 +104,7 @@ func GetAvailableNimRuntimes() ([]NimRuntime, error) {
 		return nil, reqErr
 	}
 
-	params, _ := json.Marshal(NimCatalogQuery{Query: "orgName:nim", Page: 0})
+	params, _ := json.Marshal(NimCatalogQuery{Query: "orgName:nim", Page: 0, PageSize: 100})
 	query := req.URL.Query()
 	query.Add("q", string(params))
 
