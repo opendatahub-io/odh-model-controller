@@ -32,6 +32,7 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/tools/reference"
 	"sigs.k8s.io/controller-runtime/pkg/client/apiutil"
+	"time"
 )
 
 var _ = Describe("NIM Account Controller Test Cases", func() {
@@ -125,19 +126,12 @@ var _ = Describe("NIM Account Controller Test Cases", func() {
 		Expect(cli.Get(ctx, apiKeySubject, apiKeySecret)).Should(Succeed())
 		Expect(cli.Delete(ctx, apiKeySecret)).To(Succeed())
 
+		time.Sleep(timeout)
+
 		By("Verify resources deleted")
-		Eventually(func() error {
-			if dErr := cli.Get(ctx, dataCmapSubject, &corev1.ConfigMap{}); dErr == nil {
-				return dErr
-			}
-			if tErr := cli.Get(ctx, runtimeTemplateSubject, &templatev1.Template{}); tErr == nil {
-				return tErr
-			}
-			if sErr := cli.Get(ctx, pullSecretSubject, &corev1.Secret{}); sErr == nil {
-				return sErr
-			}
-			return nil
-		}, timeout, interval).Should(Succeed())
+		Expect(cli.Get(ctx, dataCmapSubject, &corev1.ConfigMap{})).NotTo(Succeed())
+		Expect(cli.Get(ctx, runtimeTemplateSubject, &templatev1.Template{})).NotTo(Succeed())
+		Expect(cli.Get(ctx, pullSecretSubject, &corev1.Secret{})).NotTo(Succeed())
 
 		By("Cleanups")
 		Expect(cli.Delete(ctx, account)).To(Succeed())
