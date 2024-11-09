@@ -141,6 +141,7 @@ func (r *NimAccountReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 			logger.V(1).Error(err, "failed to fetch api key secret")
 		}
 		meta.SetStatusCondition(&targetStatus.Conditions, makeAccountFailureCondition(account.Generation, msg))
+		r.cleanupResources(ctx, account)
 		return ctrl.Result{}, client.IgnoreNotFound(err)
 	}
 	foundApiKeySec := "found api key secret"
@@ -153,6 +154,7 @@ func (r *NimAccountReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 		msg := "failed to find api key data in secret"
 		logger.V(1).Error(err, msg)
 		meta.SetStatusCondition(&targetStatus.Conditions, makeAccountFailureCondition(account.Generation, msg))
+		r.cleanupResources(ctx, account)
 		return ctrl.Result{}, err
 	}
 	apiKeyStr := string(apiKeyBytes)
@@ -166,6 +168,7 @@ func (r *NimAccountReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 		msg := "failed to fetch NIM available custom runtimes"
 		logger.V(1).Error(runtimesErr, msg)
 		meta.SetStatusCondition(&targetStatus.Conditions, makeAccountFailureCondition(account.Generation, msg))
+		r.cleanupResources(ctx, account)
 		return ctrl.Result{}, runtimesErr
 	}
 	runtimesOk := "got custom runtimes"
@@ -178,6 +181,7 @@ func (r *NimAccountReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 		logger.Error(err, msg)
 		meta.SetStatusCondition(&targetStatus.Conditions, makeAccountFailureCondition(account.Generation, msg))
 		meta.SetStatusCondition(&targetStatus.Conditions, makeApiKeyFailureCondition(account.Generation, msg))
+		r.cleanupResources(ctx, account)
 		return ctrl.Result{}, nil
 	}
 	apiKeyOk := "api key validated successfully"
@@ -363,6 +367,50 @@ func (r *NimAccountReconciler) createOwnerReferenceCfg(account *v1.Account) *ssa
 		WithUID(account.GetUID()).
 		WithBlockOwnerDeletion(true).
 		WithController(true)
+}
+
+// cleanupResources is used for deleting the integration related resources (configmap, template, pull secret)
+func (r *NimAccountReconciler) cleanupResources(ctx context.Context, account *v1.Account) {
+	logger := log.FromContext(ctx)
+	logger.V(1).Info("cleaning up")
+
+	var delObjs []client.Object
+
+	if account.Status.NIMPullSecret != nil {
+		delObjs = append(delObjs, &corev1.Secret{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      account.Status.NIMPullSecret.Name,
+				Namespace: account.Status.NIMPullSecret.Namespace,
+			},
+		})
+	}
+
+	if account.Status.NIMConfig != nil {
+		delObjs = append(delObjs, &corev1.ConfigMap{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      account.Status.NIMConfig.Name,
+				Namespace: account.Status.NIMConfig.Namespace,
+			},
+		})
+	}
+
+	if account.Status.RuntimeTemplate != nil {
+		delObjs = append(delObjs, &templatev1.Template{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      account.Status.RuntimeTemplate.Name,
+				Namespace: account.Status.RuntimeTemplate.Namespace,
+			},
+		})
+	}
+
+	for _, obj := range delObjs {
+		if err := r.Client.Delete(ctx, obj); err != nil {
+			if !k8serrors.IsNotFound(err) {
+				logger.Error(err, fmt.Sprintf("failed to delete %s", obj.GetObjectKind()))
+			}
+		}
+	}
+
 }
 
 // ACCOUNT CONDITIONS

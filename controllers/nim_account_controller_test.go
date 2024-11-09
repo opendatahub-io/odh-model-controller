@@ -97,6 +97,51 @@ var _ = Describe("NIM Account Controller Test Cases", func() {
 		Expect(cli.Delete(ctx, apiKeySecret)).Should(Succeed())
 		Expect(cli.Delete(ctx, account)).Should(Succeed())
 	})
+
+	It("Should remove all resources if the API key Secret was deleted", func() {
+		ctx := context.TODO()
+
+		By("Create an Account and an API Key Secret")
+		acctSubject := types.NamespacedName{Name: "testing-account-3", Namespace: WorkingNamespace}
+		createApiKeySecretAndAccount(acctSubject, testdata.FakeApiKey)
+
+		By("Verify successful Account")
+		account := &v1.Account{}
+		assertSuccessfulAccount(acctSubject, account).Should(Succeed())
+
+		By("Verify resources created")
+		dataCmapSubject := namespacedNameFromReference(account.Status.NIMConfig)
+		Expect(cli.Get(ctx, dataCmapSubject, &corev1.ConfigMap{})).To(Succeed())
+
+		runtimeTemplateSubject := namespacedNameFromReference(account.Status.RuntimeTemplate)
+		Expect(cli.Get(ctx, runtimeTemplateSubject, &templatev1.Template{})).To(Succeed())
+
+		pullSecretSubject := namespacedNameFromReference(account.Status.NIMPullSecret)
+		Expect(cli.Get(ctx, pullSecretSubject, &corev1.Secret{})).To(Succeed())
+
+		By("Delete API key Secret")
+		apiKeySecret := &corev1.Secret{}
+		apiKeySubject := namespacedNameFromReference(&account.Spec.APIKeySecret)
+		Expect(cli.Get(ctx, apiKeySubject, apiKeySecret)).Should(Succeed())
+		Expect(cli.Delete(ctx, apiKeySecret)).To(Succeed())
+
+		By("Verify resources deleted")
+		Eventually(func() error {
+			if dErr := cli.Get(ctx, dataCmapSubject, &corev1.ConfigMap{}); dErr == nil {
+				return dErr
+			}
+			if tErr := cli.Get(ctx, runtimeTemplateSubject, &templatev1.Template{}); tErr == nil {
+				return tErr
+			}
+			if sErr := cli.Get(ctx, pullSecretSubject, &corev1.Secret{}); sErr == nil {
+				return sErr
+			}
+			return nil
+		}, timeout, interval).Should(Succeed())
+
+		By("Cleanups")
+		Expect(cli.Delete(ctx, account)).To(Succeed())
+	})
 })
 
 func createApiKeySecretAndAccount(account types.NamespacedName, apiKey string) {
