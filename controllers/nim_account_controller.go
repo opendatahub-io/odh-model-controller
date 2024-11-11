@@ -192,23 +192,23 @@ func (r *NimAccountReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 	ownerRefCfg := r.createOwnerReferenceCfg(account)
 
 	// reconcile data configmap
-	if cmap, err := r.reconcileNimConfig(ctx, ownerRefCfg, account.Namespace, apiKeyStr, availableRuntimes); err != nil {
+	if cm, err := r.reconcileNimConfig(ctx, ownerRefCfg, account.Namespace, apiKeyStr, availableRuntimes); err != nil {
 		msg := "nim configmap reconcile failed"
 		logger.V(1).Error(err, msg)
 		meta.SetStatusCondition(&targetStatus.Conditions, makeAccountFailureCondition(account.Generation, msg))
 		meta.SetStatusCondition(&targetStatus.Conditions, makeConfigMapFailureCondition(account.Generation, msg))
 		return ctrl.Result{}, err
 	} else {
-		ref, refErr := reference.GetReference(r.Scheme(), cmap)
+		ref, refErr := reference.GetReference(r.Scheme(), cm)
 		if refErr != nil {
 			return ctrl.Result{}, refErr
 		}
 		targetStatus.NIMConfig = ref
 	}
-	dataCmapOk := "data config map reconciled successfully"
-	logger.V(1).Info(dataCmapOk)
-	meta.SetStatusCondition(&targetStatus.Conditions, makeAccountFailureCondition(account.Generation, dataCmapOk))
-	meta.SetStatusCondition(&targetStatus.Conditions, makeConfigMapSuccessfulCondition(account.Generation, dataCmapOk))
+	dataCmOk := "data config map reconciled successfully"
+	logger.V(1).Info(dataCmOk)
+	meta.SetStatusCondition(&targetStatus.Conditions, makeAccountFailureCondition(account.Generation, dataCmOk))
+	meta.SetStatusCondition(&targetStatus.Conditions, makeConfigMapSuccessfulCondition(account.Generation, dataCmOk))
 
 	// reconcile template
 	if template, err := r.reconcileRuntimeTemplate(ctx, account); err != nil {
@@ -261,17 +261,17 @@ func (r *NimAccountReconciler) reconcileNimConfig(
 		return nil, dErr
 	}
 
-	cmapCfg := ssacorev1.ConfigMap(constants.NimDataConfigMapName, namespace).
+	cmCfg := ssacorev1.ConfigMap(constants.NimDataConfigMapName, namespace).
 		WithData(data).
 		WithOwnerReferences(ownerCfg)
 
-	cmap, err := r.KClient.CoreV1().ConfigMaps(namespace).
-		Apply(ctx, cmapCfg, metav1.ApplyOptions{FieldManager: constants.NimApplyConfigFieldManager, Force: true})
+	cm, err := r.KClient.CoreV1().ConfigMaps(namespace).
+		Apply(ctx, cmCfg, metav1.ApplyOptions{FieldManager: constants.NimApplyConfigFieldManager, Force: true})
 	if err != nil {
 		return nil, err
 	}
 
-	return cmap, nil
+	return cm, nil
 }
 
 // reconcileRuntimeTemplate is used for reconciling the template encapsulating the serving runtime
