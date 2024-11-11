@@ -13,4 +13,5 @@ resources:
   - vllm-template.yaml
   - vllm-multinode-template.yaml
   - vllm-rocm-template.yaml
+  - vllm-gaudi-template.yaml
   - caikit-standalone-template.yaml
