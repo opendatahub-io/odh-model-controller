@@ -112,7 +112,7 @@ func (r *NimAccountReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 	targetStatus := &v1.AccountStatus{
 		Conditions: []metav1.Condition{
 			// initial unknown status
-			makeAccountSuccessfulCondition(account.Generation, initialMsg),
+			makeAccountUnknownCondition(account.Generation, initialMsg),
 			makeApiKeyUnknownCondition(account.Generation, initialMsg),
 			makeConfigMapUnknownCondition(account.Generation, initialMsg),
 			makeTemplateUnknownCondition(account.Generation, initialMsg),
@@ -421,6 +421,10 @@ func makeAccountFailureCondition(gen int64, msg string) metav1.Condition {
 
 func makeAccountSuccessfulCondition(gen int64, msg string) metav1.Condition {
 	return utils.MakeNimCondition(utils.NimConditionAccountStatus, metav1.ConditionTrue, gen, "AccountSuccessful", msg)
+}
+
+func makeAccountUnknownCondition(gen int64, msg string) metav1.Condition {
+	return utils.MakeNimCondition(utils.NimConditionAccountStatus, metav1.ConditionUnknown, gen, "AccountNotReconciled", msg)
 }
 
 // API KEY VALIDATION CONDITIONS
