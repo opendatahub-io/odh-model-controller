@@ -41,7 +41,7 @@ objects:
             - |
               ray start --head --disable-usage-stats --include-dashboard false 
               # wait for other node to join
-              until [[ $(ray status | grep -c node_) -eq ${PIPELINE_PARALLEL_SIZE} ]]; do
+              until [[ $(ray status --address $RAY_ADDRESS | grep -c node_) -eq ${PIPELINE_PARALLEL_SIZE} ]]; do
                 echo "Waiting..."
                 sleep 1
               done
@@ -50,7 +50,7 @@ objects:
               export SERVED_MODEL_NAME=${MODEL_NAME}
               export MODEL_NAME=${MODEL_DIR} 
             
-              exec python3 -m vllm.entrypoints.openai.api_server --port=8080 --distributed-executor-backend ray --model=${MODEL_NAME} --served-model-name=${SERVED_MODEL_NAME} 
+              exec python3 -m vllm.entrypoints.openai.api_server --port=8080 --distributed-executor-backend ray --model=${MODEL_NAME} --served-model-name=${SERVED_MODEL_NAME} --tensor-parallel-size=${TENSOR_PARALLEL_SIZE} --pipeline-parallel-size=${PIPELINE_PARALLEL_SIZE}
           env:
             - name: RAY_PORT
               value: "6379"
@@ -62,8 +62,10 @@ objects:
                   fieldPath: metadata.namespace
             - name: VLLM_NO_USAGE_STATS
               value: "1"
-            - name: HF_HUB_CACHE
+            - name: HOME
               value: /tmp
+            - name: HF_HOME
+              value: /tmp/hf_home
           resources:
             limits:
               cpu: "16"
@@ -116,7 +118,7 @@ objects:
                   fi
 
                   # Check if the registered ray nodes count is the same as PIPELINE_PARALLEL_SIZE
-                  gpu_status=$(ray status | grep GPU)
+                  gpu_status=$(ray status --address $RAY_ADDRESS | grep GPU)
                   if [[ -z $gpu_status ]]; then
                     echo "$1: GPU does not exist"
                     exit 1
