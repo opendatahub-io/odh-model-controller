@@ -89,6 +89,7 @@ func init() { //nolint:gochecknoinits //reason this way we ensure schemes are al
 // +kubebuilder:rbac:groups=dscinitialization.opendatahub.io,resources=dscinitializations,verbs=get;list;watch
 // +kubebuilder:rbac:groups=nim.opendatahub.io,resources=accounts,verbs=get;list;watch;update
 // +kubebuilder:rbac:groups=nim.opendatahub.io,resources=accounts/status,verbs=get;list;watch;update
+// +kubebuilder:rbac:groups=nim.opendatahub.io,resources=accounts/finalizers,verbs=update
 // +kubebuilder:rbac:groups=template.openshift.io,resources=templates,verbs=get;list;watch;update;delete
 
 func getEnvAsBool(name string, defaultValue bool) bool {

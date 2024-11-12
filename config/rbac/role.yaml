@@ -188,6 +188,12 @@ rules:
 - apiGroups:
   - nim.opendatahub.io
   resources:
+  - accounts/finalizers
+  verbs:
+  - update
+- apiGroups:
+  - nim.opendatahub.io
+  resources:
   - accounts/status
   verbs:
   - get
