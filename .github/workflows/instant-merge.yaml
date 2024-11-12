@@ -5,7 +5,7 @@ on:
     types:
       - opened
     paths:
-      - config/base/params.env
+      - config/base/*.env
 
 permissions:
   contents: write
@@ -19,7 +19,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: instant-merge
-        if: ${{ github.event.sender.login == 'red-hat-konflux[bot]' && ( startsWith(github.event.pull_request.title, 'Update caikit-nlp-') || startsWith(github.event.pull_request.title, 'Update vllm-cuda-') || startsWith(github.event.pull_request.title, 'Update vllm-rocm-') ) }}
+        if: ${{ github.event.sender.login == 'red-hat-konflux[bot]' && ( startsWith(github.event.pull_request.title, 'Update caikit-nlp-') || startsWith(github.event.pull_request.title, 'Update vllm-cuda-') || startsWith(github.event.pull_request.title, 'Update vllm-rocm-') || startsWith(github.event.pull_request.title, 'Update vllm-gaudi-') ) }}
         env:
           GITHUB_TOKEN: ${{ github.token }}
         run: |
