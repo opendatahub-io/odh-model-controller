@@ -86,6 +86,12 @@ replacements:
           name: vllm-runtime-template
         fieldPaths:
           - objects.0.spec.containers.0.image
+      - select:
+          kind: Template
+          name: vllm-multinode-runtime-template
+        fieldPaths:
+          - objects.0.spec.containers.0.image
+          - objects.0.spec.workerSpec.containers.0.image
   - source:
       kind: ConfigMap
       version: v1
