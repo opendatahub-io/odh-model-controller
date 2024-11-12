@@ -126,12 +126,19 @@ var _ = Describe("NIM Account Controller Test Cases", func() {
 		Expect(cli.Get(ctx, apiKeySubject, apiKeySecret)).Should(Succeed())
 		Expect(cli.Delete(ctx, apiKeySecret)).To(Succeed())
 
-		time.Sleep(timeout)
-
 		By("Verify resources deleted")
-		Expect(cli.Get(ctx, dataCmapSubject, &corev1.ConfigMap{})).NotTo(Succeed())
-		Expect(cli.Get(ctx, runtimeTemplateSubject, &templatev1.Template{})).NotTo(Succeed())
-		Expect(cli.Get(ctx, pullSecretSubject, &corev1.Secret{})).NotTo(Succeed())
+		Eventually(func() error {
+			if err := cli.Get(ctx, dataCmapSubject, &corev1.ConfigMap{}); err == nil {
+				return fmt.Errorf("expected configmap to be deleted")
+			}
+			if err := cli.Get(ctx, runtimeTemplateSubject, &templatev1.Template{}); err == nil {
+				return fmt.Errorf("expected template to be deleted")
+			}
+			if err := cli.Get(ctx, pullSecretSubject, &corev1.Secret{}); err == nil {
+				return fmt.Errorf("expected pull secret to be deleted")
+			}
+			return nil
+		}, time.Second*30, interval).Should(Succeed())
 
 		By("Cleanups")
 		Expect(cli.Delete(ctx, account)).To(Succeed())
