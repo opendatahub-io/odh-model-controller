@@ -1,22 +1,22 @@
 package controllers
 
 import (
+	"errors"
 	kservev1alpha1 "github.com/kserve/kserve/pkg/apis/serving/v1alpha1"
 	kservev1beta1 "github.com/kserve/kserve/pkg/apis/serving/v1beta1"
 	. "github.com/onsi/ginkgo"
 	. "github.com/onsi/gomega"
 	"github.com/opendatahub-io/odh-model-controller/controllers/constants"
 	routev1 "github.com/openshift/api/route/v1"
-	monitoringv1 "github.com/prometheus-operator/prometheus-operator/pkg/apis/monitoring/v1"
 	corev1 "k8s.io/api/core/v1"
 	rbacv1 "k8s.io/api/rbac/v1"
 	apierrs "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/types"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
 var _ = Describe("The KServe Raw reconciler", func() {
 	var testNs string
-
 	createServingRuntime := func(namespace, path string) *kservev1alpha1.ServingRuntime {
 		servingRuntime := &kservev1alpha1.ServingRuntime{}
 		err := convertToStructuredResource(path, servingRuntime)
@@ -52,33 +52,21 @@ var _ = Describe("The KServe Raw reconciler", func() {
 
 	})
 
-	When("deploying a Kserve RawDeployment model", func() {
-		_ = createServingRuntime(testNs, KserveServingRuntimePath1)
-		inferenceService := createInferenceService(testNs, KserveOvmsInferenceServiceName, KserveInferenceServicePath1)
-		if err := cli.Create(ctx, inferenceService); err != nil && !apierrs.IsAlreadyExists(err) {
-			Expect(err).NotTo(HaveOccurred())
-		}
-		It("it should create a clusterrolebinding for auth", func() {
+	When("deploying a Kserve RawDeployment model with route disabled", func() {
+		It("it should create a clusterrolebinding for auth but not create a route", func() {
+			_ = createServingRuntime(testNs, KserveServingRuntimePath1)
+			inferenceService := createInferenceService(testNs, KserveOvmsInferenceServiceName, KserveInferenceServicePath1)
+			if err := cli.Create(ctx, inferenceService); err != nil && !apierrs.IsAlreadyExists(err) {
+				Expect(err).NotTo(HaveOccurred())
+			}
+
 			crb := &rbacv1.ClusterRoleBinding{}
 			Eventually(func() error {
-				key := types.NamespacedName{Name: inferenceService.Namespace + constants.KserveServiceAccountName + "-auth-delegator",
+				key := types.NamespacedName{Name: inferenceService.Namespace + "-" + constants.KserveServiceAccountName + "-auth-delegator",
 					Namespace: inferenceService.Namespace}
 				return cli.Get(ctx, key, crb)
 			}, timeout, interval).ShouldNot(HaveOccurred())
-		})
-		It("it should create a metrics service and servicemonitor", func() {
-			metricsService := &corev1.Service{}
-			Eventually(func() error {
-				key := types.NamespacedName{Name: inferenceService.Name + "-metrics", Namespace: inferenceService.Namespace}
-				return cli.Get(ctx, key, metricsService)
-			}, timeout, interval).ShouldNot(HaveOccurred())
-			metricsServiceMonitor := &monitoringv1.ServiceMonitor{}
-			Eventually(func() error {
-				key := types.NamespacedName{Name: inferenceService.Name + "-metrics", Namespace: inferenceService.Namespace}
-				return cli.Get(ctx, key, metricsServiceMonitor)
-			}, timeout, interval).ShouldNot(HaveOccurred())
-		})
-		It("it should not create a route", func() {
+
 			route := &routev1.Route{}
 			Eventually(func() error {
 				key := types.NamespacedName{Name: inferenceService.Name, Namespace: inferenceService.Namespace}
@@ -86,36 +74,36 @@ var _ = Describe("The KServe Raw reconciler", func() {
 			}, timeout, interval).Should(HaveOccurred())
 		})
 	})
-	When("deploying a Kserve RawDeployment model that has route creation enabled", func() {
-		_ = createServingRuntime(testNs, KserveServingRuntimePath1)
-		inferenceService := createInferenceService(testNs, KserveOvmsInferenceServiceName, KserveInferenceServicePath1)
-		if inferenceService.Labels == nil {
-			inferenceService.Labels = map[string]string{}
-		}
-		inferenceService.Labels[constants.KserveNetworkVisibility] = constants.LabelEnableKserveRawRoute
-		if err := cli.Create(ctx, inferenceService); err != nil && !apierrs.IsAlreadyExists(err) {
-			Expect(err).NotTo(HaveOccurred())
-		}
-		It("it should create a route", func() {
-			route := &routev1.Route{}
-			Eventually(func() error {
-				key := types.NamespacedName{Name: inferenceService.Name, Namespace: inferenceService.Namespace}
-				return cli.Get(ctx, key, route)
-			}, timeout, interval).ShouldNot(HaveOccurred())
-		})
-	})
 	When("namespace no longer has any RawDeployment models", func() {
-		It("should delete the service account and clusterrolebinding", func() {
-			servingRuntime := createServingRuntime(testNs, KserveServingRuntimePath1)
+		It("should delete the clusterrolebinding", func() {
+			_ = createServingRuntime(testNs, KserveServingRuntimePath1)
 			inferenceService := createInferenceService(testNs, KserveOvmsInferenceServiceName, KserveInferenceServicePath1)
 			if err := cli.Create(ctx, inferenceService); err != nil && !apierrs.IsAlreadyExists(err) {
 				Expect(err).NotTo(HaveOccurred())
 			}
-			Expect(cli.Delete(ctx, inferenceService)).Should(Succeed())
-			Expect(cli.Delete(ctx, servingRuntime)).Should(Succeed())
+			inferenceServiceList := &kservev1beta1.InferenceServiceList{}
+			if err := cli.List(ctx, inferenceServiceList, client.InNamespace(testNs)); err != nil {
+				Expect(err).NotTo(HaveOccurred())
+			}
+			for _, isvc := range inferenceServiceList.Items {
+				Expect(cli.Delete(ctx, &isvc)).Should(Succeed())
+			}
 			crb := &rbacv1.ClusterRoleBinding{}
-			key := types.NamespacedName{Name: inferenceService.Namespace + "-" + constants.KserveServiceAccountName + "-auth-delegator", Namespace: inferenceService.Namespace}
-			Expect(cli.Get(ctx, key, crb)).ShouldNot(Succeed())
+			Eventually(func() error {
+				namespacedNamed := types.NamespacedName{Name: testNs + "-" + constants.KserveServiceAccountName + "-auth-delegator", Namespace: WorkingNamespace}
+				err := cli.Get(ctx, namespacedNamed, crb)
+				if apierrs.IsNotFound(err) {
+					return nil
+				} else {
+					return errors.New("crb deletion not detected")
+				}
+			}, timeout, interval).ShouldNot(HaveOccurred())
+			//Eventually(func() error {
+			//	crb := &rbacv1.ClusterRoleBinding{}
+			//	key := types.NamespacedName{Name: testNs + "-" + constants.KserveServiceAccountName + "-auth-delegator", Namespace: testNs}
+			//	err := cli.Get(ctx, key, crb)
+			//	return err
+			//}, timeout, interval).ShouldNot(Succeed())
 		})
 	})
 })

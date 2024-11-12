@@ -34,11 +34,6 @@ import (
 	"strconv"
 )
 
-const (
-	isvcServicePort = 8888
-	authServicePort = 8443
-)
-
 var _ SubResourceReconciler = (*KserveRawRouteReconciler)(nil)
 
 type KserveRawRouteReconciler struct {
@@ -112,9 +107,21 @@ func (r *KserveRawRouteReconciler) createDesiredResource(ctx context.Context, lo
 		return nil, err
 	}
 	var targetServiceName string
+	var servicePort int32
 	for _, service := range serviceList.Items {
 		if val, ok := service.Labels["component"]; ok && val == "predictor" {
 			targetServiceName = service.Name
+			var desiredPort string
+			if !enableAuth {
+				desiredPort = "http"
+			} else {
+				desiredPort = "https"
+			}
+			for _, port := range service.Spec.Ports {
+				if port.Name == desiredPort {
+					servicePort = port.Port
+				}
+			}
 		}
 	}
 
@@ -133,16 +140,13 @@ func (r *KserveRawRouteReconciler) createDesiredResource(ctx context.Context, lo
 				Weight: pointer.Int32(100),
 			},
 			Port: &v1.RoutePort{
-				TargetPort: intstr.FromInt(isvcServicePort),
+				TargetPort: intstr.FromInt32(servicePort),
 			},
 			WildcardPolicy: v1.WildcardPolicyNone,
 		},
 	}
 
 	if enableAuth {
-		desiredRoute.Spec.Port = &v1.RoutePort{
-			TargetPort: intstr.FromInt(authServicePort),
-		}
 		desiredRoute.Spec.TLS = &v1.TLSConfig{
 			Termination:                   v1.TLSTerminationReencrypt,
 			InsecureEdgeTerminationPolicy: v1.InsecureEdgeTerminationPolicyRedirect,
