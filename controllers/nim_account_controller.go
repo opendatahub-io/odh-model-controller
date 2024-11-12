@@ -326,7 +326,8 @@ func (r *NimAccountReconciler) reconcileNimPullSecret(
 		Secret(constants.NimPullSecretName, namespace).
 		WithData(map[string][]byte{".dockercfg": credsJson}).
 		WithType(corev1.SecretTypeDockercfg).
-		WithOwnerReferences(ownerCfg)
+		WithOwnerReferences(ownerCfg).
+		WithLabels(map[string]string{"opendatahub.io/managed": "true"})
 
 	secret, err := r.KClient.CoreV1().Secrets(namespace).
 		Apply(ctx, secretCfg, metav1.ApplyOptions{FieldManager: constants.NimApplyConfigFieldManager, Force: true})

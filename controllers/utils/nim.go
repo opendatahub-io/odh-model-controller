@@ -28,6 +28,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"net/http"
 	"strings"
+	"time"
 )
 
 type (
@@ -94,7 +95,7 @@ const (
 var NimHttpClient HttpClient
 
 func init() {
-	NimHttpClient = &http.Client{}
+	NimHttpClient = &http.Client{Timeout: time.Second * 30}
 }
 
 // GetAvailableNimRuntimes is used for fetching a list of available NIM custom runtimes

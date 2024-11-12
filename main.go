@@ -19,13 +19,13 @@ package main
 import (
 	"context"
 	"flag"
-	"k8s.io/client-go/kubernetes"
 	"os"
 	"strconv"
 
 	"github.com/opendatahub-io/odh-model-controller/controllers/webhook"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/labels"
+	"k8s.io/client-go/kubernetes"
 	knservingv1 "knative.dev/serving/pkg/apis/serving/v1"
 	"sigs.k8s.io/controller-runtime/pkg/builder"
 	"sigs.k8s.io/controller-runtime/pkg/cache"
