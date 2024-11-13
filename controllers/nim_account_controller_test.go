@@ -26,6 +26,7 @@ import (
 	"github.com/opendatahub-io/odh-model-controller/controllers/utils"
 	templatev1 "github.com/openshift/api/template/v1"
 	corev1 "k8s.io/api/core/v1"
+	k8serrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -128,13 +129,13 @@ var _ = Describe("NIM Account Controller Test Cases", func() {
 
 		By("Verify resources deleted")
 		Eventually(func() error {
-			if err := cli.Get(ctx, dataCmapSubject, &corev1.ConfigMap{}); err == nil {
+			if err := cli.Get(ctx, dataCmapSubject, &corev1.ConfigMap{}); !k8serrors.IsNotFound(err) {
 				return fmt.Errorf("expected configmap to be deleted")
 			}
-			if err := cli.Get(ctx, runtimeTemplateSubject, &templatev1.Template{}); err == nil {
+			if err := cli.Get(ctx, runtimeTemplateSubject, &templatev1.Template{}); !k8serrors.IsNotFound(err) {
 				return fmt.Errorf("expected template to be deleted")
 			}
-			if err := cli.Get(ctx, pullSecretSubject, &corev1.Secret{}); err == nil {
+			if err := cli.Get(ctx, pullSecretSubject, &corev1.Secret{}); !k8serrors.IsNotFound(err) {
 				return fmt.Errorf("expected pull secret to be deleted")
 			}
 			return nil
