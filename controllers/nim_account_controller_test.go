@@ -190,7 +190,7 @@ func assertSuccessfulAccount(acctSubject types.NamespacedName, account *v1.Accou
 			}
 		}
 		return nil
-	}, timeout, interval)
+	}, time.Second*30, interval)
 }
 
 func assertFailedAccount(acctSubject types.NamespacedName, account *v1.Account) AsyncAssertion {
