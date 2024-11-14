@@ -33,7 +33,6 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/tools/reference"
 	"sigs.k8s.io/controller-runtime/pkg/client/apiutil"
-	"time"
 )
 
 var _ = Describe("NIM Account Controller Test Cases", func() {
@@ -43,9 +42,14 @@ var _ = Describe("NIM Account Controller Test Cases", func() {
 
 	It("Should reconcile resources for an Account with a valid API key", func() {
 		ctx := context.TODO()
+		nameNs := "testing-nim-account-1"
+
+		By("Create testing Namespace " + nameNs)
+		testNs := &corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: nameNs}}
+		Expect(cli.Create(ctx, testNs)).To(Succeed())
 
 		By("Create an Account and an API Key Secret")
-		acctSubject := types.NamespacedName{Name: "testing-account-1", Namespace: WorkingNamespace}
+		acctSubject := types.NamespacedName{Name: nameNs, Namespace: nameNs}
 		createApiKeySecretAndAccount(acctSubject, testdata.FakeApiKey)
 
 		By("Verify successful Account")
@@ -77,14 +81,24 @@ var _ = Describe("NIM Account Controller Test Cases", func() {
 
 		Expect(cli.Delete(ctx, account)).To(Succeed())
 		Expect(cli.Delete(ctx, apiKeySecret)).To(Succeed())
+
+		// we delete the following because K8S GC is not working in envtest
 		Expect(cli.Delete(ctx, dataCmap)).To(Succeed())
 		Expect(cli.Delete(ctx, runtimeTemplate)).To(Succeed())
 		Expect(cli.Delete(ctx, pullSecret)).To(Succeed())
+
+		Expect(cli.Delete(ctx, testNs)).To(Succeed())
 	})
 
 	It("Should not reconcile resources for an account with an invalid API key", func() {
+		nameNs := "testing-nim-account-2"
+
+		By("Create testing Namespace " + nameNs)
+		testNs := &corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: nameNs}}
+		Expect(cli.Create(ctx, testNs)).To(Succeed())
+
 		By("Create an Account and a wrong API Key Secret")
-		acctSubject := types.NamespacedName{Name: "testing-account-3", Namespace: WorkingNamespace}
+		acctSubject := types.NamespacedName{Name: nameNs, Namespace: nameNs}
 		createApiKeySecretAndAccount(acctSubject, "not-a-valid-key-should-fail")
 
 		By("Verify failed Account")
@@ -98,13 +112,19 @@ var _ = Describe("NIM Account Controller Test Cases", func() {
 
 		Expect(cli.Delete(ctx, apiKeySecret)).Should(Succeed())
 		Expect(cli.Delete(ctx, account)).Should(Succeed())
+		Expect(cli.Delete(ctx, testNs)).To(Succeed())
 	})
 
 	It("Should remove all resources if the API key Secret was deleted", func() {
 		ctx := context.TODO()
+		nameNs := "testing-nim-account-3"
+
+		By("Create testing Namespace " + nameNs)
+		testNs := &corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: nameNs}}
+		Expect(cli.Create(ctx, testNs)).To(Succeed())
 
 		By("Create an Account and an API Key Secret")
-		acctSubject := types.NamespacedName{Name: "testing-account-3", Namespace: WorkingNamespace}
+		acctSubject := types.NamespacedName{Name: nameNs, Namespace: nameNs}
 		createApiKeySecretAndAccount(acctSubject, testdata.FakeApiKey)
 
 		By("Verify successful Account")
@@ -139,10 +159,11 @@ var _ = Describe("NIM Account Controller Test Cases", func() {
 				return fmt.Errorf("expected pull secret to be deleted")
 			}
 			return nil
-		}, time.Second*30, interval).Should(Succeed())
+		}, timeout, interval).Should(Succeed())
 
 		By("Cleanups")
 		Expect(cli.Delete(ctx, account)).To(Succeed())
+		Expect(cli.Delete(ctx, testNs)).To(Succeed())
 	})
 })
 
@@ -190,7 +211,7 @@ func assertSuccessfulAccount(acctSubject types.NamespacedName, account *v1.Accou
 			}
 		}
 		return nil
-	}, time.Second*30, interval)
+	}, timeout, interval)
 }
 
 func assertFailedAccount(acctSubject types.NamespacedName, account *v1.Account) AsyncAssertion {
