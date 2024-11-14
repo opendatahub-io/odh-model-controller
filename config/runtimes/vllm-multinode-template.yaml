@@ -36,7 +36,7 @@ objects:
       containers:
         - name: kserve-container
           image: $(vllm-image)
-          command: ["bash", "-c"]
+          command: [ "bash", "-c" ]
           args:
             - |
               ray start --head --disable-usage-stats --include-dashboard false 
@@ -49,7 +49,7 @@ objects:
 
               export SERVED_MODEL_NAME=${MODEL_NAME}
               export MODEL_NAME=${MODEL_DIR} 
-            
+              
               exec python3 -m vllm.entrypoints.openai.api_server --port=8080 --distributed-executor-backend ray --model=${MODEL_NAME} --served-model-name=${SERVED_MODEL_NAME} --tensor-parallel-size=${TENSOR_PARALLEL_SIZE} --pipeline-parallel-size=${PIPELINE_PARALLEL_SIZE} --disable_custom_all_reduce
           env:
             - name: RAY_PORT
@@ -88,7 +88,7 @@ objects:
                   # Check if the registered ray nodes count is the same as PIPELINE_PARALLEL_SIZE
                   gpu_status=$(ray status --address $RAY_ADDRESS | grep GPU)
                   if [[ -z $gpu_status ]]; then
-                    echo "$1: GPU does not exist"
+                    echo "Unhealthy - GPU does not exist"
                     exit 1
                   fi
 
@@ -97,11 +97,11 @@ objects:
 
                   # Determine health status based on GPU usage
                   if [[ "$used_gpu" != "$reserved_gpu" ]]; then
-                    echo "$1: Unhealthy - Used: $used_gpu, Reserved: $reserved_gpu"
+                    echo "Unhealthy - Used: $used_gpu, Reserved: $reserved_gpu"
                     exit 1
                   fi
           readinessProbe:
-            failureThreshold: 3
+            failureThreshold: 2
             periodSeconds: 5
             successThreshold: 1
             timeoutSeconds: 15
@@ -113,14 +113,14 @@ objects:
                   # Check if the registered nodes count matches PIPELINE_PARALLEL_SIZE
                   registered_node_count=$(ray status --address $RAY_ADDRESS | grep -c node_)
                   if [[ $registered_node_count -ne "$PIPELINE_PARALLEL_SIZE" ]]; then
-                    echo "Readiness Probe: Unhealthy - Registered nodes count ($registered_node_count) does not match PIPELINE_PARALLEL_SIZE ($PIPELINE_PARALLEL_SIZE)."
+                    echo "Unhealthy - Registered nodes count ($registered_node_count) does not match PIPELINE_PARALLEL_SIZE ($PIPELINE_PARALLEL_SIZE)."
                     exit 1
                   fi
 
                   # Check if the registered ray nodes count is the same as PIPELINE_PARALLEL_SIZE
                   gpu_status=$(ray status --address $RAY_ADDRESS | grep GPU)
                   if [[ -z $gpu_status ]]; then
-                    echo "$1: GPU does not exist"
+                    echo "Unhealthy - GPU does not exist"
                     exit 1
                   fi
 
@@ -129,14 +129,16 @@ objects:
 
                   # Determine health status based on GPU usage
                   if [[ "$used_gpu" != "$reserved_gpu" ]]; then
-                    echo "$1: Unhealthy - Used: $used_gpu, Reserved: $reserved_gpu"
+                    echo "Unhealthy - Used: $used_gpu, Reserved: $reserved_gpu"
                     exit 1
                   fi
                   
                   # Check model health
-                  curl --silent --max-time 5 --fail-with-body http://localhost:8080/health
+                  if ! curl --silent --max-time 5 --fail-with-body http://localhost:8080/health; then
+                    echo "Unhealthy - vLLM Runtime Health Check failed." 
+                  fi
           startupProbe:
-            failureThreshold: 30
+            failureThreshold: 40
             periodSeconds: 30
             successThreshold: 1
             timeoutSeconds: 30
@@ -145,10 +147,16 @@ objects:
                 - bash
                 - -c
                 - |
-                  ray status --address $RAY_ADDRESS > /dev/null 2>&1
-
+                  registered_node_count=$(ray status --address $RAY_ADDRESS | grep -c node_)
+                  if [[ $registered_node_count -ne "$PIPELINE_PARALLEL_SIZE" ]]; then
+                    echo "Unhealthy - Registered nodes count ($registered_node_count) does not match PIPELINE_PARALLEL_SIZE ($PIPELINE_PARALLEL_SIZE)."
+                    exit 1
+                  fi
+                  
                   # Check model health
-                  curl --silent --max-time 5 --fail-with-body http://localhost:8080/health
+                  if ! curl --silent --max-time 5 --fail-with-body http://localhost:8080/health; then
+                    echo "Unhealthy - vLLM Runtime Health Check failed." 
+                  fi
           ports:
             - containerPort: 8080
               name: http
@@ -157,20 +165,20 @@ objects:
         - name: shm
           emptyDir:
             medium: Memory
-            sizeLimit: 12Gi    
+            sizeLimit: 12Gi
       workerSpec:
         pipelineParallelSize: 2
         tensorParallelSize: 1
         containers:
           - name: worker-container
             image: $(vllm-image)
-            command: ["bash", "-c"]
+            command: [ "bash", "-c" ]
             args:
               - |
                 SECONDS=0
 
                 while true; do              
-                  if (( SECONDS <= 120 )); then
+                  if (( SECONDS <= 240 )); then
                     if ray health-check --address "${HEAD_SVC}.${POD_NAMESPACE}.svc.cluster.local:6379" > /dev/null 2>&1; then
                       echo "Global Control Service(GCS) is ready."
                       break
@@ -184,7 +192,7 @@ objects:
                     echo "$SECONDS seconds elapsed: Still waiting for Global Control Service(GCS) to be ready."
                     echo "For troubleshooting, refer to the FAQ at https://docs.ray.io/en/master/cluster/kubernetes/troubleshooting/troubleshooting.html#kuberay-troubleshootin-guides"
                   fi
-                  
+                
                   sleep 5
                 done
 
@@ -208,7 +216,7 @@ objects:
                 cpu: "8"
             volumeMounts:
               - name: shm
-                mountPath: /dev/shm                
+                mountPath: /dev/shm
             livenessProbe:
               failureThreshold: 2
               periodSeconds: 5
@@ -222,12 +230,12 @@ objects:
                     # Check if the registered nodes count matches PIPELINE_PARALLEL_SIZE
                     registered_node_count=$(ray status --address ${HEAD_SVC}.${POD_NAMESPACE}.svc.cluster.local:6379 | grep -c node_)
                     if [[ $registered_node_count -ne "$PIPELINE_PARALLEL_SIZE" ]]; then
-                      echo "Readiness Probe: Unhealthy - Registered nodes count ($registered_node_count) does not match PIPELINE_PARALLEL_SIZE ($PIPELINE_PARALLEL_SIZE)."
+                      echo "Unhealthy - Registered nodes count ($registered_node_count) does not match PIPELINE_PARALLEL_SIZE ($PIPELINE_PARALLEL_SIZE)."
                       exit 1
                     fi 
             startupProbe:
-              failureThreshold: 12
-              periodSeconds: 5
+              failureThreshold: 40
+              periodSeconds: 30
               successThreshold: 1
               timeoutSeconds: 30
               exec:
@@ -235,7 +243,31 @@ objects:
                   - /bin/sh
                   - -c
                   - |
-                    ray status --address ${HEAD_SVC}.${POD_NAMESPACE}.svc.cluster.local:6379 > /dev/null 2>&1
+                    registered_node_count=$(ray status --address ${HEAD_SVC}.${POD_NAMESPACE}.svc.cluster.local:6379 | grep -c node_)
+                    if [[ $registered_node_count -ne "$PIPELINE_PARALLEL_SIZE" ]]; then
+                      echo "Unhealthy - Registered nodes count ($registered_node_count) does not match PIPELINE_PARALLEL_SIZE ($PIPELINE_PARALLEL_SIZE)."
+                      exit 1
+                    fi
+                    
+                    for i in 1 2; do
+                      if ! curl --silent --max-time 5 --fail-with-body ${HEAD_SVC}.${POD_NAMESPACE}.svc.cluster.local:8080/health; then                      
+                        echo "Unhealthy - vLLM Runtime Health Check failed."
+                        exit 1
+                      fi 
+                    
+                      if ! curl --silent --max-time 5 --fail-with-body http://${HEAD_SVC}:8080/v1/completions \
+                        -H "Content-Type: application/json" \
+                        -d "{
+                        \"model\": \"$ISVC_NAME\",
+                        \"prompt\": \"At what temperature does Nitrogen boil?\",
+                        \"max_tokens\": 1,
+                        \"temperature\": 0          
+                      }"; then
+                        echo "Unhealthy - vLLM Model is not Ready."
+                        exit 1
+                      fi     
+                      sleep 10
+                    done
         volumes:
           - name: shm
             emptyDir:
