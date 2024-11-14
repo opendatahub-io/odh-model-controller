@@ -332,8 +332,8 @@ func (r *NimAccountReconciler) reconcileNimPullSecret(
 
 	secretCfg := ssacorev1.
 		Secret(constants.NimPullSecretName, namespace).
-		WithData(map[string][]byte{".dockercfg": credsJson}).
-		WithType(corev1.SecretTypeDockercfg).
+		WithData(map[string][]byte{corev1.DockerConfigJsonKey: credsJson}).
+		WithType(corev1.SecretTypeDockerConfigJson).
 		WithOwnerReferences(ownerCfg).
 		WithLabels(labels)
 
