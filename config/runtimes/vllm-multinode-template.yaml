@@ -134,10 +134,7 @@ objects:
                     exit 1
                   fi
                   
-                  # Check model health  health_check=$(curl -o /dev/null -s -w "%{http_code}\n" http://localhost:8080/health)
-                  if [[ ${health_check} != 200 ]]; then
-                    echo "Unhealthy - vLLM Runtime Health Check failed." 
-                    exit 1
+                  # Check model health 
                   health_check=$(curl -o /dev/null -s -w "%{http_code}\n" http://localhost:8080/health)
                   if [[ ${health_check} != 200 ]]; then
                     echo "Unhealthy - vLLM Runtime Health Check failed." 
