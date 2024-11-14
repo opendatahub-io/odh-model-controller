@@ -44,6 +44,8 @@ import (
 
 	"github.com/opendatahub-io/odh-model-controller/controllers"
 	"github.com/opendatahub-io/odh-model-controller/controllers/utils"
+
+	nimv1 "github.com/opendatahub-io/odh-model-controller/api/nim/v1"
 	//+kubebuilder:scaffold:imports
 )
 
@@ -216,6 +218,14 @@ func main() {
 
 	} else {
 		setupLog.Info("Skipping setup of Knative Service validating/mutating Webhook, because KServe Serverless setup seems to be disabled in the DataScienceCluster resource.")
+	}
+
+	if err := builder.WebhookManagedBy(mgr).
+		For(&nimv1.Account{}).
+		WithValidator(webhook.NewNimAccountValidator(mgr.GetClient())).
+		Complete(); err != nil {
+		setupLog.Error(err, "unable to setup NIM validating Webhook")
+		os.Exit(1)
 	}
 
 	//+kubebuilder:scaffold:builder

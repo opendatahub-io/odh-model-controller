@@ -13,3 +13,6 @@ resources:
   kind: Account
   path: github.com/opendatahub-io/odh-model-controller/api/nim/v1
   version: v1
+  webhooks:
+    validation: true
+    webhookVersion: v1
