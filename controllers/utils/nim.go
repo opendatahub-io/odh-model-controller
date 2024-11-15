@@ -25,7 +25,9 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/runtime"
 	"net/http"
+	"sigs.k8s.io/controller-runtime/pkg/client/apiutil"
 	"strings"
 	"time"
 )
@@ -287,9 +289,9 @@ func getModelData(runtime NimRuntime, tokenResp *NimTokenResponse) (*NimModel, s
 }
 
 // GetNimServingRuntimeTemplate returns the Template used by ODH for creating serving runtimes
-func GetNimServingRuntimeTemplate() *v1alpha1.ServingRuntime {
+func GetNimServingRuntimeTemplate(scheme *runtime.Scheme) *v1alpha1.ServingRuntime {
 	multiModel := false
-	return &v1alpha1.ServingRuntime{
+	sr := &v1alpha1.ServingRuntime{
 		ObjectMeta: metav1.ObjectMeta{
 			Annotations: map[string]string{
 				"opendatahub.io/recommended-accelerators": "[\"nvidia.com/gpu\"]",
@@ -375,4 +377,9 @@ func GetNimServingRuntimeTemplate() *v1alpha1.ServingRuntime {
 			},
 		},
 	}
+
+	gvk, _ := apiutil.GVKForObject(sr, scheme)
+	sr.SetGroupVersionKind(gvk)
+
+	return sr
 }

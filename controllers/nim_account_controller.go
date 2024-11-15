@@ -302,7 +302,7 @@ func (r *NimAccountReconciler) reconcileRuntimeTemplate(ctx context.Context, acc
 		template.Labels = labels
 
 		template.Objects = []runtime.RawExtension{
-			{Object: utils.GetNimServingRuntimeTemplate()},
+			{Object: utils.GetNimServingRuntimeTemplate(r.Scheme())},
 		}
 		return nil
 	}); err != nil {
