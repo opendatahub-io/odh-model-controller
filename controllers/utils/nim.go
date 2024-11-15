@@ -21,7 +21,6 @@ import (
 	"fmt"
 	"github.com/kserve/kserve/pkg/apis/serving/v1alpha1"
 	kserveconstants "github.com/kserve/kserve/pkg/constants"
-	"github.com/opendatahub-io/odh-model-controller/controllers/constants"
 	"io"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
@@ -355,7 +354,7 @@ func GetNimServingRuntimeTemplate() *v1alpha1.ServingRuntime {
 				},
 				ImagePullSecrets: []corev1.LocalObjectReference{
 					{
-						Name: constants.NimPullSecretName,
+						Name: "ngc-secret",
 					},
 				},
 				Volumes: []corev1.Volume{
