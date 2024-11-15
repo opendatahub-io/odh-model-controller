@@ -375,6 +375,7 @@ func GetNimServingRuntimeTemplate(scheme *runtime.Scheme) (*v1alpha1.ServingRunt
 				kserveconstants.ProtocolGRPCV2,
 				kserveconstants.ProtocolV2,
 			},
+			SupportedModelFormats: []v1alpha1.SupportedModelFormat{{Name: "replace-me"}},
 		},
 	}
 
