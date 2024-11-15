@@ -289,7 +289,7 @@ func getModelData(runtime NimRuntime, tokenResp *NimTokenResponse) (*NimModel, s
 }
 
 // GetNimServingRuntimeTemplate returns the Template used by ODH for creating serving runtimes
-func GetNimServingRuntimeTemplate(scheme *runtime.Scheme) *v1alpha1.ServingRuntime {
+func GetNimServingRuntimeTemplate(scheme *runtime.Scheme) (*v1alpha1.ServingRuntime, error) {
 	multiModel := false
 	sr := &v1alpha1.ServingRuntime{
 		ObjectMeta: metav1.ObjectMeta{
@@ -378,8 +378,11 @@ func GetNimServingRuntimeTemplate(scheme *runtime.Scheme) *v1alpha1.ServingRunti
 		},
 	}
 
-	gvk, _ := apiutil.GVKForObject(sr, scheme)
+	gvk, err := apiutil.GVKForObject(sr, scheme)
+	if err != nil {
+		return nil, err
+	}
 	sr.SetGroupVersionKind(gvk)
 
-	return sr
+	return sr, nil
 }
