@@ -116,7 +116,10 @@ var _ = BeforeSuite(func() {
 	By("Bootstrapping test environment")
 	envTest = &envtest.Environment{
 		CRDInstallOptions: envtest.CRDInstallOptions{
-			Paths:              []string{filepath.Join("..", "config", "crd", "external")},
+			Paths: []string{
+				filepath.Join("..", "config", "crd", "bases"),
+				filepath.Join("..", "config", "crd", "external"),
+			},
 			ErrorIfPathMissing: true,
 			CleanUpAfterUse:    false,
 		},
@@ -191,6 +194,14 @@ var _ = BeforeSuite(func() {
 		Client: cli,
 		Log:    ctrl.Log.WithName("controllers").WithName("KServe-Custom-CA-Bundle-ConfigMap-Controller"),
 	}).SetupWithManager(mgr)
+	Expect(err).ToNot(HaveOccurred())
+
+	kclient, _ := kubernetes.NewForConfig(cfg)
+	err = (&NimAccountReconciler{
+		Client:  cli,
+		Log:     ctrl.Log.WithName("controllers").WithName("NimAccountReconciler"),
+		KClient: kclient,
+	}).SetupWithManager(mgr, ctx)
 	Expect(err).ToNot(HaveOccurred())
 
 	// Start the manager

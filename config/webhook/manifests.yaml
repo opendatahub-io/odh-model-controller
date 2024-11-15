@@ -9,7 +9,7 @@ webhooks:
   clientConfig:
     service:
       name: webhook-service
-      namespace: $(mesh-namespace)
+      namespace: system
       path: /validate-serving-knative-dev-v1-service
   failurePolicy: Fail
   name: validating.ksvc.odh-model-controller.opendatahub.io
@@ -22,4 +22,24 @@ webhooks:
     - CREATE
     resources:
     - services
+  sideEffects: None
+- admissionReviewVersions:
+  - v1
+  clientConfig:
+    service:
+      name: webhook-service
+      namespace: system
+      path: /validate-nim-opendatahub-io-v1-account
+  failurePolicy: Fail
+  name: validating.nim.account.odh-model-controller.opendatahub.io
+  rules:
+  - apiGroups:
+    - nim.opendatahub.io
+    apiVersions:
+    - v1
+    operations:
+    - CREATE
+    - UPDATE
+    resources:
+    - accounts
   sideEffects: None
