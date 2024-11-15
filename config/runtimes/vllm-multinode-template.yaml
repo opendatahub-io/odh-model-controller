@@ -13,7 +13,7 @@ metadata:
     template.openshift.io/long-description: This template defines resources needed to deploy vLLM ServingRuntime Multi-Node with KServe in Red Hat OpenShift AI
     opendatahub.io/modelServingSupport: '["single"]'
     opendatahub.io/apiProtocol: "REST"
-  name: vllm-multinode-runtime-template
+  name: vllm-multinode-runtime-template-test
 objects:
   - apiVersion: serving.kserve.io/v1alpha1
     kind: ServingRuntime
@@ -38,9 +38,14 @@ objects:
           image: $(vllm-image)
           command: [ "bash", "-c" ]
           args:
-            - |
+            - |           
+              # Generate self signed certificate 
+              if [[ $RAY_USE_TLS == "1" ]]; then
+                /etc/gen/tls/gencert_ray.sh
+              fi
               ray start --head --disable-usage-stats --include-dashboard false 
-              # wait for other node to join
+
+              # Wait for other node to join
               until [[ $(ray status --address ${RAY_ADDRESS} | grep -c node_) -eq ${PIPELINE_PARALLEL_SIZE} ]]; do
                 echo "Waiting..."
                 sleep 1
@@ -52,6 +57,14 @@ objects:
               
               exec python3 -m vllm.entrypoints.openai.api_server --port=8080 --distributed-executor-backend ray --model=${MODEL_NAME} --served-model-name=${SERVED_MODEL_NAME} --tensor-parallel-size=${TENSOR_PARALLEL_SIZE} --pipeline-parallel-size=${PIPELINE_PARALLEL_SIZE} --disable_custom_all_reduce
           env:
+            - name: RAY_USE_TLS
+              value: "1"
+            - name: RAY_TLS_SERVER_CERT
+              value: "/etc/ray/tls/tls.crt"
+            - name: RAY_TLS_SERVER_KEY
+              value: "/etc/ray/tls/tls.key"
+            - name: RAY_TLS_CA_CERT
+              value: "/etc/ca/tls/ca.crt"
             - name: RAY_PORT
               value: "6379"
             - name: RAY_ADDRESS
@@ -60,6 +73,10 @@ objects:
               valueFrom:
                 fieldRef:
                   fieldPath: metadata.namespace
+            - name: POD_IP
+              valueFrom:
+                fieldRef:
+                  fieldPath: status.podIP                  
             - name: VLLM_NO_USAGE_STATS
               value: "1"
             - name: HOME
@@ -76,6 +93,13 @@ objects:
           volumeMounts:
             - name: shm
               mountPath: /dev/shm
+            - mountPath: /etc/ca/tls
+              name: ca-tls
+              readOnly: true
+            - mountPath: /etc/ray/tls
+              name: ray-tls
+            - mountPath: /etc/gen/tls
+              name: gen-tls-script
           livenessProbe:
             failureThreshold: 2
             periodSeconds: 5
@@ -177,6 +201,20 @@ objects:
           emptyDir:
             medium: Memory
             sizeLimit: 12Gi
+        - name: ca-tls
+          secret:
+            secretName: ca-tls
+        - name: ray-tls
+          emptyDir: {}            
+        # The gencert_ray.sh can be prebaked into the docker container so the configMap is optional
+        - name: gen-tls-script
+          configMap:
+            name: tls
+            defaultMode: 0777
+            # An array of keys from the ConfigMap to create as files
+            items:
+            - key: gencert_ray.sh
+              path: gencert_ray.sh       
       workerSpec:
         pipelineParallelSize: 2
         tensorParallelSize: 1
@@ -186,6 +224,10 @@ objects:
             command: [ "bash", "-c" ]
             args:
               - |
+                # Generate self signed certificate
+                if [[ $RAY_USE_TLS == "1" ]]; then
+                  /etc/gen/tls/gencert_ray.sh
+                fi  
                 SECONDS=0
 
                 while true; do              
@@ -211,10 +253,22 @@ objects:
                 echo "Attempting to connect to Ray cluster at $RAY_HEAD_ADDRESS ..."
                 ray start --address="${RAY_HEAD_ADDRESS}" --block
             env:
+              - name: RAY_USE_TLS
+                value: "1"
+              - name: RAY_TLS_SERVER_CERT
+                value: "/etc/ray/tls/tls.crt"
+              - name: RAY_TLS_SERVER_KEY
+                value: "/etc/ray/tls/tls.key"
+              - name: RAY_TLS_CA_CERT
+                value: "/etc/ca/tls/ca.crt"            
               - name: POD_NAME
                 valueFrom:
                   fieldRef:
                     fieldPath: metadata.name
+              - name: POD_IP
+                valueFrom:
+                  fieldRef:
+                    fieldPath: status.podIP                  
               - name: POD_NAMESPACE
                 valueFrom:
                   fieldRef:
@@ -229,6 +283,13 @@ objects:
             volumeMounts:
               - name: shm
                 mountPath: /dev/shm
+              - mountPath: /etc/ca/tls
+                name: ca-tls
+                readOnly: true
+              - mountPath: /etc/ray/tls
+                name: ray-tls  
+              - mountPath: /etc/gen/tls
+                name: gen-tls-script
             livenessProbe:
               failureThreshold: 2
               periodSeconds: 5
@@ -276,4 +337,18 @@ objects:
           - name: shm
             emptyDir:
               medium: Memory
-              sizeLimit: 12Gi    
+              sizeLimit: 12Gi 
+          - name: ray-tls
+            emptyDir: {}       
+          - name: ca-tls
+            secret:
+              secretName: ca-tls
+          # The gencert_ray.sh can be prebaked into the docker container so the configMap is optional
+          - name: gen-tls-script
+            configMap:
+              name: tls
+              defaultMode: 0777
+              # An array of keys from the ConfigMap to create as files
+              items:
+              - key: gencert_ray.sh
+                path: gencert_ray.sh  
