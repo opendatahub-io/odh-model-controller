@@ -4,3 +4,15 @@ layout:
 projectName: odh-model-controller
 repo: github.com/opendatahub-io/odh-model-controller
 version: "3"
+resources:
+- api:
+    crdVersion: v1
+    namespaced: true
+  domain: opendatahub.io
+  group: nim
+  kind: Account
+  path: github.com/opendatahub-io/odh-model-controller/api/nim/v1
+  version: v1
+  webhooks:
+    validation: true
+    webhookVersion: v1

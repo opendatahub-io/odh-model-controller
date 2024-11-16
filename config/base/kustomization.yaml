@@ -136,17 +136,3 @@ replacements:
           name: validating-webhook-configuration
         fieldPaths:
           - webhooks.0.clientConfig.service.namespace
-  - source:
-      kind: ConfigMap
-      version: v1
-      name: odh-model-controller-parameters
-      fieldPath: metadata.namespace
-    targets:
-      - select:
-          kind: ClusterRoleBinding
-          name: odh-model-controller-rolebinding-$(mesh_namespace)
-        options:
-          delimiter: '-'
-          index: 4
-        fieldPaths:
-          - metadata.name

@@ -71,3 +71,11 @@ const (
 const (
 	NoSuitableRuntimeError = "not found error: no suitable runtime found."
 )
+
+// NIM
+const (
+	NimApplyConfigFieldManager = "nim-account-controller"
+	NimDataConfigMapName       = "nvidia-nim-images-data"
+	NimRuntimeTemplateName     = "nvidia-nim-serving-template"
+	NimPullSecretName          = "nvidia-nim-image-pull"
+)
