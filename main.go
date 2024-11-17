@@ -22,6 +22,7 @@ import (
 	"github.com/opendatahub-io/odh-model-controller/controllers/webhook"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/labels"
+	"k8s.io/client-go/kubernetes"
 	knservingv1 "knative.dev/serving/pkg/apis/serving/v1"
 	"os"
 	"sigs.k8s.io/controller-runtime/pkg/builder"
@@ -43,6 +44,8 @@ import (
 
 	"github.com/opendatahub-io/odh-model-controller/controllers"
 	"github.com/opendatahub-io/odh-model-controller/controllers/utils"
+
+	nimv1 "github.com/opendatahub-io/odh-model-controller/api/nim/v1"
 	//+kubebuilder:scaffold:imports
 )
 
@@ -83,6 +86,10 @@ func init() { //nolint:gochecknoinits //reason this way we ensure schemes are al
 // +kubebuilder:rbac:groups=authorino.kuadrant.io,resources=authconfigs,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups=datasciencecluster.opendatahub.io,resources=datascienceclusters,verbs=get;list;watch
 // +kubebuilder:rbac:groups=dscinitialization.opendatahub.io,resources=dscinitializations,verbs=get;list;watch
+// +kubebuilder:rbac:groups=nim.opendatahub.io,resources=accounts,verbs=get;list;watch;update
+// +kubebuilder:rbac:groups=nim.opendatahub.io,resources=accounts/status,verbs=get;list;watch;update
+// +kubebuilder:rbac:groups=nim.opendatahub.io,resources=accounts/finalizers,verbs=update
+// +kubebuilder:rbac:groups=template.openshift.io,resources=templates,verbs=get;list;watch;create;update;delete
 
 func getEnvAsBool(name string, defaultValue bool) bool {
 	valStr := os.Getenv(name)
@@ -117,7 +124,8 @@ func main() {
 
 	ctrl.SetLogger(zap.New(zap.UseFlagOptions(&opts)))
 
-	mgr, err := ctrl.NewManager(ctrl.GetConfigOrDie(), ctrl.Options{
+	cfg := ctrl.GetConfigOrDie()
+	mgr, err := ctrl.NewManager(cfg, ctrl.Options{
 		Scheme: scheme,
 		Metrics: server.Options{
 			BindAddress: metricsAddr,
@@ -217,6 +225,30 @@ func main() {
 		setupLog.Info("Skipping setup of Knative Service validating/mutating Webhook, because KServe Serverless setup seems to be disabled in the DataScienceCluster resource.")
 	}
 
+	kclient, kcErr := kubernetes.NewForConfig(cfg)
+	if kcErr != nil {
+		setupLog.Error(err, "unable to create clientset")
+		os.Exit(1)
+	}
+
+	ctx := ctrl.SetupSignalHandler()
+	if err = (&controllers.NimAccountReconciler{
+		Client:  mgr.GetClient(),
+		Log:     ctrl.Log.WithName("controllers").WithName("NimAccountReconciler"),
+		KClient: kclient,
+	}).SetupWithManager(mgr, ctx); err != nil {
+		setupLog.Error(err, "unable to create controller NIM Account controller")
+		os.Exit(1)
+	}
+
+	if err = builder.WebhookManagedBy(mgr).
+		For(&nimv1.Account{}).
+		WithValidator(webhook.NewNimAccountValidator(mgr.GetClient())).
+		Complete(); err != nil {
+		setupLog.Error(err, "unable to setup NIM validating Webhook")
+		os.Exit(1)
+	}
+
 	//+kubebuilder:scaffold:builder
 
 	if err := mgr.AddHealthzCheck("healthz", healthz.Ping); err != nil {
@@ -230,7 +262,7 @@ func main() {
 	}
 
 	setupLog.Info("starting manager")
-	if err := mgr.Start(ctrl.SetupSignalHandler()); err != nil {
+	if err := mgr.Start(ctx); err != nil {
 		setupLog.Error(err, "problem running manager")
 		os.Exit(1)
 	}
