@@ -3,6 +3,18 @@
   "extends": [
     "config:recommended"
   ],
+  "major": {
+    "description": "Disable major updates",
+    "enabled": false
+  },
+  "minor": {
+    "description": "Disable minor updates",
+    "enabled": false
+  },
+  "patch": {
+    "description": "Disable patch updates",
+    "enabled": false
+  },
   "branchPrefix": "renovate/",
   "baseBranches": ["main"],
   "ignoreTests": true,
@@ -38,10 +50,15 @@
     ],
     "packageRules": [
       {
+        "matchUpdateTypes": ["*"],
+        "enabled": false
+      },
+      {
         "matchPackagePatterns": [
           "^quay.io/redhat-appstudio-tekton-catalog/",
           "^quay.io/konflux-ci/tekton-catalog/"
         ],
+        "matchUpdateTypes": ["digest"],
         "enabled": true,
         "groupName": "Konflux references",
         "branchPrefix": "konflux/references/",
