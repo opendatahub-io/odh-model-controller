@@ -18,6 +18,7 @@ package controllers
 import (
 	"context"
 	"reflect"
+	"strings"
 
 	"github.com/go-logr/logr"
 	"github.com/opendatahub-io/odh-model-controller/controllers/constants"
@@ -56,7 +57,7 @@ func (r *KServeCustomCACertReconciler) reconcileConfigMap(configmap *corev1.Conf
 		}
 		configmap = odhCustomCertConfigMap
 	}
-	odhCustomCertData = configmap.Data[constants.ODHCustomCACertFileName]
+	odhCustomCertData = strings.TrimSpace(configmap.Data[constants.ODHCustomCACertFileName])
 
 	// Create Desired resource
 	configData := map[string]string{kserveCustomCACertFileName: odhCustomCertData}
