@@ -18,7 +18,10 @@ package controllers
 import (
 	"context"
 	"reflect"
+	"strings"
 	"time"
+
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
 	. "github.com/onsi/ginkgo"
 	. "github.com/onsi/gomega"
@@ -27,12 +30,23 @@ import (
 )
 
 const (
-	odhtrustedcabundleConfigMapUpdatedPath = "./testdata/configmaps/odh-trusted-ca-bundle-configmap-updated.yaml"
-	kservecustomcacertConfigMapUpdatedPath = "./testdata/configmaps/odh-kserve-custom-ca-cert-configmap-updated.yaml"
+	odhtrustedcabundleConfigMapUpdatedPath         = "./testdata/configmaps/odh-trusted-ca-bundle-configmap-updated.yaml"
+	kserveCustomCACustomBundleConfigMapUpdatedPath = "./testdata/configmaps/odh-kserve-custom-ca-cert-configmap-updated.yaml"
 )
 
 var _ = Describe("KServe Custom CA Cert ConfigMap controller", func() {
 	ctx := context.Background()
+
+	AfterEach(func() {
+		configmap := &corev1.ConfigMap{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      "odh-trusted-ca-bundle",
+				Namespace: "default",
+			},
+		}
+
+		Expect(cli.Delete(ctx, configmap)).Should(Succeed())
+	})
 
 	Context("when a configmap 'odh-trusted-ca-bundle' exists", func() {
 		It("should create a configmap that is for kserve custom ca cert", func() {
@@ -69,8 +83,10 @@ var _ = Describe("KServe Custom CA Cert ConfigMap controller", func() {
 			kserveCACertConfigmap, err := waitForConfigMap(cli, WorkingNamespace, constants.KServeCACertConfigMapName, 30, 1*time.Second)
 			Expect(err).NotTo(HaveOccurred())
 			expectedKserveCACertConfigmap := &corev1.ConfigMap{}
-			err = convertToStructuredResource(kservecustomcacertConfigMapUpdatedPath, expectedKserveCACertConfigmap)
+			err = convertToStructuredResource(kserveCustomCACustomBundleConfigMapUpdatedPath, expectedKserveCACertConfigmap)
 			Expect(err).NotTo(HaveOccurred())
+			// Trim out the last \n in the updated file
+			expectedKserveCACertConfigmap.Data["cabundle.crt"] = strings.TrimSpace(expectedKserveCACertConfigmap.Data["cabundle.crt"])
 
 			Expect(compareConfigMap(kserveCACertConfigmap, expectedKserveCACertConfigmap)).Should((BeTrue()))
 		})
