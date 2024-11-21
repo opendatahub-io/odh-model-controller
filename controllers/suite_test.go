@@ -71,24 +71,25 @@ var (
 )
 
 const (
-	WorkingNamespace                = "default"
-	MonitoringNS                    = "monitoring-ns"
-	RoleBindingPath                 = "./testdata/results/model-server-ns-role.yaml"
-	ServingRuntimePath1             = "./testdata/deploy/test-openvino-serving-runtime-1.yaml"
-	KserveServingRuntimePath1       = "./testdata/deploy/kserve-openvino-serving-runtime-1.yaml"
-	ServingRuntimePath2             = "./testdata/deploy/test-openvino-serving-runtime-2.yaml"
-	InferenceService1               = "./testdata/deploy/openvino-inference-service-1.yaml"
-	InferenceServiceNoRuntime       = "./testdata/deploy/openvino-inference-service-no-runtime.yaml"
-	KserveInferenceServicePath1     = "./testdata/deploy/kserve-openvino-inference-service-1.yaml"
-	InferenceServiceConfigPath1     = "./testdata/configmaps/inferenceservice-config.yaml"
-	ExpectedRoutePath               = "./testdata/results/example-onnx-mnist-route.yaml"
-	ExpectedRouteNoRuntimePath      = "./testdata/results/example-onnx-mnist-no-runtime-route.yaml"
-	DSCIWithAuthorization           = "./testdata/dsci-with-authorino-enabled.yaml"
-	DSCIWithoutAuthorization        = "./testdata/dsci-with-authorino-missing.yaml"
-	KServeAuthorizationPolicy       = "./testdata/kserve-authorization-policy.yaml"
-	odhtrustedcabundleConfigMapPath = "./testdata/configmaps/odh-trusted-ca-bundle-configmap.yaml"
-	timeout                         = time.Second * 20
-	interval                        = time.Millisecond * 10
+	WorkingNamespace                     = "default"
+	MonitoringNS                         = "monitoring-ns"
+	RoleBindingPath                      = "./testdata/results/model-server-ns-role.yaml"
+	ServingRuntimePath1                  = "./testdata/deploy/test-openvino-serving-runtime-1.yaml"
+	KserveServingRuntimePath1            = "./testdata/deploy/kserve-openvino-serving-runtime-1.yaml"
+	ServingRuntimePath2                  = "./testdata/deploy/test-openvino-serving-runtime-2.yaml"
+	InferenceService1                    = "./testdata/deploy/openvino-inference-service-1.yaml"
+	InferenceServiceNoRuntime            = "./testdata/deploy/openvino-inference-service-no-runtime.yaml"
+	KserveInferenceServicePath1          = "./testdata/deploy/kserve-openvino-inference-service-1.yaml"
+	InferenceServiceConfigPath1          = "./testdata/configmaps/inferenceservice-config.yaml"
+	ExpectedRoutePath                    = "./testdata/results/example-onnx-mnist-route.yaml"
+	ExpectedRouteNoRuntimePath           = "./testdata/results/example-onnx-mnist-no-runtime-route.yaml"
+	DSCIWithAuthorization                = "./testdata/dsci-with-authorino-enabled.yaml"
+	DSCIWithoutAuthorization             = "./testdata/dsci-with-authorino-missing.yaml"
+	KServeAuthorizationPolicy            = "./testdata/kserve-authorization-policy.yaml"
+	odhtrustedcabundleConfigMapPath      = "./testdata/configmaps/odh-trusted-ca-bundle-configmap.yaml"
+	odhKserveCustomCABundleConfigMapPath = "./testdata/configmaps/odh-kserve-custom-ca-cert-configmap.yaml"
+	timeout                              = time.Second * 20
+	interval                             = time.Millisecond * 10
 )
 
 func init() {
