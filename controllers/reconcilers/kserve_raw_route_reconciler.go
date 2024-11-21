@@ -17,6 +17,8 @@ package reconcilers
 
 import (
 	"context"
+	"strconv"
+
 	"github.com/go-logr/logr"
 	kservev1beta1 "github.com/kserve/kserve/pkg/apis/serving/v1beta1"
 	"github.com/opendatahub-io/odh-model-controller/controllers/comparators"
@@ -31,7 +33,6 @@ import (
 	"k8s.io/utils/pointer"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
-	"strconv"
 )
 
 var _ SubResourceReconciler = (*KserveRawRouteReconciler)(nil)
