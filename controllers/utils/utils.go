@@ -264,6 +264,25 @@ func VerifyIfMeshAuthorizationIsEnabled(ctx context.Context, cli client.Client) 
 	return false, nil
 }
 
+// GetApplicationNamespace returns the namespace where the application components are installed.
+// defaults to: RHOAI - redhat-ods-applications, ODH: opendatahub
+func GetApplicationNamespace(ctx context.Context, cli client.Client) (string, error) {
+	podNamespace := os.Getenv("POD_NAMESPACE")
+	objectList, err := getDSCIObject(ctx, cli)
+	if err != nil {
+		log.V(0).Error(err, "Failed to fetch the DSCI object")
+		return "", err
+	}
+
+	for _, item := range objectList.Items {
+		ns, _, _ := unstructured.NestedString(item.Object, "spec", "applicationsNamespace")
+		if len(ns) > 0 {
+			podNamespace = ns
+		}
+	}
+	return podNamespace, nil
+}
+
 func IsNil(i any) bool {
 	return reflect.ValueOf(i).IsNil()
 }
