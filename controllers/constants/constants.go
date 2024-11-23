@@ -79,3 +79,9 @@ const (
 	NimRuntimeTemplateName     = "nvidia-nim-serving-template"
 	NimPullSecretName          = "nvidia-nim-image-pull"
 )
+
+// Ray
+const (
+	RayCATlsSecretName        = "ray-ca-cert"
+	RayTlsScriptConfigMapName = "ray-tls-scripts"
+)

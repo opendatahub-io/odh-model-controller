@@ -2,7 +2,7 @@ apiVersion: kustomize.config.k8s.io/v1beta1
 kind: Kustomization
 resources:
   - ../../default
-  - ./ray_tls_configmap.yaml
+  - ./ray_tls_resources.yaml
 
 patches:
 - path: odh_model_controller_manager_patch.yaml

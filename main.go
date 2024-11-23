@@ -181,6 +181,14 @@ func main() {
 		os.Exit(1)
 	}
 
+	if err = (controllers.NewKServeRayTlsReconciler(
+		mgr.GetClient(),
+		ctrl.Log.WithName("controllers").WithName("KServeRayTls"))).
+		SetupWithManager(mgr); err != nil {
+		setupLog.Error(err, "unable to create controller", "controller", "KServeRayTls")
+		os.Exit(1)
+	}
+
 	if monitoringNS != "" {
 		setupLog.Info("Monitoring namespace provided, setting up monitoring controller.")
 		if err = (&controllers.MonitoringReconciler{

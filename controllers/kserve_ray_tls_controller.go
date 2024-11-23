@@ -1,0 +1,427 @@
+package controllers
+
+import (
+	"context"
+	"os"
+	"reflect"
+
+	"sigs.k8s.io/controller-runtime/pkg/handler"
+
+	"github.com/go-logr/logr"
+	kservev1alpha1 "github.com/kserve/kserve/pkg/apis/serving/v1alpha1"
+	"github.com/opendatahub-io/odh-model-controller/controllers/constants"
+	"github.com/opendatahub-io/odh-model-controller/controllers/utils"
+	corev1 "k8s.io/api/core/v1"
+	apierrs "k8s.io/apimachinery/pkg/api/errors"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/types"
+	ctrl "sigs.k8s.io/controller-runtime"
+	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/event"
+	"sigs.k8s.io/controller-runtime/pkg/predicate"
+)
+
+// KServeRayTlsReconciler holds the controller configuration.
+type KServeRayTlsReconciler struct {
+	client client.Client
+	log    logr.Logger
+}
+
+func NewKServeRayTlsReconciler(client client.Client, log logr.Logger) *KServeRayTlsReconciler {
+	return &KServeRayTlsReconciler{
+		client: client,
+		log:    log,
+	}
+}
+
+// The reconcile logic works as follows:
+// ServingRuntime:
+// - On creation: The ray-tls-script ConfigMap and ray-ca-cert Secret are created in the respective namespace.
+// - On deletion: The ray-tls-script ConfigMap and ray-ca-cert Secret are deleted only when all ServingRuntimes are deleted from the namespace.
+
+// ConfigMap:
+// - When the original ConfigMap is updated in the control namespace (ctrl ns): The ray-tls-script ConfigMap is deleted and recreated in the namespace where multinode ServingRuntimes exist.
+// - When the ConfigMap is deleted in the target namespace (target ns): The ray-tls-script ConfigMap is regenerated.
+
+// Secret:
+// - When the original Secret is updated in the control namespace (ctrl ns): The ray-ca-cert Secret is deleted and recreated in the namespace where multinode ServingRuntimes exist.
+// - When the Secret is deleted in the target namespace (target ns): The ray-ca-cert Secret is regenerated.
+func (r *KServeRayTlsReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
+	log := r.log
+	controllerNs := os.Getenv("POD_NAMESPACE")
+	areAllServingRuntimesDeletedInNs := false
+
+	var servingRuntimeList kservev1alpha1.ServingRuntimeList
+	listOptions := &client.ListOptions{
+		Namespace: req.Namespace,
+	}
+	if err := r.client.List(ctx, &servingRuntimeList, listOptions); err == nil && len(servingRuntimeList.Items) == 0 {
+		areAllServingRuntimesDeletedInNs = true
+	} else if err != nil {
+		return ctrl.Result{}, err
+	}
+
+	if req.Name == constants.RayTlsScriptConfigMapName {
+		if req.Namespace == controllerNs {
+			if !areAllServingRuntimesDeletedInNs {
+				log.Info("Original Ray TLS scripts ConfigMap is updated", "name", constants.RayTlsScriptConfigMapName, "namespace", req.Namespace)
+				for _, sr := range servingRuntimeList.Items {
+					if err := r.cleanupRayResourcesByKind(ctx, log, sr.Namespace, "ConfigMap"); err != nil {
+						return ctrl.Result{}, err
+					}
+				}
+			}
+		}
+
+		if err := r.reconcileRayTlsScriptConfigMap(ctx, log, controllerNs, req.Namespace, areAllServingRuntimesDeletedInNs); err != nil {
+			return ctrl.Result{}, err
+		}
+	} else if req.Name == constants.RayCATlsSecretName {
+		if req.Namespace == controllerNs {
+			if !areAllServingRuntimesDeletedInNs {
+				log.Info("Original Ray CA Cert Secret is updated", "name", constants.RayCATlsSecretName, "namespace", req.Namespace)
+				for _, sr := range servingRuntimeList.Items {
+					if err := r.cleanupRayResourcesByKind(ctx, log, sr.Namespace, "Secret"); err != nil {
+						return ctrl.Result{}, err
+					}
+				}
+			}
+		}
+
+		if err := r.reconcileRayCACertSecret(ctx, log, controllerNs, req.Namespace, areAllServingRuntimesDeletedInNs); err != nil {
+			return ctrl.Result{}, err
+		}
+	} else {
+		sr := &kservev1alpha1.ServingRuntime{}
+		err := r.client.Get(ctx, req.NamespacedName, sr)
+		if err != nil && apierrs.IsNotFound(err) {
+		} else if err != nil {
+			return ctrl.Result{}, err
+		}
+
+		// Determine if ServingRuntime matches specific conditions
+		// TO-DO upstream Kserve 0.15 will have a new API WorkerSpec
+		// So for now, it will check servingRuntime name, but after we move to 0.15, it needs to check workerSpec is specified or not.(RHOAIENG-16147)
+		isMultiNodeServingRuntime := sr != nil && sr.Name == "vllm-multinode-runtime"
+		isRemoved := areAllServingRuntimesDeletedInNs || !isMultiNodeServingRuntime
+
+		// Log and reconcile Ray TLS scripts ConfigMap
+		err = r.reconcileRayTlsScriptConfigMap(ctx, log, controllerNs, req.Namespace, isRemoved)
+		if err != nil {
+			return ctrl.Result{}, err
+		}
+
+		// Log and reconcile Ray CA Cert Secret
+		err = r.reconcileRayCACertSecret(ctx, log, controllerNs, req.Namespace, isRemoved)
+		if err != nil {
+			return ctrl.Result{}, err
+		}
+
+	}
+
+	return ctrl.Result{}, nil
+
+}
+
+func checkRayTLSResource(objectName string) bool {
+	return objectName == constants.RayCATlsSecretName || objectName == constants.RayTlsScriptConfigMapName
+}
+
+// reconcileRayTLSResource filters out ConfigMaps and Secrets that do not match the predefined constants: RayCATlsSecretName or RayTlsScriptConfigMapName.
+// This ensures that only the relevant ConfigMaps and Secrets for Ray TLS configuration are captured and processed for the servingRuntime.
+func reconcileRayTLSResource() predicate.Predicate {
+	return predicate.Funcs{
+		CreateFunc: func(e event.CreateEvent) bool {
+			if _, ok := e.Object.(*kservev1alpha1.ServingRuntime); ok {
+				return true
+			}
+			return false
+		},
+		DeleteFunc: func(e event.DeleteEvent) bool {
+			if _, ok := e.Object.(*kservev1alpha1.ServingRuntime); ok {
+				return true
+			}
+			objectName := e.Object.GetName()
+			return checkRayTLSResource(objectName)
+		},
+		UpdateFunc: func(e event.UpdateEvent) bool {
+			if _, ok := e.ObjectNew.(*kservev1alpha1.ServingRuntime); ok {
+				return true
+			}
+			objectName := e.ObjectNew.GetName()
+			return checkRayTLSResource(objectName)
+		},
+	}
+}
+
+// SetupWithManager sets up the controller with the Manager.
+func (r *KServeRayTlsReconciler) SetupWithManager(mgr ctrl.Manager) error {
+	builder := ctrl.NewControllerManagedBy(mgr).
+		For(&kservev1alpha1.ServingRuntime{}).
+		Owns(&corev1.ConfigMap{}).
+		Owns(&corev1.Secret{}).
+		Watches(&corev1.ConfigMap{}, &handler.EnqueueRequestForObject{}).
+		Watches(&corev1.Secret{}, &handler.EnqueueRequestForObject{}).
+		WithEventFilter(reconcileRayTLSResource())
+
+	return builder.Complete(r)
+}
+
+// reconcileRayTlsScriptConfigMap watch ray-tls-scripts configmap in the controller namespace
+// and it will create/update/delete ray-tls-scripts configmap in the namespace where multi-node ServingRuntime created
+func (r *KServeRayTlsReconciler) reconcileRayTlsScriptConfigMap(ctx context.Context, log logr.Logger, ctrlNs string, targetNs string, srRemoved bool) error {
+	// When original configmap is updated, it does not need to reconcile
+	if ctrlNs == targetNs {
+		return nil
+	}
+
+	log.Info("Reconciling Ray TLS scripts ConfigMap", "name", constants.RayTlsScriptConfigMapName, "namespace", targetNs)
+	srcConfigMap := &corev1.ConfigMap{}
+	err := r.client.Get(ctx, types.NamespacedName{Name: constants.RayTlsScriptConfigMapName, Namespace: ctrlNs}, srcConfigMap)
+	if err != nil {
+		return err
+	}
+
+	// Create Desired resource
+	desiredConfigMapResource, err := r.createDesiredConfigMapResource(targetNs, srcConfigMap)
+	if err != nil {
+		return err
+	}
+
+	// Get Existing resource
+	existingConfigMapResource := &corev1.ConfigMap{}
+	err = r.client.Get(ctx, types.NamespacedName{Name: constants.RayTlsScriptConfigMapName, Namespace: targetNs}, existingConfigMapResource)
+	if err != nil {
+		if apierrs.IsNotFound(err) {
+			existingConfigMapResource = nil
+		} else {
+			return err
+		}
+	}
+
+	// Process Delta
+	if err = r.processDeltaConfigMap(ctx, log, desiredConfigMapResource, existingConfigMapResource, srRemoved); err != nil {
+		return err
+	}
+
+	return nil
+}
+
+func (r *KServeRayTlsReconciler) createDesiredConfigMapResource(destNs string, srcConfigmap *corev1.ConfigMap) (*corev1.ConfigMap, error) {
+	desiredConfigMap := &corev1.ConfigMap{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      srcConfigmap.Name,
+			Namespace: destNs,
+			Labels: map[string]string{
+				"opendatahub.io/managed":       "true",
+				"app.kubernetes.io/name":       "odh-model-controller",
+				"app.kubernetes.io/component":  "kserve",
+				"app.kubernetes.io/part-of":    "odh-model-serving",
+				"app.kubernetes.io/managed-by": "odh-model-controller",
+			},
+		},
+		Data: srcConfigmap.Data,
+	}
+
+	return desiredConfigMap, nil
+}
+
+func (r *KServeRayTlsReconciler) processDeltaConfigMap(ctx context.Context, log logr.Logger, desiredConfigMapResource *corev1.ConfigMap, existingConfigMapResource *corev1.ConfigMap, srRemoved bool) (err error) {
+	hasChanged := false
+
+	if shouldAddRayConfigMap(existingConfigMapResource, srRemoved) {
+		hasChanged = true
+		log.V(1).Info("Delta found", "create", desiredConfigMapResource.GetName(), "namespace", desiredConfigMapResource.Namespace)
+		if err = r.client.Create(ctx, desiredConfigMapResource); err != nil {
+			return err
+		}
+	}
+
+	if isUpdatedRayConfigMap(desiredConfigMapResource, existingConfigMapResource) {
+		hasChanged = true
+		log.V(1).Info("Delta found", "update", existingConfigMapResource.GetName(), "namespace", existingConfigMapResource.Namespace)
+		rp := desiredConfigMapResource.DeepCopy()
+		rp.Labels = existingConfigMapResource.Labels
+
+		if err = r.client.Update(ctx, rp); err != nil {
+			return err
+		}
+	}
+
+	if shouldDeleteRayConfigMap(existingConfigMapResource, srRemoved) {
+		hasChanged = true
+		log.V(1).Info("Delta found", "remove", existingConfigMapResource.GetName(), "namespace", existingConfigMapResource.Namespace)
+		if err = r.client.Delete(ctx, existingConfigMapResource); err != nil {
+			return err
+		}
+	}
+
+	if !hasChanged && !srRemoved {
+		log.V(1).Info("No delta found", "name", desiredConfigMapResource.GetName(), "namespace", desiredConfigMapResource.Namespace)
+		return nil
+	}
+
+	return nil
+}
+
+func shouldAddRayConfigMap(existingConfigMap *corev1.ConfigMap, srRemoved bool) bool {
+	return !srRemoved && utils.IsNil(existingConfigMap)
+}
+
+func isUpdatedRayConfigMap(desiredConfigMap *corev1.ConfigMap, existingConfigMap *corev1.ConfigMap) bool {
+	return utils.IsNotNil(existingConfigMap) && !reflect.DeepEqual(desiredConfigMap.Data, existingConfigMap.Data)
+}
+
+func shouldDeleteRayConfigMap(existingConfigMap *corev1.ConfigMap, srRemoved bool) bool {
+	return utils.IsNotNil(existingConfigMap) && srRemoved
+}
+
+// reconcileRayCACertSecret watch ray-ca-cert secret in the controller namespaces
+// and it will create/update/delete ray-ca-cert secret in the namespace where multi-node ServingRuntime created
+func (r *KServeRayTlsReconciler) reconcileRayCACertSecret(ctx context.Context, log logr.Logger, ctrlNs string, targetNs string, srRemoved bool) error {
+	// When original secret is updated, it does not need to reconcile
+	if ctrlNs == targetNs {
+		return nil
+	}
+	log.Info("Reconciling Ray CA Cert Secret", "name", constants.RayCATlsSecretName, "namespace", targetNs)
+	srcSecret := &corev1.Secret{}
+	err := r.client.Get(ctx, types.NamespacedName{Name: constants.RayCATlsSecretName, Namespace: ctrlNs}, srcSecret)
+	if err != nil {
+		return err
+	}
+
+	// Create Desired resource
+	desiredSecretResource, err := r.createDesiredSecretResource(targetNs, srcSecret)
+	if err != nil {
+		return err
+	}
+
+	// Get Existing resource
+	existingSecretResource := &corev1.Secret{}
+	err = r.client.Get(ctx, types.NamespacedName{Name: constants.RayCATlsSecretName, Namespace: targetNs}, existingSecretResource)
+	if err != nil {
+		if apierrs.IsNotFound(err) {
+			existingSecretResource = nil
+		} else {
+			return err
+		}
+	}
+
+	// Process Delta
+	if err = r.processDeltaSecret(ctx, log, desiredSecretResource, existingSecretResource, srRemoved); err != nil {
+		return err
+	}
+	return nil
+}
+
+func (r *KServeRayTlsReconciler) createDesiredSecretResource(destNs string, sourceSecret *corev1.Secret) (*corev1.Secret, error) {
+	desiredSecret := &corev1.Secret{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      sourceSecret.Name,
+			Namespace: destNs,
+			Labels: map[string]string{
+				"opendatahub.io/managed":       "true",
+				"app.kubernetes.io/name":       "odh-model-controller",
+				"app.kubernetes.io/component":  "kserve",
+				"app.kubernetes.io/part-of":    "odh-model-serving",
+				"app.kubernetes.io/managed-by": "odh-model-controller",
+			},
+		},
+		Data: sourceSecret.Data,
+		Type: sourceSecret.Type,
+	}
+
+	return desiredSecret, nil
+}
+
+func (r *KServeRayTlsReconciler) processDeltaSecret(ctx context.Context, log logr.Logger, desiredSecretResource *corev1.Secret, existingSecretResource *corev1.Secret, srRemoved bool) (err error) {
+	hasChanged := false
+
+	if shouldAddRaySecret(existingSecretResource, srRemoved) {
+		hasChanged = true
+		log.V(1).Info("Delta found", "create", desiredSecretResource.GetName(), "namespace", desiredSecretResource.Namespace)
+		if err = r.client.Create(ctx, desiredSecretResource); err != nil {
+			return err
+		}
+	}
+
+	if isUpdatedRaySecret(desiredSecretResource, existingSecretResource) {
+		hasChanged = true
+		log.V(1).Info("Delta found", "update", existingSecretResource.GetName(), "namespace", existingSecretResource.Namespace)
+		rp := desiredSecretResource.DeepCopy()
+		rp.Labels = existingSecretResource.Labels
+
+		if err = r.client.Update(ctx, rp); err != nil {
+			return err
+		}
+	}
+
+	if shouldDeletedRaySecret(existingSecretResource, srRemoved) {
+		hasChanged = true
+		log.V(1).Info("Delta found", "remove", existingSecretResource.GetName(), "namespace", existingSecretResource.Namespace)
+		if err = r.client.Delete(ctx, existingSecretResource); err != nil {
+			return err
+		}
+	}
+	if !hasChanged && !srRemoved {
+		log.V(1).Info("No delta found", "name", desiredSecretResource.GetName(), "namespace", desiredSecretResource.Namespace)
+		return nil
+	}
+
+	return nil
+}
+
+func shouldAddRaySecret(existingSecret *corev1.Secret, srRemoved bool) bool {
+	return !srRemoved && utils.IsNil(existingSecret)
+}
+
+func isUpdatedRaySecret(desiredSecret *corev1.Secret, existingSecret *corev1.Secret) bool {
+	return utils.IsNotNil(existingSecret) && !reflect.DeepEqual(desiredSecret.Data, existingSecret.Data)
+}
+
+func shouldDeletedRaySecret(existingSecret *corev1.Secret, srRemoved bool) bool {
+	return utils.IsNotNil(existingSecret) && srRemoved
+}
+
+func (r *KServeRayTlsReconciler) cleanupRayResourcesByKind(ctx context.Context, log logr.Logger, targetNs string, kind string) error {
+	if kind == "ConfigMap" {
+		configmap := &corev1.ConfigMap{}
+		err := r.client.Get(ctx, types.NamespacedName{
+			Name:      constants.RayTlsScriptConfigMapName,
+			Namespace: targetNs,
+		}, configmap)
+		if err != nil {
+			if apierrs.IsNotFound(err) {
+				log.Info("ConfigMap not found, skipping", "name", constants.RayTlsScriptConfigMapName, "namespace", targetNs)
+			}
+			return err
+		}
+
+		log.Info("Deleting ConfigMap", "name", constants.RayTlsScriptConfigMapName, "namespace", targetNs)
+		err = r.client.Delete(ctx, configmap)
+		if err != nil {
+			return err
+		}
+	}
+
+	if kind == "Secret" {
+		secret := &corev1.Secret{}
+		err := r.client.Get(ctx, types.NamespacedName{
+			Name:      constants.RayCATlsSecretName,
+			Namespace: targetNs,
+		}, secret)
+		if err != nil {
+			if apierrs.IsNotFound(err) {
+				log.Info("Secret not found, skipping", "name", constants.RayCATlsSecretName, "namespace", targetNs)
+			}
+			return err
+		}
+
+		log.Info("Deleting Secret", "name", constants.RayCATlsSecretName, "namespace", targetNs)
+		err = r.client.Delete(ctx, secret)
+		if err != nil {
+			return err
+		}
+	}
+	return nil
+}
