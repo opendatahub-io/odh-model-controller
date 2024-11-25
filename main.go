@@ -20,6 +20,7 @@ import (
 	"context"
 	"flag"
 	"os"
+	"slices"
 	"strconv"
 
 	"github.com/opendatahub-io/odh-model-controller/controllers/webhook"
@@ -233,13 +234,17 @@ func main() {
 	}
 
 	ctx := ctrl.SetupSignalHandler()
-	if err = (&controllers.NimAccountReconciler{
-		Client:  mgr.GetClient(),
-		Log:     ctrl.Log.WithName("controllers").WithName("NimAccountReconciler"),
-		KClient: kclient,
-	}).SetupWithManager(mgr, ctx); err != nil {
-		setupLog.Error(err, "unable to create controller NIM Account controller")
-		os.Exit(1)
+	nimState := os.Getenv("NIM_STATE")
+
+	if !slices.Contains([]string{"removed", ""}, nimState) {
+		if err = (&controllers.NimAccountReconciler{
+			Client:  mgr.GetClient(),
+			Log:     ctrl.Log.WithName("controllers").WithName("NimAccountReconciler"),
+			KClient: kclient,
+		}).SetupWithManager(mgr, ctx); err != nil {
+			setupLog.Error(err, "unable to create controller NIM Account controller")
+			os.Exit(1)
+		}
 	}
 
 	if err = builder.WebhookManagedBy(mgr).
