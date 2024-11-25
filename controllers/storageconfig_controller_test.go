@@ -19,7 +19,6 @@ import (
 	"context"
 	"fmt"
 	"log"
-	"reflect"
 	"time"
 
 	corev1 "k8s.io/api/core/v1"
@@ -266,30 +265,3 @@ func updateSecretLabel(cli client.Client, namespace, secretName string, labelKey
 	return nil
 }
 
-func waitForSecret(cli client.Client, namespace, secretName string, maxTries int, delay time.Duration) (*corev1.Secret, error) {
-	time.Sleep(delay)
-
-	ctx := context.Background()
-	secret := &corev1.Secret{}
-	for try := 1; try <= maxTries; try++ {
-		err := cli.Get(ctx, client.ObjectKey{Namespace: namespace, Name: secretName}, secret)
-		if err == nil {
-			return secret, nil
-		}
-		if !apierrs.IsNotFound(err) {
-			return nil, fmt.Errorf("failed to get secret %s/%s: %v", namespace, secretName, err)
-		}
-
-		if try < maxTries {
-			time.Sleep(1 * time.Second)
-			return nil, err
-		}
-	}
-	return secret, nil
-}
-
-// compareSecrets checks if two Secret data are equal, if not return false
-func compareSecrets(s1 *corev1.Secret, s2 *corev1.Secret) bool {
-	// Two Secret will be equal if the data is identical
-	return reflect.DeepEqual(s1.Data, s2.Data)
-}

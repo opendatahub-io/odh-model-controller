@@ -21,6 +21,7 @@ import (
 	"math/rand"
 	"os"
 	"path/filepath"
+	"reflect"
 	"testing"
 	"time"
 
@@ -163,6 +164,7 @@ var _ = BeforeSuite(func() {
 
 	Expect(err).NotTo(HaveOccurred())
 
+	// add reconcilers
 	err = (NewOpenshiftInferenceServiceReconciler(
 		mgr.GetClient(),
 		mgr.GetAPIReader(),
@@ -193,6 +195,12 @@ var _ = BeforeSuite(func() {
 	err = (&KServeCustomCACertReconciler{
 		Client: cli,
 		Log:    ctrl.Log.WithName("controllers").WithName("KServe-Custom-CA-Bundle-ConfigMap-Controller"),
+	}).SetupWithManager(mgr)
+	Expect(err).ToNot(HaveOccurred())
+
+	err = (&KServeRayTlsReconciler{
+		client: cli,
+		log:    ctrl.Log.WithName("controllers").WithName("KServe-Ray-TLS-Controller"),
 	}).SetupWithManager(mgr)
 	Expect(err).ToNot(HaveOccurred())
 
@@ -321,10 +329,40 @@ func waitForConfigMap(cli client.Client, namespace, configMapName string, maxTri
 			return nil, fmt.Errorf("failed to get configmap %s/%s: %v", namespace, configMapName, err)
 		}
 
-		if try > maxTries {
+		if try < maxTries {
 			time.Sleep(1 * time.Second)
-			return nil, err
+		} else {
+			return nil, fmt.Errorf("namespace: %s, err: %v", namespace, err)
 		}
 	}
 	return configMap, nil
+}
+
+func waitForSecret(cli client.Client, namespace, secretName string, maxTries int, delay time.Duration) (*corev1.Secret, error) {
+	time.Sleep(delay)
+
+	ctx := context.Background()
+	secret := &corev1.Secret{}
+	for try := 1; try <= maxTries; try++ {
+		err := cli.Get(ctx, client.ObjectKey{Namespace: namespace, Name: secretName}, secret)
+		if err == nil {
+			return secret, nil
+		}
+		if !apierrs.IsNotFound(err) {
+			return nil, fmt.Errorf("failed to get secret %s/%s: %v", namespace, secretName, err)
+		}
+
+		if try < maxTries {
+			time.Sleep(1 * time.Second)
+		} else {
+			return nil, err
+		}
+	}
+	return secret, nil
+}
+
+// compareSecrets checks if two Secret data are equal, if not return false
+func compareSecrets(s1 *corev1.Secret, s2 *corev1.Secret) bool {
+	// Two Secret will be equal if the data is identical
+	return reflect.DeepEqual(s1.Data, s2.Data)
 }

@@ -49,46 +49,46 @@ func NewKServeRayTlsReconciler(client client.Client, log logr.Logger) *KServeRay
 func (r *KServeRayTlsReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
 	log := r.log
 	controllerNs := os.Getenv("POD_NAMESPACE")
-	areAllServingRuntimesDeletedInNs := false
+	removeRayResources := false
 
 	var servingRuntimeList kservev1alpha1.ServingRuntimeList
-	listOptions := &client.ListOptions{
-		Namespace: req.Namespace,
-	}
-	if err := r.client.List(ctx, &servingRuntimeList, listOptions); err == nil && len(servingRuntimeList.Items) == 0 {
-		areAllServingRuntimesDeletedInNs = true
-	} else if err != nil {
+
+	if err := r.client.List(ctx, &servingRuntimeList); err != nil {
 		return ctrl.Result{}, err
 	}
 
 	if req.Name == constants.RayTlsScriptConfigMapName {
 		if req.Namespace == controllerNs {
-			if !areAllServingRuntimesDeletedInNs {
-				log.Info("Original Ray TLS scripts ConfigMap is updated", "name", constants.RayTlsScriptConfigMapName, "namespace", req.Namespace)
-				for _, sr := range servingRuntimeList.Items {
+			log.Info("Original Ray TLS scripts ConfigMap is updated", "name", constants.RayTlsScriptConfigMapName, "namespace", req.Namespace)
+			for _, sr := range servingRuntimeList.Items {
+				if sr.Name == "vllm-multinode-runtime" {
 					if err := r.cleanupRayResourcesByKind(ctx, log, sr.Namespace, "ConfigMap"); err != nil {
 						return ctrl.Result{}, err
 					}
 				}
 			}
+		} else {
+			removeRayResources = !existMultiNodeServingRuntimeInNs(req.Namespace, servingRuntimeList)
 		}
 
-		if err := r.reconcileRayTlsScriptConfigMap(ctx, log, controllerNs, req.Namespace, areAllServingRuntimesDeletedInNs); err != nil {
+		if err := r.reconcileRayTlsScriptsConfigMap(ctx, log, controllerNs, req.Namespace, removeRayResources); err != nil {
 			return ctrl.Result{}, err
 		}
 	} else if req.Name == constants.RayCATlsSecretName {
 		if req.Namespace == controllerNs {
-			if !areAllServingRuntimesDeletedInNs {
-				log.Info("Original Ray CA Cert Secret is updated", "name", constants.RayCATlsSecretName, "namespace", req.Namespace)
-				for _, sr := range servingRuntimeList.Items {
+			log.Info("Original Ray CA Cert Secret is updated", "name", constants.RayCATlsSecretName, "namespace", req.Namespace)
+			for _, sr := range servingRuntimeList.Items {
+				if sr.Name == "vllm-multinode-runtime" {
 					if err := r.cleanupRayResourcesByKind(ctx, log, sr.Namespace, "Secret"); err != nil {
 						return ctrl.Result{}, err
 					}
 				}
 			}
+		} else {
+			removeRayResources = !existMultiNodeServingRuntimeInNs(req.Namespace, servingRuntimeList)
 		}
 
-		if err := r.reconcileRayCACertSecret(ctx, log, controllerNs, req.Namespace, areAllServingRuntimesDeletedInNs); err != nil {
+		if err := r.reconcileRayCACertSecret(ctx, log, controllerNs, req.Namespace, removeRayResources); err != nil {
 			return ctrl.Result{}, err
 		}
 	} else {
@@ -103,24 +103,21 @@ func (r *KServeRayTlsReconciler) Reconcile(ctx context.Context, req ctrl.Request
 		// TO-DO upstream Kserve 0.15 will have a new API WorkerSpec
 		// So for now, it will check servingRuntime name, but after we move to 0.15, it needs to check workerSpec is specified or not.(RHOAIENG-16147)
 		isMultiNodeServingRuntime := sr != nil && sr.Name == "vllm-multinode-runtime"
-		isRemoved := areAllServingRuntimesDeletedInNs || !isMultiNodeServingRuntime
+		removeRayResources := !isMultiNodeServingRuntime
 
 		// Log and reconcile Ray TLS scripts ConfigMap
-		err = r.reconcileRayTlsScriptConfigMap(ctx, log, controllerNs, req.Namespace, isRemoved)
+		err = r.reconcileRayTlsScriptsConfigMap(ctx, log, controllerNs, req.Namespace, removeRayResources)
 		if err != nil {
 			return ctrl.Result{}, err
 		}
 
 		// Log and reconcile Ray CA Cert Secret
-		err = r.reconcileRayCACertSecret(ctx, log, controllerNs, req.Namespace, isRemoved)
+		err = r.reconcileRayCACertSecret(ctx, log, controllerNs, req.Namespace, removeRayResources)
 		if err != nil {
 			return ctrl.Result{}, err
 		}
-
 	}
-
 	return ctrl.Result{}, nil
-
 }
 
 func checkRayTLSResource(objectName string) bool {
@@ -167,9 +164,9 @@ func (r *KServeRayTlsReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	return builder.Complete(r)
 }
 
-// reconcileRayTlsScriptConfigMap watch ray-tls-scripts configmap in the controller namespace
-// and it will create/update/delete ray-tls-scripts configmap in the namespace where multi-node ServingRuntime created
-func (r *KServeRayTlsReconciler) reconcileRayTlsScriptConfigMap(ctx context.Context, log logr.Logger, ctrlNs string, targetNs string, srRemoved bool) error {
+// reconcileRayTlsScriptsConfigMap watch ray-tls-scripts configmap in the controller namespace
+// and it will create/update/delete ray-tls-scripts configmap in the namespace where multinode ServingRuntime created
+func (r *KServeRayTlsReconciler) reconcileRayTlsScriptsConfigMap(ctx context.Context, log logr.Logger, ctrlNs string, targetNs string, srRemoved bool) error {
 	// When original configmap is updated, it does not need to reconcile
 	if ctrlNs == targetNs {
 		return nil
@@ -277,7 +274,7 @@ func shouldDeleteRayConfigMap(existingConfigMap *corev1.ConfigMap, srRemoved boo
 }
 
 // reconcileRayCACertSecret watch ray-ca-cert secret in the controller namespaces
-// and it will create/update/delete ray-ca-cert secret in the namespace where multi-node ServingRuntime created
+// and it will create/update/delete ray-ca-cert secret in the namespace where multinode ServingRuntime created
 func (r *KServeRayTlsReconciler) reconcileRayCACertSecret(ctx context.Context, log logr.Logger, ctrlNs string, targetNs string, srRemoved bool) error {
 	// When original secret is updated, it does not need to reconcile
 	if ctrlNs == targetNs {
@@ -424,4 +421,16 @@ func (r *KServeRayTlsReconciler) cleanupRayResourcesByKind(ctx context.Context, 
 		}
 	}
 	return nil
+}
+
+// Determine if ServingRuntime matches specific conditions
+// TO-DO upstream Kserve 0.15 will have a new API WorkerSpec
+// So for now, it will check servingRuntime name, but after we move to 0.15, it needs to check workerSpec is specified or not.(RHOAIENG-16147)
+func existMultiNodeServingRuntimeInNs(targetNs string, srList kservev1alpha1.ServingRuntimeList) bool {
+	for _, sr := range srList.Items {
+		if sr.Namespace == targetNs && sr.Name == "vllm-multinode-runtime" {
+			return true
+		}
+	}
+	return false
 }
