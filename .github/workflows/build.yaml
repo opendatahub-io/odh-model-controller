@@ -5,10 +5,10 @@ on:
   push:
     branches:
       - main
-      - 'release-[0-9]+\.[0-9]+\.[0-9]+'
+      - incubating
     tags:
       - 'latest'
-      - 'v*'
+      - 'odh-v*'
 
 
 env:
@@ -41,11 +41,10 @@ jobs:
       - name: Set Docker Tag
         run: |
           if [[ "${GITHUB_REF}" == "refs/heads/main" ]]; then
-            echo "TAG=latest" >> $GITHUB_ENV
-          elif [[ "${GITHUB_REF}" == refs/heads/release-* ]]; then
-            VERSION="${GITHUB_REF#refs/heads/release-}"
-            echo "TAG=v${VERSION}-latest" >> $GITHUB_ENV
-          elif [[ "${GITHUB_REF}" == refs/tags/v* ]]; then
+            echo "TAG=stable" >> $GITHUB_ENV
+          elif [[ "${GITHUB_REF}" == refs/heads/incubating ]]; then
+            echo "TAG=fast" >> $GITHUB_ENV
+          elif [[ "${GITHUB_REF}" == refs/tags/odh-v* ]]; then
             TAG="${GITHUB_REF#refs/tags/}"
             echo "TAG=${TAG}" >> $GITHUB_ENV
           else
