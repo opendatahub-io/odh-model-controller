@@ -35,17 +35,17 @@ func NewKServeRayTlsReconciler(client client.Client, log logr.Logger) *KServeRay
 }
 
 // The reconcile logic works as follows:
-// ServingRuntime:
-// - On creation: The ray-tls-script ConfigMap and ray-ca-cert Secret are created in the respective namespace.
-// - On deletion: The ray-tls-script ConfigMap and ray-ca-cert Secret are deleted only when all ServingRuntimes are deleted from the namespace.
+// ServingRuntime(multinode):
+// - On creation: The ray-tls-script ConfigMap and ray-ca-cert Secret are created in the target namespace.
+// - On deletion: The ray-tls-script ConfigMap and ray-ca-cert Secret are deleted only when multinode ServingRuntimes are deleted from the target namespace.
 
 // ConfigMap:
-// - When the original ConfigMap is updated in the control namespace (ctrl ns): The ray-tls-script ConfigMap is deleted and recreated in the namespace where multinode ServingRuntimes exist.
-// - When the ConfigMap is deleted in the target namespace (target ns): The ray-tls-script ConfigMap is regenerated.
+// - When the original ConfigMap is updated in the control namespace: The ray-tls-scripts ConfigMap is deleted and recreated in the namespace where multinode ServingRuntimes exist.
+// - When the ConfigMap is deleted in the target namespace: The ray-tls-scripts ConfigMap will be recreated.
 
 // Secret:
-// - When the original Secret is updated in the control namespace (ctrl ns): The ray-ca-cert Secret is deleted and recreated in the namespace where multinode ServingRuntimes exist.
-// - When the Secret is deleted in the target namespace (target ns): The ray-ca-cert Secret is regenerated.
+// - When the original Secret is updated in the control namespace: The ray-ca-cert Secret is deleted and recreated in the namespace where multinode ServingRuntimes exist.
+// - When the Secret is deleted in the target namespace: The ray-ca-cert Secret will be recreated.
 func (r *KServeRayTlsReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
 	log := r.log
 	controllerNs := os.Getenv("POD_NAMESPACE")
@@ -53,52 +53,41 @@ func (r *KServeRayTlsReconciler) Reconcile(ctx context.Context, req ctrl.Request
 	if err := r.client.List(ctx, &servingRuntimeList); err != nil {
 		return ctrl.Result{}, err
 	}
-	noMultiNodeSrExists := !existMultiNodeServingRuntimeInNs(req.Namespace, servingRuntimeList)
+	noMultiNodeSrExistInNs := !existMultiNodeServingRuntimeInNs(req.Namespace, servingRuntimeList)
 
 	if req.Name == constants.RayTlsScriptConfigMapName {
 		if req.Namespace == controllerNs {
-			log.Info("Original Ray TLS scripts ConfigMap is updated", "name", constants.RayTlsScriptConfigMapName, "namespace", req.Namespace)
+			log.Info("Original Ray TLS Scripts ConfigMap is updated", "name", constants.RayTlsScriptConfigMapName, "namespace", req.Namespace)
 			for _, sr := range servingRuntimeList.Items {
-				// Determine if ServingRuntime matches specific conditions
-				// TO-DO upstream Kserve 0.15 will have a new API WorkerSpec
-				// So for now, it will check servingRuntime name, but after we move to 0.15, it needs to check workerSpec is specified or not.(RHOAIENG-16147)
-				if sr.Name == "vllm-multinode-runtime" {
+				if isMultiNodeServingRuntime(sr) {
 					if err := r.cleanupRayResourcesByKind(ctx, log, sr.Namespace, "ConfigMap"); err != nil {
 						return ctrl.Result{}, err
 					}
 				}
 			}
 		}
-
-		if err := r.reconcileRayTlsScriptsConfigMap(ctx, log, controllerNs, req.Namespace, noMultiNodeSrExists); err != nil {
+		if err := r.reconcileRayTlsScriptsConfigMap(ctx, log, controllerNs, req.Namespace, noMultiNodeSrExistInNs); err != nil {
 			return ctrl.Result{}, err
 		}
 	} else if req.Name == constants.RayCATlsSecretName {
 		if req.Namespace == controllerNs {
 			log.Info("Original Ray CA Cert Secret is updated", "name", constants.RayCATlsSecretName, "namespace", req.Namespace)
 			for _, sr := range servingRuntimeList.Items {
-				// Determine if ServingRuntime matches specific conditions
-				// TO-DO upstream Kserve 0.15 will have a new API WorkerSpec
-				// So for now, it will check servingRuntime name, but after we move to 0.15, it needs to check workerSpec is specified or not.(RHOAIENG-16147)
-				if sr.Name == "vllm-multinode-runtime" {
+				if isMultiNodeServingRuntime(sr) {
 					if err := r.cleanupRayResourcesByKind(ctx, log, sr.Namespace, "Secret"); err != nil {
 						return ctrl.Result{}, err
 					}
 				}
 			}
 		}
-
-		if err := r.reconcileRayCACertSecret(ctx, log, controllerNs, req.Namespace, noMultiNodeSrExists); err != nil {
+		if err := r.reconcileRayCACertSecret(ctx, log, controllerNs, req.Namespace, noMultiNodeSrExistInNs); err != nil {
 			return ctrl.Result{}, err
 		}
 	} else {
-		// Log and reconcile Ray TLS scripts ConfigMap
 		err := r.reconcileRayTlsScriptsConfigMap(ctx, log, controllerNs, req.Namespace, !existMultiNodeServingRuntimeInNs(req.Namespace, servingRuntimeList))
 		if err != nil {
 			return ctrl.Result{}, err
 		}
-
-		// Log and reconcile Ray CA Cert Secret
 		err = r.reconcileRayCACertSecret(ctx, log, controllerNs, req.Namespace, !existMultiNodeServingRuntimeInNs(req.Namespace, servingRuntimeList))
 		if err != nil {
 			return ctrl.Result{}, err
@@ -151,15 +140,15 @@ func (r *KServeRayTlsReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	return builder.Complete(r)
 }
 
-// reconcileRayTlsScriptsConfigMap watch ray-tls-scripts configmap in the controller namespace
+// reconcileRayTlsScriptsConfigMap watch ray-tls-scripts configmap in the cluster
 // and it will create/update/delete ray-tls-scripts configmap in the namespace where multinode ServingRuntime created
-func (r *KServeRayTlsReconciler) reconcileRayTlsScriptsConfigMap(ctx context.Context, log logr.Logger, ctrlNs string, targetNs string, noMultinodeSRExistInNs bool) error {
+func (r *KServeRayTlsReconciler) reconcileRayTlsScriptsConfigMap(ctx context.Context, log logr.Logger, ctrlNs string, targetNs string, noMultiNodeSrExistInNs bool) error {
 	// When original configmap is updated, it does not need to reconcile
 	if ctrlNs == targetNs {
 		return nil
 	}
 
-	log.Info("Reconciling Ray TLS scripts ConfigMap", "name", constants.RayTlsScriptConfigMapName, "namespace", targetNs)
+	log.Info("Reconciling Ray TLS Scripts ConfigMap", "name", constants.RayTlsScriptConfigMapName, "namespace", targetNs)
 	srcConfigMap := &corev1.ConfigMap{}
 	err := r.client.Get(ctx, types.NamespacedName{Name: constants.RayTlsScriptConfigMapName, Namespace: ctrlNs}, srcConfigMap)
 	if err != nil {
@@ -184,10 +173,9 @@ func (r *KServeRayTlsReconciler) reconcileRayTlsScriptsConfigMap(ctx context.Con
 	}
 
 	// Process Delta
-	if err = r.processDeltaConfigMap(ctx, log, desiredConfigMapResource, existingConfigMapResource, noMultinodeSRExistInNs); err != nil {
+	if err = r.processDeltaConfigMap(ctx, log, desiredConfigMapResource, existingConfigMapResource, noMultiNodeSrExistInNs); err != nil {
 		return err
 	}
-
 	return nil
 }
 
@@ -206,14 +194,13 @@ func (r *KServeRayTlsReconciler) createDesiredConfigMapResource(destNs string, s
 		},
 		Data: srcConfigmap.Data,
 	}
-
 	return desiredConfigMap, nil
 }
 
-func (r *KServeRayTlsReconciler) processDeltaConfigMap(ctx context.Context, log logr.Logger, desiredConfigMapResource *corev1.ConfigMap, existingConfigMapResource *corev1.ConfigMap, noMultinodeSRExistInNs bool) (err error) {
+func (r *KServeRayTlsReconciler) processDeltaConfigMap(ctx context.Context, log logr.Logger, desiredConfigMapResource *corev1.ConfigMap, existingConfigMapResource *corev1.ConfigMap, noMultiNodeSrExistInNs bool) (err error) {
 	hasChanged := false
 
-	if shouldAddRayConfigMap(existingConfigMapResource, noMultinodeSRExistInNs) {
+	if shouldAddRayConfigMap(existingConfigMapResource, noMultiNodeSrExistInNs) {
 		hasChanged = true
 		log.V(1).Info("Delta found", "create", desiredConfigMapResource.GetName(), "namespace", desiredConfigMapResource.Namespace)
 		if err = r.client.Create(ctx, desiredConfigMapResource); err != nil {
@@ -231,7 +218,7 @@ func (r *KServeRayTlsReconciler) processDeltaConfigMap(ctx context.Context, log 
 		}
 	}
 
-	if shouldDeleteRayConfigMap(existingConfigMapResource, noMultinodeSRExistInNs) {
+	if shouldDeleteRayConfigMap(existingConfigMapResource, noMultiNodeSrExistInNs) {
 		hasChanged = true
 		log.V(1).Info("Delta found", "remove", existingConfigMapResource.GetName(), "namespace", existingConfigMapResource.Namespace)
 		if err = r.client.Delete(ctx, existingConfigMapResource); err != nil {
@@ -239,27 +226,26 @@ func (r *KServeRayTlsReconciler) processDeltaConfigMap(ctx context.Context, log 
 		}
 	}
 
-	if !hasChanged && !noMultinodeSRExistInNs {
+	if !hasChanged && !noMultiNodeSrExistInNs {
 		log.V(1).Info("No delta found", "name", desiredConfigMapResource.GetName(), "namespace", desiredConfigMapResource.Namespace)
-		return nil
 	}
 
 	return nil
 }
 
-func shouldAddRayConfigMap(existingConfigMap *corev1.ConfigMap, noMultinodeSRExistInNs bool) bool {
-	return !noMultinodeSRExistInNs && utils.IsNil(existingConfigMap)
+func shouldAddRayConfigMap(existingConfigMap *corev1.ConfigMap, noMultiNodeSrExistInNs bool) bool {
+	return !noMultiNodeSrExistInNs && utils.IsNil(existingConfigMap)
 }
 func isUpdatedRayConfigMap(desiredConfigMap *corev1.ConfigMap, existingConfigMap *corev1.ConfigMap) bool {
 	return utils.IsNotNil(existingConfigMap) && !reflect.DeepEqual(desiredConfigMap.Data, existingConfigMap.Data)
 }
-func shouldDeleteRayConfigMap(existingConfigMap *corev1.ConfigMap, noMultinodeSRExistInNs bool) bool {
-	return utils.IsNotNil(existingConfigMap) && noMultinodeSRExistInNs
+func shouldDeleteRayConfigMap(existingConfigMap *corev1.ConfigMap, noMultiNodeSrExistInNs bool) bool {
+	return utils.IsNotNil(existingConfigMap) && noMultiNodeSrExistInNs
 }
 
-// reconcileRayCACertSecret watch ray-ca-cert secret in the controller namespaces
+// reconcileRayCACertSecret watch ray-ca-cert secret in the cluster
 // and it will create/update/delete ray-ca-cert secret in the namespace where multinode ServingRuntime created
-func (r *KServeRayTlsReconciler) reconcileRayCACertSecret(ctx context.Context, log logr.Logger, ctrlNs string, targetNs string, noMultinodeSRExistInNs bool) error {
+func (r *KServeRayTlsReconciler) reconcileRayCACertSecret(ctx context.Context, log logr.Logger, ctrlNs string, targetNs string, noMultiNodeSrExistInNs bool) error {
 	// When original secret is updated, it does not need to reconcile
 	if ctrlNs == targetNs {
 		return nil
@@ -289,7 +275,7 @@ func (r *KServeRayTlsReconciler) reconcileRayCACertSecret(ctx context.Context, l
 	}
 
 	// Process Delta
-	if err = r.processDeltaSecret(ctx, log, desiredSecretResource, existingSecretResource, noMultinodeSRExistInNs); err != nil {
+	if err = r.processDeltaSecret(ctx, log, desiredSecretResource, existingSecretResource, noMultiNodeSrExistInNs); err != nil {
 		return err
 	}
 	return nil
@@ -311,14 +297,13 @@ func (r *KServeRayTlsReconciler) createDesiredSecretResource(destNs string, sour
 		Data: sourceSecret.Data,
 		Type: sourceSecret.Type,
 	}
-
 	return desiredSecret, nil
 }
 
-func (r *KServeRayTlsReconciler) processDeltaSecret(ctx context.Context, log logr.Logger, desiredSecretResource *corev1.Secret, existingSecretResource *corev1.Secret, noMultinodeSRExistInNs bool) (err error) {
+func (r *KServeRayTlsReconciler) processDeltaSecret(ctx context.Context, log logr.Logger, desiredSecretResource *corev1.Secret, existingSecretResource *corev1.Secret, noMultiNodeSrExistInNs bool) (err error) {
 	hasChanged := false
 
-	if shouldAddRaySecret(existingSecretResource, noMultinodeSRExistInNs) {
+	if shouldAddRaySecret(existingSecretResource, noMultiNodeSrExistInNs) {
 		hasChanged = true
 		log.V(1).Info("Delta found", "create", desiredSecretResource.GetName(), "namespace", desiredSecretResource.Namespace)
 		if err = r.client.Create(ctx, desiredSecretResource); err != nil {
@@ -336,28 +321,27 @@ func (r *KServeRayTlsReconciler) processDeltaSecret(ctx context.Context, log log
 		}
 	}
 
-	if shouldDeletedRaySecret(existingSecretResource, noMultinodeSRExistInNs) {
+	if shouldDeletedRaySecret(existingSecretResource, noMultiNodeSrExistInNs) {
 		hasChanged = true
 		log.V(1).Info("Delta found", "remove", existingSecretResource.GetName(), "namespace", existingSecretResource.Namespace)
 		if err = r.client.Delete(ctx, existingSecretResource); err != nil {
 			return err
 		}
 	}
-	if !hasChanged && !noMultinodeSRExistInNs {
+	if !hasChanged && !noMultiNodeSrExistInNs {
 		log.V(1).Info("No delta found", "name", desiredSecretResource.GetName(), "namespace", desiredSecretResource.Namespace)
-		return nil
 	}
 	return nil
 }
 
-func shouldAddRaySecret(existingSecret *corev1.Secret, noMultinodeSRExistInNs bool) bool {
-	return !noMultinodeSRExistInNs && utils.IsNil(existingSecret)
+func shouldAddRaySecret(existingSecret *corev1.Secret, noMultiNodeSrExistInNs bool) bool {
+	return !noMultiNodeSrExistInNs && utils.IsNil(existingSecret)
 }
 func isUpdatedRaySecret(desiredSecret *corev1.Secret, existingSecret *corev1.Secret) bool {
 	return utils.IsNotNil(existingSecret) && !reflect.DeepEqual(desiredSecret.Data, existingSecret.Data)
 }
-func shouldDeletedRaySecret(existingSecret *corev1.Secret, noMultinodeSRExistInNs bool) bool {
-	return utils.IsNotNil(existingSecret) && noMultinodeSRExistInNs
+func shouldDeletedRaySecret(existingSecret *corev1.Secret, noMultiNodeSrExistInNs bool) bool {
+	return utils.IsNotNil(existingSecret) && noMultiNodeSrExistInNs
 }
 
 func (r *KServeRayTlsReconciler) cleanupRayResourcesByKind(ctx context.Context, log logr.Logger, targetNs string, kind string) error {
@@ -403,14 +387,18 @@ func (r *KServeRayTlsReconciler) cleanupRayResourcesByKind(ctx context.Context, 
 	return nil
 }
 
-// Determine if ServingRuntime matches specific conditions
-// TO-DO upstream Kserve 0.15 will have a new API WorkerSpec
-// So for now, it will check servingRuntime name, but after we move to 0.15, it needs to check workerSpec is specified or not.(RHOAIENG-16147)
 func existMultiNodeServingRuntimeInNs(targetNs string, srList kservev1alpha1.ServingRuntimeList) bool {
 	for _, sr := range srList.Items {
-		if sr.Namespace == targetNs && sr.Name == "vllm-multinode-runtime" {
-			return true
+		if sr.Namespace == targetNs {
+			return isMultiNodeServingRuntime(sr)
 		}
 	}
 	return false
+}
+
+// Determine if ServingRuntime matches specific conditions
+// TO-DO upstream Kserve 0.15 will have a new API WorkerSpec
+// So for now, it will check servingRuntime name, but after we move to 0.15, it needs to check workerSpec is specified or not.(RHOAIENG-16147)
+func isMultiNodeServingRuntime(servingRuntime kservev1alpha1.ServingRuntime) bool {
+	return servingRuntime.Name == "vllm-multinode-runtime"
 }
