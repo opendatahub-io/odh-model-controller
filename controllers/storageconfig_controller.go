@@ -104,19 +104,18 @@ func (r *StorageSecretReconciler) reconcileSecret(secret *corev1.Secret,
 	odhCustomCertData := ""
 	odhGlobalCertConfigMap := &corev1.ConfigMap{}
 	err = r.Get(ctx, types.NamespacedName{
-		Name:      constants.ODHGlobalCertConfigMapName,
+		Name:      constants.KServeCACertConfigMapName,
 		Namespace: secret.Namespace,
 	}, odhGlobalCertConfigMap)
 
 	if err != nil {
 		if apierrs.IsNotFound(err) {
 			log.Info("unable to fetch the ODH Global Cert ConfigMap", "error", err)
-
 		} else {
 			return err
 		}
 	} else {
-		odhCustomCertData = odhGlobalCertConfigMap.Data[constants.ODHCustomCACertFileName]
+		odhCustomCertData = odhGlobalCertConfigMap.Data[constants.KServeCACertFileName]
 	}
 
 	// Generate desire Storage Config Secret

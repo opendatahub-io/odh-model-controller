@@ -21,12 +21,13 @@ import (
 	"fmt"
 	"github.com/kserve/kserve/pkg/apis/serving/v1alpha1"
 	kserveconstants "github.com/kserve/kserve/pkg/constants"
-	"github.com/opendatahub-io/odh-model-controller/controllers/constants"
 	"io"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/runtime"
 	"net/http"
+	"sigs.k8s.io/controller-runtime/pkg/client/apiutil"
 	"strings"
 	"time"
 )
@@ -288,9 +289,9 @@ func getModelData(runtime NimRuntime, tokenResp *NimTokenResponse) (*NimModel, s
 }
 
 // GetNimServingRuntimeTemplate returns the Template used by ODH for creating serving runtimes
-func GetNimServingRuntimeTemplate() *v1alpha1.ServingRuntime {
+func GetNimServingRuntimeTemplate(scheme *runtime.Scheme) (*v1alpha1.ServingRuntime, error) {
 	multiModel := false
-	return &v1alpha1.ServingRuntime{
+	sr := &v1alpha1.ServingRuntime{
 		ObjectMeta: metav1.ObjectMeta{
 			Annotations: map[string]string{
 				"opendatahub.io/recommended-accelerators": "[\"nvidia.com/gpu\"]",
@@ -355,7 +356,7 @@ func GetNimServingRuntimeTemplate() *v1alpha1.ServingRuntime {
 				},
 				ImagePullSecrets: []corev1.LocalObjectReference{
 					{
-						Name: constants.NimPullSecretName,
+						Name: "ngc-secret",
 					},
 				},
 				Volumes: []corev1.Volume{
@@ -374,6 +375,15 @@ func GetNimServingRuntimeTemplate() *v1alpha1.ServingRuntime {
 				kserveconstants.ProtocolGRPCV2,
 				kserveconstants.ProtocolV2,
 			},
+			SupportedModelFormats: []v1alpha1.SupportedModelFormat{{Name: "replace-me"}},
 		},
 	}
+
+	gvk, err := apiutil.GVKForObject(sr, scheme)
+	if err != nil {
+		return nil, err
+	}
+	sr.SetGroupVersionKind(gvk)
+
+	return sr, nil
 }

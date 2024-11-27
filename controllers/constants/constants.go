@@ -75,7 +75,7 @@ const (
 // NIM
 const (
 	NimApplyConfigFieldManager = "nim-account-controller"
-	NimDataConfigMapName       = "nvidia-nim-data"
+	NimDataConfigMapName       = "nvidia-nim-images-data"
 	NimRuntimeTemplateName     = "nvidia-nim-serving-template"
 	NimPullSecretName          = "nvidia-nim-image-pull"
 )
