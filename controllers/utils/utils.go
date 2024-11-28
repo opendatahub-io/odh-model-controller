@@ -4,14 +4,15 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"github.com/go-logr/logr"
-	kservev1alpha1 "github.com/kserve/kserve/pkg/apis/serving/v1alpha1"
-	"github.com/pkg/errors"
-	"k8s.io/apimachinery/pkg/types"
 	"os"
 	"reflect"
 	"sort"
 	"strings"
+
+	"github.com/go-logr/logr"
+	kservev1alpha1 "github.com/kserve/kserve/pkg/apis/serving/v1alpha1"
+	"github.com/pkg/errors"
+	"k8s.io/apimachinery/pkg/types"
 
 	kservev1beta1 "github.com/kserve/kserve/pkg/apis/serving/v1beta1"
 	"github.com/kuadrant/authorino/pkg/log"
@@ -37,6 +38,8 @@ var (
 	ModelMesh     IsvcDeploymentMode = "ModelMesh"
 
 	gvResourcesCache map[string]*metav1.APIResourceList
+
+	_appNamespace *string
 )
 
 const (
@@ -267,6 +270,10 @@ func VerifyIfMeshAuthorizationIsEnabled(ctx context.Context, cli client.Client) 
 // GetApplicationNamespace returns the namespace where the application components are installed.
 // defaults to: RHOAI - redhat-ods-applications, ODH: opendatahub
 func GetApplicationNamespace(ctx context.Context, cli client.Client) (string, error) {
+	if _appNamespace != nil {
+		return *_appNamespace, nil
+	}
+
 	podNamespace := os.Getenv("POD_NAMESPACE")
 	objectList, err := getDSCIObject(ctx, cli)
 	if err != nil {
@@ -280,6 +287,7 @@ func GetApplicationNamespace(ctx context.Context, cli client.Client) (string, er
 			podNamespace = ns
 		}
 	}
+	_appNamespace = &podNamespace
 	return podNamespace, nil
 }
 
