@@ -75,8 +75,8 @@ func (is *IsvcValidator) Handle(ctx context.Context, req admission.Request) admi
 	for _, ns := range protectedNamespaces {
 		if isvc.Namespace == ns {
 			log.V(1).Info("Namespace is protected, the InferenceService will not be created")
-			return admission.Denied(fmt.Sprintf("Namespace %s is protected, the InferenceService %s "+
-				"will not be created", isvc.Namespace, isvc.Name))
+			return admission.Denied(fmt.Sprintf("The InferenceService %s "+
+				"cannot be created in protected namespace %s.", isvc.Name, isvc.Namespace))
 		}
 	}
 	log.Info("Namespace is not protected")
