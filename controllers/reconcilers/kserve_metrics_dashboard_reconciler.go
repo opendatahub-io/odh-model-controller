@@ -92,7 +92,6 @@ func (r *KserveMetricsDashboardReconciler) Reconcile(ctx context.Context, log lo
 func (r *KserveMetricsDashboardReconciler) createDesiredResource(ctx context.Context, log logr.Logger, isvc *kservev1beta1.InferenceService) (*corev1.ConfigMap, error) {
 
 	var err error
-	var servingRuntime string
 	runtime := &kservev1alpha1.ServingRuntime{}
 	supported := false
 
@@ -128,24 +127,8 @@ func (r *KserveMetricsDashboardReconciler) createDesiredResource(ctx context.Con
 		supported = false
 	}
 
-	servingRuntimeImage := runtime.Spec.Containers[0].Image
-	re := regexp.MustCompile(`/([^/@]+)[@:]`)
-	findImageName := re.FindStringSubmatch(servingRuntimeImage)
-	// sanity check for regex match, will fall back to a known string that will lead to a configmap for unsupported metrics
-	if len(findImageName) < 2 {
-		servingRuntime = constants.ServingRuntimeFallBackImageName
-	} else {
-		servingRuntime = findImageName[1]
-	}
-
-	runtimeMetricsData := map[string]string{
-		constants.OvmsImageName:   constants.OvmsMetricsData,
-		constants.TgisImageName:   constants.TgisMetricsData,
-		constants.VllmImageName:   constants.VllmMetricsData,
-		constants.CaikitImageName: constants.CaikitMetricsData,
-	}
 	// supported is true only when a match on this map is found, is false otherwise
-	data, supported := runtimeMetricsData[servingRuntime]
+	data, supported := getMetricsData(runtime)
 	configMap, err := r.createConfigMap(isvc, supported, log)
 	if err != nil {
 		return nil, err
@@ -219,4 +202,31 @@ func (r *KserveMetricsDashboardReconciler) processDelta(ctx context.Context, log
 		}
 	}
 	return nil
+}
+
+func getMetricsData(runtime *kservev1alpha1.ServingRuntime) (string, bool) {
+	if runtime.Annotations[utils.IsNimRuntimeAnnotation] == "true" {
+		return constants.NIMMetricsData, true
+	}
+
+	var servingRuntime string
+	servingRuntimeImage := runtime.Spec.Containers[0].Image
+	re := regexp.MustCompile(`/([^/@]+)[@:]`)
+	findImageName := re.FindStringSubmatch(servingRuntimeImage)
+	// sanity check for regex match, will fall back to a known string that will lead to a configmap for unsupported metrics
+	if len(findImageName) < 2 {
+		servingRuntime = constants.ServingRuntimeFallBackImageName
+	} else {
+		servingRuntime = findImageName[1]
+	}
+
+	runtimeMetricsData := map[string]string{
+		constants.OvmsImageName:   constants.OvmsMetricsData,
+		constants.TgisImageName:   constants.TgisMetricsData,
+		constants.VllmImageName:   constants.VllmMetricsData,
+		constants.CaikitImageName: constants.CaikitMetricsData,
+	}
+	// supported is true only when a match on this map is found, is false otherwise
+	data, supported := runtimeMetricsData[servingRuntime]
+	return data, supported
 }

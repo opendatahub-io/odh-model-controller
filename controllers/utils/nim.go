@@ -91,6 +91,7 @@ const (
 	nimGetNgcCatalog         = "https://api.ngc.nvidia.com/v2/search/catalog/resources/CONTAINER"
 	nimGetNgcToken           = "https://authn.nvidia.com/token?service=ngc&"
 	nimGetNgcModelDataFmt    = "https://api.ngc.nvidia.com/v2/org/%s/team/%s/repos/%s?resolve-labels=true"
+	IsNimRuntimeAnnotation   = "openshift.io/nvidia-nim-runtime"
 )
 
 var NimHttpClient HttpClient
@@ -296,6 +297,7 @@ func GetNimServingRuntimeTemplate(scheme *runtime.Scheme) (*v1alpha1.ServingRunt
 			Annotations: map[string]string{
 				"opendatahub.io/recommended-accelerators": "[\"nvidia.com/gpu\"]",
 				"openshift.io/display-name":               "NVIDIA NIM",
+				IsNimRuntimeAnnotation:                    "true",
 			},
 			Labels: map[string]string{
 				"opendatahub.io/dashboard": "true",
@@ -304,6 +306,10 @@ func GetNimServingRuntimeTemplate(scheme *runtime.Scheme) (*v1alpha1.ServingRunt
 		},
 		Spec: v1alpha1.ServingRuntimeSpec{
 			ServingRuntimePodSpec: v1alpha1.ServingRuntimePodSpec{
+				Annotations: map[string]string{
+					"prometheus.io/path": "/metrics",
+					"prometheus.io/port": "8000",
+				},
 				Containers: []corev1.Container{
 					{Env: []corev1.EnvVar{
 						{

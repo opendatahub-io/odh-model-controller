@@ -223,4 +223,54 @@ const (
 			}
 		]
     }`
+
+	// NVIDIA NIM
+	NIMMetricsData = `{
+        "config": [
+			{
+				"title": "Requests per 5 minutes",
+				"type": "REQUEST_COUNT",
+				"queries": [
+					{
+						"title": "Number of successful incoming requests",
+						"query": "round(sum(increase(request_success_total{namespace='${NAMESPACE}', pod=~'${MODEL_NAME}-predictor-.*'}[${REQUEST_RATE_INTERVAL}])))"
+					},
+					{
+						"title": "Number of failed incoming requests",
+						"query": "round(sum(increase(request_failure_total{namespace='${NAMESPACE}', pod=~'${MODEL_NAME}-predictor-.*'}[${REQUEST_RATE_INTERVAL}])))"
+					}
+				]
+			},
+{
+				"title": "Average response time (ms)",
+				"type": "MEAN_LATENCY",
+				"queries": [
+					{
+						"title": "Average e2e latency",
+						"query": "sum by (model_name) (rate(e2e_request_latency_seconds_sum{namespace='${NAMESPACE}', pod=~'${MODEL_NAME}-predictor-.*'}[${RATE_INTERVAL}]) * 1000) / sum by (model_name) (rate(e2e_request_latency_seconds_count{namespace='${NAMESPACE}', pod=~'${MODEL_NAME}-predictor-.*'}[${RATE_INTERVAL}]) * 1000)"
+					}
+				]
+			},
+			{
+				"title": "CPU utilization %",
+				"type": "CPU_USAGE",
+				"queries": [
+					{
+						"title": "CPU usage",
+						"query":  "sum(pod:container_cpu_usage:sum{namespace='${NAMESPACE}', pod=~'${MODEL_NAME}-predictor-.*'})/sum(kube_pod_resource_limit{resource='cpu', pod=~'${MODEL_NAME}-predictor-.*', namespace='${NAMESPACE}'})"
+					}
+				]
+			},
+			{
+				"title": "Memory utilization %",
+				"type": "MEMORY_USAGE",
+				"queries": [
+					{
+						"title": "Memory usage",
+						"query":  "sum(container_memory_working_set_bytes{namespace='${NAMESPACE}', pod=~'${MODEL_NAME}-predictor-.*'})/sum(kube_pod_resource_limit{resource='memory', pod=~'${MODEL_NAME}-predictor-.*', namespace='${NAMESPACE}'})"
+					}
+				]
+			}
+		]
+    }`
 )
