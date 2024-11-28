@@ -22,7 +22,6 @@ import (
 	"os"
 	"strconv"
 
-	"github.com/opendatahub-io/odh-model-controller/controllers/webhook"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/client-go/kubernetes"
@@ -30,12 +29,15 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/builder"
 	"sigs.k8s.io/controller-runtime/pkg/cache"
 	"sigs.k8s.io/controller-runtime/pkg/metrics/server"
+	"sigs.k8s.io/controller-runtime/pkg/webhook/admission"
 
 	// to ensure that exec-entrypoint and run can make use of them.
 	// Import all Kubernetes client auth plugins (e.g. Azure, GCP, OIDC, etc.)
-
 	_ "k8s.io/client-go/plugin/pkg/client/auth"
 
+	"github.com/opendatahub-io/odh-model-controller/controllers"
+	"github.com/opendatahub-io/odh-model-controller/controllers/utils"
+	"github.com/opendatahub-io/odh-model-controller/controllers/webhook"
 	"istio.io/client-go/pkg/apis/security/v1beta1"
 	"k8s.io/apimachinery/pkg/runtime"
 	ctrl "sigs.k8s.io/controller-runtime"
@@ -43,10 +45,9 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/healthz"
 	"sigs.k8s.io/controller-runtime/pkg/log/zap"
 
-	"github.com/opendatahub-io/odh-model-controller/controllers"
-	"github.com/opendatahub-io/odh-model-controller/controllers/utils"
-
 	nimv1 "github.com/opendatahub-io/odh-model-controller/api/nim/v1"
+
+	sigwebhook "sigs.k8s.io/controller-runtime/pkg/webhook"
 	//+kubebuilder:scaffold:imports
 )
 
@@ -225,6 +226,14 @@ func main() {
 	} else {
 		setupLog.Info("Skipping setup of Knative Service validating/mutating Webhook, because KServe Serverless setup seems to be disabled in the DataScienceCluster resource.")
 	}
+
+	hookServer := mgr.GetWebhookServer()
+	isvcWebhook := &sigwebhook.Admission{
+		Handler: &webhook.IsvcValidator{
+			Client:  mgr.GetClient(),
+			Decoder: admission.NewDecoder(mgr.GetScheme()),
+		}}
+	hookServer.Register("/validate-isvc-odh-service", isvcWebhook)
 
 	kclient, kcErr := kubernetes.NewForConfig(cfg)
 	if kcErr != nil {

@@ -63,7 +63,6 @@ var _ = Describe("The KServe Dashboard reconciler", func() {
 		if err := cli.Create(ctx, inferenceServiceConfig); err != nil && !errors.IsAlreadyExists(err) {
 			Fail(err.Error())
 		}
-
 	})
 
 	When("deploying a Kserve model", func() {

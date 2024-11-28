@@ -183,7 +183,7 @@ var _ = Describe("StorageConfig controller", func() {
 			expectedUpdatedStorageConfigSecret := &corev1.Secret{}
 			err = convertToStructuredResource(storageconfigUpdatedCertEncodedPath, expectedUpdatedStorageConfigSecret)
 			Expect(err).NotTo(HaveOccurred())
-			
+
 			Expect(compareSecrets(updatedStorageconfigSecret, expectedUpdatedStorageConfigSecret)).Should((BeTrue()))
 		})
 	})
