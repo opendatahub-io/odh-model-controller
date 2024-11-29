@@ -2,7 +2,7 @@ name: Check ODH Model Controller Image Tag
 
 on:
   pull_request:
-    branches: [main, release*]
+    branches: [incubating, main]
     paths:
       - "config/base/params.env"
 
@@ -23,13 +23,15 @@ jobs:
       - name: Compare image tags
         id: compare-tags
         run: |
-          if [ "${{ github.base_ref }}" == "main" ]; then
+          if [ "${{ github.base_ref }}" == "incubating" ]; then
             EXPECTED_TAG="fast"
-          elif [[ "${{ github.base_ref }}" =~ ^release-(.*) ]]; then
-            VERSION=${BASH_REMATCH[1]}
-            EXPECTED_TAG="v$VERSION"
+          elif [[ "${{ github.base_ref }}" == "main" ]]; then
+            EXPECTED_TAG="stable"
+          elif [[ "${GITHUB_REF}" == refs/tags/odh-v* ]]; then
+            TAG="${GITHUB_REF#refs/tags/}"
+            echo "EXPECTED_TAG=${TAG}" >> $GITHUB_ENV
           else
-            echo "Unknown destination branch: ${{ github.base_ref }}"
+            echo "Unknown destination branch: ${{ github.base_ref }} or tag: ${GITHUB_REF}"
             exit 1
           fi
 
