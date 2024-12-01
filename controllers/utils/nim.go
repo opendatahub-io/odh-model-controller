@@ -91,7 +91,7 @@ const (
 	nimGetNgcCatalog         = "https://api.ngc.nvidia.com/v2/search/catalog/resources/CONTAINER"
 	nimGetNgcToken           = "https://authn.nvidia.com/token?service=ngc&"
 	nimGetNgcModelDataFmt    = "https://api.ngc.nvidia.com/v2/org/%s/team/%s/repos/%s?resolve-labels=true"
-	IsNimRuntimeAnnotation   = "openshift.io/nvidia-nim-runtime"
+	IsNimRuntimeAnnotation   = "runtimes.opendatahub.io/nvidia-nim"
 )
 
 var NimHttpClient HttpClient
