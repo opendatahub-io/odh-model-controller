@@ -9,6 +9,7 @@ import (
 	. "github.com/onsi/gomega"
 	"github.com/opendatahub-io/odh-model-controller/controllers/constants"
 	routev1 "github.com/openshift/api/route/v1"
+	v1 "github.com/prometheus-operator/prometheus-operator/pkg/apis/monitoring/v1"
 	corev1 "k8s.io/api/core/v1"
 	rbacv1 "k8s.io/api/rbac/v1"
 	apierrs "k8s.io/apimachinery/pkg/api/errors"
@@ -74,6 +75,26 @@ var _ = Describe("The KServe Raw reconciler", func() {
 				key := types.NamespacedName{Name: inferenceService.Name, Namespace: inferenceService.Namespace}
 				return cli.Get(ctx, key, route)
 			}, timeout, interval).Should(HaveOccurred())
+		})
+		It("it should create a metrics service and servicemonitor auth", func() {
+			_ = createServingRuntime(testNs, KserveServingRuntimePath1)
+			inferenceService := createInferenceService(testNs, KserveOvmsInferenceServiceName, KserveInferenceServicePath1)
+			if err := cli.Create(ctx, inferenceService); err != nil && !apierrs.IsAlreadyExists(err) {
+				Expect(err).NotTo(HaveOccurred())
+			}
+			metricsService := &corev1.Service{}
+			Eventually(func() error {
+				key := types.NamespacedName{Name: inferenceService.Name + "-metrics", Namespace: inferenceService.Namespace}
+				return cli.Get(ctx, key, metricsService)
+			}, timeout, interval).Should(Succeed())
+
+			serviceMonitor := &v1.ServiceMonitor{}
+			Eventually(func() error {
+				key := types.NamespacedName{Name: inferenceService.Name + "-metrics", Namespace: inferenceService.Namespace}
+				return cli.Get(ctx, key, serviceMonitor)
+			}, timeout, interval).Should(Succeed())
+
+			Expect(serviceMonitor.Spec.Selector.MatchLabels).To(HaveKeyWithValue("name", inferenceService.Name+"-metrics"))
 		})
 		It("it should create a custom rolebinding if isvc has a SA defined", func() {
 			serviceAccountName := "custom-sa"
@@ -163,6 +184,27 @@ var _ = Describe("The KServe Raw reconciler", func() {
 			Eventually(func() error {
 				key := types.NamespacedName{Name: inferenceService.Name, Namespace: inferenceService.Namespace}
 				return cli.Get(ctx, key, route)
+			}, timeout, interval).Should(HaveOccurred())
+		})
+		It("the associated metrics service and servicemonitor should be deleted", func() {
+			_ = createServingRuntime(testNs, KserveServingRuntimePath1)
+			inferenceService := createInferenceService(testNs, KserveOvmsInferenceServiceName, KserveInferenceServicePath1)
+			if err := cli.Create(ctx, inferenceService); err != nil && !apierrs.IsAlreadyExists(err) {
+				Expect(err).NotTo(HaveOccurred())
+			}
+
+			Expect(cli.Delete(ctx, inferenceService)).Should(Succeed())
+
+			metricsService := &corev1.Service{}
+			Eventually(func() error {
+				key := types.NamespacedName{Name: inferenceService.Name, Namespace: inferenceService.Namespace}
+				return cli.Get(ctx, key, metricsService)
+			}, timeout, interval).Should(HaveOccurred())
+
+			serviceMonitor := &v1.ServiceMonitor{}
+			Eventually(func() error {
+				key := types.NamespacedName{Name: inferenceService.Name, Namespace: inferenceService.Namespace}
+				return cli.Get(ctx, key, serviceMonitor)
 			}, timeout, interval).Should(HaveOccurred())
 		})
 	})
