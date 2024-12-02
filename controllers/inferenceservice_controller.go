@@ -217,5 +217,8 @@ func (r *OpenshiftInferenceServiceReconciler) DeleteResourcesIfNoIsvcExists(ctx 
 	if err := r.mmISVCReconciler.DeleteModelMeshResourcesIfNoMMIsvcExists(ctx, log, namespace); err != nil {
 		return err
 	}
+	if err := r.kserveRawISVCReconciler.CleanupNamespaceIfNoKserveIsvcExists(ctx, log, namespace); err != nil {
+		return err
+	}
 	return nil
 }
