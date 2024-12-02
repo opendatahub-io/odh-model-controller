@@ -53,8 +53,8 @@ var _ = Describe("The KServe Raw reconciler", func() {
 
 	})
 
-	When("deploying a Kserve RawDeployment model with route disabled", func() {
-		It("it should create a clusterrolebinding for auth but not create a route", func() {
+	When("deploying a Kserve RawDeployment model", func() {
+		It("it should create a clusterrolebinding for auth", func() {
 			_ = createServingRuntime(testNs, KserveServingRuntimePath1)
 			inferenceService := createInferenceService(testNs, KserveOvmsInferenceServiceName, KserveInferenceServicePath1)
 			if err := cli.Create(ctx, inferenceService); err != nil && !apierrs.IsAlreadyExists(err) {
@@ -67,6 +67,23 @@ var _ = Describe("The KServe Raw reconciler", func() {
 					Namespace: inferenceService.Namespace}
 				return cli.Get(ctx, key, crb)
 			}, timeout, interval).ShouldNot(HaveOccurred())
+
+			route := &routev1.Route{}
+			Eventually(func() error {
+				key := types.NamespacedName{Name: inferenceService.Name, Namespace: inferenceService.Namespace}
+				return cli.Get(ctx, key, route)
+			}, timeout, interval).Should(HaveOccurred())
+		})
+	})
+	When("deleting a Kserve RawDeployment model", func() {
+		It("the associated route should be deleted", func() {
+			_ = createServingRuntime(testNs, KserveServingRuntimePath1)
+			inferenceService := createInferenceService(testNs, KserveOvmsInferenceServiceName, KserveInferenceServicePath1)
+			if err := cli.Create(ctx, inferenceService); err != nil && !apierrs.IsAlreadyExists(err) {
+				Expect(err).NotTo(HaveOccurred())
+			}
+
+			Expect(cli.Delete(ctx, inferenceService)).Should(Succeed())
 
 			route := &routev1.Route{}
 			Eventually(func() error {
@@ -99,12 +116,6 @@ var _ = Describe("The KServe Raw reconciler", func() {
 					return errors.New("crb deletion not detected")
 				}
 			}, timeout, interval).ShouldNot(HaveOccurred())
-			//Eventually(func() error {
-			//	crb := &rbacv1.ClusterRoleBinding{}
-			//	key := types.NamespacedName{Name: testNs + "-" + constants.KserveServiceAccountName + "-auth-delegator", Namespace: testNs}
-			//	err := cli.Get(ctx, key, crb)
-			//	return err
-			//}, timeout, interval).ShouldNot(Succeed())
 		})
 	})
 })

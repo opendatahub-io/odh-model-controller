@@ -52,7 +52,7 @@ func NewKserveRawRouteReconciler(client client.Client) *KserveRawRouteReconciler
 }
 
 func (r *KserveRawRouteReconciler) Reconcile(ctx context.Context, log logr.Logger, isvc *kservev1beta1.InferenceService) error {
-	log.V(1).Info("Reconciling Generic Route for Kserve InferenceService")
+	log.V(1).Info("Reconciling Generic Route for Kserve Raw InferenceService")
 
 	// Create Desired resource
 	desiredResource, err := r.createDesiredResource(ctx, log, isvc)
@@ -74,8 +74,8 @@ func (r *KserveRawRouteReconciler) Reconcile(ctx context.Context, log logr.Logge
 }
 
 func (r *KserveRawRouteReconciler) Delete(ctx context.Context, log logr.Logger, isvc *kservev1beta1.InferenceService) error {
-	log.V(1).Info("Deleting Kserve inference service generic route")
-	return r.routeHandler.DeleteRoute(ctx, types.NamespacedName{Name: isvc.Name, Namespace: isvc.Namespace})
+	// No OP as route will be deleted by the ownerref
+	return nil
 }
 
 func (r *KserveRawRouteReconciler) Cleanup(_ context.Context, _ logr.Logger, _ string) error {
@@ -109,20 +109,27 @@ func (r *KserveRawRouteReconciler) createDesiredResource(ctx context.Context, lo
 	}
 	var targetServiceName string
 	var servicePort int32
+	var targetService corev1.Service
 	for _, service := range serviceList.Items {
-		if val, ok := service.Labels["component"]; ok && val == "predictor" {
-			targetServiceName = service.Name
-			var desiredPort string
-			if !enableAuth {
-				desiredPort = "http"
-			} else {
-				desiredPort = "https"
+		if val, ok := service.Labels["component"]; ok {
+			if val == "transformer" {
+				targetService = service
+				break
 			}
-			for _, port := range service.Spec.Ports {
-				if port.Name == desiredPort {
-					servicePort = port.Port
-				}
+			if val == "predictor" {
+				targetService = service
 			}
+		}
+	}
+	var desiredPort string
+	if !enableAuth {
+		desiredPort = "http"
+	} else {
+		desiredPort = "https"
+	}
+	for _, port := range targetService.Spec.Ports {
+		if port.Name == desiredPort {
+			servicePort = port.Port
 		}
 	}
 

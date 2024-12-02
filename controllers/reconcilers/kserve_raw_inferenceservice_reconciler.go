@@ -82,7 +82,7 @@ func (r *KserveRawInferenceServiceReconciler) CleanupNamespaceIfNoKserveIsvcExis
 		}
 	}
 
-	// If there are no Kserve InferenceServices in the namespace, delete namespace-scoped resources needed for Kserve Metrics
+	// If there are no Kserve Raw InferenceServices in the namespace, delete namespace-scoped resources needed for Kserve Raw
 	var cleanupErrors *multierror.Error
 	if len(inferenceServiceList.Items) == 0 {
 		for _, reconciler := range r.subResourceReconcilers {
