@@ -342,7 +342,7 @@ func SetAvailableResourcesForApi(groupVersion string, resources *metav1.APIResou
 func FindSupportingRuntimeForISvc(ctx context.Context, cli client.Client, log logr.Logger, isvc *kservev1beta1.InferenceService) (*kservev1alpha1.ServingRuntime, error) {
 	desiredServingRuntime := &kservev1alpha1.ServingRuntime{}
 
-	if isvc.Spec.Predictor.Model.Runtime != nil {
+	if isvc.Spec.Predictor.Model != nil && isvc.Spec.Predictor.Model.Runtime != nil {
 		err := cli.Get(ctx, types.NamespacedName{
 			Name:      *isvc.Spec.Predictor.Model.Runtime,
 			Namespace: isvc.Namespace,
