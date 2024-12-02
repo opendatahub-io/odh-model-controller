@@ -41,7 +41,7 @@ spec:
         - name: RAY_TLS_SERVER_KEY
           value: '/etc/ray/tls/tls.key'
         - name: RAY_TLS_CA_CERT
-          value: '/etc/ca/tls/ca.crt'
+          value: '/etc/ca/tls/tls.crt'
         - name: RAY_PORT
           value: '6379'
         - name: RAY_ADDRESS
@@ -179,7 +179,7 @@ spec:
     # The gencert_ray.sh can be prebaked into the docker container so the configMap is optional
     - name: gen-tls-script
       configMap:
-        name: ray-tls-scripts
+        name: ray-tls-script
         defaultMode: 0777
         # An array of keys from the ConfigMap to create as files
         items:
@@ -227,7 +227,7 @@ spec:
           - name: RAY_TLS_SERVER_KEY
             value: '/etc/ray/tls/tls.key'
           - name: RAY_TLS_CA_CERT
-            value: '/etc/ca/tls/ca.crt'
+            value: '/etc/ca/tls/tls.crt'
           - name: POD_NAME
             valueFrom:
               fieldRef:
@@ -312,7 +312,7 @@ spec:
       # The gencert_ray.sh can be prebaked into the docker container so the configMap is optional
       - name: gen-tls-script
         configMap:
-          name: ray-tls-scripts
+          name: ray-tls-script
           defaultMode: 0777
           # An array of keys from the ConfigMap to create as files
           items:

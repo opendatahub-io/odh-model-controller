@@ -1,12 +1,11 @@
 apiVersion: v1
 kind: ConfigMap
 metadata:
-  name: ray-tls-scripts
+  name: ray-tls-script
   labels:
     opendatahub.io/managed: 'true'
 data:
   gencert_ray.sh: |
-    UPDATED
     #!/bin/sh
     ## Create tls.key
     openssl genrsa -out /etc/ray/tls/tls.key 2048
@@ -64,7 +63,7 @@ data:
     ## Generate tls.cert
     openssl x509 -req \
         -in /etc/ray/tls/ca.csr \
-        -CA /etc/ca/tls/ca.crt -CAkey /etc/ca/tls/ca.key \
+        -CA /etc/ca/tls/tls.crt -CAkey /etc/ca/tls/tls.key \
         -CAserial /tmp/ca.srl  -out /etc/ray/tls/tls.crt \
         -days 36500 \
         -sha256 -extfile /etc/ray/tls/cert.conf

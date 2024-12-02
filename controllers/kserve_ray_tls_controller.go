@@ -40,8 +40,8 @@ func NewKServeRayTlsReconciler(client client.Client, log logr.Logger) *KServeRay
 // - On deletion: The ray-tls-script ConfigMap and ray-ca-cert Secret are deleted only when multinode ServingRuntimes are deleted from the target namespace.
 
 // ConfigMap:
-// - When the original ConfigMap is updated in the control namespace: The ray-tls-scripts ConfigMap is deleted and recreated in the namespace where multinode ServingRuntimes exist.
-// - When the ConfigMap is deleted in the target namespace: The ray-tls-scripts ConfigMap will be recreated.
+// - When the original ConfigMap is updated in the control namespace: The ray-tls-script ConfigMap is deleted and recreated in the namespace where multinode ServingRuntimes exist.
+// - When the ConfigMap is deleted in the target namespace: The ray-tls-script ConfigMap will be recreated.
 
 // Secret:
 // - When the original Secret is updated in the control namespace: The ray-ca-cert Secret is deleted and recreated in the namespace where multinode ServingRuntimes exist.
@@ -49,6 +49,19 @@ func NewKServeRayTlsReconciler(client client.Client, log logr.Logger) *KServeRay
 func (r *KServeRayTlsReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
 	log := r.log
 	controllerNs := os.Getenv("POD_NAMESPACE")
+
+	srcSecret := &corev1.Secret{}
+	err := r.client.Get(ctx, types.NamespacedName{Name: constants.RayCASecretName, Namespace: controllerNs}, srcSecret)
+	if err != nil {
+		if apierrs.IsNotFound(err) {
+			createErr := utils.CreateSelfSignedCertificate(ctx, r.client, constants.RayCASecretName, "Ray Self Signed Certs", controllerNs)
+			if createErr != nil {
+				return ctrl.Result{}, createErr
+			}
+		} else {
+			return ctrl.Result{}, err
+		}
+	}
 	var servingRuntimeList kservev1alpha1.ServingRuntimeList
 	if err := r.client.List(ctx, &servingRuntimeList); err != nil {
 		return ctrl.Result{}, err
@@ -69,9 +82,9 @@ func (r *KServeRayTlsReconciler) Reconcile(ctx context.Context, req ctrl.Request
 		if err := r.reconcileRayTlsScriptsConfigMap(ctx, log, controllerNs, req.Namespace, noMultiNodeSrExistInNs); err != nil {
 			return ctrl.Result{}, err
 		}
-	} else if req.Name == constants.RayCATlsSecretName {
+	} else if req.Name == constants.RayCASecretName {
 		if req.Namespace == controllerNs {
-			log.Info("Original Ray CA Cert Secret is updated", "name", constants.RayCATlsSecretName, "namespace", req.Namespace)
+			log.Info("Original Ray CA Cert Secret is updated", "name", constants.RayCASecretName, "namespace", req.Namespace)
 			for _, sr := range servingRuntimeList.Items {
 				if isMultiNodeServingRuntime(sr) {
 					if err := r.cleanupRayResourcesByKind(ctx, log, sr.Namespace, "Secret"); err != nil {
@@ -80,7 +93,7 @@ func (r *KServeRayTlsReconciler) Reconcile(ctx context.Context, req ctrl.Request
 				}
 			}
 		}
-		if err := r.reconcileRayCACertSecret(ctx, log, controllerNs, req.Namespace, noMultiNodeSrExistInNs); err != nil {
+		if err := r.reconcileRayCACertSecret(ctx, log, srcSecret, controllerNs, req.Namespace, noMultiNodeSrExistInNs); err != nil {
 			return ctrl.Result{}, err
 		}
 	} else {
@@ -88,7 +101,7 @@ func (r *KServeRayTlsReconciler) Reconcile(ctx context.Context, req ctrl.Request
 		if err != nil {
 			return ctrl.Result{}, err
 		}
-		err = r.reconcileRayCACertSecret(ctx, log, controllerNs, req.Namespace, !existMultiNodeServingRuntimeInNs(req.Namespace, servingRuntimeList))
+		err = r.reconcileRayCACertSecret(ctx, log, srcSecret, controllerNs, req.Namespace, !existMultiNodeServingRuntimeInNs(req.Namespace, servingRuntimeList))
 		if err != nil {
 			return ctrl.Result{}, err
 		}
@@ -97,10 +110,10 @@ func (r *KServeRayTlsReconciler) Reconcile(ctx context.Context, req ctrl.Request
 }
 
 func checkRayTLSResource(objectName string) bool {
-	return objectName == constants.RayCATlsSecretName || objectName == constants.RayTlsScriptConfigMapName
+	return objectName == constants.RayCASecretName || objectName == constants.RayTlsScriptConfigMapName
 }
 
-// reconcileRayTLSResource filters out ConfigMaps and Secrets that do not match the predefined constants: RayCATlsSecretName or RayTlsScriptConfigMapName.
+// reconcileRayTLSResource filters out ConfigMaps and Secrets that do not match the predefined constants: RayCASecretName or RayTlsScriptConfigMapName.
 // This ensures that only the relevant ConfigMaps and Secrets for Ray TLS configuration are captured and processed for the servingRuntime.
 func reconcileRayTLSResource() predicate.Predicate {
 	return predicate.Funcs{
@@ -140,8 +153,8 @@ func (r *KServeRayTlsReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	return builder.Complete(r)
 }
 
-// reconcileRayTlsScriptsConfigMap watch ray-tls-scripts configmap in the cluster
-// and it will create/update/delete ray-tls-scripts configmap in the namespace where multinode ServingRuntime created
+// reconcileRayTlsScriptsConfigMap watch ray-tls-script configmap in the cluster
+// and it will create/update/delete ray-tls-script configmap in the namespace where multinode ServingRuntime created
 func (r *KServeRayTlsReconciler) reconcileRayTlsScriptsConfigMap(ctx context.Context, log logr.Logger, ctrlNs string, targetNs string, noMultiNodeSrExistInNs bool) error {
 	// When original configmap is updated, it does not need to reconcile
 	if ctrlNs == targetNs {
@@ -245,18 +258,13 @@ func shouldDeleteRayConfigMap(existingConfigMap *corev1.ConfigMap, noMultiNodeSr
 
 // reconcileRayCACertSecret watch ray-ca-cert secret in the cluster
 // and it will create/update/delete ray-ca-cert secret in the namespace where multinode ServingRuntime created
-func (r *KServeRayTlsReconciler) reconcileRayCACertSecret(ctx context.Context, log logr.Logger, ctrlNs string, targetNs string, noMultiNodeSrExistInNs bool) error {
+func (r *KServeRayTlsReconciler) reconcileRayCACertSecret(ctx context.Context, log logr.Logger, srcSecret *corev1.Secret, ctrlNs string, targetNs string, noMultiNodeSrExistInNs bool) error {
 	// When original secret is updated, it does not need to reconcile
 	if ctrlNs == targetNs {
 		return nil
 	}
-	log.Info("Reconciling Ray CA Cert Secret", "name", constants.RayCATlsSecretName, "namespace", targetNs)
-	srcSecret := &corev1.Secret{}
-	err := r.client.Get(ctx, types.NamespacedName{Name: constants.RayCATlsSecretName, Namespace: ctrlNs}, srcSecret)
-	if err != nil {
-		return err
-	}
 
+	log.Info("Reconciling Ray CA Cert Secret", "name", constants.RayCASecretName, "namespace", targetNs)
 	// Create Desired resource
 	desiredSecretResource, err := r.createDesiredSecretResource(targetNs, srcSecret)
 	if err != nil {
@@ -265,7 +273,7 @@ func (r *KServeRayTlsReconciler) reconcileRayCACertSecret(ctx context.Context, l
 
 	// Get Existing resource
 	existingSecretResource := &corev1.Secret{}
-	err = r.client.Get(ctx, types.NamespacedName{Name: constants.RayCATlsSecretName, Namespace: targetNs}, existingSecretResource)
+	err = r.client.Get(ctx, types.NamespacedName{Name: constants.RayCASecretName, Namespace: targetNs}, existingSecretResource)
 	if err != nil {
 		if apierrs.IsNotFound(err) {
 			existingSecretResource = nil
@@ -368,17 +376,17 @@ func (r *KServeRayTlsReconciler) cleanupRayResourcesByKind(ctx context.Context, 
 	if kind == "Secret" {
 		secret := &corev1.Secret{}
 		err := r.client.Get(ctx, types.NamespacedName{
-			Name:      constants.RayCATlsSecretName,
+			Name:      constants.RayCASecretName,
 			Namespace: targetNs,
 		}, secret)
 		if err != nil {
 			if apierrs.IsNotFound(err) {
-				log.Info("Secret not found, skipping", "name", constants.RayCATlsSecretName, "namespace", targetNs)
+				log.Info("Secret not found, skipping", "name", constants.RayCASecretName, "namespace", targetNs)
 			}
 			return err
 		}
 
-		log.Info("Deleting Secret", "name", constants.RayCATlsSecretName, "namespace", targetNs)
+		log.Info("Deleting Secret", "name", constants.RayCASecretName, "namespace", targetNs)
 		err = r.client.Delete(ctx, secret)
 		if err != nil {
 			return err

@@ -82,6 +82,6 @@ const (
 
 // Ray
 const (
-	RayCATlsSecretName        = "ray-ca-cert"
-	RayTlsScriptConfigMapName = "ray-tls-scripts"
+	RayCASecretName           = "ray-ca-cert"
+	RayTlsScriptConfigMapName = "ray-tls-script"
 )
