@@ -22,6 +22,7 @@ import (
 	kservev1alpha1 "github.com/kserve/kserve/pkg/apis/serving/v1alpha1"
 	kservev1beta1 "github.com/kserve/kserve/pkg/apis/serving/v1beta1"
 	authorinov1beta2 "github.com/kuadrant/authorino/api/v1beta2"
+	"github.com/opendatahub-io/odh-model-controller/controllers/constants"
 	"github.com/opendatahub-io/odh-model-controller/controllers/reconcilers"
 	"github.com/opendatahub-io/odh-model-controller/controllers/utils"
 	routev1 "github.com/openshift/api/route/v1"
@@ -96,13 +97,13 @@ func (r *OpenshiftInferenceServiceReconciler) Reconcile(ctx context.Context, req
 		return ctrl.Result{}, err
 	}
 	switch IsvcDeploymentMode {
-	case utils.ModelMesh:
+	case constants.ModelMesh:
 		log.Info("Reconciling InferenceService for ModelMesh")
 		err = r.mmISVCReconciler.Reconcile(ctx, log, isvc)
-	case utils.Serverless:
+	case constants.Serverless:
 		log.Info("Reconciling InferenceService for Kserve in mode Serverless")
 		err = r.kserveServerlessISVCReconciler.Reconcile(ctx, log, isvc)
-	case utils.RawDeployment:
+	case constants.RawDeployment:
 		log.Info("Reconciling InferenceService for Kserve in mode RawDeployment")
 		err = r.kserveRawISVCReconciler.Reconcile(ctx, log, isvc)
 	}
@@ -203,9 +204,13 @@ func (r *OpenshiftInferenceServiceReconciler) onDeletion(ctx context.Context, lo
 	if err != nil {
 		log.V(1).Error(err, "Could not determine deployment mode for ISVC. Some resources related to the inferenceservice might not be deleted.")
 	}
-	if IsvcDeploymentMode == utils.Serverless {
+	if IsvcDeploymentMode == constants.Serverless {
 		log.V(1).Info("Deleting kserve inference resource (Serverless Mode)")
 		return r.kserveServerlessISVCReconciler.OnDeletionOfKserveInferenceService(ctx, log, inferenceService)
+	}
+	if IsvcDeploymentMode == constants.RawDeployment {
+		log.V(1).Info("Deleting kserve inference resource (RawDeployment Mode)")
+		return r.kserveRawISVCReconciler.OnDeletionOfKserveInferenceService(ctx, log, inferenceService)
 	}
 	return nil
 }

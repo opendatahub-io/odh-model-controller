@@ -77,7 +77,7 @@ func (r *KserveRawInferenceServiceReconciler) CleanupNamespaceIfNoKserveIsvcExis
 		if err != nil {
 			return err
 		}
-		if isvcDeploymentMode != utils.RawDeployment {
+		if isvcDeploymentMode != constants.RawDeployment {
 			inferenceServiceList.Items = append(inferenceServiceList.Items[:i], inferenceServiceList.Items[i+1:]...)
 		}
 	}

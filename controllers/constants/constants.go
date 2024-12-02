@@ -15,6 +15,8 @@ limitations under the License.
 
 package constants
 
+type IsvcDeploymentMode string
+
 const (
 	InferenceServiceKind = "InferenceService"
 
@@ -37,6 +39,13 @@ const (
 
 	ModelMeshServiceAccountName = "modelmesh-serving-sa"
 	KserveServiceAccountName    = "default"
+)
+
+// isvc modes
+var (
+	Serverless    IsvcDeploymentMode = "Serverless"
+	RawDeployment IsvcDeploymentMode = "RawDeployment"
+	ModelMesh     IsvcDeploymentMode = "ModelMesh"
 )
 
 // model registry

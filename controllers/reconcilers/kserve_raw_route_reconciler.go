@@ -107,7 +107,6 @@ func (r *KserveRawRouteReconciler) createDesiredResource(ctx context.Context, lo
 		log.Error(err, "Failed to fetch service for InferenceService", "InferenceService", isvc.Name)
 		return nil, err
 	}
-	var targetServiceName string
 	var servicePort int32
 	var targetService corev1.Service
 	for _, service := range serviceList.Items {
@@ -144,7 +143,7 @@ func (r *KserveRawRouteReconciler) createDesiredResource(ctx context.Context, lo
 		Spec: v1.RouteSpec{
 			To: v1.RouteTargetReference{
 				Kind:   "Service",
-				Name:   targetServiceName,
+				Name:   targetService.Name,
 				Weight: pointer.Int32(100),
 			},
 			Port: &v1.RoutePort{
