@@ -151,6 +151,9 @@ func (r *KserveRawRouteReconciler) createDesiredResource(ctx context.Context, lo
 			},
 			WildcardPolicy: v1.WildcardPolicyNone,
 		},
+		Status: v1.RouteStatus{
+			Ingress: []v1.RouteIngress{},
+		},
 	}
 
 	if enableAuth {
