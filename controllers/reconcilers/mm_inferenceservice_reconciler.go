@@ -40,7 +40,7 @@ func NewModelMeshInferenceServiceReconciler(client client.Client) *ModelMeshInfe
 		subResourceReconcilers: []SubResourceReconciler{
 			NewModelMeshRouteReconciler(client),
 			NewServiceAccountReconciler(client, constants.ModelMeshServiceAccountName),
-			NewClusterRoleBindingReconciler(client, constants.ModelMeshServiceAccountName),
+			NewModelMeshClusterRoleBindingReconciler(client),
 		},
 	}
 }

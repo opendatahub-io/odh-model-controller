@@ -37,7 +37,7 @@ type KserveRawInferenceServiceReconciler struct {
 func NewKServeRawInferenceServiceReconciler(client client.Client) *KserveRawInferenceServiceReconciler {
 
 	subResourceReconciler := []SubResourceReconciler{
-		NewClusterRoleBindingReconciler(client, constants.KserveServiceAccountName),
+		NewKserveRawClusterRoleBindingReconciler(client),
 		NewKserveRawRouteReconciler(client),
 	}
 

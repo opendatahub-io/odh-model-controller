@@ -15,7 +15,6 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/intstr"
-	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
 var _ = Describe("The KServe Raw reconciler", func() {
@@ -56,7 +55,7 @@ var _ = Describe("The KServe Raw reconciler", func() {
 	})
 
 	When("deploying a Kserve RawDeployment model", func() {
-		It("it should create a clusterrolebinding for auth", func() {
+		It("it should create a default clusterrolebinding for auth", func() {
 			_ = createServingRuntime(testNs, KserveServingRuntimePath1)
 			inferenceService := createInferenceService(testNs, KserveOvmsInferenceServiceName, KserveInferenceServicePath1)
 			if err := cli.Create(ctx, inferenceService); err != nil && !apierrs.IsAlreadyExists(err) {
@@ -76,6 +75,22 @@ var _ = Describe("The KServe Raw reconciler", func() {
 				return cli.Get(ctx, key, route)
 			}, timeout, interval).Should(HaveOccurred())
 		})
+		It("it should create a custom rolebinding if isvc has a SA defined", func() {
+			serviceAccountName := "custom-sa"
+			_ = createServingRuntime(testNs, KserveServingRuntimePath1)
+			inferenceService := createInferenceService(testNs, KserveOvmsInferenceServiceName, KserveInferenceServicePath1)
+			inferenceService.Spec.Predictor.ServiceAccountName = serviceAccountName
+			if err := cli.Create(ctx, inferenceService); err != nil && !apierrs.IsAlreadyExists(err) {
+				Expect(err).NotTo(HaveOccurred())
+			}
+
+			crb := &rbacv1.ClusterRoleBinding{}
+			Eventually(func() error {
+				key := types.NamespacedName{Name: inferenceService.Namespace + "-" + serviceAccountName + "-auth-delegator",
+					Namespace: inferenceService.Namespace}
+				return cli.Get(ctx, key, crb)
+			}, timeout, interval).ShouldNot(HaveOccurred())
+		})
 		It("it should create a route if isvc has the label to expose route", func() {
 			_ = createServingRuntime(testNs, KserveServingRuntimePath1)
 			inferenceService := createInferenceService(testNs, KserveOvmsInferenceServiceName, KserveInferenceServicePath1)
@@ -84,11 +99,10 @@ var _ = Describe("The KServe Raw reconciler", func() {
 			if err := cli.Create(ctx, inferenceService); err != nil && !apierrs.IsAlreadyExists(err) {
 				Expect(err).NotTo(HaveOccurred())
 			}
-
 			isvcService := &corev1.Service{
 				ObjectMeta: metav1.ObjectMeta{
 					Name:      KserveOvmsInferenceServiceName + "-predictor",
-					Namespace: testNs,
+					Namespace: inferenceService.Namespace,
 					Annotations: map[string]string{
 						"openshift.io/display-name":        KserveOvmsInferenceServiceName,
 						"serving.kserve.io/deploymentMode": "RawDeployment",
@@ -116,7 +130,6 @@ var _ = Describe("The KServe Raw reconciler", func() {
 					},
 				},
 			}
-
 			if err := cli.Create(ctx, isvcService); err != nil && !apierrs.IsAlreadyExists(err) {
 				Expect(err).NotTo(HaveOccurred())
 			}
@@ -125,7 +138,6 @@ var _ = Describe("The KServe Raw reconciler", func() {
 				key := types.NamespacedName{Name: isvcService.Name, Namespace: isvcService.Namespace}
 				return cli.Get(ctx, key, service)
 			}, timeout, interval).Should(Succeed())
-
 			route := &routev1.Route{}
 			Eventually(func() error {
 				key := types.NamespacedName{Name: inferenceService.Name, Namespace: inferenceService.Namespace}
@@ -151,19 +163,13 @@ var _ = Describe("The KServe Raw reconciler", func() {
 		})
 	})
 	When("namespace no longer has any RawDeployment models", func() {
-		It("should delete the clusterrolebinding", func() {
+		It("should delete the default clusterrolebinding", func() {
 			_ = createServingRuntime(testNs, KserveServingRuntimePath1)
 			inferenceService := createInferenceService(testNs, KserveOvmsInferenceServiceName, KserveInferenceServicePath1)
 			if err := cli.Create(ctx, inferenceService); err != nil && !apierrs.IsAlreadyExists(err) {
 				Expect(err).NotTo(HaveOccurred())
 			}
-			inferenceServiceList := &kservev1beta1.InferenceServiceList{}
-			if err := cli.List(ctx, inferenceServiceList, client.InNamespace(testNs)); err != nil {
-				Expect(err).NotTo(HaveOccurred())
-			}
-			for _, isvc := range inferenceServiceList.Items {
-				Expect(cli.Delete(ctx, &isvc)).Should(Succeed())
-			}
+			Expect(cli.Delete(ctx, inferenceService)).Should(Succeed())
 			crb := &rbacv1.ClusterRoleBinding{}
 			Eventually(func() error {
 				namespacedNamed := types.NamespacedName{Name: testNs + "-" + constants.KserveServiceAccountName + "-auth-delegator", Namespace: WorkingNamespace}
