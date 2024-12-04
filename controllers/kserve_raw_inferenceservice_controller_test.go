@@ -92,13 +92,11 @@ var _ = Describe("The KServe Raw reconciler", func() {
 			}, timeout, interval).ShouldNot(HaveOccurred())
 		})
 		It("it should create a route if isvc has the label to expose route", func() {
-			_ = createServingRuntime(testNs, KserveServingRuntimePath1)
 			inferenceService := createInferenceService(testNs, KserveOvmsInferenceServiceName, KserveInferenceServicePath1)
 			inferenceService.Labels = map[string]string{}
 			inferenceService.Labels[constants.KserveNetworkVisibility] = constants.LabelEnableKserveRawRoute
-			if err := cli.Create(ctx, inferenceService); err != nil && !apierrs.IsAlreadyExists(err) {
-				Expect(err).NotTo(HaveOccurred())
-			}
+			// The service is manually created before the isvc otherwise the unit test risks running into a race condition
+			// where the reconcile loop finishes before the service is created, leading to no route being created.
 			isvcService := &corev1.Service{
 				ObjectMeta: metav1.ObjectMeta{
 					Name:      KserveOvmsInferenceServiceName + "-predictor",
@@ -138,6 +136,12 @@ var _ = Describe("The KServe Raw reconciler", func() {
 				key := types.NamespacedName{Name: isvcService.Name, Namespace: isvcService.Namespace}
 				return cli.Get(ctx, key, service)
 			}, timeout, interval).Should(Succeed())
+
+			_ = createServingRuntime(testNs, KserveServingRuntimePath1)
+			if err := cli.Create(ctx, inferenceService); err != nil && !apierrs.IsAlreadyExists(err) {
+				Expect(err).NotTo(HaveOccurred())
+			}
+
 			route := &routev1.Route{}
 			Eventually(func() error {
 				key := types.NamespacedName{Name: inferenceService.Name, Namespace: inferenceService.Namespace}
