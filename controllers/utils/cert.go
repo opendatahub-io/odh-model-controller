@@ -44,9 +44,9 @@ func GenerateSelfSignedCertificateAsSecret(name, addr, namespace string) (*corev
 			Namespace: namespace,
 			Labels: map[string]string{
 				"opendatahub.io/managed":       "true",
-				"app.kubernetes.io/name":       "odh-model-controller",
-				"app.kubernetes.io/component":  "kserve",
-				"app.kubernetes.io/part-of":    "odh-model-serving",
+				"app.kubernetes.io/name":       "self-signed-cert",
+				"app.kubernetes.io/component":  "odh-model-serving",
+				"app.kubernetes.io/part-of":    "kserve",
 				"app.kubernetes.io/managed-by": "odh-model-controller",
 			},
 		},
