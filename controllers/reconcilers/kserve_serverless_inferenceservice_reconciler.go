@@ -18,10 +18,10 @@ package reconcilers
 import (
 	"context"
 
-	"github.com/hashicorp/go-multierror"
-
 	"github.com/go-logr/logr"
+	"github.com/hashicorp/go-multierror"
 	kservev1beta1 "github.com/kserve/kserve/pkg/apis/serving/v1beta1"
+	constants "github.com/opendatahub-io/odh-model-controller/controllers/constants"
 	"github.com/opendatahub-io/odh-model-controller/controllers/utils"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
@@ -88,7 +88,7 @@ func (r *KserveServerlessInferenceServiceReconciler) CleanupNamespaceIfNoKserveI
 		if err != nil {
 			return err
 		}
-		if isvcDeploymentMode != utils.Serverless {
+		if isvcDeploymentMode != constants.Serverless {
 			inferenceServiceList.Items = append(inferenceServiceList.Items[:i], inferenceServiceList.Items[i+1:]...)
 		}
 	}
