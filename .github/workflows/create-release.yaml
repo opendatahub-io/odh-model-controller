@@ -65,8 +65,8 @@ jobs:
           ref: ${{ github.ref }}
               
       - name: Update params.env with new release version
-        run: |     
-          sed -i 's|:fast|:${{ github.event.inputs.tag_name }}|gm' config/base/params.env
+        run: | 
+          sed -i 's|odh-model-controller:fast|odh-model-controller:${{ github.event.inputs.tag_name }}|gm' config/base/params.env
       - name: Commit changes
         run: |
           git config --global user.email "github-actions@github.com"
