@@ -120,15 +120,16 @@ func (r *KserveRawRouteReconciler) createDesiredResource(ctx context.Context, lo
 			}
 		}
 	}
-	var desiredPort string
-	if !enableAuth {
-		desiredPort = "http"
-	} else {
-		desiredPort = "https"
-	}
+
 	for _, port := range targetService.Spec.Ports {
-		if port.Name == desiredPort {
-			servicePort = port.Port
+		if !enableAuth {
+			if port.Name == "http" || port.Name == targetService.Name {
+				servicePort = port.Port
+			}
+		} else {
+			if port.Name == "https" {
+				servicePort = port.Port
+			}
 		}
 	}
 

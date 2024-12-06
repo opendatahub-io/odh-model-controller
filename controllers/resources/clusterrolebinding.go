@@ -109,7 +109,10 @@ func (r *clusterRoleBindingHandler) ProcessDelta(ctx context.Context, log logr.L
 	if delta.IsAdded() {
 		log.V(1).Info("Delta found", "create", desiredCRB.GetName())
 		if err = r.client.Create(ctx, desiredCRB); err != nil {
-			return
+			if errors.IsAlreadyExists(err) {
+				return nil
+			}
+			return err
 		}
 	}
 	if delta.IsUpdated() {
