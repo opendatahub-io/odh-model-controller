@@ -30,13 +30,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
-type IsvcDeploymentMode string
-
 var (
-	Serverless    IsvcDeploymentMode = "Serverless"
-	RawDeployment IsvcDeploymentMode = "RawDeployment"
-	ModelMesh     IsvcDeploymentMode = "ModelMesh"
-
 	gvResourcesCache map[string]*metav1.APIResourceList
 
 	_appNamespace *string
@@ -48,18 +42,18 @@ const (
 	KServeWithServiceMeshComponent           = "kserve-service-mesh"
 )
 
-func GetDeploymentModeForIsvc(ctx context.Context, cli client.Client, isvc *kservev1beta1.InferenceService) (IsvcDeploymentMode, error) {
+func GetDeploymentModeForIsvc(ctx context.Context, cli client.Client, isvc *kservev1beta1.InferenceService) (constants.IsvcDeploymentMode, error) {
 
 	// If ISVC specifically sets deployment mode using an annotation, return bool depending on value
 	value, exists := isvc.Annotations[inferenceServiceDeploymentModeAnnotation]
 	if exists {
 		switch value {
-		case string(ModelMesh):
-			return ModelMesh, nil
-		case string(Serverless):
-			return Serverless, nil
-		case string(RawDeployment):
-			return RawDeployment, nil
+		case string(constants.ModelMesh):
+			return constants.ModelMesh, nil
+		case string(constants.Serverless):
+			return constants.Serverless, nil
+		case string(constants.RawDeployment):
+			return constants.RawDeployment, nil
 		default:
 			return "", fmt.Errorf("the deployment mode '%s' of the Inference Service is invalid", value)
 		}
@@ -80,12 +74,12 @@ func GetDeploymentModeForIsvc(ctx context.Context, cli client.Client, isvc *kser
 		}
 		defaultDeploymentMode := deployData["defaultDeploymentMode"]
 		switch defaultDeploymentMode {
-		case string(ModelMesh):
-			return ModelMesh, nil
-		case string(Serverless):
-			return Serverless, nil
-		case string(RawDeployment):
-			return RawDeployment, nil
+		case string(constants.ModelMesh):
+			return constants.ModelMesh, nil
+		case string(constants.Serverless):
+			return constants.Serverless, nil
+		case string(constants.RawDeployment):
+			return constants.RawDeployment, nil
 		default:
 			return "", fmt.Errorf("the deployment mode '%s' of the Inference Service is invalid", defaultDeploymentMode)
 		}
