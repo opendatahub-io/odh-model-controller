@@ -20,6 +20,7 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"github.com/opendatahub-io/odh-model-controller/controllers/utils"
 	"io"
 	"net/http"
@@ -40,7 +41,7 @@ func (r *NimHttpClientMock) Do(req *http.Request) (*http.Response, error) {
 		catParams := &utils.NimCatalogQuery{}
 		_ = json.Unmarshal([]byte(req.URL.Query().Get("q")), catParams)
 		if catParams.Query == "orgName:nim" {
-			f, _ := os.ReadFile("testdata/nim/ngc_catalog_response.json")
+			f, _ := os.ReadFile(fmt.Sprintf("testdata/nim/ngc_catalog_response_page_%d.json", catParams.Page))
 			return &http.Response{StatusCode: 200, Body: io.NopCloser(bytes.NewReader(f))}, nil
 		}
 	}
@@ -50,7 +51,7 @@ func (r *NimHttpClientMock) Do(req *http.Request) (*http.Response, error) {
 		if req.URL.Query().Get("account") == "$oauthtoken" && req.URL.Query().Get("offline_token") == "true" {
 			if req.URL.Query().Get("scope") == "repository:nim/microsoft/phi-3-mini-4k-instruct:pull" {
 				// repository name "nim/microsoft/phi-3-mini-4k-instruct" is the FIRST resource from the available
-				// from runtimes returned by the ngc catalog endpoint, check testdata/nim/ngc_catalog_response.json
+				// from runtimes returned by the ngc catalog endpoint, check testdata/nim/ngc_catalog_response_page_0.json
 				authHeaderParts := strings.Split(req.Header.Get("Authorization"), " ")
 				token, _ := base64.StdEncoding.DecodeString(authHeaderParts[1])
 				if authHeaderParts[0] == "Basic" && string(token) == "$oauthtoken:"+FakeApiKey {
@@ -65,7 +66,7 @@ func (r *NimHttpClientMock) Do(req *http.Request) (*http.Response, error) {
 	if req.URL.Host == "nvcr.io" && req.URL.Path == "/v2/nim/microsoft/phi-3-mini-4k-instruct/manifests/1.2.3" {
 		// repository name "nim/microsoft/phi-3-mini-4k-instruct" is the FIRST resource from the available
 		// from runtimes returned by the ngc catalog endpoint, version "1.2.3" is the latestTag attribute for the runtime
-		// check testdata/nim/ngc_catalog_response.json
+		// check testdata/nim/ngc_catalog_response_page_0.json
 		authHeaderParts := strings.Split(req.Header.Get("Authorization"), " ")
 		if authHeaderParts[0] == "Bearer" && authHeaderParts[1] == "this-is-my-fake-token-please-dont-share-it-with-anyone" {
 			// the token is returned by the nvcr.io/proxy-auth endpoint (stubbed), check testdata/nim/runtime_token_response.json
@@ -85,7 +86,7 @@ func (r *NimHttpClientMock) Do(req *http.Request) (*http.Response, error) {
 	// stub model info for the FIRST model we stub, requested by utils.GetNimModelData (nim)
 	if req.URL.Host == "api.ngc.nvidia.com" && req.URL.Path == "/v2/org/nim/team/microsoft/repos/phi-3-mini-4k-instruct" {
 		// repository name "nim/microsoft/phi-3-mini-4k-instruct" is the FIRST resource from the available
-		// from runtimes returned by the ngc catalog endpoint, check testdata/nim/ngc_catalog_response.json
+		// from runtimes returned by the ngc catalog endpoint, check testdata/nim/ngc_catalog_response_page_0.json
 		authHeaderParts := strings.Split(req.Header.Get("Authorization"), " ")
 		if authHeaderParts[0] == "Bearer" && authHeaderParts[1] == "this-is-yet-another-fake-token-of-mine-you-know-what-not-do-to" {
 			// the token is returned by the authn.nvidia.com/token endpoint (stubbed), check testdata/nim/ngc_token_response.json
@@ -97,7 +98,7 @@ func (r *NimHttpClientMock) Do(req *http.Request) (*http.Response, error) {
 	// stub model info for the SECOND model we stub, requested by utils.GetNimModelData (nim)
 	if req.URL.Host == "api.ngc.nvidia.com" && req.URL.Path == "/v2/org/nim/team/meta/repos/llama-3.1-8b-instruct" {
 		// repository name "nim/meta/llama-3.1-8b-instruct" is the SECOND resource from the available
-		// from runtimes returned by the ngc catalog endpoint, check testdata/nim/ngc_catalog_response.json
+		// from runtimes returned by the ngc catalog endpoint, check testdata/nim/ngc_catalog_response_page_1.json
 		authHeaderParts := strings.Split(req.Header.Get("Authorization"), " ")
 		if authHeaderParts[0] == "Bearer" && authHeaderParts[1] == "this-is-yet-another-fake-token-of-mine-you-know-what-not-do-to" {
 			// the token is returned by the authn.nvidia.com/token endpoint (stubbed), check testdata/nim/ngc_token_response.json

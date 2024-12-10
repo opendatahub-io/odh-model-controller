@@ -42,6 +42,10 @@ type (
 
 	// NimCatalogResponse represents the NIM catalog fetch response
 	NimCatalogResponse struct {
+		ResultPageTotal int `json:"resultPageTotal"`
+		Params          struct {
+			Page int `json:"page"`
+		} `json:"params"`
 		Results []struct {
 			GroupValue string `json:"groupValue"`
 			Resources  []struct {
@@ -102,33 +106,7 @@ func init() {
 
 // GetAvailableNimRuntimes is used for fetching a list of available NIM custom runtimes
 func GetAvailableNimRuntimes() ([]NimRuntime, error) {
-	req, reqErr := http.NewRequest("GET", nimGetNgcCatalog, nil)
-	if reqErr != nil {
-		return nil, reqErr
-	}
-
-	params, _ := json.Marshal(NimCatalogQuery{Query: "orgName:nim", Page: 0, PageSize: 100})
-	query := req.URL.Query()
-	query.Add("q", string(params))
-
-	req.URL.RawQuery = query.Encode()
-
-	resp, respErr := NimHttpClient.Do(req)
-	if respErr != nil {
-		return nil, respErr
-	}
-
-	body, bodyErr := io.ReadAll(resp.Body)
-	if bodyErr != nil {
-		return nil, bodyErr
-	}
-
-	catRes := &NimCatalogResponse{}
-	if err := json.Unmarshal(body, catRes); err != nil {
-		return nil, err
-	}
-
-	return mapNimCatalogResponseToRuntimeList(catRes), nil
+	return getNimRuntimes([]NimRuntime{}, 0, 100)
 }
 
 // ValidateApiKey is used for validating the given API key by retrieving the token and pulling the given custom runtime
@@ -171,6 +149,43 @@ func GetNimModelData(apiKey string, runtimes []NimRuntime) (map[string]string, e
 	return data, nil
 }
 
+// getNimRuntimes is used to send multiple requests to NVIDIA NIM runtimes endpoint, response pagination-based.
+// it parses the runtimes from every response and returns a list of all runtimes
+func getNimRuntimes(runtimes []NimRuntime, page, pageSize int) ([]NimRuntime, error) {
+	req, reqErr := http.NewRequest("GET", nimGetNgcCatalog, nil)
+	if reqErr != nil {
+		return runtimes, reqErr
+	}
+
+	params, _ := json.Marshal(NimCatalogQuery{Query: "orgName:nim", Page: page, PageSize: pageSize})
+	query := req.URL.Query()
+	query.Add("q", string(params))
+
+	req.URL.RawQuery = query.Encode()
+
+	resp, respErr := NimHttpClient.Do(req)
+	if respErr != nil {
+		return runtimes, respErr
+	}
+
+	body, bodyErr := io.ReadAll(resp.Body)
+	if bodyErr != nil {
+		return runtimes, bodyErr
+	}
+
+	catRes := &NimCatalogResponse{}
+	if err := json.Unmarshal(body, catRes); err != nil {
+		return runtimes, err
+	}
+
+	runtimes = append(runtimes, mapNimCatalogResponseToRuntimeList(catRes)...)
+	if catRes.Params.Page < catRes.ResultPageTotal-1 {
+		return getNimRuntimes(runtimes, page+1, pageSize)
+	}
+
+	return runtimes, nil
+}
+
 // mapNimCatalogResponseToRuntimeList is used for parsing the ngc catalog response to a list of available runtimes
 func mapNimCatalogResponseToRuntimeList(resp *NimCatalogResponse) []NimRuntime {
 	var runtimes []NimRuntime
@@ -193,6 +208,7 @@ func mapNimCatalogResponseToRuntimeList(resp *NimCatalogResponse) []NimRuntime {
 			}
 		}
 	}
+
 	return runtimes
 }
 
