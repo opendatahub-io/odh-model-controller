@@ -185,10 +185,12 @@ var _ = BeforeSuite(func() {
 	}).SetupWithManager(mgr)
 	Expect(err).ToNot(HaveOccurred())
 
-	err = (&ModelRegistryInferenceServiceReconciler{
-		client: cli,
-		log:    ctrl.Log.WithName("controllers").WithName("ModelRegistry-InferenceService-Controller"),
-	}).SetupWithManager(mgr)
+	err = (NewModelRegistryInferenceServiceReconciler(
+		cli,
+		ctrl.Log.WithName("controllers").WithName("ModelRegistry-InferenceService-Controller"),
+		false,
+		"",
+	)).SetupWithManager(mgr)
 	Expect(err).ToNot(HaveOccurred())
 
 	err = (&KServeCustomCACertReconciler{
