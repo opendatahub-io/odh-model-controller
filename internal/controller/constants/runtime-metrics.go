@@ -241,7 +241,7 @@ const (
 					}
 				]
 			},
-{
+			{
 				"title": "Average response time (ms)",
 				"type": "MEAN_LATENCY",
 				"queries": [
@@ -268,6 +268,68 @@ const (
 					{
 						"title": "Memory usage",
 						"query":  "sum(container_memory_working_set_bytes{namespace='${NAMESPACE}', pod=~'${MODEL_NAME}-predictor-.*'})/sum(kube_pod_resource_limit{resource='memory', pod=~'${MODEL_NAME}-predictor-.*', namespace='${NAMESPACE}'})"
+					}
+				]
+			},
+			{
+				"title": "GPU cache usage over time",
+				"type": "KV_CACHE",
+				"queries": [
+					{
+						"title": "GPU cache usage over time",
+						"query":  "TODO"
+					}
+				]
+			},
+			{
+				"title": "Current running, waiting, and max requests count",
+				"type": "CURRENT_REQUESTS",
+				"queries": [
+					{
+						"title": "Requests waiting",
+						"query":  "num_requests_waiting{namespace='${NAMESPACE}', pod=~'${MODEL_NAME}-predictor-.*'}"
+					},
+					{
+						"title": "Requests running",
+						"query":  "num_requests_running{namespace='${NAMESPACE}', pod=~'${MODEL_NAME}-predictor-.*'}"
+					},
+					{
+						"title": "Max requests",
+						"query":  "num_request_max{namespace='${NAMESPACE}', pod=~'${MODEL_NAME}-predictor-.*'}"
+					}
+				]
+			},
+			{
+				"title": "Tokens count",
+				"type": "TOKENS_COUNT",
+				"queries": [
+					{
+						"title": "Total prompts token",
+						"query":  "round(sum(increase(prompt_tokens_total{namespace='${NAMESPACE}', pod=~'${MODEL_NAME}-predictor-.*'}[${RATE_INTERVAL}])))"
+					},
+					{
+						"title": "Total generation token",
+						"query":  "round(sum(increase(generation_tokens_total{namespace='${NAMESPACE}', pod=~'${MODEL_NAME}-predictor-.*'}[${RATE_INTERVAL}])))"
+					}
+				]
+			},
+			{
+				"title": "Time to first token",
+				"type": "TIME_TO_FIRST_TOKEN",
+				"queries": [
+					{
+						"title": "Time to first token",
+						"query":  "rate(time_to_first_token_seconds_bucket{namespace='${NAMESPACE}', pod=~'${MODEL_NAME}-predictor-.*'}[${RATE_INTERVAL}])"
+					}
+				]
+			},
+			{
+				"title": "Time per output token",
+				"type": "TIME_PER_OUTPUT_TOKEN",
+				"queries": [
+					{
+						"title": "Time per output token",
+						"query":  "rate(time_per_output_token_seconds_bucket{namespace='${NAMESPACE}', pod=~'${MODEL_NAME}-predictor-.*'}[${RATE_INTERVAL}])"
 					}
 				]
 			}
