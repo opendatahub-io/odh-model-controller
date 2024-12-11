@@ -74,6 +74,9 @@ var _ = Describe("NIM Account Controller Test Cases", func() {
 		Expect(cli.Get(ctx, pullSecretSubject, pullSecret)).To(Succeed())
 		Expect(pullSecret.OwnerReferences[0]).To(Equal(expectedOwner))
 
+		By("Verify models info")
+		Expect(dataCmap.Data).To(HaveLen(2))
+
 		By("Cleanups")
 		apiKeySecret := &corev1.Secret{}
 		apiKeySubject := namespacedNameFromReference(&account.Spec.APIKeySecret)
