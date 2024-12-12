@@ -1,4 +1,5 @@
----
+# This file is generated automatically by `make manifests`,
+# Please, do not manually change this file.---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRole
 metadata:
