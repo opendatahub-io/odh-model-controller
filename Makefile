@@ -1,5 +1,5 @@
 # Image URL to use all building/pushing image targets
-IMG ?= controller:latest
+IMG ?= quay.io/${USER}/odh-model-controller:latest
 # ENVTEST_K8S_VERSION refers to the version of kubebuilder assets to be downloaded by envtest binary.
 ENVTEST_K8S_VERSION = 1.31.0
 
@@ -14,7 +14,8 @@ endif
 # Be aware that the target commands are only tested with Docker which is
 # scaffolded by default. However, you might want to replace it to use other
 # tools. (i.e. podman)
-CONTAINER_TOOL ?= docker
+ENGINE ?= docker # Backwards compatibility
+CONTAINER_TOOL ?= $ENGINE
 
 # Setting SHELL to bash allows bash commands to be executed by recipes.
 # Options are set to exit when a recipe line exits non-zero or a piped command fails.
@@ -45,7 +46,25 @@ help: ## Display this help.
 
 .PHONY: manifests
 manifests: controller-gen ## Generate WebhookConfiguration, ClusterRole and CustomResourceDefinition objects.
-	$(CONTROLLER_GEN) rbac:roleName=manager-role crd webhook paths="./..." output:crd:artifacts:config=config/crd/bases
+	# Any customization needed, apply to the webhook_patch.yaml file
+	$(CONTROLLER_GEN) rbac:roleName=odh-model-controller-role,headerFile="hack/manifests_boilerplate.yaml.txt" crd webhook paths="./..." output:crd:artifacts:config=config/crd/bases
+
+# TODO: Evaluate if this is still needed
+external-manifests:
+	go get github.com/kserve/modelmesh-serving
+	$(CONTROLLER_GEN) crd \
+		paths=${GOPATH}/pkg/mod/github.com/kserve/modelmesh-serving@v0.8.0/apis/serving/v1alpha1 \
+		output:crd:artifacts:config=config/crd/external
+
+	go get github.com/openshift/api
+	$(CONTROLLER_GEN) crd \
+		paths=${GOPATH}/pkg/mod/github.com/openshift/api@v3.9.0+incompatible/route/v1 \
+		output:crd:artifacts:config=config/crd/external
+# go get maistra.io/api/core/v1
+# $(CONTROLLER_GEN) crd \
+# 	paths=${GOPATH}/pkg/mod/maistra.io/api \
+# 	output:crd:artifacts:config=config/crd/external
+## https://raw.githubusercontent.com/maistra/api/maistra-2.2/manifests/maistra.io_servicemeshmembers.yaml
 
 .PHONY: generate
 generate: controller-gen ## Generate code containing DeepCopy, DeepCopyInto, and DeepCopyObject method implementations.
@@ -79,7 +98,7 @@ test-e2e: manifests generate fmt vet ## Run the e2e tests. Expected an isolated 
 		echo "No Kind cluster is running. Please start a Kind cluster before running the e2e tests."; \
 		exit 1; \
 	}
-	go test ./test/e2e/ -v -ginkgo.v
+	POD_NAMESPACE=default go test ./test/e2e/ -v -ginkgo.v
 
 .PHONY: lint
 lint: golangci-lint ## Run golangci-lint linter
@@ -102,12 +121,12 @@ run: manifests generate fmt vet ## Run a controller from your host.
 # If you wish to build the manager image targeting other platforms you can use the --platform flag.
 # (i.e. docker build --platform linux/arm64). However, you must enable docker buildKit for it.
 # More info: https://docs.docker.com/develop/develop-images/build_enhancements/
-.PHONY: docker-build
-docker-build: ## Build docker image with the manager.
-	$(CONTAINER_TOOL) build -t ${IMG} .
+.PHONY: container-build
+container-build: ## Build docker image with the manager.
+	$(CONTAINER_TOOL) build -t ${IMG} -f ./Containerfile .
 
-.PHONY: docker-push
-docker-push: ## Push docker image with the manager.
+.PHONY: container-push
+container-push: ## Push docker image with the manager.
 	$(CONTAINER_TOOL) push ${IMG}
 
 # PLATFORMS defines the target platforms for the manager image be built to provide support to multiple

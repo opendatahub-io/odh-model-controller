@@ -2,7 +2,14 @@
 // TODO(user): Add simple overview of use/purpose
 
 ## Description
-// TODO(user): An in-depth paragraph about your project and overview of use
+The controller will watch the Predictor custom resource events to
+extend the KServe modelmesh-serving controller behavior with the following
+capabilities:
+
+- Openshift ingress controller integration.
+
+It has been developed using **Golang** and
+**[Kubebuilder](https://book.kubebuilder.io/quick-start.html)**.
 
 ## Getting Started
 
