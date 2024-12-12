@@ -51,7 +51,7 @@ webhooks:
       namespace: system
       path: /validate-serving-kserve-io-v1beta1-inferenceservice
   failurePolicy: Fail
-  name: vinferenceservice-v1beta1.kb.io
+  name: validating.isvc.odh-model-controller.opendatahub.io
   rules:
   - apiGroups:
     - serving.kserve.io

@@ -61,9 +61,10 @@ var (
 	labels = map[string]string{"opendatahub.io/managed": "true"}
 )
 
-// +kubebuilder:rbac:groups=nim.opendatahub.io,resources=accounts,verbs=get;list;watch;create;update;patch;delete
-// +kubebuilder:rbac:groups=nim.opendatahub.io,resources=accounts/status,verbs=get;update;patch
+// +kubebuilder:rbac:groups=nim.opendatahub.io,resources=accounts,verbs=get;list;watch;update
+// +kubebuilder:rbac:groups=nim.opendatahub.io,resources=accounts/status,verbs=get;list;watch;update
 // +kubebuilder:rbac:groups=nim.opendatahub.io,resources=accounts/finalizers,verbs=update
+// +kubebuilder:rbac:groups=template.openshift.io,resources=templates,verbs=get;list;watch;create;update;delete
 
 func (r *AccountReconciler) SetupWithManager(mgr ctrl.Manager, ctx context.Context) error {
 	// TODO: Copied from original main.go... Should it be FromContext?

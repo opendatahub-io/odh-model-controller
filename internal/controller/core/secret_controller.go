@@ -49,8 +49,6 @@ type SecretReconciler struct {
 }
 
 // +kubebuilder:rbac:groups=core,resources=secrets,verbs=get;list;watch;create;update;patch;delete
-// +kubebuilder:rbac:groups=core,resources=secrets/status,verbs=get;update;patch
-// +kubebuilder:rbac:groups=core,resources=secrets/finalizers,verbs=update
 
 // newStorageSecret takes a list of data connection secrets and generates a single storage config secret
 // https://github.com/kserve/modelmesh-serving/blob/main/docs/predictors/setup-storage.md

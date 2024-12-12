@@ -3,13 +3,15 @@
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRole
 metadata:
-  name: manager-role
+  name: odh-model-controller-role
 rules:
 - apiGroups:
   - ""
   resources:
   - configmaps
   - secrets
+  - serviceaccounts
+  - services
   verbs:
   - create
   - delete
@@ -21,29 +23,138 @@ rules:
 - apiGroups:
   - ""
   resources:
-  - configmaps/finalizers
-  - secrets/finalizers
+  - endpoints
+  - namespaces
+  - pods
   verbs:
-  - update
-- apiGroups:
-  - ""
-  resources:
-  - configmaps/status
-  - secrets/status
-  verbs:
+  - create
   - get
+  - list
   - patch
   - update
+  - watch
 - apiGroups:
-  - nim.opendatahub.io
+  - authorino.kuadrant.io
   resources:
-  - accounts
+  - authconfigs
   verbs:
   - create
   - delete
   - get
   - list
   - patch
+  - update
+  - watch
+- apiGroups:
+  - datasciencecluster.opendatahub.io
+  resources:
+  - datascienceclusters
+  verbs:
+  - get
+  - list
+  - watch
+- apiGroups:
+  - dscinitialization.opendatahub.io
+  resources:
+  - dscinitializations
+  verbs:
+  - get
+  - list
+  - watch
+- apiGroups:
+  - extensions
+  - networking.k8s.io
+  resources:
+  - ingresses
+  verbs:
+  - get
+  - list
+  - watch
+- apiGroups:
+  - maistra.io
+  resources:
+  - servicemeshcontrolplanes
+  verbs:
+  - get
+  - list
+  - use
+  - watch
+- apiGroups:
+  - maistra.io
+  resources:
+  - servicemeshmemberrolls
+  verbs:
+  - get
+  - list
+  - watch
+- apiGroups:
+  - maistra.io
+  resources:
+  - servicemeshmembers
+  verbs:
+  - create
+  - delete
+  - get
+  - list
+  - patch
+  - update
+  - watch
+- apiGroups:
+  - monitoring.coreos.com
+  resources:
+  - podmonitors
+  - servicemonitors
+  verbs:
+  - create
+  - delete
+  - get
+  - list
+  - patch
+  - update
+  - watch
+- apiGroups:
+  - networking.istio.io
+  resources:
+  - gateways
+  verbs:
+  - get
+  - list
+  - patch
+  - update
+  - watch
+- apiGroups:
+  - networking.istio.io
+  resources:
+  - virtualservices
+  - virtualservices/finalizers
+  verbs:
+  - create
+  - delete
+  - get
+  - list
+  - patch
+  - update
+  - watch
+- apiGroups:
+  - networking.k8s.io
+  resources:
+  - networkpolicies
+  verbs:
+  - create
+  - delete
+  - get
+  - list
+  - patch
+  - update
+  - watch
+- apiGroups:
+  - nim.opendatahub.io
+  resources:
+  - accounts
+  - accounts/status
+  verbs:
+  - get
+  - list
   - update
   - watch
 - apiGroups:
@@ -53,18 +164,47 @@ rules:
   verbs:
   - update
 - apiGroups:
-  - nim.opendatahub.io
+  - rbac.authorization.k8s.io
   resources:
-  - accounts/status
+  - clusterrolebindings
+  - rolebindings
   verbs:
+  - create
+  - delete
   - get
+  - list
   - patch
   - update
+  - watch
 - apiGroups:
-  - serving.kserve.io
+  - route.openshift.io
   resources:
-  - inferenceservices
-  - servingruntimes
+  - routes
+  verbs:
+  - create
+  - delete
+  - get
+  - list
+  - patch
+  - update
+  - watch
+- apiGroups:
+  - route.openshift.io
+  resources:
+  - routes/custom-host
+  verbs:
+  - create
+- apiGroups:
+  - security.istio.io
+  resources:
+  - authorizationpolicies
+  verbs:
+  - get
+  - list
+- apiGroups:
+  - security.istio.io
+  resources:
+  - peerauthentications
   verbs:
   - create
   - delete
@@ -76,16 +216,49 @@ rules:
 - apiGroups:
   - serving.kserve.io
   resources:
+  - inferenceservices
   - inferenceservices/finalizers
+  verbs:
+  - get
+  - list
+  - update
+  - watch
+- apiGroups:
+  - serving.kserve.io
+  resources:
+  - servingruntimes
+  verbs:
+  - create
+  - get
+  - list
+  - update
+  - watch
+- apiGroups:
+  - serving.kserve.io
+  resources:
   - servingruntimes/finalizers
   verbs:
   - update
 - apiGroups:
-  - serving.kserve.io
+  - telemetry.istio.io
   resources:
-  - inferenceservices/status
-  - servingruntimes/status
+  - telemetries
   verbs:
+  - create
+  - delete
   - get
+  - list
   - patch
   - update
+  - watch
+- apiGroups:
+  - template.openshift.io
+  resources:
+  - templates
+  verbs:
+  - create
+  - delete
+  - get
+  - list
+  - update
+  - watch

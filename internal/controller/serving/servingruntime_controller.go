@@ -51,8 +51,7 @@ type ServingRuntimeReconciler struct {
 	MonitoringNS string
 }
 
-// +kubebuilder:rbac:groups=serving.kserve.io,resources=servingruntimes,verbs=get;list;watch;create;update;patch;delete
-// +kubebuilder:rbac:groups=serving.kserve.io,resources=servingruntimes/status,verbs=get;update;patch
+// +kubebuilder:rbac:groups=serving.kserve.io,resources=servingruntimes,verbs=get;list;watch;create;update
 // +kubebuilder:rbac:groups=serving.kserve.io,resources=servingruntimes/finalizers,verbs=update
 
 // RoleBindingsAreEqual checks if RoleBinding are equal, if not return false

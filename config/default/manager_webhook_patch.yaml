@@ -1,11 +1,11 @@
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: controller-manager
+  name: odh-model-controller
   namespace: system
-  labels:
-    app.kubernetes.io/name: odh-model-controller
-    app.kubernetes.io/managed-by: kustomize
+#  labels:
+#    app.kubernetes.io/name: odh-model-controller
+#    app.kubernetes.io/managed-by: kustomize
 spec:
   template:
     spec:
@@ -23,4 +23,4 @@ spec:
       - name: cert
         secret:
           defaultMode: 420
-          secretName: webhook-server-cert
+          secretName: odh-model-controller-webhook-cert

@@ -46,7 +46,7 @@ help: ## Display this help.
 
 .PHONY: manifests
 manifests: controller-gen ## Generate WebhookConfiguration, ClusterRole and CustomResourceDefinition objects.
-	# Any customization needed, apply to the webhook_patch.yaml file
+	# Any customization needed, apply to a patch in the kustomize.yaml file on webhooks
 	$(CONTROLLER_GEN) rbac:roleName=odh-model-controller-role,headerFile="hack/manifests_boilerplate.yaml.txt" crd webhook paths="./..." output:crd:artifacts:config=config/crd/bases
 
 # TODO: Evaluate if this is still needed
