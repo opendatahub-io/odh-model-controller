@@ -15,7 +15,7 @@ endif
 # scaffolded by default. However, you might want to replace it to use other
 # tools. (i.e. podman)
 ENGINE ?= docker # Backwards compatibility
-CONTAINER_TOOL ?= $ENGINE
+CONTAINER_TOOL ?= $(ENGINE)
 
 # Setting SHELL to bash allows bash commands to be executed by recipes.
 # Options are set to exit when a recipe line exits non-zero or a piped command fails.
