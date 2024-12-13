@@ -81,7 +81,7 @@ vet: ## Run go vet against code.
 .PHONY: test
 test: manifests generate fmt vet envtest ## Run tests.
 	KUBEBUILDER_ASSETS="$(shell $(ENVTEST) use $(ENVTEST_K8S_VERSION) --bin-dir $(LOCALBIN) -p path)" POD_NAMESPACE=default \
-		MESH_NAMESPACE=istio-system CONTROL_PLANE_NAME=istio-system go test $$(go list ./... | grep -v /e2e) -coverprofile cover.out
+		MESH_NAMESPACE=istio-system CONTROL_PLANE_NAME=istio-system go test $$(go list ./... | grep -v /e2e) -coverprofile cover.out -skip=".*Benchmarks$$"
 
 # TODO(user): To use a different cluster than Kind for e2e tests, modify the setup under 'tests/e2e'.
 # The default setup assumes Kind is pre-installed and builds/loads the Manager Docker image locally.
@@ -107,6 +107,23 @@ lint: golangci-lint ## Run golangci-lint linter
 .PHONY: lint-fix
 lint-fix: golangci-lint ## Run golangci-lint linter and perform fixes
 	$(GOLANGCI_LINT) run --fix
+
+##@ Benchmarks
+
+# folder to generate required docs for nim benchmarking
+BENCHMARK_NIM_DOCUMENTS = ./hack/benchmarks/documents
+
+.PHONY: benchmarks
+benchmarks: $(BENCHMARK_NIM_DOCUMENTS) ## Run benchmarks.
+	ACK_GINKGO_DEPRECATIONS=1.16.5 go test -v ./internal/... -run=".*Benchmarks$$"
+
+$(BENCHMARK_NIM_DOCUMENTS):
+	$(MAKE) nim_benchmark_documents
+
+.PHONY: nim_benchmark_documents
+nim_benchmark_documents: ## Generate documents required for NIM benchmarking.
+	go run hack/benchmarks/generate_nim_benchmark_documents.go -runtimes=1000 -size=100
+	go run hack/benchmarks/generate_nim_benchmark_documents.go -runtimes=1000 -size=1000
 
 ##@ Build
 
