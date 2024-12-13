@@ -56,7 +56,7 @@ rules:
 - apiGroups:
   - dscinitialization.opendatahub.io
   resources:
-  - d scinitializations
+  - dscinitializations
   verbs:
   - get
   - list
