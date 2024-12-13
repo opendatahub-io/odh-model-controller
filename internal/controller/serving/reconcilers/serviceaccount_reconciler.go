@@ -52,10 +52,7 @@ func NewServiceAccountReconciler(client client.Client, serviceAccountName string
 func (r *ServiceAccountReconciler) Reconcile(ctx context.Context, log logr.Logger, isvc *kservev1beta1.InferenceService) error {
 	log.V(1).Info("Reconciling ServiceAccount for InferenceService")
 	// Create Desired resource
-	desiredResource, err := r.createDesiredResource(isvc)
-	if err != nil {
-		return err
-	}
+	desiredResource := r.createDesiredResource(isvc)
 
 	// Get Existing resource
 	existingResource, err := r.getExistingResource(ctx, log, isvc)
@@ -75,14 +72,14 @@ func (r *ServiceAccountReconciler) Cleanup(ctx context.Context, log logr.Logger,
 	return r.serviceAccountHandler.DeleteServiceAccount(ctx, types.NamespacedName{Name: r.serviceAccountName, Namespace: isvcNs})
 }
 
-func (r *ServiceAccountReconciler) createDesiredResource(isvc *kservev1beta1.InferenceService) (*corev1.ServiceAccount, error) {
+func (r *ServiceAccountReconciler) createDesiredResource(isvc *kservev1beta1.InferenceService) *corev1.ServiceAccount {
 	desiredSA := &corev1.ServiceAccount{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      r.serviceAccountName,
 			Namespace: isvc.Namespace,
 		},
 	}
-	return desiredSA, nil
+	return desiredSA
 }
 
 func (r *ServiceAccountReconciler) getExistingResource(ctx context.Context, log logr.Logger, isvc *kservev1beta1.InferenceService) (*corev1.ServiceAccount, error) {

@@ -18,6 +18,7 @@ package resources
 import (
 	"context"
 	"fmt"
+
 	"github.com/go-logr/logr"
 	v1 "github.com/openshift/api/route/v1"
 	"k8s.io/apimachinery/pkg/api/errors"

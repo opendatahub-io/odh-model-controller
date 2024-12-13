@@ -120,7 +120,7 @@ var _ = Describe("Secret Controller (StorageConfig controller)", func() {
 			Expect(err).NotTo(HaveOccurred())
 			Expect(k8sClient.Create(ctx, dataconnectionStringSecret)).Should(Succeed())
 
-			storageconfigSecret := &corev1.Secret{}
+			var storageconfigSecret *corev1.Secret
 			_, err = waitForSecret(k8sClient, WorkingNamespace, constants.DefaultStorageConfig, 30, 1*time.Second)
 			Expect(err).NotTo(HaveOccurred())
 
@@ -267,8 +267,11 @@ func updateSecretLabel(cli client.Client, namespace, secretName string, labelKey
 	return nil
 }
 
-func waitForSecret(cli client.Client, namespace, secretName string, maxTries int, delay time.Duration) (*corev1.Secret, error) {
+func waitForSecret(cli client.Client, _, _ string, _ int, delay time.Duration) (*corev1.Secret, error) {
 	time.Sleep(delay)
+	namespace := WorkingNamespace
+	secretName := constants.DefaultStorageConfig
+	maxTries := 30
 
 	ctx := context.Background()
 	secret := &corev1.Secret{}

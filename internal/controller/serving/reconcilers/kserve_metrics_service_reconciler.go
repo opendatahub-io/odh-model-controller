@@ -17,18 +17,16 @@ package reconcilers
 
 import (
 	"context"
+
 	"github.com/go-logr/logr"
 	kservev1beta1 "github.com/kserve/kserve/pkg/apis/serving/v1beta1"
-	"github.com/opendatahub-io/odh-model-controller/internal/controller/comparators"
-	"github.com/opendatahub-io/odh-model-controller/internal/controller/processors"
-	"github.com/opendatahub-io/odh-model-controller/internal/controller/resources"
 	v1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
-)
 
-const (
-	inferenceServiceLabelName = "serving.kserve.io/inferenceservice"
+	"github.com/opendatahub-io/odh-model-controller/internal/controller/comparators"
+	"github.com/opendatahub-io/odh-model-controller/internal/controller/processors"
+	"github.com/opendatahub-io/odh-model-controller/internal/controller/resources"
 )
 
 var _ SubResourceReconciler = (*KserveMetricsServiceReconciler)(nil)
@@ -91,7 +89,7 @@ func (r *KserveMetricsServiceReconciler) processDelta(ctx context.Context, log l
 	if delta.IsAdded() {
 		log.V(1).Info("Delta found", "create", desiredService.GetName())
 		if err = r.client.Create(ctx, desiredService); err != nil {
-			return
+			return err
 		}
 	}
 	if delta.IsUpdated() {
@@ -102,13 +100,13 @@ func (r *KserveMetricsServiceReconciler) processDelta(ctx context.Context, log l
 		rp.Spec = desiredService.Spec
 
 		if err = r.client.Update(ctx, rp); err != nil {
-			return
+			return err
 		}
 	}
 	if delta.IsRemoved() {
 		log.V(1).Info("Delta found", "delete", existingService.GetName())
 		if err = r.client.Delete(ctx, existingService); err != nil {
-			return
+			return err
 		}
 	}
 	return nil

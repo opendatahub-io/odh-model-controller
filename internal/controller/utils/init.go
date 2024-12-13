@@ -44,7 +44,7 @@ func RegisterSchemes(s *runtime.Scheme) {
 
 	// The following are related to Service Mesh, uncomment this and other
 	// similar blocks to use with Service Mesh
-	//utilruntime.Must(virtualservicev1.AddToScheme(scheme))
+	// utilruntime.Must(virtualservicev1.AddToScheme(scheme))
 
 	// +kubebuilder:scaffold:scheme
 }

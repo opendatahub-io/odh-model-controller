@@ -11,12 +11,10 @@ import (
 
 	"github.com/go-logr/logr"
 	kservev1alpha1 "github.com/kserve/kserve/pkg/apis/serving/v1alpha1"
-	"github.com/pkg/errors"
-	"k8s.io/apimachinery/pkg/types"
-
 	kservev1beta1 "github.com/kserve/kserve/pkg/apis/serving/v1beta1"
 	"github.com/kuadrant/authorino/pkg/log"
-	"github.com/opendatahub-io/odh-model-controller/internal/controller/constants"
+	operatorv1 "github.com/openshift/api/operator/v1"
+	"github.com/pkg/errors"
 	v1beta12 "istio.io/api/security/v1beta1"
 	"istio.io/client-go/pkg/apis/security/v1beta1"
 	corev1 "k8s.io/api/core/v1"
@@ -25,9 +23,12 @@ import (
 	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
+	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/discovery"
 	"k8s.io/client-go/rest"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+
+	"github.com/opendatahub-io/odh-model-controller/internal/controller/constants"
 )
 
 var (
@@ -119,7 +120,7 @@ func VerifyIfComponentIsEnabled(ctx context.Context, cli client.Client, componen
 					componentName, objectList.Items[0], errKserve)
 			}
 
-			return (serving == "Managed" || serving == "Unmanaged") && kserve == "Managed", nil
+			return (serving == string(operatorv1.Managed) || serving == string(operatorv1.Unmanaged)) && kserve == string(operatorv1.Managed), nil
 		}
 
 		val, _, err := unstructured.NestedString(objectList.Items[0].Object, fields...)
@@ -127,7 +128,7 @@ func VerifyIfComponentIsEnabled(ctx context.Context, cli client.Client, componen
 			return false, fmt.Errorf("failed to retrieve the component [%s] status from %+v",
 				componentName, objectList.Items[0])
 		}
-		return val == "Managed", nil
+		return val == string(operatorv1.Managed), nil
 	} else {
 		return false, fmt.Errorf("there is no %s available in the cluster", GVK.DataScienceCluster.Kind)
 	}
@@ -400,16 +401,16 @@ func FindSupportingRuntimeForISvc(ctx context.Context, cli client.Client, log lo
 		})
 
 		for _, runtime := range runtimes.Items {
-			if runtime.Spec.Disabled != nil && *runtime.Spec.Disabled == true {
+			if runtime.Spec.Disabled != nil && *runtime.Spec.Disabled {
 				continue
 			}
 
-			if runtime.Spec.MultiModel != nil && *runtime.Spec.MultiModel == false {
+			if runtime.Spec.MultiModel != nil && !*runtime.Spec.MultiModel {
 				continue
 			}
 
 			for _, supportedFormat := range runtime.Spec.SupportedModelFormats {
-				if supportedFormat.AutoSelect != nil && *supportedFormat.AutoSelect == true && supportedFormat.Name == isvc.Spec.Predictor.Model.ModelFormat.Name {
+				if supportedFormat.AutoSelect != nil && *supportedFormat.AutoSelect && supportedFormat.Name == isvc.Spec.Predictor.Model.ModelFormat.Name {
 					desiredServingRuntime = &runtime
 					log.Info("Automatic runtime selection for InferenceService", "runtime", desiredServingRuntime.Name)
 					return desiredServingRuntime, nil

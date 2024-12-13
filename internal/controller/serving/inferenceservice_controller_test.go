@@ -839,10 +839,10 @@ var _ = Describe("InferenceService Controller", func() {
 					Fail(err.Error())
 				}
 
-				//// We need to stub the cluster state and indicate that Authorino is configured as authorization layer
-				//if dsciErr := createDSCI(DSCIWithAuthorization); dsciErr != nil && !k8sErrors.IsAlreadyExists(dsciErr) {
+				// // We need to stub the cluster state and indicate that Authorino is configured as authorization layer
+				// if dsciErr := createDSCI(DSCIWithAuthorization); dsciErr != nil && !k8sErrors.IsAlreadyExists(dsciErr) {
 				//	Fail(dsciErr.Error())
-				//}
+				// }
 
 				// TODO: See utils.VerifyIfMeshAuthorizationIsEnabled func
 				if authPolicyErr := createAuthorizationPolicy(KServeAuthorizationPolicy); authPolicyErr != nil && !k8sErrors.IsAlreadyExists(authPolicyErr) {
@@ -851,7 +851,7 @@ var _ = Describe("InferenceService Controller", func() {
 			})
 
 			AfterEach(func() {
-				//Expect(deleteDSCI(DSCIWithAuthorization)).To(Succeed())
+				// Expect(deleteDSCI(DSCIWithAuthorization)).To(Succeed())
 				Expect(deleteAuthorizationPolicy(KServeAuthorizationPolicy)).To(Succeed())
 			})
 
@@ -1262,7 +1262,8 @@ func enableAuth(isvc *kservev1beta1.InferenceService) error {
 	return k8sClient.Update(context.Background(), isvc)
 }
 
-func createDSCI(dsci string) error {
+func createDSCI(_ string) error {
+	dsci := DSCIWithoutAuthorization
 	obj := &unstructured.Unstructured{}
 	if err := testutils.ConvertToUnstructuredResource(dsci, obj); err != nil {
 		return err

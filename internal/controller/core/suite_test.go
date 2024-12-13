@@ -104,9 +104,9 @@ var _ = BeforeSuite(func() {
 	Expect(err).NotTo(HaveOccurred())
 	Expect(cfg).NotTo(BeNil())
 
-	//err = corev1.AddToScheme(scheme.Scheme)
+	// err = corev1.AddToScheme(scheme.Scheme)
 	utils.RegisterSchemes(scheme.Scheme)
-	//Expect(err).NotTo(HaveOccurred())
+	// Expect(err).NotTo(HaveOccurred())
 
 	// +kubebuilder:scaffold:scheme
 

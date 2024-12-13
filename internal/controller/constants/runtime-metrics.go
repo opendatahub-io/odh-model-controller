@@ -16,7 +16,7 @@ limitations under the License.
 package constants
 
 const (
-	//Caikit Standalone
+	// Caikit Standalone
 	CaikitMetricsData = `{
         "config": [
 			{
@@ -70,7 +70,7 @@ const (
 		]
     }`
 
-	//OpenVino Model Server
+	// OpenVino Model Server
 	OvmsMetricsData = `{
         "config": [
 			{
@@ -178,7 +178,7 @@ const (
 		]
     }`
 
-	//vLLM
+	// vLLM
 	VllmMetricsData = `{
         "config": [
 			{

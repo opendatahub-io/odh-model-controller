@@ -36,10 +36,7 @@ func (r *KserveServiceMeshMemberReconciler) Reconcile(ctx context.Context, log l
 	log.V(1).Info("Verifying that the namespace is enrolled to the mesh")
 
 	// Create Desired resource
-	desiredResource, err := r.createDesiredResource(ctx, isvc)
-	if err != nil {
-		return err
-	}
+	desiredResource := r.createDesiredResource(ctx, isvc)
 
 	// Get Existing resource
 	existingResource, err := r.getExistingResource(ctx, log, isvc.Namespace)
@@ -63,7 +60,7 @@ func (r *KserveServiceMeshMemberReconciler) Cleanup(ctx context.Context, log log
 	return r.processDelta(ctx, log, nil, existingSMM)
 }
 
-func (r *KserveServiceMeshMemberReconciler) createDesiredResource(ctx context.Context, isvc *kservev1beta1.InferenceService) (*v1.ServiceMeshMember, error) {
+func (r *KserveServiceMeshMemberReconciler) createDesiredResource(ctx context.Context, isvc *kservev1beta1.InferenceService) *v1.ServiceMeshMember {
 	smcpName, smcpNamespace := utils.GetIstioControlPlaneName(ctx, r.client)
 
 	return &v1.ServiceMeshMember{
@@ -84,7 +81,7 @@ func (r *KserveServiceMeshMemberReconciler) createDesiredResource(ctx context.Co
 				Namespace: smcpNamespace,
 			},
 		},
-	}, nil
+	}
 }
 
 func (r *KserveServiceMeshMemberReconciler) getExistingResource(ctx context.Context, log logr.Logger, namespace string) (*v1.ServiceMeshMember, error) {

@@ -26,7 +26,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/intstr"
-	"k8s.io/utils/pointer"
+	"k8s.io/utils/ptr"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
@@ -146,7 +146,7 @@ func (r *KserveRawRouteReconciler) createDesiredResource(ctx context.Context, lo
 			To: v1.RouteTargetReference{
 				Kind:   "Service",
 				Name:   targetService.Name,
-				Weight: pointer.Int32(100),
+				Weight: ptr.To(int32(100)),
 			},
 			Port: &v1.RoutePort{
 				TargetPort: intstr.FromInt32(servicePort),
@@ -192,7 +192,7 @@ func (r *KserveRawRouteReconciler) processDelta(ctx context.Context, log logr.Lo
 	if delta.IsAdded() {
 		log.V(1).Info("Delta found", "create", desiredRoute.GetName())
 		if err = r.client.Create(ctx, desiredRoute); err != nil {
-			return
+			return err
 		}
 	}
 	if delta.IsUpdated() {
@@ -203,13 +203,13 @@ func (r *KserveRawRouteReconciler) processDelta(ctx context.Context, log logr.Lo
 		rp.Spec = desiredRoute.Spec
 
 		if err = r.client.Update(ctx, rp); err != nil {
-			return
+			return err
 		}
 	}
 	if delta.IsRemoved() {
 		log.V(1).Info("Delta found", "delete", existingRoute.GetName())
 		if err = r.client.Delete(ctx, existingRoute); err != nil {
-			return
+			return err
 		}
 	}
 	return nil

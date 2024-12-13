@@ -23,18 +23,19 @@ import (
 	"github.com/go-logr/logr"
 	kservev1alpha1 "github.com/kserve/kserve/pkg/apis/serving/v1alpha1"
 	kservev1beta1 "github.com/kserve/kserve/pkg/apis/serving/v1beta1"
-	"github.com/opendatahub-io/odh-model-controller/internal/controller/comparators"
-	"github.com/opendatahub-io/odh-model-controller/internal/controller/constants"
-	"github.com/opendatahub-io/odh-model-controller/internal/controller/processors"
-	"github.com/opendatahub-io/odh-model-controller/internal/controller/resources"
 	v1 "github.com/openshift/api/route/v1"
 	apierrs "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/intstr"
-	"k8s.io/utils/pointer"
+	"k8s.io/utils/ptr"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+
+	"github.com/opendatahub-io/odh-model-controller/internal/controller/comparators"
+	"github.com/opendatahub-io/odh-model-controller/internal/controller/constants"
+	"github.com/opendatahub-io/odh-model-controller/internal/controller/processors"
+	"github.com/opendatahub-io/odh-model-controller/internal/controller/resources"
 )
 
 const (
@@ -115,7 +116,7 @@ func (r *ModelMeshRouteReconciler) createDesiredResource(ctx context.Context, lo
 			To: v1.RouteTargetReference{
 				Kind:   "Service",
 				Name:   modelmeshServiceName,
-				Weight: pointer.Int32(100),
+				Weight: ptr.To(int32(100)),
 			},
 			Port: &v1.RoutePort{
 				TargetPort: intstr.FromInt(modelmeshServicePort),
@@ -164,7 +165,7 @@ func (r *ModelMeshRouteReconciler) processDelta(ctx context.Context, log logr.Lo
 	if delta.IsAdded() {
 		log.V(1).Info("Delta found", "create", desiredRoute.GetName())
 		if err = r.client.Create(ctx, desiredRoute); err != nil {
-			return
+			return err
 		}
 	}
 	if delta.IsUpdated() {
@@ -175,13 +176,13 @@ func (r *ModelMeshRouteReconciler) processDelta(ctx context.Context, log logr.Lo
 		rp.Spec = desiredRoute.Spec
 
 		if err = r.client.Update(ctx, rp); err != nil {
-			return
+			return err
 		}
 	}
 	if delta.IsRemoved() {
 		log.V(1).Info("Delta found", "delete", existingRoute.GetName())
 		if err = r.client.Delete(ctx, existingRoute); err != nil {
-			return
+			return err
 		}
 	}
 	return nil
@@ -222,16 +223,16 @@ func (r *ModelMeshRouteReconciler) findSupportingRuntimeForISvc(ctx context.Cont
 		})
 
 		for _, runtime := range runtimes.Items {
-			if runtime.Spec.Disabled != nil && *runtime.Spec.Disabled == true {
+			if runtime.Spec.Disabled != nil && *runtime.Spec.Disabled {
 				continue
 			}
 
-			if runtime.Spec.MultiModel != nil && *runtime.Spec.MultiModel == false {
+			if runtime.Spec.MultiModel != nil && !*runtime.Spec.MultiModel {
 				continue
 			}
 
 			for _, supportedFormat := range runtime.Spec.SupportedModelFormats {
-				if supportedFormat.AutoSelect != nil && *supportedFormat.AutoSelect == true && supportedFormat.Name == isvc.Spec.Predictor.Model.ModelFormat.Name {
+				if supportedFormat.AutoSelect != nil && *supportedFormat.AutoSelect && supportedFormat.Name == isvc.Spec.Predictor.Model.ModelFormat.Name {
 					desiredServingRuntime = &runtime
 					log.Info("Automatic runtime selection for InferenceService", "runtime", desiredServingRuntime.Name)
 					return desiredServingRuntime, nil

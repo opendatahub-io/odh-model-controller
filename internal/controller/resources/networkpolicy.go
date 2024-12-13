@@ -18,8 +18,9 @@ package resources
 import (
 	"context"
 	"fmt"
+
 	"github.com/go-logr/logr"
-	"k8s.io/api/networking/v1"
+	v1 "k8s.io/api/networking/v1"
 	"k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"

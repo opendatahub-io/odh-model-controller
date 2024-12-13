@@ -7,13 +7,14 @@ import (
 	kservev1beta1 "github.com/kserve/kserve/pkg/apis/serving/v1beta1"
 	. "github.com/onsi/ginkgo"
 	. "github.com/onsi/gomega"
-	"github.com/opendatahub-io/odh-model-controller/internal/controller/resources"
 	"github.com/tidwall/gjson"
 	v1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"knative.dev/pkg/apis"
 	duckv1 "knative.dev/pkg/apis/duck/v1"
 	knservingv1 "knative.dev/serving/pkg/apis/serving/v1"
+
+	"github.com/opendatahub-io/odh-model-controller/internal/controller/resources"
 )
 
 var _ = When("InferenceService is ready", func() {
@@ -79,7 +80,7 @@ var _ = When("InferenceService is ready", func() {
 
 	Context("Template loading", func() {
 
-		It("should resovle UserDefined template", func() {
+		It("should resolve UserDefined template", func() {
 			typeName := types.NamespacedName{
 				Name:      "test",
 				Namespace: "test-ns",
@@ -115,8 +116,10 @@ var _ = When("InferenceService is ready", func() {
 				Namespace: "test-ns",
 			}
 
-			os.Setenv("AUTH_AUDIENCE", "http://test.com")
-			defer os.Unsetenv("AUTH_AUDIENCE")
+			_ = os.Setenv("AUTH_AUDIENCE", "http://test.com")
+			defer func() {
+				_ = os.Unsetenv("AUTH_AUDIENCE")
+			}()
 
 			ac, err := resources.NewStaticTemplateLoader().Load(
 				context.Background(),
@@ -148,8 +151,10 @@ var _ = When("InferenceService is ready", func() {
 				Namespace: "test-ns",
 			}
 
-			os.Setenv("AUTHORINO_LABEL", "opendatahub=test")
-			defer os.Unsetenv("AUTHORINO_LABEL")
+			_ = os.Setenv("AUTHORINO_LABEL", "opendatahub=test")
+			defer func() {
+				_ = os.Unsetenv("AUTHORINO_LABEL")
+			}()
 
 			ac, err := resources.NewStaticTemplateLoader().Load(
 				context.Background(),

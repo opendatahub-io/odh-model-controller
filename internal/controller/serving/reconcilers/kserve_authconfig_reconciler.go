@@ -24,14 +24,15 @@ import (
 	"github.com/go-logr/logr"
 	kservev1beta1 "github.com/kserve/kserve/pkg/apis/serving/v1beta1"
 	authorinov1beta2 "github.com/kuadrant/authorino/api/v1beta2"
-	"github.com/opendatahub-io/odh-model-controller/internal/controller/comparators"
-	"github.com/opendatahub-io/odh-model-controller/internal/controller/constants"
-	"github.com/opendatahub-io/odh-model-controller/internal/controller/processors"
-	"github.com/opendatahub-io/odh-model-controller/internal/controller/resources"
 	k8serror "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/types"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+
+	"github.com/opendatahub-io/odh-model-controller/internal/controller/comparators"
+	"github.com/opendatahub-io/odh-model-controller/internal/controller/constants"
+	"github.com/opendatahub-io/odh-model-controller/internal/controller/processors"
+	"github.com/opendatahub-io/odh-model-controller/internal/controller/resources"
 )
 
 var _ SubResourceReconciler = (*KserveAuthConfigReconciler)(nil)
@@ -127,7 +128,10 @@ func (r *KserveAuthConfigReconciler) createDesiredResource(ctx context.Context, 
 	}
 	template.Labels[constants.LabelAuthGroup] = "default"
 
-	ctrl.SetControllerReference(isvc, &template, r.client.Scheme())
+	err = ctrl.SetControllerReference(isvc, &template, r.client.Scheme())
+	if err != nil {
+		return nil, err
+	}
 
 	return &template, nil
 }

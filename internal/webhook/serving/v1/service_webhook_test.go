@@ -84,7 +84,7 @@ var _ = Describe("Knative Service Webhook", func() {
 				Fail("Error waiting for SMMR to be deleted: " + getErr.Error())
 			}
 		} else {
-			k8sClient.Delete(ctx, &smmr)
+			Expect(k8sClient.Delete(ctx, &smmr)).ShouldNot(HaveOccurred())
 		}
 	})
 
@@ -148,7 +148,7 @@ var _ = Describe("Knative Service Webhook", func() {
 	It("should reject creating a Knative service if the ServiceMeshMemberRoll has null ConfiguredMembers", func() {
 		ksvc := createKserveOwnedKsvc()
 		smmr := createSmmr(v1.ServiceMeshMemberRollStatus{ConfiguredMembers: nil})
-		defer func() { k8sClient.Delete(ctx, smmr) }()
+		defer func() { _ = k8sClient.Delete(ctx, smmr) }()
 
 		_, err := validator.ValidateCreate(ctx, ksvc)
 		Expect(err).Should(HaveOccurred())
@@ -157,7 +157,7 @@ var _ = Describe("Knative Service Webhook", func() {
 	It("should reject creating a Knative service if the namespace is not a configured member of the ServiceMeshMemberRoll", func() {
 		ksvc := createKserveOwnedKsvc()
 		smmr := createSmmr(v1.ServiceMeshMemberRollStatus{ConfiguredMembers: []string{"foo"}})
-		defer func() { k8sClient.Delete(ctx, smmr) }()
+		defer func() { _ = k8sClient.Delete(ctx, smmr) }()
 
 		_, err := validator.ValidateCreate(ctx, ksvc)
 		Expect(err).Should(HaveOccurred())
@@ -166,7 +166,7 @@ var _ = Describe("Knative Service Webhook", func() {
 	It("should accept creating a Knative service if the namespace is a configured member of the ServiceMeshMemberRoll", func() {
 		ksvc := createKserveOwnedKsvc()
 		smmr := createSmmr(v1.ServiceMeshMemberRollStatus{ConfiguredMembers: []string{ksvc.Namespace}})
-		defer func() { k8sClient.Delete(ctx, smmr) }()
+		defer func() { _ = k8sClient.Delete(ctx, smmr) }()
 
 		_, err := validator.ValidateCreate(ctx, ksvc)
 		Expect(err).ShouldNot(HaveOccurred())

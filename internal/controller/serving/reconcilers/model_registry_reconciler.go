@@ -59,7 +59,7 @@ func (r *ModelRegistryInferenceServiceReconciler) Reconcile(ctx context.Context,
 
 	mrIsvcId, okMrIsvcId := isvc.Labels[constants.ModelRegistryInferenceServiceIdLabel]
 	registeredModelId, okRegisteredModelId := isvc.Labels[constants.ModelRegistryRegisteredModelIdLabel]
-	modelVersionId, _ := isvc.Labels[constants.ModelRegistryModelVersionIdLabel]
+	modelVersionId := isvc.Labels[constants.ModelRegistryModelVersionIdLabel]
 
 	if !okMrIsvcId && !okRegisteredModelId {
 		// Early check: no model registry specific labels set in the ISVC, ignore the CR
@@ -88,7 +88,9 @@ func (r *ModelRegistryInferenceServiceReconciler) Reconcile(ctx context.Context,
 	}
 
 	if conn != nil {
-		defer conn.Close()
+		defer func(conn *grpc.ClientConn) {
+			_ = conn.Close()
+		}(conn)
 	}
 
 	// Retrieve or create the ServingEnvironment associated to the current namespace
@@ -184,7 +186,7 @@ func (r *ModelRegistryInferenceServiceReconciler) processDelta(ctx context.Conte
 	if delta.IsAdded() {
 		log.V(1).Info("Delta found", "create", desiredISVC.GetName())
 		if err = r.client.Create(ctx, desiredISVC); err != nil {
-			return
+			return err
 		}
 	}
 
@@ -215,14 +217,14 @@ func (r *ModelRegistryInferenceServiceReconciler) processDelta(ctx context.Conte
 		}
 
 		if err = r.client.Update(ctx, rp); err != nil {
-			return
+			return err
 		}
 	}
 
 	if delta.IsRemoved() {
 		log.V(1).Info("Delta found", "delete", existingISVC.GetName())
 		if err = r.client.Delete(ctx, existingISVC); err != nil {
-			return
+			return err
 		}
 	}
 	return nil
@@ -276,7 +278,7 @@ func (r *ModelRegistryInferenceServiceReconciler) createMRInferenceService(
 }
 
 // onDeletion mark model registry inference service to UNDEPLOYED desired state
-func (r *ModelRegistryInferenceServiceReconciler) onDeletion(mr api.ModelRegistryApi, log logr.Logger, isvc *kservev1beta1.InferenceService, is *openapi.InferenceService) (err error) {
+func (r *ModelRegistryInferenceServiceReconciler) onDeletion(mr api.ModelRegistryApi, log logr.Logger, _ *kservev1beta1.InferenceService, is *openapi.InferenceService) (err error) {
 	log.Info("Running onDeletion logic")
 	if is.DesiredState != nil && *is.DesiredState != openapi.INFERENCESERVICESTATE_UNDEPLOYED {
 		log.Info("InferenceService going to be deleted from cluster, setting desired state to UNDEPLOYED in model registry")
@@ -334,11 +336,7 @@ func (r *ModelRegistryInferenceServiceReconciler) initModelRegistryService(ctx c
 
 	// Setup model registry service
 	log.Info("Connecting to " + mlmdAddr)
-	conn, err := grpc.DialContext(
-		ctx,
-		mlmdAddr,
-		grpc.WithTransportCredentials(insecure.NewCredentials()),
-	)
+	conn, err := grpc.NewClient(mlmdAddr, grpc.WithTransportCredentials(insecure.NewCredentials()))
 	if err != nil {
 		return nil, nil, err
 	}

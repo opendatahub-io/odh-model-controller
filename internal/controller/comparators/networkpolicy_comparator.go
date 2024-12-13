@@ -16,8 +16,9 @@ limitations under the License.
 package comparators
 
 import (
-	"k8s.io/api/networking/v1"
 	"reflect"
+
+	v1 "k8s.io/api/networking/v1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 

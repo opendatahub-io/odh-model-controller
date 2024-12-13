@@ -18,6 +18,7 @@ package resources
 import (
 	"context"
 	"fmt"
+
 	"github.com/go-logr/logr"
 	telemetryv1alpha1 "istio.io/client-go/pkg/apis/telemetry/v1alpha1"
 	"k8s.io/apimachinery/pkg/api/errors"

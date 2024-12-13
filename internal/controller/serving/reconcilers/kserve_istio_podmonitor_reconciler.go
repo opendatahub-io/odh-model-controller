@@ -18,16 +18,18 @@ package reconcilers
 import (
 	"context"
 	"fmt"
+
 	"github.com/go-logr/logr"
 	kservev1beta1 "github.com/kserve/kserve/pkg/apis/serving/v1beta1"
-	"github.com/opendatahub-io/odh-model-controller/internal/controller/comparators"
-	"github.com/opendatahub-io/odh-model-controller/internal/controller/processors"
-	"github.com/opendatahub-io/odh-model-controller/internal/controller/resources"
-	"github.com/opendatahub-io/odh-model-controller/internal/controller/utils"
 	v1 "github.com/prometheus-operator/prometheus-operator/pkg/apis/monitoring/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+
+	"github.com/opendatahub-io/odh-model-controller/internal/controller/comparators"
+	"github.com/opendatahub-io/odh-model-controller/internal/controller/processors"
+	"github.com/opendatahub-io/odh-model-controller/internal/controller/resources"
+	"github.com/opendatahub-io/odh-model-controller/internal/controller/utils"
 )
 
 const (
@@ -55,10 +57,7 @@ func (r *KserveIstioPodMonitorReconciler) Reconcile(ctx context.Context, log log
 	log.V(1).Info("Creating Istio PodMonitor for target namespace")
 
 	// Create Desired resource
-	desiredResource, err := r.createDesiredResource(ctx, isvc)
-	if err != nil {
-		return err
-	}
+	desiredResource := r.createDesiredResource(ctx, isvc)
 
 	// Get Existing resource
 	existingResource, err := r.getExistingResource(ctx, log, isvc)
@@ -78,7 +77,7 @@ func (r *KserveIstioPodMonitorReconciler) Cleanup(ctx context.Context, log logr.
 	return r.podMonitorHandler.DeletePodMonitor(ctx, types.NamespacedName{Name: istioPodMonitorName, Namespace: isvcNs})
 }
 
-func (r *KserveIstioPodMonitorReconciler) createDesiredResource(ctx context.Context, isvc *kservev1beta1.InferenceService) (*v1.PodMonitor, error) {
+func (r *KserveIstioPodMonitorReconciler) createDesiredResource(ctx context.Context, isvc *kservev1beta1.InferenceService) *v1.PodMonitor {
 	istioControlPlaneName, meshNamespace := utils.GetIstioControlPlaneName(ctx, r.client)
 
 	desiredPodMonitor := &v1.PodMonitor{
@@ -148,7 +147,7 @@ func (r *KserveIstioPodMonitorReconciler) createDesiredResource(ctx context.Cont
 			},
 		},
 	}
-	return desiredPodMonitor, nil
+	return desiredPodMonitor
 }
 
 func (r *KserveIstioPodMonitorReconciler) getExistingResource(ctx context.Context, log logr.Logger, isvc *kservev1beta1.InferenceService) (*v1.PodMonitor, error) {
@@ -167,7 +166,7 @@ func (r *KserveIstioPodMonitorReconciler) processDelta(ctx context.Context, log 
 	if delta.IsAdded() {
 		log.V(1).Info("Delta found", "create", desiredPodMonitor.GetName())
 		if err = r.client.Create(ctx, desiredPodMonitor); err != nil {
-			return
+			return err
 		}
 	}
 	if delta.IsUpdated() {
@@ -176,13 +175,13 @@ func (r *KserveIstioPodMonitorReconciler) processDelta(ctx context.Context, log 
 		rp.Spec = desiredPodMonitor.Spec
 
 		if err = r.client.Update(ctx, rp); err != nil {
-			return
+			return err
 		}
 	}
 	if delta.IsRemoved() {
 		log.V(1).Info("Delta found", "delete", existingPodMonitor.GetName())
 		if err = r.client.Delete(ctx, existingPodMonitor); err != nil {
-			return
+			return err
 		}
 	}
 	return nil

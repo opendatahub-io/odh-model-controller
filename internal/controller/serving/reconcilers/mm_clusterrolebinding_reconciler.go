@@ -51,10 +51,7 @@ func NewModelMeshClusterRoleBindingReconciler(client client.Client) *ModelMeshCl
 func (r *ModelMeshClusterRoleBindingReconciler) Reconcile(ctx context.Context, log logr.Logger, isvc *kservev1beta1.InferenceService) error {
 	log.V(1).Info("Reconciling ClusterRoleBinding for InferenceService")
 	// Create Desired resource
-	desiredResource, err := r.createDesiredResource(isvc)
-	if err != nil {
-		return err
-	}
+	desiredResource := r.createDesiredResource(isvc)
 
 	// Get Existing resource
 	existingResource, err := r.getExistingResource(ctx, log, isvc)
@@ -75,10 +72,10 @@ func (r *ModelMeshClusterRoleBindingReconciler) Cleanup(ctx context.Context, log
 	return r.clusterRoleBindingHandler.DeleteClusterRoleBinding(ctx, types.NamespacedName{Name: crbName, Namespace: isvcNs})
 }
 
-func (r *ModelMeshClusterRoleBindingReconciler) createDesiredResource(isvc *kservev1beta1.InferenceService) (*v1.ClusterRoleBinding, error) {
+func (r *ModelMeshClusterRoleBindingReconciler) createDesiredResource(isvc *kservev1beta1.InferenceService) *v1.ClusterRoleBinding {
 	desiredClusterRoleBindingName := r.clusterRoleBindingHandler.GetClusterRoleBindingName(isvc.Namespace, r.serviceAccountName)
 	desiredClusterRoleBinding := r.clusterRoleBindingHandler.CreateDesiredClusterRoleBinding(desiredClusterRoleBindingName, r.serviceAccountName, isvc.Namespace)
-	return desiredClusterRoleBinding, nil
+	return desiredClusterRoleBinding
 }
 
 func (r *ModelMeshClusterRoleBindingReconciler) getExistingResource(ctx context.Context, log logr.Logger, isvc *kservev1beta1.InferenceService) (*v1.ClusterRoleBinding, error) {

@@ -17,14 +17,16 @@ package reconcilers
 
 import (
 	"context"
+
 	"github.com/go-logr/logr"
 	kservev1beta1 "github.com/kserve/kserve/pkg/apis/serving/v1beta1"
-	"github.com/opendatahub-io/odh-model-controller/internal/controller/comparators"
-	"github.com/opendatahub-io/odh-model-controller/internal/controller/processors"
-	"github.com/opendatahub-io/odh-model-controller/internal/controller/resources"
 	v1 "github.com/prometheus-operator/prometheus-operator/pkg/apis/monitoring/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+
+	"github.com/opendatahub-io/odh-model-controller/internal/controller/comparators"
+	"github.com/opendatahub-io/odh-model-controller/internal/controller/processors"
+	"github.com/opendatahub-io/odh-model-controller/internal/controller/resources"
 )
 
 var _ SubResourceReconciler = (*KserveMetricsServiceMonitorReconciler)(nil)
@@ -88,7 +90,7 @@ func (r *KserveMetricsServiceMonitorReconciler) processDelta(ctx context.Context
 	if delta.IsAdded() {
 		log.V(1).Info("Delta found", "create", desiredServiceMonitor.GetName())
 		if err = r.client.Create(ctx, desiredServiceMonitor); err != nil {
-			return
+			return err
 		}
 	}
 	if delta.IsUpdated() {
@@ -97,13 +99,13 @@ func (r *KserveMetricsServiceMonitorReconciler) processDelta(ctx context.Context
 		rp.Spec = desiredServiceMonitor.Spec
 
 		if err = r.client.Update(ctx, rp); err != nil {
-			return
+			return err
 		}
 	}
 	if delta.IsRemoved() {
 		log.V(1).Info("Delta found", "delete", existingServiceMonitor.GetName())
 		if err = r.client.Delete(ctx, existingServiceMonitor); err != nil {
-			return
+			return err
 		}
 	}
 	return nil

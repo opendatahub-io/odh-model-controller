@@ -17,16 +17,18 @@ package reconcilers
 
 import (
 	"context"
+
 	"github.com/go-logr/logr"
 	kservev1beta1 "github.com/kserve/kserve/pkg/apis/serving/v1beta1"
 	"github.com/kserve/kserve/pkg/constants"
-	"github.com/opendatahub-io/odh-model-controller/internal/controller/comparators"
-	"github.com/opendatahub-io/odh-model-controller/internal/controller/processors"
-	"github.com/opendatahub-io/odh-model-controller/internal/controller/resources"
-	"k8s.io/api/networking/v1"
+	v1 "k8s.io/api/networking/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+
+	"github.com/opendatahub-io/odh-model-controller/internal/controller/comparators"
+	"github.com/opendatahub-io/odh-model-controller/internal/controller/processors"
+	"github.com/opendatahub-io/odh-model-controller/internal/controller/resources"
 )
 
 const (
@@ -211,7 +213,7 @@ func (r *KserveNetworkPolicyReconciler) processDelta(ctx context.Context, log lo
 	if delta.IsAdded() {
 		log.V(1).Info("Delta found", "create", desiredNetworkPolicy.GetName())
 		if err = r.client.Create(ctx, desiredNetworkPolicy); err != nil {
-			return
+			return err
 		}
 	}
 	if delta.IsUpdated() {
@@ -221,13 +223,13 @@ func (r *KserveNetworkPolicyReconciler) processDelta(ctx context.Context, log lo
 		rp.Spec = desiredNetworkPolicy.Spec
 
 		if err = r.client.Update(ctx, rp); err != nil {
-			return
+			return err
 		}
 	}
 	if delta.IsRemoved() {
 		log.V(1).Info("Delta found", "delete", existingNetworkPolicy.GetName())
 		if err = r.client.Delete(ctx, existingNetworkPolicy); err != nil {
-			return
+			return err
 		}
 	}
 	return nil

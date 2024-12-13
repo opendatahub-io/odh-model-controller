@@ -72,12 +72,12 @@ var (
 	// - CERT_MANAGER_INSTALL_SKIP=true: Skips CertManager installation during test setup.
 	// These variables are useful if Prometheus or CertManager is already installed, avoiding
 	// re-installation and conflicts.
-	skipPrometheusInstall  = os.Getenv("PROMETHEUS_INSTALL_SKIP") == "true"
-	skipCertManagerInstall = os.Getenv("CERT_MANAGER_INSTALL_SKIP") == "true"
+	// skipPrometheusInstall  = os.Getenv("PROMETHEUS_INSTALL_SKIP") == "true"
+	// skipCertManagerInstall = os.Getenv("CERT_MANAGER_INSTALL_SKIP") == "true"
 	// isPrometheusOperatorAlreadyInstalled will be set true when prometheus CRDs be found on the cluster
-	isPrometheusOperatorAlreadyInstalled = false
+	// isPrometheusOperatorAlreadyInstalled = false
 	// isCertManagerAlreadyInstalled will be set true when CertManager CRDs be found on the cluster
-	isCertManagerAlreadyInstalled = false
+	// isCertManagerAlreadyInstalled = false
 
 	// projectImage is the name of the image which will be build and loaded
 	// with the code source changes to be tested.
@@ -96,7 +96,7 @@ func TestE2E(t *testing.T) {
 
 // The following code is scaffolded code by kubebuilder. It is commented out, as MR
 // provided custom code. We should try to restore it, if we ever have controller E2Es here.
-//var _ = BeforeSuite(func() {
+// var _ = BeforeSuite(func() {
 //	By("Ensure that Prometheus is enabled")
 //	_ = utils.UncommentCode("config/default/kustomization.yaml", "#- ../prometheus", "#")
 //
@@ -145,9 +145,9 @@ func TestE2E(t *testing.T) {
 //			_, _ = fmt.Fprintf(GinkgoWriter, "WARNING: CertManager is already installed. Skipping installation...\n")
 //		}
 //	}
-//})
+// })
 //
-//var _ = AfterSuite(func() {
+// var _ = AfterSuite(func() {
 //	// Teardown Prometheus and CertManager after the suite if not skipped and if they were not already installed
 //	if !skipPrometheusInstall && !isPrometheusOperatorAlreadyInstalled {
 //		_, _ = fmt.Fprintf(GinkgoWriter, "Uninstalling Prometheus Operator...\n")
@@ -157,7 +157,7 @@ func TestE2E(t *testing.T) {
 //		_, _ = fmt.Fprintf(GinkgoWriter, "Uninstalling CertManager...\n")
 //		utils.UninstallCertManager()
 //	}
-//})
+// })
 
 var _ = BeforeSuite(func() {
 	var err error

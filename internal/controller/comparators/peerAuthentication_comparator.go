@@ -16,8 +16,9 @@ limitations under the License.
 package comparators
 
 import (
-	istiosecv1beta1 "istio.io/client-go/pkg/apis/security/v1beta1"
 	"reflect"
+
+	istiosecv1beta1 "istio.io/client-go/pkg/apis/security/v1beta1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 

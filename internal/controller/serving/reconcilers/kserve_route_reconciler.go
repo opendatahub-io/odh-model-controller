@@ -28,7 +28,7 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/intstr"
 	"k8s.io/client-go/kubernetes"
-	"k8s.io/utils/pointer"
+	"k8s.io/utils/ptr"
 	"knative.dev/pkg/network"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
@@ -97,14 +97,14 @@ func (r *KserveRouteReconciler) createDesiredResource(isvc *kservev1beta1.Infere
 	}
 
 	disableIstioVirtualHost := ingressConfig.DisableIstioVirtualHost
-	if disableIstioVirtualHost == false {
+	if !disableIstioVirtualHost {
 
 		serviceHost := getServiceHost(isvc)
 		if serviceHost == "" {
 			return nil, fmt.Errorf("failed to load serviceHost from InferenceService status")
 		}
 		isInternal := false
-		//if service is labelled with cluster local or knative domain is configured as internal
+		// if service is labelled with cluster local or knative domain is configured as internal
 		if val, ok := isvc.Labels[constants.VisibilityLabel]; ok && val == constants.ClusterLocalVisibility {
 			isInternal = true
 		}
@@ -150,7 +150,7 @@ func (r *KserveRouteReconciler) createDesiredResource(isvc *kservev1beta1.Infere
 				To: v1.RouteTargetReference{
 					Kind:   "Service",
 					Name:   constants2.IstioIngressService,
-					Weight: pointer.Int32(100),
+					Weight: ptr.To(int32(100)),
 				},
 				Port: &v1.RoutePort{
 					TargetPort: targetPort,
@@ -181,7 +181,7 @@ func (r *KserveRouteReconciler) processDelta(ctx context.Context, log logr.Logge
 	if delta.IsAdded() {
 		log.V(1).Info("Delta found", "create", desiredRoute.GetName())
 		if err = r.client.Create(ctx, desiredRoute); err != nil {
-			return
+			return err
 		}
 	}
 	if delta.IsUpdated() {
@@ -192,13 +192,13 @@ func (r *KserveRouteReconciler) processDelta(ctx context.Context, log logr.Logge
 		rp.Spec = desiredRoute.Spec
 
 		if err = r.client.Update(ctx, rp); err != nil {
-			return
+			return err
 		}
 	}
 	if delta.IsRemoved() {
 		log.V(1).Info("Delta found", "delete", existingRoute.GetName())
 		if err = r.client.Delete(ctx, existingRoute); err != nil {
-			return
+			return err
 		}
 	}
 	return nil
@@ -208,7 +208,7 @@ func getServiceHost(isvc *kservev1beta1.InferenceService) string {
 	if isvc.Status.URL == nil {
 		return ""
 	}
-	//Derive the ingress service host from underlying service url
+	// Derive the ingress service host from underlying service url
 	return isvc.Status.URL.Host
 }
 

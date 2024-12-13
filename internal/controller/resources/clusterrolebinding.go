@@ -123,13 +123,13 @@ func (r *clusterRoleBindingHandler) ProcessDelta(ctx context.Context, log logr.L
 		rp.Subjects = desiredCRB.Subjects
 
 		if err = r.client.Update(ctx, rp); err != nil {
-			return
+			return err
 		}
 	}
 	if delta.IsRemoved() {
 		log.V(1).Info("Delta found", "delete", existingCRB.GetName())
 		if err = r.client.Delete(ctx, existingCRB); err != nil {
-			return
+			return err
 		}
 	}
 	return nil

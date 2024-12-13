@@ -74,19 +74,19 @@ func (v *ServiceCustomValidator) ValidateCreate(ctx context.Context, obj runtime
 
 	// If there is an explicit intent for not having a sidecar, skip validation
 	ksvcTemplateMeta := ksvc.Spec.Template.GetObjectMeta()
-	if ksvcTemplateMeta != nil {
-		if templateAnnotations := ksvcTemplateMeta.GetAnnotations(); templateAnnotations[constants.IstioSidecarInjectAnnotationName] == "false" {
-			logger.V(1).Info("Skipping validation of Knative Service because there is an explicit intent to exclude it from the Service Mesh")
-			return nil, nil
-		}
+	// if ksvcTemplateMeta != nil {
+	if templateAnnotations := ksvcTemplateMeta.GetAnnotations(); templateAnnotations[constants.IstioSidecarInjectAnnotationName] == "false" {
+		logger.V(1).Info("Skipping validation of Knative Service because there is an explicit intent to exclude it from the Service Mesh")
+		return nil, nil
 	}
+	// }
 
 	// Only validate the KSVC if it is owned by KServe controller
 	ksvcMetadata := ksvc.GetObjectMeta()
-	if ksvcMetadata == nil {
-		logger.V(1).Info("Skipping validation of Knative Service because it does not have metadata")
-		return nil, nil
-	}
+	// if ksvcMetadata == nil {
+	//	logger.V(1).Info("Skipping validation of Knative Service because it does not have metadata")
+	//	return nil, nil
+	// }
 	ksvcOwnerReferences := ksvcMetadata.GetOwnerReferences()
 	if ksvcOwnerReferences == nil {
 		logger.V(1).Info("Skipping validation of Knative Service because it does not have owner references")

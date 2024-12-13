@@ -19,17 +19,18 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
+	"io"
+	"net/http"
+	"strings"
+	"time"
+
 	"github.com/kserve/kserve/pkg/apis/serving/v1alpha1"
 	kserveconstants "github.com/kserve/kserve/pkg/constants"
-	"io"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
-	"net/http"
 	"sigs.k8s.io/controller-runtime/pkg/client/apiutil"
-	"strings"
-	"time"
 )
 
 type (

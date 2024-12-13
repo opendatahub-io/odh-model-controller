@@ -16,8 +16,9 @@ limitations under the License.
 package comparators
 
 import (
-	telemetryv1alpha1 "istio.io/client-go/pkg/apis/telemetry/v1alpha1"
 	"reflect"
+
+	telemetryv1alpha1 "istio.io/client-go/pkg/apis/telemetry/v1alpha1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 

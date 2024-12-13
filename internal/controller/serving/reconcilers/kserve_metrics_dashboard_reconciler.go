@@ -17,18 +17,20 @@ package reconcilers
 
 import (
 	"context"
+	"regexp"
+	"strconv"
+
 	"github.com/go-logr/logr"
 	"github.com/hashicorp/errwrap"
 	kservev1alpha1 "github.com/kserve/kserve/pkg/apis/serving/v1alpha1"
 	kservev1beta1 "github.com/kserve/kserve/pkg/apis/serving/v1beta1"
+	ctrl "sigs.k8s.io/controller-runtime"
+
 	"github.com/opendatahub-io/odh-model-controller/internal/controller/comparators"
 	"github.com/opendatahub-io/odh-model-controller/internal/controller/constants"
 	"github.com/opendatahub-io/odh-model-controller/internal/controller/processors"
 	"github.com/opendatahub-io/odh-model-controller/internal/controller/resources"
 	"github.com/opendatahub-io/odh-model-controller/internal/controller/utils"
-	"regexp"
-	ctrl "sigs.k8s.io/controller-runtime"
-	"strconv"
 
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -96,7 +98,7 @@ func (r *KserveMetricsDashboardReconciler) createDesiredResource(ctx context.Con
 	supported := false
 
 	// there is the possibility to also have and nil model field, e.g:
-	//predictor:
+	// predictor:
 	//	containers:
 	//		- name: kserve-container
 	//		image: user/custom-model:v1
@@ -124,7 +126,7 @@ func (r *KserveMetricsDashboardReconciler) createDesiredResource(ctx context.Con
 
 	if (runtime.Spec.Containers == nil) || (len(runtime.Spec.Containers) < 1) {
 		log.V(1).Info("Could not determine runtime image")
-		supported = false
+		// supported = false
 	}
 
 	// supported is true only when a match on this map is found, is false otherwise
@@ -182,7 +184,7 @@ func (r *KserveMetricsDashboardReconciler) processDelta(ctx context.Context, log
 	if delta.IsAdded() {
 		log.V(1).Info("Delta found", "create", desiredResource.GetName())
 		if err = r.client.Create(ctx, desiredResource); err != nil {
-			return
+			return err
 		}
 	}
 	if delta.IsUpdated() {
@@ -192,13 +194,13 @@ func (r *KserveMetricsDashboardReconciler) processDelta(ctx context.Context, log
 		rp.Data = desiredResource.Data
 
 		if err = r.client.Update(ctx, rp); err != nil {
-			return
+			return err
 		}
 	}
 	if delta.IsRemoved() {
 		log.V(1).Info("Delta found", "delete", existingResource.GetName())
 		if err = r.client.Delete(ctx, existingResource); err != nil {
-			return
+			return err
 		}
 	}
 	return nil

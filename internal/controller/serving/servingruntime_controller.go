@@ -135,7 +135,7 @@ func (r *ServingRuntimeReconciler) createRBIfDNE(ctx context.Context, exists boo
 }
 
 // modelMeshEnabled return true if this Namespace is modelmesh enabled
-func (r *ServingRuntimeReconciler) modelMeshEnabled(ns string, labels map[string]string) bool {
+func (r *ServingRuntimeReconciler) modelMeshEnabled(_ string, labels map[string]string) bool {
 	enabled, ok := labels["modelmesh-enabled"]
 	if !ok || enabled != "true" {
 		return false

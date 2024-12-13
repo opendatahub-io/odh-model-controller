@@ -17,14 +17,16 @@ package reconcilers
 
 import (
 	"context"
+
 	"github.com/go-logr/logr"
 	kservev1beta1 "github.com/kserve/kserve/pkg/apis/serving/v1beta1"
-	"github.com/opendatahub-io/odh-model-controller/internal/controller/comparators"
-	"github.com/opendatahub-io/odh-model-controller/internal/controller/processors"
-	"github.com/opendatahub-io/odh-model-controller/internal/controller/resources"
 	istiosecv1beta1 "istio.io/client-go/pkg/apis/security/v1beta1"
 	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+
+	"github.com/opendatahub-io/odh-model-controller/internal/controller/comparators"
+	"github.com/opendatahub-io/odh-model-controller/internal/controller/processors"
+	"github.com/opendatahub-io/odh-model-controller/internal/controller/resources"
 )
 
 const (
@@ -95,7 +97,7 @@ func (r *KserveIstioPeerAuthenticationReconciler) processDelta(ctx context.Conte
 	if delta.IsAdded() {
 		log.V(1).Info("Delta found", "create", desiredPeerAuthentication.GetName())
 		if err = r.client.Create(ctx, desiredPeerAuthentication); err != nil {
-			return
+			return err
 		}
 	}
 	if delta.IsUpdated() {
@@ -106,13 +108,13 @@ func (r *KserveIstioPeerAuthenticationReconciler) processDelta(ctx context.Conte
 		rp.Spec.PortLevelMtls = desiredPeerAuthentication.Spec.PortLevelMtls
 
 		if err = r.client.Update(ctx, rp); err != nil {
-			return
+			return err
 		}
 	}
 	if delta.IsRemoved() {
 		log.V(1).Info("Delta found", "delete", existingPeerAuthentication.GetName())
 		if err = r.client.Delete(ctx, existingPeerAuthentication); err != nil {
-			return
+			return err
 		}
 	}
 	return nil

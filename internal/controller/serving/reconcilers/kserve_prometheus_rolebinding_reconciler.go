@@ -17,15 +17,17 @@ package reconcilers
 
 import (
 	"context"
+
 	"github.com/go-logr/logr"
 	kservev1beta1 "github.com/kserve/kserve/pkg/apis/serving/v1beta1"
-	"github.com/opendatahub-io/odh-model-controller/internal/controller/comparators"
-	"github.com/opendatahub-io/odh-model-controller/internal/controller/processors"
-	"github.com/opendatahub-io/odh-model-controller/internal/controller/resources"
 	v1 "k8s.io/api/rbac/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+
+	"github.com/opendatahub-io/odh-model-controller/internal/controller/comparators"
+	"github.com/opendatahub-io/odh-model-controller/internal/controller/processors"
+	"github.com/opendatahub-io/odh-model-controller/internal/controller/resources"
 )
 
 const (
@@ -53,10 +55,7 @@ func (r *KservePrometheusRoleBindingReconciler) Reconcile(ctx context.Context, l
 	log.V(1).Info("Verifying that the role binding to enable prometheus access exists")
 
 	// Create Desired resource
-	desiredResource, err := r.createDesiredResource(isvc)
-	if err != nil {
-		return err
-	}
+	desiredResource := r.createDesiredResource(isvc)
 
 	// Get Existing resource
 	existingResource, err := r.getExistingResource(ctx, log, isvc)
@@ -76,7 +75,7 @@ func (r *KservePrometheusRoleBindingReconciler) Cleanup(ctx context.Context, log
 	return r.roleBindingHandler.DeleteRoleBinding(ctx, types.NamespacedName{Name: clusterPrometheusAccessRoleBinding, Namespace: isvcNs})
 }
 
-func (r *KservePrometheusRoleBindingReconciler) createDesiredResource(isvc *kservev1beta1.InferenceService) (*v1.RoleBinding, error) {
+func (r *KservePrometheusRoleBindingReconciler) createDesiredResource(isvc *kservev1beta1.InferenceService) *v1.RoleBinding {
 	desiredRoleBinding := &v1.RoleBinding{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      clusterPrometheusAccessRoleBinding,
@@ -95,7 +94,7 @@ func (r *KservePrometheusRoleBindingReconciler) createDesiredResource(isvc *kser
 			},
 		},
 	}
-	return desiredRoleBinding, nil
+	return desiredRoleBinding
 }
 
 func (r *KservePrometheusRoleBindingReconciler) getExistingResource(ctx context.Context, log logr.Logger, isvc *kservev1beta1.InferenceService) (*v1.RoleBinding, error) {
@@ -114,7 +113,7 @@ func (r *KservePrometheusRoleBindingReconciler) processDelta(ctx context.Context
 	if delta.IsAdded() {
 		log.V(1).Info("Delta found", "create", desiredRoleBinding.GetName())
 		if err = r.client.Create(ctx, desiredRoleBinding); err != nil {
-			return
+			return err
 		}
 	}
 	if delta.IsUpdated() {
@@ -124,13 +123,13 @@ func (r *KservePrometheusRoleBindingReconciler) processDelta(ctx context.Context
 		rp.Subjects = desiredRoleBinding.Subjects
 
 		if err = r.client.Update(ctx, rp); err != nil {
-			return
+			return err
 		}
 	}
 	if delta.IsRemoved() {
 		log.V(1).Info("Delta found", "delete", existingRoleBinding.GetName())
 		if err = r.client.Delete(ctx, existingRoleBinding); err != nil {
-			return
+			return err
 		}
 	}
 	return nil

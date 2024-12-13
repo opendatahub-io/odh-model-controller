@@ -50,10 +50,7 @@ func NewKserveRawClusterRoleBindingReconciler(client client.Client) *KserveRawCl
 func (r *KserveRawClusterRoleBindingReconciler) Reconcile(ctx context.Context, log logr.Logger, isvc *kservev1beta1.InferenceService) error {
 	log.V(1).Info("Reconciling ClusterRoleBinding for InferenceService")
 	// Create Desired resource
-	desiredResource, err := r.createDesiredResource(isvc)
-	if err != nil {
-		return err
-	}
+	desiredResource := r.createDesiredResource(isvc)
 
 	// Get Existing resource
 	existingResource, err := r.getExistingResource(ctx, log, isvc)
@@ -103,14 +100,14 @@ func (r *KserveRawClusterRoleBindingReconciler) Delete(ctx context.Context, log 
 	return nil
 }
 
-func (r *KserveRawClusterRoleBindingReconciler) createDesiredResource(isvc *kservev1beta1.InferenceService) (*v1.ClusterRoleBinding, error) {
+func (r *KserveRawClusterRoleBindingReconciler) createDesiredResource(isvc *kservev1beta1.InferenceService) *v1.ClusterRoleBinding {
 	isvcSA := r.serviceAccountName
 	if isvc.Spec.Predictor.ServiceAccountName != "" {
 		isvcSA = isvc.Spec.Predictor.ServiceAccountName
 	}
 	desiredClusterRoleBindingName := r.clusterRoleBindingHandler.GetClusterRoleBindingName(isvc.Namespace, isvcSA)
 	desiredClusterRoleBinding := r.clusterRoleBindingHandler.CreateDesiredClusterRoleBinding(desiredClusterRoleBindingName, isvcSA, isvc.Namespace)
-	return desiredClusterRoleBinding, nil
+	return desiredClusterRoleBinding
 }
 
 func (r *KserveRawClusterRoleBindingReconciler) getExistingResource(ctx context.Context, log logr.Logger, isvc *kservev1beta1.InferenceService) (*v1.ClusterRoleBinding, error) {

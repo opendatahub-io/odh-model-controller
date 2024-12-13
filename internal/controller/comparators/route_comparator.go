@@ -16,8 +16,9 @@ limitations under the License.
 package comparators
 
 import (
-	v1 "github.com/openshift/api/route/v1"
 	"reflect"
+
+	v1 "github.com/openshift/api/route/v1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 

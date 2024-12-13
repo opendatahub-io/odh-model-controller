@@ -87,7 +87,8 @@ var _ = Describe("ModelRegistry controller e2e", func() {
 
 		AfterEach(func() {
 			By("removing finalizers from inference service")
-			_, err := utils.Run(exec.Command(kubectl, "patch", "inferenceservice", "dummy-inference-service", "--type", "json", "--patch", "[ { \"op\": \"remove\", \"path\": \"/metadata/finalizers\" } ]"))
+			_, err := utils.Run(exec.Command(kubectl, "patch", "inferenceservice", "dummy-inference-service",
+				"--type", "json", "--patch", "[ { \"op\": \"remove\", \"path\": \"/metadata/finalizers\" } ]"))
 			Expect(err).ToNot(HaveOccurred())
 		})
 
@@ -301,7 +302,7 @@ func deployAndCheckModelRegistry() api.ModelRegistryApi {
 	mrServiceList := &corev1.ServiceList{}
 	err = cli.List(ctx, mrServiceList, opts...)
 	Expect(err).ToNot(HaveOccurred())
-	Expect(len(mrServiceList.Items)).To(Equal(1))
+	Expect(mrServiceList.Items).To(HaveLen(1))
 
 	var grpcPort *int32
 	for _, port := range mrServiceList.Items[0].Spec.Ports {
@@ -313,13 +314,8 @@ func deployAndCheckModelRegistry() api.ModelRegistryApi {
 	Expect(grpcPort).ToNot(BeNil())
 
 	mlmdAddr = fmt.Sprintf("localhost:%d", *grpcPort)
-	grpcConn, err := grpc.DialContext(
-		ctx,
-		mlmdAddr,
-		grpc.WithReturnConnectionError(),
-		grpc.WithBlock(),
-		grpc.WithTransportCredentials(insecure.NewCredentials()),
-	)
+	grpcConn, err := grpc.NewClient(mlmdAddr, grpc.WithTransportCredentials(insecure.NewCredentials()))
+
 	Expect(err).ToNot(HaveOccurred())
 	mr, err := core.NewModelRegistryService(grpcConn)
 	Expect(err).ToNot(HaveOccurred())

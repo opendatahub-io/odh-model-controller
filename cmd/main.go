@@ -187,7 +187,8 @@ func main() {
 		os.Exit(1)
 	}
 
-	kserveWithMeshEnabled, kserveWithMeshEnabledErr := utils.VerifyIfComponentIsEnabled(context.Background(), mgr.GetClient(), utils.KServeWithServiceMeshComponent)
+	kserveWithMeshEnabled, kserveWithMeshEnabledErr := utils.VerifyIfComponentIsEnabled(
+		context.Background(), mgr.GetClient(), utils.KServeWithServiceMeshComponent)
 	if kserveWithMeshEnabledErr != nil {
 		setupLog.Error(kserveWithMeshEnabledErr, "could not determine if kserve have service mesh enabled")
 	}
@@ -257,7 +258,8 @@ func main() {
 				os.Exit(1)
 			}
 		} else {
-			setupLog.Info("Skipping setup of Knative Service validating/mutating Webhook, because KServe Serverless setup seems to be disabled.")
+			setupLog.Info("Skipping setup of Knative Service validating/mutating Webhook, " +
+				"because KServe Serverless setup seems to be disabled.")
 		}
 	}
 	// nolint:goconst

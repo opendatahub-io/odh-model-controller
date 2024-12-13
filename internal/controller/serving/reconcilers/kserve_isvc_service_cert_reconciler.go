@@ -20,12 +20,13 @@ import (
 
 	"github.com/go-logr/logr"
 	kservev1beta1 "github.com/kserve/kserve/pkg/apis/serving/v1beta1"
-	"github.com/opendatahub-io/odh-model-controller/internal/controller/constants"
-	"github.com/opendatahub-io/odh-model-controller/internal/controller/resources"
 	v1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+
+	"github.com/opendatahub-io/odh-model-controller/internal/controller/constants"
+	"github.com/opendatahub-io/odh-model-controller/internal/controller/resources"
 )
 
 var _ SubResourceReconciler = (*KserveIsvcServiceReconciler)(nil)
@@ -63,10 +64,7 @@ func (r *KserveIsvcServiceReconciler) Reconcile(ctx context.Context, log logr.Lo
 	}
 
 	// Create Desired resource
-	desiredResource, err := r.createDesiredResource(isvc)
-	if err != nil {
-		return err
-	}
+	desiredResource := r.createDesiredResource(isvc)
 
 	// Get Existing resource
 	existingResource, err := r.getExistingResource(ctx, log, isvc)
@@ -81,7 +79,7 @@ func (r *KserveIsvcServiceReconciler) Reconcile(ctx context.Context, log logr.Lo
 	return nil
 }
 
-func (r *KserveIsvcServiceReconciler) createDesiredResource(isvc *kservev1beta1.InferenceService) (*v1.Service, error) {
+func (r *KserveIsvcServiceReconciler) createDesiredResource(isvc *kservev1beta1.InferenceService) *v1.Service {
 	service := &v1.Service{
 		ObjectMeta: metav1.ObjectMeta{
 			Name: "isvc-service",
@@ -90,7 +88,7 @@ func (r *KserveIsvcServiceReconciler) createDesiredResource(isvc *kservev1beta1.
 			},
 		},
 	}
-	return service, nil
+	return service
 }
 
 func (r *KserveIsvcServiceReconciler) getExistingResource(ctx context.Context, log logr.Logger, isvc *kservev1beta1.InferenceService) (*v1.Service, error) {

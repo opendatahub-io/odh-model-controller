@@ -16,8 +16,9 @@ limitations under the License.
 package comparators
 
 import (
-	v1 "k8s.io/api/rbac/v1"
 	"reflect"
+
+	v1 "k8s.io/api/rbac/v1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 

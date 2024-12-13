@@ -27,11 +27,12 @@ import (
 
 	kservev1beta1 "github.com/kserve/kserve/pkg/apis/serving/v1beta1"
 	authorinov1beta2 "github.com/kuadrant/authorino/api/v1beta2"
-	"github.com/opendatahub-io/odh-model-controller/internal/controller/constants"
-	"github.com/opendatahub-io/odh-model-controller/internal/controller/utils"
 	v1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+
+	"github.com/opendatahub-io/odh-model-controller/internal/controller/constants"
+	"github.com/opendatahub-io/odh-model-controller/internal/controller/utils"
 )
 
 type AuthType string
@@ -96,7 +97,7 @@ func (s *staticTemplateLoader) Load(ctx context.Context, authType AuthType, key 
 
 	resolvedTemplate, err := s.resolveTemplate(template, templateData)
 	if err != nil {
-		return authConfig, fmt.Errorf("could not resovle auth template. cause %w", err)
+		return authConfig, fmt.Errorf("could not resolve auth template. cause %w", err)
 	}
 	err = utils.ConvertToStructuredResource(resolvedTemplate, &authConfig)
 	if err != nil {
@@ -132,7 +133,7 @@ func NewConfigMapTemplateLoader(client client.Client, fallback AuthConfigTemplat
 }
 
 func (c *configMapTemplateLoader) Load(ctx context.Context, authType AuthType, key types.NamespacedName) (authorinov1beta2.AuthConfig, error) {
-	// TOOD: check "authconfig-template" CM in key.Namespace to see if there is a "spec" to use, construct a AuthConfig object
+	// TODO: check "authconfig-template" CM in key.Namespace to see if there is a "spec" to use, construct a AuthConfig object
 	// https://issues.redhat.com/browse/RHOAIENG-847
 
 	// else
