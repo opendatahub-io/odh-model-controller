@@ -200,6 +200,8 @@ func main() {
 		if err = (controllers.NewModelRegistryInferenceServiceReconciler(
 			mgr.GetClient(),
 			ctrl.Log.WithName("controllers").WithName("ModelRegistryInferenceService"),
+			getEnvAsBool("MR_SKIP_TLS_VERIFY", false),
+			ctrl.GetConfigOrDie().BearerToken,
 		)).SetupWithManager(mgr); err != nil {
 			setupLog.Error(err, "unable to create controller", "controller", "ModelRegistryInferenceServiceReconciler")
 			os.Exit(1)
