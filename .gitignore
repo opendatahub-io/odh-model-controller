@@ -24,3 +24,5 @@ testbin/*
 *.swo
 *~
 .vscode
+
+**/testdata/nim/benchmark_documents/*
