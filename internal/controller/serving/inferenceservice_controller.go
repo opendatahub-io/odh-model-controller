@@ -49,29 +49,33 @@ type InferenceServiceReconciler struct {
 	Scheme *runtime.Scheme
 
 	clientReader client.Reader
+	bearerToken  string
 
 	MeshDisabled                   bool
+	ModelRegistryEnabled           bool
+	modelRegistrySkipTls           bool
 	mmISVCReconciler               *reconcilers.ModelMeshInferenceServiceReconciler
 	kserveServerlessISVCReconciler *reconcilers.KserveServerlessInferenceServiceReconciler
 	kserveRawISVCReconciler        *reconcilers.KserveRawInferenceServiceReconciler
-	modelRegistryReconciler        *reconcilers.ModelRegistryInferenceServiceReconciler
 }
 
 func NewInferenceServiceReconciler(setupLog logr.Logger, client client.Client, scheme *runtime.Scheme, clientReader client.Reader,
-	kClient kubernetes.Interface, meshDisabled bool, modelRegistryReconcileEnabled bool) *InferenceServiceReconciler {
+	kClient kubernetes.Interface, meshDisabled bool, modelRegistryReconcileEnabled, modelRegistrySkipTls bool, bearerToken string) *InferenceServiceReconciler {
 	isvcReconciler := &InferenceServiceReconciler{
 		Client:                         client,
 		Scheme:                         scheme,
 		clientReader:                   clientReader,
 		MeshDisabled:                   meshDisabled,
+		ModelRegistryEnabled:           modelRegistryReconcileEnabled,
+		modelRegistrySkipTls:           modelRegistrySkipTls,
 		mmISVCReconciler:               reconcilers.NewModelMeshInferenceServiceReconciler(client),
 		kserveServerlessISVCReconciler: reconcilers.NewKServeServerlessInferenceServiceReconciler(client, clientReader, kClient),
 		kserveRawISVCReconciler:        reconcilers.NewKServeRawInferenceServiceReconciler(client),
+		bearerToken:                    bearerToken,
 	}
 
 	if modelRegistryReconcileEnabled {
 		setupLog.Info("Model registry inference service reconciliation enabled.")
-		isvcReconciler.modelRegistryReconciler = reconcilers.NewModelRegistryInferenceServiceReconciler(client)
 	} else {
 		setupLog.Info("Model registry inference service reconciliation disabled. To enable model registry " +
 			"reconciliation for InferenceService, please provide --model-registry-inference-reconcile flag.")
@@ -159,8 +163,15 @@ func (r *InferenceServiceReconciler) ReconcileServing(ctx context.Context, req c
 func (r *InferenceServiceReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
 	reconcileResult, reconcileErr := r.ReconcileServing(ctx, req)
 
-	if r.modelRegistryReconciler != nil {
-		mrResult, mrErr := r.modelRegistryReconciler.Reconcile(ctx, req)
+	if r.ModelRegistryEnabled {
+		mrReconciler := reconcilers.NewModelRegistryInferenceServiceReconciler(
+			r.Client,
+			log.FromContext(ctx).WithName("controllers").WithName("ModelRegistryInferenceService"),
+			r.modelRegistrySkipTls,
+			r.bearerToken,
+		)
+
+		mrResult, mrErr := mrReconciler.Reconcile(ctx, req)
 
 		if mrResult.Requeue {
 			reconcileResult.Requeue = true

@@ -201,6 +201,8 @@ func main() {
 		kubeClient,
 		getEnvAsBool("MESH_DISABLED", false),
 		enableMRInferenceServiceReconcile,
+		getEnvAsBool("MR_SKIP_TLS_VERIFY", false),
+		cfg.BearerToken,
 	)).SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "unable to create controller", "controller", "InferenceService")
 		os.Exit(1)

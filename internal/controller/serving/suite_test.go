@@ -166,6 +166,8 @@ var _ = BeforeSuite(func() {
 		kubeClient,
 		false,
 		true,
+		false,
+		"",
 	).SetupWithManager(mgr)
 	Expect(err).NotTo(HaveOccurred())
 

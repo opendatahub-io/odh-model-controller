@@ -8,5 +8,6 @@ spec:
       containers:
         - args:
             - --leader-elect
-          image: $(odh-model-controller) 
+            - --model-registry-inference-reconcile
+          image: $(odh-model-controller)
           name: manager
