@@ -39,12 +39,12 @@ manifests: controller-gen ## Generate WebhookConfiguration, ClusterRole and Cust
 	# Any customization needed, apply to the webhook_patch.yaml file
 	$(CONTROLLER_GEN) rbac:roleName=odh-model-controller-role,headerFile="hack/manifests_boilerplate.yaml.txt" crd webhook paths="./..." output:crd:artifacts:config=config/crd/bases
 
-external-manifests: 
+external-manifests:
 	go get github.com/kserve/modelmesh-serving
 	$(CONTROLLER_GEN) crd \
 		paths=${GOPATH}/pkg/mod/github.com/kserve/modelmesh-serving@v0.8.0/apis/serving/v1alpha1 \
 		output:crd:artifacts:config=config/crd/external
-		
+
 	go get github.com/openshift/api
 	$(CONTROLLER_GEN) crd \
 		paths=${GOPATH}/pkg/mod/github.com/openshift/api@v3.9.0+incompatible/route/v1 \
@@ -70,11 +70,28 @@ vet: ## Run go vet against code.
 .PHONY: test
 test: manifests generate fmt vet envtest ## Run tests.
 	KUBEBUILDER_ASSETS="$(shell $(ENVTEST) use $(ENVTEST_K8S_VERSION) -p path)" POD_NAMESPACE=default \
-		MESH_NAMESPACE=istio-system CONTROL_PLANE_NAME=istio-system go test -v ./controllers/... -coverprofile cover.out
+		MESH_NAMESPACE=istio-system CONTROL_PLANE_NAME=istio-system go test -v ./controllers/... -coverprofile cover.out -skip=".*Benchmarks$$"
 
 .PHONY: e2e-test
 e2e-test: manifests generate fmt vet ## Run e2e-tests.
 	POD_NAMESPACE=default go test ./test/e2e/...
+
+##@ Benchmarks
+
+# folder to generate required docs for nim benchmarking
+BENCHMARK_NIM_DOCUMENTS = ./controllers/testdata/nim/benchmark_documents
+
+.PHONY: benchmarks
+benchmarks: $(BENCHMARK_NIM_DOCUMENTS) ## Run benchmarks.
+	ACK_GINKGO_DEPRECATIONS=1.16.5 go test -v ./controllers/... -run=".*Benchmarks$$"
+
+$(BENCHMARK_NIM_DOCUMENTS):
+	$(MAKE) nim_benchmark_documents
+
+.PHONY: nim_benchmark_documents
+nim_benchmark_documents: ## Generate documents required for NIM benchmarking.
+	go run hack/generate_nim_benchmark_documents.go -runtimes=1000 -size=100
+	go run hack/generate_nim_benchmark_documents.go -runtimes=1000 -size=1000
 
 ##@ Build
 
