@@ -20,4 +20,5 @@ jobs:
       - name: Running Tests
         run: |
           go mod tidy
+          git diff --exit-code || exit 1
           make test
