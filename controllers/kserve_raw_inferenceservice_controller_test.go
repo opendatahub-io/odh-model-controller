@@ -62,11 +62,11 @@ var _ = Describe("The KServe Raw reconciler", func() {
 				Expect(err).NotTo(HaveOccurred())
 			}
 
-			crb := &rbacv1.ClusterRoleBinding{}
+			rb := &rbacv1.RoleBinding{}
 			Eventually(func() error {
 				key := types.NamespacedName{Name: inferenceService.Namespace + "-" + constants.KserveServiceAccountName + "-auth-delegator",
 					Namespace: inferenceService.Namespace}
-				return cli.Get(ctx, key, crb)
+				return cli.Get(ctx, key, rb)
 			}, timeout, interval).ShouldNot(HaveOccurred())
 
 			route := &routev1.Route{}
@@ -84,11 +84,11 @@ var _ = Describe("The KServe Raw reconciler", func() {
 				Expect(err).NotTo(HaveOccurred())
 			}
 
-			crb := &rbacv1.ClusterRoleBinding{}
+			rb := &rbacv1.RoleBinding{}
 			Eventually(func() error {
 				key := types.NamespacedName{Name: inferenceService.Namespace + "-" + serviceAccountName + "-auth-delegator",
 					Namespace: inferenceService.Namespace}
-				return cli.Get(ctx, key, crb)
+				return cli.Get(ctx, key, rb)
 			}, timeout, interval).ShouldNot(HaveOccurred())
 		})
 		It("it should create a route if isvc has the label to expose route", func() {
@@ -174,10 +174,10 @@ var _ = Describe("The KServe Raw reconciler", func() {
 				Expect(err).NotTo(HaveOccurred())
 			}
 			Expect(cli.Delete(ctx, inferenceService)).Should(Succeed())
-			crb := &rbacv1.ClusterRoleBinding{}
+			rb := &rbacv1.RoleBinding{}
 			Eventually(func() error {
 				namespacedNamed := types.NamespacedName{Name: testNs + "-" + constants.KserveServiceAccountName + "-auth-delegator", Namespace: WorkingNamespace}
-				err := cli.Get(ctx, namespacedNamed, crb)
+				err := cli.Get(ctx, namespacedNamed, rb)
 				if apierrs.IsNotFound(err) {
 					return nil
 				} else {
