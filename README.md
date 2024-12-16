@@ -15,7 +15,7 @@ It has been developed using **Golang** and
 
 ### Prerequisites
 - go version v1.22.0+
-- docker version 17.03+.
+- podman version v5.2+.
 - kubectl version v1.11.3+.
 - Access to a Kubernetes v1.11.3+ cluster.
 
@@ -23,7 +23,7 @@ It has been developed using **Golang** and
 **Build and push your image to the location specified by `IMG`:**
 
 ```sh
-make docker-build docker-push IMG=<some-registry>/odh-model-controller:tag
+make container-build container-push IMG=<some-registry>/odh-model-controller:tag
 ```
 
 **NOTE:** This image ought to be published in the personal registry you specified.
@@ -102,20 +102,3 @@ kubectl apply -f https://raw.githubusercontent.com/<org>/odh-model-controller/<t
 **NOTE:** Run `make help` for more information on all potential `make` targets
 
 More information can be found via the [Kubebuilder Documentation](https://book.kubebuilder.io/introduction.html)
-
-## License
-
-Copyright 2024.
-
-Licensed under the Apache License, Version 2.0 (the "License");
-you may not use this file except in compliance with the License.
-You may obtain a copy of the License at
-
-    http://www.apache.org/licenses/LICENSE-2.0
-
-Unless required by applicable law or agreed to in writing, software
-distributed under the License is distributed on an "AS IS" BASIS,
-WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-See the License for the specific language governing permissions and
-limitations under the License.
-
