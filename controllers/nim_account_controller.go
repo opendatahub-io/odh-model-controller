@@ -266,7 +266,7 @@ func (r *NimAccountReconciler) reconcileNimConfig(
 		return nil, dErr
 	}
 
-	cmCfg := ssacorev1.ConfigMap(constants.NimDataConfigMapName, namespace).
+	cmCfg := ssacorev1.ConfigMap(fmt.Sprintf("%s-cm", *ownerCfg.Name), namespace).
 		WithData(data).
 		WithOwnerReferences(ownerCfg).
 		WithLabels(labels)
@@ -284,7 +284,7 @@ func (r *NimAccountReconciler) reconcileNimConfig(
 func (r *NimAccountReconciler) reconcileRuntimeTemplate(ctx context.Context, account *v1.Account) (*templatev1.Template, error) {
 	template := &templatev1.Template{
 		ObjectMeta: metav1.ObjectMeta{
-			Name:      constants.NimRuntimeTemplateName,
+			Name:      fmt.Sprintf("%s-template", account.Name),
 			Namespace: account.Namespace,
 		},
 	}
@@ -336,7 +336,7 @@ func (r *NimAccountReconciler) reconcileNimPullSecret(
 	}
 
 	secretCfg := ssacorev1.
-		Secret(constants.NimPullSecretName, namespace).
+		Secret(fmt.Sprintf("%s-pull", *ownerCfg.Name), namespace).
 		WithData(map[string][]byte{corev1.DockerConfigJsonKey: credsJson}).
 		WithType(corev1.SecretTypeDockerConfigJson).
 		WithOwnerReferences(ownerCfg).
