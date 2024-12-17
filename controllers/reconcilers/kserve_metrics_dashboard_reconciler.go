@@ -17,6 +17,9 @@ package reconcilers
 
 import (
 	"context"
+	"regexp"
+	"strconv"
+
 	"github.com/go-logr/logr"
 	"github.com/hashicorp/errwrap"
 	kservev1alpha1 "github.com/kserve/kserve/pkg/apis/serving/v1alpha1"
@@ -26,9 +29,7 @@ import (
 	"github.com/opendatahub-io/odh-model-controller/controllers/processors"
 	"github.com/opendatahub-io/odh-model-controller/controllers/resources"
 	"github.com/opendatahub-io/odh-model-controller/controllers/utils"
-	"regexp"
 	ctrl "sigs.k8s.io/controller-runtime"
-	"strconv"
 
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -106,20 +107,13 @@ func (r *KserveMetricsDashboardReconciler) createDesiredResource(ctx context.Con
 	}
 
 	// resolve SR
-	isvcRuntime := isvc.Spec.Predictor.Model.Runtime
-	if isvcRuntime == nil {
-		runtime, err = utils.FindSupportingRuntimeForISvc(ctx, r.client, log, isvc)
-		if err != nil {
-			if errwrap.Contains(err, constants.NoSuitableRuntimeError) {
-				return r.createConfigMap(isvc, false, log)
-			}
-			return nil, err
+	runtime, err = utils.FindSupportingRuntimeForISvc(ctx, r.client, log, isvc)
+	if err != nil {
+		if errwrap.Contains(err, constants.NoSuitableRuntimeError) {
+			return r.createConfigMap(isvc, false, log)
 		}
-	} else {
-		if err := r.client.Get(ctx, types.NamespacedName{Name: *isvcRuntime, Namespace: isvc.Namespace}, runtime); err != nil {
-			log.Error(err, "Could not determine servingruntime for isvc")
-			return nil, err
-		}
+		log.Error(err, "Could not determine servingruntime for isvc")
+		return nil, err
 	}
 
 	if (runtime.Spec.Containers == nil) || (len(runtime.Spec.Containers) < 1) {
