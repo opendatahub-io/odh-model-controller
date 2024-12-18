@@ -346,7 +346,7 @@ const (
 						"query": request_failure_total{namespace='${NAMESPACE}', pod=~'${MODEL_NAME}-predictor-.*'}"
 					}
 				]
-			},
+			}
 		]
     }`
 )
