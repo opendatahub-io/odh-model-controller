@@ -332,7 +332,21 @@ const (
 						"query":  "rate(time_per_output_token_seconds_bucket{namespace='${NAMESPACE}', pod=~'${MODEL_NAME}-predictor-.*'}[${RATE_INTERVAL}])"
 					}
 				]
-			}
+			},
+			{
+				"title": "Requests outcomes",
+				"type": "REQUEST_OUTCOMES",
+				"queries": [
+					{
+						"title": "Number of successful incoming requests",
+						"query": "request_success_total{namespace='${NAMESPACE}', pod=~'${MODEL_NAME}-predictor-.*'}"
+					},
+					{
+						"title": "Number of failed incoming requests",
+						"query": request_failure_total{namespace='${NAMESPACE}', pod=~'${MODEL_NAME}-predictor-.*'}"
+					}
+				]
+			},
 		]
     }`
 )
