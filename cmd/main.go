@@ -234,12 +234,13 @@ func main() {
 	}
 
 	nimState := os.Getenv("NIM_STATE")
+	signalHandlerCtx := ctrl.SetupSignalHandler()
 	if !slices.Contains([]string{"removed", ""}, nimState) {
 		if err = (&nim.AccountReconciler{
 			Client:  mgr.GetClient(),
 			Scheme:  mgr.GetScheme(),
 			KClient: kubeClient,
-		}).SetupWithManager(mgr, ctrl.SetupSignalHandler()); err != nil {
+		}).SetupWithManager(mgr, signalHandlerCtx); err != nil {
 			setupLog.Error(err, "unable to create controller", "controller", "NIMAccount")
 			os.Exit(1)
 		}
@@ -283,7 +284,7 @@ func main() {
 	}
 
 	setupLog.Info("starting manager")
-	if err := mgr.Start(ctrl.SetupSignalHandler()); err != nil {
+	if err := mgr.Start(signalHandlerCtx); err != nil {
 		setupLog.Error(err, "problem running manager")
 		os.Exit(1)
 	}
