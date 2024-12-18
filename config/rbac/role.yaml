@@ -11,6 +11,7 @@ rules:
   - configmaps
   - secrets
   - serviceaccounts
+  - services
   verbs:
   - create
   - delete
@@ -27,18 +28,6 @@ rules:
   - pods
   verbs:
   - create
-  - get
-  - list
-  - patch
-  - update
-  - watch
-- apiGroups:
-  - ""
-  resources:
-  - services
-  verbs:
-  - create
-  - delete
   - get
   - list
   - patch
@@ -74,6 +63,7 @@ rules:
   - watch
 - apiGroups:
   - extensions
+  - networking.k8s.io
   resources:
   - ingresses
   verbs:
@@ -136,17 +126,6 @@ rules:
   - networking.istio.io
   resources:
   - virtualservices
-  verbs:
-  - create
-  - delete
-  - get
-  - list
-  - patch
-  - update
-  - watch
-- apiGroups:
-  - networking.istio.io
-  resources:
   - virtualservices/finalizers
   verbs:
   - create
@@ -155,14 +134,6 @@ rules:
   - list
   - patch
   - update
-  - watch
-- apiGroups:
-  - networking.k8s.io
-  resources:
-  - ingresses
-  verbs:
-  - get
-  - list
   - watch
 - apiGroups:
   - networking.k8s.io
@@ -180,6 +151,7 @@ rules:
   - nim.opendatahub.io
   resources:
   - accounts
+  - accounts/status
   verbs:
   - get
   - list
@@ -191,15 +163,6 @@ rules:
   - accounts/finalizers
   verbs:
   - update
-- apiGroups:
-  - nim.opendatahub.io
-  resources:
-  - accounts/status
-  verbs:
-  - get
-  - list
-  - update
-  - watch
 - apiGroups:
   - rbac.authorization.k8s.io
   resources:
@@ -254,14 +217,6 @@ rules:
   - serving.kserve.io
   resources:
   - inferenceservices
-  verbs:
-  - get
-  - list
-  - update
-  - watch
-- apiGroups:
-  - serving.kserve.io
-  resources:
   - inferenceservices/finalizers
   verbs:
   - get
@@ -283,13 +238,7 @@ rules:
   resources:
   - servingruntimes/finalizers
   verbs:
-  - create
-  - delete
-  - get
-  - list
-  - patch
   - update
-  - watch
 - apiGroups:
   - telemetry.istio.io
   resources:

@@ -10,11 +10,12 @@ import (
 	"github.com/kubeflow/model-registry/pkg/openapi"
 	. "github.com/onsi/ginkgo"
 	. "github.com/onsi/gomega"
-	"github.com/opendatahub-io/odh-model-controller/controllers/constants"
-	"github.com/opendatahub-io/odh-model-controller/test/utils"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+
+	"github.com/opendatahub-io/odh-model-controller/internal/controller/constants"
+	"github.com/opendatahub-io/odh-model-controller/test/utils"
 )
 
 var (
@@ -82,7 +83,8 @@ var _ = Describe("ModelRegistry controller e2e", func() {
 
 		AfterEach(func() {
 			By("removing finalizers from inference service")
-			_, err := utils.Run(exec.Command(kubectl, "patch", "inferenceservice", "dummy-inference-service", "--type", "json", "--patch", "[ { \"op\": \"remove\", \"path\": \"/metadata/finalizers\" } ]"))
+			_, err := utils.Run(exec.Command(kubectl, "patch", "inferenceservice", "dummy-inference-service",
+				"--type", "json", "--patch", "[ { \"op\": \"remove\", \"path\": \"/metadata/finalizers\" } ]"))
 			Expect(err).ToNot(HaveOccurred())
 		})
 
@@ -229,17 +231,19 @@ var _ = Describe("ModelRegistry controller e2e", func() {
 
 			// simulate ServingEnvironment creation
 			envName := WorkingNamespace
-			_, _, err := modelRegistryClient.ModelRegistryServiceAPI.CreateServingEnvironment(ctx).ServingEnvironmentCreate(openapi.ServingEnvironmentCreate{
-				Name: &envName,
-			}).Execute()
+			_, _, err := modelRegistryClient.ModelRegistryServiceAPI.CreateServingEnvironment(ctx).
+				ServingEnvironmentCreate(openapi.ServingEnvironmentCreate{
+					Name: &envName,
+				}).Execute()
 			Expect(err).ToNot(HaveOccurred())
 
-			inferenceService, _, err = modelRegistryClient.ModelRegistryServiceAPI.CreateInferenceService(ctx).InferenceServiceCreate(openapi.InferenceServiceCreate{
-				Name:                 &versionName,
-				DesiredState:         openapi.INFERENCESERVICESTATE_DEPLOYED.Ptr(),
-				RegisteredModelId:    *registeredModel.Id,
-				ServingEnvironmentId: "3",
-			}).Execute()
+			inferenceService, _, err = modelRegistryClient.ModelRegistryServiceAPI.CreateInferenceService(ctx).
+				InferenceServiceCreate(openapi.InferenceServiceCreate{
+					Name:                 &versionName,
+					DesiredState:         openapi.INFERENCESERVICESTATE_DEPLOYED.Ptr(),
+					RegisteredModelId:    *registeredModel.Id,
+					ServingEnvironmentId: "3",
+				}).Execute()
 			Expect(err).ToNot(HaveOccurred())
 			Expect(inferenceService.GetId()).To(Equal("4"))
 
@@ -296,7 +300,7 @@ func deployAndCheckModelRegistry() *openapi.APIClient {
 	mrServiceList := &corev1.ServiceList{}
 	err = cli.List(ctx, mrServiceList, opts...)
 	Expect(err).ToNot(HaveOccurred())
-	Expect(len(mrServiceList.Items)).To(Equal(1))
+	Expect(mrServiceList.Items).To(HaveLen(1))
 
 	var restApiPort *int32
 	for _, port := range mrServiceList.Items[0].Spec.Ports {
@@ -382,31 +386,36 @@ func fillModelRegistryContent(mr *openapi.APIClient) {
 	registeredModel, _, err = mr.ModelRegistryServiceAPI.FindRegisteredModel(ctx).Name(modelName).Execute()
 	if err != nil {
 		// register a new model
-		registeredModel, _, err = mr.ModelRegistryServiceAPI.CreateRegisteredModel(ctx).RegisteredModelCreate(openapi.RegisteredModelCreate{
-			Name: modelName,
-		}).Execute()
+		registeredModel, _, err = mr.ModelRegistryServiceAPI.CreateRegisteredModel(ctx).RegisteredModelCreate(
+			openapi.RegisteredModelCreate{
+				Name: modelName,
+			}).Execute()
 		Expect(err).ToNot(HaveOccurred())
 	}
 
-	modelVersion, _, err = mr.ModelRegistryServiceAPI.FindModelVersion(ctx).Name(versionName).ParentResourceId(*registeredModel.Id).Execute()
+	modelVersion, _, err = mr.ModelRegistryServiceAPI.FindModelVersion(ctx).Name(versionName).
+		ParentResourceId(*registeredModel.Id).Execute()
 	if err != nil {
-		modelVersion, _, err = mr.ModelRegistryServiceAPI.CreateModelVersion(ctx).ModelVersionCreate(openapi.ModelVersionCreate{
-			Name:              versionName,
-			RegisteredModelId: *registeredModel.Id,
-		}).Execute()
+		modelVersion, _, err = mr.ModelRegistryServiceAPI.CreateModelVersion(ctx).ModelVersionCreate(
+			openapi.ModelVersionCreate{
+				Name:              versionName,
+				RegisteredModelId: *registeredModel.Id,
+			}).Execute()
 		Expect(err).ToNot(HaveOccurred())
 	}
 
 	modelArtifactName := fmt.Sprintf("%s-artifact", versionName)
-	modelArtifact, _, err = mr.ModelRegistryServiceAPI.FindModelArtifact(ctx).Name(modelArtifactName).ParentResourceId(*modelVersion.Id).Execute()
+	modelArtifact, _, err = mr.ModelRegistryServiceAPI.FindModelArtifact(ctx).Name(modelArtifactName).
+		ParentResourceId(*modelVersion.Id).Execute()
 	if err != nil {
-		modelArtifact, _, err = mr.ModelRegistryServiceAPI.CreateModelArtifact(ctx).ModelArtifactCreate(openapi.ModelArtifactCreate{
-			Name:               &modelArtifactName,
-			ModelFormatName:    &modelFormatName,
-			ModelFormatVersion: &modelFormatVersion,
-			StorageKey:         &storageKey,
-			StoragePath:        &storagePath,
-		}).Execute()
+		modelArtifact, _, err = mr.ModelRegistryServiceAPI.CreateModelArtifact(ctx).ModelArtifactCreate(
+			openapi.ModelArtifactCreate{
+				Name:               &modelArtifactName,
+				ModelFormatName:    &modelFormatName,
+				ModelFormatVersion: &modelFormatVersion,
+				StorageKey:         &storageKey,
+				StoragePath:        &storagePath,
+			}).Execute()
 		Expect(err).ToNot(HaveOccurred())
 	}
 }

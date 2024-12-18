@@ -1,5 +1,8 @@
 // Copyright (c) 2024 Red Hat, Inc.
 
+// Package v1 contains API Schema definitions for the nim v1 API group.
+// +kubebuilder:object:generate=true
+// +groupName=nim.opendatahub.io
 package v1
 
 import (
@@ -7,12 +10,13 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/scheme"
 )
 
-// +groupName=nim.opendatahub.io
-// +kubebuilder:object:generate=true
-// +kubebuilder:validation:Required
-
 var (
-	GroupVersion  = schema.GroupVersion{Group: "nim.opendatahub.io", Version: "v1"}
+	// GroupVersion is group version used to register these objects.
+	GroupVersion = schema.GroupVersion{Group: "nim.opendatahub.io", Version: "v1"}
+
+	// SchemeBuilder is used to add go types to the GroupVersionKind scheme.
 	SchemeBuilder = &scheme.Builder{GroupVersion: GroupVersion}
-	Install       = SchemeBuilder.AddToScheme
+
+	// AddToScheme adds the types in this group-version to the given scheme.
+	AddToScheme = SchemeBuilder.AddToScheme
 )
