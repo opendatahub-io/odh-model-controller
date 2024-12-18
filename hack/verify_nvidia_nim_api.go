@@ -20,9 +20,10 @@ import (
 	"encoding/json"
 	"flag"
 	"fmt"
-	"github.com/opendatahub-io/odh-model-controller/controllers/utils"
 	"os"
 	"strings"
+
+	"github.com/opendatahub-io/odh-model-controller/internal/controller/utils"
 )
 
 // Use this script for validating NVIDIA API access used by the NIM Account Controller.
