@@ -343,7 +343,7 @@ const (
 					},
 					{
 						"title": "Number of failed incoming requests",
-						"query": request_failure_total{namespace='${NAMESPACE}', pod=~'${MODEL_NAME}-predictor-.*'}"
+						"query": "request_failure_total{namespace='${NAMESPACE}', pod=~'${MODEL_NAME}-predictor-.*'}"
 					}
 				]
 			}
