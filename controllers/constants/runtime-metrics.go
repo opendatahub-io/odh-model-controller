@@ -277,7 +277,7 @@ const (
 				"queries": [
 					{
 						"title": "GPU cache usage over time",
-						"query":  "TODO"
+						"query":  "round(sum(increase(gpu_cache_usage_perc{namespace='${NAMESPACE}', pod=~'${MODEL_NAME}-predictor-.*'}[${RATE_INTERVAL}])))"
 					}
 				]
 			},
