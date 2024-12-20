@@ -247,7 +247,7 @@ const (
 				"queries": [
 					{
 						"title": "Average e2e latency",
-						"query": "sum by (model_name) (rate(e2e_request_latency_seconds_sum{namespace='${NAMESPACE}', pod=~'${MODEL_NAME}-predictor-.*'}[${RATE_INTERVAL}]) * 1000) / sum by (model_name) (rate(e2e_request_latency_seconds_count{namespace='${NAMESPACE}', pod=~'${MODEL_NAME}-predictor-.*'}[${RATE_INTERVAL}]) * 1000)"
+						"query": "(rate(e2e_request_latency_seconds_sum{namespace='${NAMESPACE}', pod=~'${MODEL_NAME}-predictor-.*'}[${RATE_INTERVAL}]) * 1000) / (rate(e2e_request_latency_seconds_count{namespace='${NAMESPACE}', pod=~'${MODEL_NAME}-predictor-.*'}[${RATE_INTERVAL}]) * 1000)"
 					}
 				]
 			},
@@ -277,7 +277,7 @@ const (
 				"queries": [
 					{
 						"title": "GPU cache usage over time",
-						"query":  "round(sum(increase(gpu_cache_usage_perc{namespace='${NAMESPACE}', pod=~'${MODEL_NAME}-predictor-.*'}[${RATE_INTERVAL}])))"
+						"query": "sum_over_time(gpu_cache_usage_perc{namespace='${NAMESPACE}', pod=~'${MODEL_NAME}-predictor-.*'}[${KV_CACHE_SAMPLING_RATE}])"
 					}
 				]
 			},
@@ -305,11 +305,11 @@ const (
 				"queries": [
 					{
 						"title": "Total prompts token",
-						"query":  "round(sum(increase(prompt_tokens_total{namespace='${NAMESPACE}', pod=~'${MODEL_NAME}-predictor-.*'}[${RATE_INTERVAL}])))"
+						"query":  "round(rate(prompt_tokens_total{namespace='${NAMESPACE}', pod=~'${MODEL_NAME}-predictor-.*'}[${RATE_INTERVAL}]))"
 					},
 					{
 						"title": "Total generation token",
-						"query":  "round(sum(increase(generation_tokens_total{namespace='${NAMESPACE}', pod=~'${MODEL_NAME}-predictor-.*'}[${RATE_INTERVAL}])))"
+						"query":  "round(rate(generation_tokens_total{namespace='${NAMESPACE}', pod=~'${MODEL_NAME}-predictor-.*'}[${RATE_INTERVAL}]))"
 					}
 				]
 			},
@@ -319,7 +319,7 @@ const (
 				"queries": [
 					{
 						"title": "Time to first token",
-						"query":  "rate(time_to_first_token_seconds_bucket{namespace='${NAMESPACE}', pod=~'${MODEL_NAME}-predictor-.*'}[${RATE_INTERVAL}])"
+						"query": "rate(time_to_first_token_seconds_sum{namespace='${NAMESPACE}', pod=~'${MODEL_NAME}-predictor-.*'}[${RATE_INTERVAL}])"
 					}
 				]
 			},
@@ -329,7 +329,7 @@ const (
 				"queries": [
 					{
 						"title": "Time per output token",
-						"query":  "rate(time_per_output_token_seconds_bucket{namespace='${NAMESPACE}', pod=~'${MODEL_NAME}-predictor-.*'}[${RATE_INTERVAL}])"
+						"query": "rate(time_per_output_token_seconds_sum{namespace='${NAMESPACE}', pod=~'${MODEL_NAME}-predictor-.*'}[${RATE_INTERVAL}])"
 					}
 				]
 			},
@@ -339,11 +339,11 @@ const (
 				"queries": [
 					{
 						"title": "Number of successful incoming requests",
-						"query": "request_success_total{namespace='${NAMESPACE}', pod=~'${MODEL_NAME}-predictor-.*'}"
+						"query": "round(sum(increase(request_success_total{namespace='${NAMESPACE}', pod=~'${MODEL_NAME}-predictor-.*'}[${REQUEST_RATE_INTERVAL}])))"
 					},
 					{
 						"title": "Number of failed incoming requests",
-						"query": "request_failure_total{namespace='${NAMESPACE}', pod=~'${MODEL_NAME}-predictor-.*'}"
+						"query": "round(sum(increase(request_failure_total{namespace='${NAMESPACE}', pod=~'${MODEL_NAME}-predictor-.*'}[${REQUEST_RATE_INTERVAL}])))"
 					}
 				]
 			}
