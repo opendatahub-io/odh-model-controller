@@ -1,9 +1,0 @@
-varReference:
-  - path: metadata/name
-    kind: ClusterRoleBinding
-  - path: spec/template/spec/containers[]/image
-    kind: Deployment
-  - path: objects[]/spec/containers[]/image
-    kind: Template
-  - path: webhooks/clientConfig[]/service/namespace
-    kind: ValidatingWebhookConfiguration
