@@ -107,7 +107,7 @@ func init() {
 
 // GetAvailableNimRuntimes is used for fetching a list of available NIM custom runtimes
 func GetAvailableNimRuntimes() ([]NimRuntime, error) {
-	return getNimRuntimes([]NimRuntime{}, 0, 100)
+	return getNimRuntimes([]NimRuntime{}, 0, 1000)
 }
 
 // ValidateApiKey is used for validating the given API key by retrieving the token and pulling the given custom runtime
