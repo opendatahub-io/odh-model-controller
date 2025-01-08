@@ -116,7 +116,6 @@ func (r *AccountReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 	ctx = log.IntoContext(ctx, logger)
 
 	account := &v1.Account{}
-
 	if err := r.Client.Get(ctx, req.NamespacedName, account); err != nil {
 		if k8serrors.IsNotFound(err) {
 			logger.V(1).Info("account deleted")
