@@ -53,6 +53,10 @@ import (
 	// +kubebuilder:scaffold:imports
 )
 
+const (
+	enableWebhooksEnv = "ENABLE_WEBHOOKS"
+)
+
 var (
 	scheme   = runtime.NewScheme()
 	setupLog = ctrl.Log.WithName("setup")
@@ -248,14 +252,14 @@ func main() {
 	}
 
 	// nolint:goconst
-	if os.Getenv("ENABLE_WEBHOOKS") != "false" {
+	if os.Getenv(enableWebhooksEnv) != "false" {
 		if err = webhooknimv1.SetupAccountWebhookWithManager(mgr); err != nil {
 			setupLog.Error(err, "unable to create webhook", "webhook", "NIMAccount")
 			os.Exit(1)
 		}
 	}
 	// nolint:goconst
-	if os.Getenv("ENABLE_WEBHOOKS") != "false" {
+	if os.Getenv(enableWebhooksEnv) != "false" {
 		if kserveWithMeshEnabled {
 			if err = webhookservingv1.SetupServiceWebhookWithManager(mgr); err != nil {
 				setupLog.Error(err, "unable to create webhook", "webhook", "Knative Service")
@@ -267,14 +271,14 @@ func main() {
 		}
 	}
 	// nolint:goconst
-	if os.Getenv("ENABLE_WEBHOOKS") != "false" {
+	if os.Getenv(enableWebhooksEnv) != "false" {
 		if err = webhookservingv1beta1.SetupInferenceServiceWebhookWithManager(mgr); err != nil {
 			setupLog.Error(err, "unable to create webhook", "webhook", "InferenceService")
 			os.Exit(1)
 		}
 	}
 	// nolint:goconst
-	if os.Getenv("ENABLE_WEBHOOKS") != "false" {
+	if os.Getenv(enableWebhooksEnv) != "false" {
 		if err = webhookservingv1alpha1.SetupInferenceGraphWebhookWithManager(mgr); err != nil {
 			setupLog.Error(err, "unable to create webhook", "webhook", "InferenceGraph")
 			os.Exit(1)
