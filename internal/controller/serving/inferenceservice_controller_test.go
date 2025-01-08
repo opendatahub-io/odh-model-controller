@@ -1355,5 +1355,6 @@ func deleteAuthorizationPolicy(authPolicyFile string) error {
 
 	gvr := istiosecv1b1.SchemeGroupVersion.WithResource("authorizationpolicies")
 	_, meshNamespace := utils.GetIstioControlPlaneName(ctx, k8sClient)
-	return dynamicClient.Resource(gvr).Namespace(meshNamespace).Delete(context.TODO(), obj.GetName(), metav1.DeleteOptions{})
+	err = dynamicClient.Resource(gvr).Namespace(meshNamespace).Delete(context.TODO(), obj.GetName(), metav1.DeleteOptions{})
+	return client.IgnoreNotFound(err)
 }

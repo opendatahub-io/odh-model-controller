@@ -216,6 +216,21 @@ rules:
 - apiGroups:
   - serving.kserve.io
   resources:
+  - inferencegraphs
+  verbs:
+  - get
+  - list
+  - watch
+- apiGroups:
+  - serving.kserve.io
+  resources:
+  - inferencegraphs/finalizers
+  - servingruntimes/finalizers
+  verbs:
+  - update
+- apiGroups:
+  - serving.kserve.io
+  resources:
   - inferenceservices
   - inferenceservices/finalizers
   verbs:
@@ -233,12 +248,6 @@ rules:
   - list
   - update
   - watch
-- apiGroups:
-  - serving.kserve.io
-  resources:
-  - servingruntimes/finalizers
-  verbs:
-  - update
 - apiGroups:
   - telemetry.istio.io
   resources:

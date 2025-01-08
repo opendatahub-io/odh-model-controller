@@ -43,7 +43,7 @@ type KserveAuthConfigReconciler struct {
 	detector       resources.AuthTypeDetector
 	store          resources.AuthConfigStore
 	templateLoader resources.AuthConfigTemplateLoader
-	hostExtractor  resources.InferenceServiceHostExtractor
+	hostExtractor  resources.InferenceEndpointsHostExtractor
 }
 
 func NewKserveAuthConfigReconciler(client client.Client) *KserveAuthConfigReconciler {
@@ -111,11 +111,11 @@ func (r *KserveAuthConfigReconciler) createDesiredResource(ctx context.Context, 
 		Namespace: isvc.GetNamespace(),
 	}
 
-	authType, err := r.detector.Detect(ctx, isvc)
+	authType, err := r.detector.Detect(ctx, isvc.GetAnnotations())
 	if err != nil {
 		return nil, fmt.Errorf("could not detect AuthType for InferenceService %s. cause: %w", typeName, err)
 	}
-	template, err := r.templateLoader.Load(ctx, authType, typeName)
+	template, err := r.templateLoader.Load(ctx, authType, isvc)
 	if err != nil {
 		return nil, fmt.Errorf("could not load template for AuthType %s for InferenceService %s. cause: %w", authType, typeName, err)
 	}

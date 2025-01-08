@@ -25,6 +25,7 @@ import (
 	"strings"
 	"text/template"
 
+	"github.com/kserve/kserve/pkg/apis/serving/v1alpha1"
 	kservev1beta1 "github.com/kserve/kserve/pkg/apis/serving/v1beta1"
 	authorinov1beta2 "github.com/kuadrant/authorino/api/v1beta2"
 	v1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -44,16 +45,16 @@ const (
 	AuthorinoLabel          = "AUTHORINO_LABEL"
 )
 
-type InferenceServiceHostExtractor interface {
-	Extract(isvc *kservev1beta1.InferenceService) []string
+type InferenceEndpointsHostExtractor interface {
+	Extract(kserveObject client.Object) []string
 }
 
 type AuthConfigTemplateLoader interface {
-	Load(ctx context.Context, authType AuthType, key types.NamespacedName) (authorinov1beta2.AuthConfig, error)
+	Load(ctx context.Context, authType AuthType, protectedResource client.Object) (authorinov1beta2.AuthConfig, error)
 }
 
 type AuthTypeDetector interface {
-	Detect(ctx context.Context, isvc *kservev1beta1.InferenceService) (AuthType, error)
+	Detect(ctx context.Context, annotations map[string]string) (AuthType, error)
 }
 
 type AuthConfigStore interface {
@@ -66,8 +67,11 @@ type AuthConfigStore interface {
 //go:embed template/authconfig_anonymous.yaml
 var authConfigTemplateAnonymous []byte
 
-//go:embed template/authconfig_userdefined.yaml
+//go:embed template/authconfig_isvc_userdefined.yaml
 var authConfigTemplateUserDefined []byte
+
+//go:embed template/authconfig_inferencegraph_userdefined.yaml
+var authConfigTemplateInferenceGraphUserDefined []byte
 
 type staticTemplateLoader struct {
 }
@@ -76,7 +80,7 @@ func NewStaticTemplateLoader() AuthConfigTemplateLoader {
 	return &staticTemplateLoader{}
 }
 
-func (s *staticTemplateLoader) Load(ctx context.Context, authType AuthType, key types.NamespacedName) (authorinov1beta2.AuthConfig, error) {
+func (s *staticTemplateLoader) Load(_ context.Context, authType AuthType, protectedResource client.Object) (authorinov1beta2.AuthConfig, error) {
 	authConfig := authorinov1beta2.AuthConfig{}
 
 	authKey, authVal, err := getAuthorinoLabel()
@@ -85,14 +89,18 @@ func (s *staticTemplateLoader) Load(ctx context.Context, authType AuthType, key 
 	}
 
 	templateData := map[string]interface{}{
-		"Namespace":            key.Namespace,
-		"Audiences":            getAuthAudience(),
-		"AuthorinoLabel":       authKey + ": " + authVal,
-		"InferenceServiceName": key.Name,
+		"Namespace":      protectedResource.GetNamespace(),
+		"Audiences":      getAuthAudience(),
+		"AuthorinoLabel": authKey + ": " + authVal,
+		"ResourceName":   protectedResource.GetName(),
 	}
 	template := authConfigTemplateAnonymous
 	if authType == UserDefined {
 		template = authConfigTemplateUserDefined
+
+		if _, isIg := protectedResource.(*v1alpha1.InferenceGraph); isIg {
+			template = authConfigTemplateInferenceGraphUserDefined
+		}
 	}
 
 	resolvedTemplate, err := s.resolveTemplate(template, templateData)
@@ -132,12 +140,12 @@ func NewConfigMapTemplateLoader(client client.Client, fallback AuthConfigTemplat
 	}
 }
 
-func (c *configMapTemplateLoader) Load(ctx context.Context, authType AuthType, key types.NamespacedName) (authorinov1beta2.AuthConfig, error) {
+func (c *configMapTemplateLoader) Load(ctx context.Context, authType AuthType, protectedResource client.Object) (authorinov1beta2.AuthConfig, error) {
 	// TODO: check "authconfig-template" CM in key.Namespace to see if there is a "spec" to use, construct a AuthConfig object
 	// https://issues.redhat.com/browse/RHOAIENG-847
 
 	// else
-	return c.fallback.Load(ctx, authType, key)
+	return c.fallback.Load(ctx, authType, protectedResource)
 }
 
 type clientAuthConfigStore struct {
@@ -199,29 +207,35 @@ func NewKServeAuthTypeDetector(client client.Client) AuthTypeDetector {
 	}
 }
 
-func (k *kserveAuthTypeDetector) Detect(ctx context.Context, isvc *kservev1beta1.InferenceService) (AuthType, error) {
-	if value, exist := isvc.Annotations[constants.LabelEnableAuthODH]; exist {
+func (k *kserveAuthTypeDetector) Detect(_ context.Context, annotations map[string]string) (AuthType, error) {
+	if value, exist := annotations[constants.LabelEnableAuthODH]; exist {
 		if strings.ToLower(value) == "true" {
 			return UserDefined, nil
 		}
 	} else { // backward compat
-		if strings.ToLower(isvc.Annotations[constants.LabelEnableAuth]) == "true" {
+		if strings.ToLower(annotations[constants.LabelEnableAuth]) == "true" {
 			return UserDefined, nil
 		}
 	}
 	return Anonymous, nil
 }
 
-type kserveInferenceServiceHostExtractor struct {
+type kserveInferenceEndpointsHostExtractor struct {
 }
 
-func NewKServeInferenceServiceHostExtractor() InferenceServiceHostExtractor {
-	return &kserveInferenceServiceHostExtractor{}
+func NewKServeInferenceServiceHostExtractor() InferenceEndpointsHostExtractor {
+	return &kserveInferenceEndpointsHostExtractor{}
 }
 
-func (k *kserveInferenceServiceHostExtractor) Extract(isvc *kservev1beta1.InferenceService) []string {
+func (k *kserveInferenceEndpointsHostExtractor) Extract(kserveObject client.Object) []string {
+	var hosts []string
 
-	hosts := k.findAllURLHosts(isvc)
+	switch v := kserveObject.(type) {
+	case *kservev1beta1.InferenceService:
+		hosts = k.findAllInferenceServiceURLHosts(v)
+	case *v1alpha1.InferenceGraph:
+		hosts = k.findAllInferenceGraphURLHosts(v)
+	}
 
 	for _, host := range hosts {
 		if strings.HasSuffix(host, ".svc.cluster.local") {
@@ -233,7 +247,7 @@ func (k *kserveInferenceServiceHostExtractor) Extract(isvc *kservev1beta1.Infere
 	return hosts
 }
 
-func (k *kserveInferenceServiceHostExtractor) findAllURLHosts(isvc *kservev1beta1.InferenceService) []string {
+func (k *kserveInferenceEndpointsHostExtractor) findAllInferenceServiceURLHosts(isvc *kservev1beta1.InferenceService) []string {
 	hosts := []string{}
 
 	if isvc.Status.URL != nil {
@@ -278,6 +292,16 @@ func (k *kserveInferenceServiceHostExtractor) findAllURLHosts(isvc *kservev1beta
 		return k
 	}
 	return unique(hosts)
+}
+
+func (k *kserveInferenceEndpointsHostExtractor) findAllInferenceGraphURLHosts(ig *v1alpha1.InferenceGraph) []string {
+	var hosts []string
+
+	if ig.Status.URL != nil {
+		hosts = append(hosts, ig.Status.URL.Host)
+	}
+
+	return hosts
 }
 
 func getAuthAudience() []string {
