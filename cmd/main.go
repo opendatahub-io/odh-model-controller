@@ -48,7 +48,7 @@ import (
 	corecontroller "github.com/opendatahub-io/odh-model-controller/internal/controller/core"
 	"github.com/opendatahub-io/odh-model-controller/internal/controller/nim"
 	servingcontroller "github.com/opendatahub-io/odh-model-controller/internal/controller/serving"
-	utils "github.com/opendatahub-io/odh-model-controller/internal/controller/utils"
+	"github.com/opendatahub-io/odh-model-controller/internal/controller/utils"
 	webhooknimv1 "github.com/opendatahub-io/odh-model-controller/internal/webhook/nim/v1"
 	webhookservingv1 "github.com/opendatahub-io/odh-model-controller/internal/webhook/serving/v1"
 	webhookservingv1beta1 "github.com/opendatahub-io/odh-model-controller/internal/webhook/serving/v1beta1"

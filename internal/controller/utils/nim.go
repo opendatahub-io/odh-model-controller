@@ -418,8 +418,7 @@ func GetNimServingRuntimeTemplate(scheme *runtime.Scheme) (*v1alpha1.ServingRunt
 	return sr, nil
 }
 
-// Newly added Public function
-// cleanupResources is used for deleting the integration related resources (configmap, template, pull secret)
+// CleanupResources is used for deleting the integration related resources (configmap, template, pull secret)
 func CleanupResources(ctx context.Context, account *v1.Account, kubeClient client.Client) error {
 
 	var delObjs []client.Object
@@ -464,7 +463,7 @@ func CleanupResources(ctx context.Context, account *v1.Account, kubeClient clien
 
 }
 
-// updateStatus is used for fetching an updating the status of the account
+// UpdateStatus is used for fetching an updating the status of the account
 func UpdateStatus(ctx context.Context, subject types.NamespacedName, status v1.AccountStatus, kubeClient client.Client) error {
 
 	account := &v1.Account{}
