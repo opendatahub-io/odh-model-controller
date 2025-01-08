@@ -266,11 +266,16 @@ func main() {
 				RuntimeTemplate: nil,
 				NIMPullSecret:   nil,
 				Conditions: []metav1.Condition{
-					utils.MakeNimCondition(utils.NimConditionAccountStatus, metav1.ConditionUnknown, account.Generation, "AccountNotReconciled", msg),
-					utils.MakeNimCondition(utils.NimConditionAPIKeyValidation, metav1.ConditionUnknown, account.Generation, "ApiKeyNotReconciled", msg),
-					utils.MakeNimCondition(utils.NimConditionConfigMapUpdate, metav1.ConditionUnknown, account.Generation, "ConfigMapNotReconciled", msg),
-					utils.MakeNimCondition(utils.NimConditionTemplateUpdate, metav1.ConditionUnknown, account.Generation, "TemplateNotReconciled", msg),
-					utils.MakeNimCondition(utils.NimConditionSecretUpdate, metav1.ConditionUnknown, account.Generation, "SecretNotReconciled", msg),
+					utils.MakeNimCondition(utils.NimConditionAccountStatus, metav1.ConditionUnknown, account.Generation,
+						"AccountNotReconciled", msg),
+					utils.MakeNimCondition(utils.NimConditionAPIKeyValidation, metav1.ConditionUnknown, account.Generation,
+						"ApiKeyNotReconciled", msg),
+					utils.MakeNimCondition(utils.NimConditionConfigMapUpdate, metav1.ConditionUnknown, account.Generation,
+						"ConfigMapNotReconciled", msg),
+					utils.MakeNimCondition(utils.NimConditionTemplateUpdate, metav1.ConditionUnknown, account.Generation,
+						"TemplateNotReconciled", msg),
+					utils.MakeNimCondition(utils.NimConditionSecretUpdate, metav1.ConditionUnknown, account.Generation,
+						"SecretNotReconciled", msg),
 				},
 			}
 			subject := types.NamespacedName{Name: account.Name, Namespace: account.Namespace}
