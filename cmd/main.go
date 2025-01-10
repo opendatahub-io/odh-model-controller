@@ -46,6 +46,7 @@ import (
 	"github.com/opendatahub-io/odh-model-controller/internal/controller/nim"
 	servingcontroller "github.com/opendatahub-io/odh-model-controller/internal/controller/serving"
 	"github.com/opendatahub-io/odh-model-controller/internal/controller/utils"
+	webhookcore "github.com/opendatahub-io/odh-model-controller/internal/webhook/core"
 	webhooknimv1 "github.com/opendatahub-io/odh-model-controller/internal/webhook/nim/v1"
 	webhookservingv1 "github.com/opendatahub-io/odh-model-controller/internal/webhook/serving/v1"
 	webhookservingv1beta1 "github.com/opendatahub-io/odh-model-controller/internal/webhook/serving/v1beta1"
@@ -173,6 +174,11 @@ func main() {
 						"opendatahub.io/managed": "true",
 					}),
 				},
+				&corev1.Pod{}: {
+					Label: labels.SelectorFromSet(labels.Set{
+						"component": "predictor",
+					}),
+				},
 			},
 		},
 	})
@@ -221,16 +227,19 @@ func main() {
 		setupLog.Error(err, "unable to create controller", "controller", "ConfigMap")
 		os.Exit(1)
 	}
-	if monitoringNS != "" {
-		setupLog.Info("Monitoring namespace provided, setting up monitoring controller.")
-		if err = (&servingcontroller.ServingRuntimeReconciler{
-			Client:       mgr.GetClient(),
-			Scheme:       mgr.GetScheme(),
-			MonitoringNS: monitoringNS,
-		}).SetupWithManager(mgr); err != nil {
-			setupLog.Error(err, "unable to create controller", "controller", "ServingRuntime")
-			os.Exit(1)
-		}
+	if err = (&corecontroller.PodReconciler{
+		Client: mgr.GetClient(),
+		Scheme: mgr.GetScheme(),
+	}).SetupWithManager(mgr); err != nil {
+		setupLog.Error(err, "unable to create controller", "controller", "Pod")
+		os.Exit(1)
+	}
+	if err = (&servingcontroller.ServingRuntimeReconciler{
+		Client: mgr.GetClient(),
+		Scheme: mgr.GetScheme(),
+	}).SetupWithManager(mgr); err != nil {
+		setupLog.Error(err, "unable to create controller", "controller", "ServingRuntime")
+		os.Exit(1)
 	}
 
 	nimState := os.Getenv("NIM_STATE")
@@ -272,6 +281,11 @@ func main() {
 			os.Exit(1)
 		}
 	}
+	// nolint:goconst
+	if os.Getenv("ENABLE_WEBHOOKS") != "false" {
+		webhookcore.SetupPodWebhookWithManager(mgr)
+	}
+
 	// +kubebuilder:scaffold:builder
 
 	if err := mgr.AddHealthzCheck("healthz", healthz.Ping); err != nil {
