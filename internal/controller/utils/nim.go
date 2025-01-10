@@ -16,6 +16,7 @@ limitations under the License.
 package utils
 
 import (
+	"context"
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
@@ -24,12 +25,18 @@ import (
 	"strings"
 	"time"
 
+	"github.com/hashicorp/go-multierror"
 	"github.com/kserve/kserve/pkg/apis/serving/v1alpha1"
 	kserveconstants "github.com/kserve/kserve/pkg/constants"
+	v1 "github.com/opendatahub-io/odh-model-controller/api/nim/v1"
+	templatev1 "github.com/openshift/api/template/v1"
 	corev1 "k8s.io/api/core/v1"
+	k8serrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/apimachinery/pkg/types"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/apiutil"
 )
 
@@ -409,4 +416,66 @@ func GetNimServingRuntimeTemplate(scheme *runtime.Scheme) (*v1alpha1.ServingRunt
 	sr.SetGroupVersionKind(gvk)
 
 	return sr, nil
+}
+
+// CleanupResources is used for deleting the integration related resources (configmap, template, pull secret)
+func CleanupResources(ctx context.Context, account *v1.Account, kubeClient client.Client) error {
+
+	var delObjs []client.Object
+
+	if account.Status.NIMPullSecret != nil {
+		delObjs = append(delObjs, &corev1.Secret{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      account.Status.NIMPullSecret.Name,
+				Namespace: account.Status.NIMPullSecret.Namespace,
+			},
+		})
+	}
+
+	if account.Status.NIMConfig != nil {
+		delObjs = append(delObjs, &corev1.ConfigMap{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      account.Status.NIMConfig.Name,
+				Namespace: account.Status.NIMConfig.Namespace,
+			},
+		})
+	}
+
+	if account.Status.RuntimeTemplate != nil {
+		delObjs = append(delObjs, &templatev1.Template{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      account.Status.RuntimeTemplate.Name,
+				Namespace: account.Status.RuntimeTemplate.Namespace,
+			},
+		})
+	}
+
+	var deleteErrors *multierror.Error
+
+	for _, obj := range delObjs {
+		if err := kubeClient.Delete(ctx, obj); err != nil {
+			if !k8serrors.IsNotFound(err) {
+				deleteErrors = multierror.Append(deleteErrors, err)
+			}
+		}
+	}
+	return deleteErrors.ErrorOrNil()
+
+}
+
+// UpdateStatus is used for fetching an updating the status of the account
+func UpdateStatus(ctx context.Context, subject types.NamespacedName, status v1.AccountStatus, kubeClient client.Client) error {
+
+	account := &v1.Account{}
+	if err := kubeClient.Get(ctx, subject, account); err != nil {
+		if !k8serrors.IsNotFound(err) {
+			return err
+		}
+	} else {
+		account.Status = *status.DeepCopy()
+		if err = kubeClient.Status().Update(ctx, account); err != nil {
+			return err
+		}
+	}
+	return nil
 }
