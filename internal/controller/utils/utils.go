@@ -428,6 +428,7 @@ func SubstituteVariablesInQueries(data string, namespace string, name string) st
 		"${NAMESPACE}", namespace,
 		"${MODEL_NAME}", name,
 		"${RATE_INTERVAL}", constants.IntervalValue,
-		"${REQUEST_RATE_INTERVAL}", constants.RequestRateInterval)
+		"${REQUEST_RATE_INTERVAL}", constants.RequestRateInterval,
+		"${KV_CACHE_SAMPLING_RATE}", constants.GPUKVCacheSamplingInterval)
 	return replacer.Replace(data)
 }
