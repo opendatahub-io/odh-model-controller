@@ -32,6 +32,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/webhook/admission"
 
 	"github.com/opendatahub-io/odh-model-controller/internal/controller/utils"
+	"github.com/opendatahub-io/odh-model-controller/internal/webhook/serving"
 )
 
 // nolint:unused
@@ -42,6 +43,7 @@ var inferenceservicelog = logf.Log.WithName("inferenceservice-resource")
 func SetupInferenceServiceWebhookWithManager(mgr ctrl.Manager) error {
 	return ctrl.NewWebhookManagedBy(mgr).For(&servingv1beta1.InferenceService{}).
 		WithValidator(&InferenceServiceCustomValidator{client: mgr.GetClient()}).
+		WithDefaulter(&InferenceServiceCustomDefaulter{client: mgr.GetClient()}).
 		Complete()
 }
 
@@ -126,4 +128,35 @@ func (v *InferenceServiceCustomValidator) ValidateDelete(ctx context.Context, ob
 	// TODO(user): fill in your validation logic upon object deletion.
 
 	return nil, nil
+}
+
+// +kubebuilder:webhook:path=/mutate-serving-kserve-io-v1beta1-inferenceservice,mutating=true,failurePolicy=fail,sideEffects=None,groups=serving.kserve.io,resources=inferenceservices,verbs=create,versions=v1beta1,name=minferenceservice-v1beta1.odh-model-controller.opendatahub.io,admissionReviewVersions=v1
+
+// InferenceServiceCustomDefaulter struct is responsible for setting default values on the custom resource of the
+// Kind InferenceService when those are created or updated.
+//
+// NOTE: The +kubebuilder:object:generate=false marker prevents controller-gen from generating DeepCopy methods,
+// as it is used only for temporary operations and does not need to be deeply copied.
+type InferenceServiceCustomDefaulter struct {
+	client client.Client
+}
+
+var _ webhook.CustomDefaulter = &InferenceServiceCustomDefaulter{}
+
+// Default implements webhook.CustomDefaulter so a webhook will be registered for the Kind InferenceService.
+func (d *InferenceServiceCustomDefaulter) Default(ctx context.Context, obj runtime.Object) error {
+	inferenceservice, ok := obj.(*servingv1beta1.InferenceService)
+
+	if !ok {
+		return fmt.Errorf("expected an InferenceService object but got %T", obj)
+	}
+	logger := inferenceservicelog.WithValues("name", inferenceservice.GetName())
+	logger.Info("Defaulting for InferenceService", "name", inferenceservice.GetName())
+
+	err := serving.ApplyDefaultServerlessAnnotations(ctx, d.client, inferenceservice.GetName(), &inferenceservice.ObjectMeta, logger)
+	if err != nil {
+		return err
+	}
+
+	return nil
 }

@@ -38,15 +38,15 @@ var (
 )
 
 const (
-	inferenceServiceDeploymentModeAnnotation = "serving.kserve.io/deploymentMode"
-	KserveConfigMapName                      = "inferenceservice-config"
-	KServeWithServiceMeshComponent           = "kserve-service-mesh"
+	KServeDeploymentModeAnnotation = "serving.kserve.io/deploymentMode"
+	KserveConfigMapName            = "inferenceservice-config"
+	KServeWithServiceMeshComponent = "kserve-service-mesh"
 )
 
-func GetDeploymentModeForIsvc(ctx context.Context, cli client.Client, isvc *kservev1beta1.InferenceService) (constants.IsvcDeploymentMode, error) {
+func GetDeploymentModeForKServeResource(ctx context.Context, cli client.Client, annotations map[string]string) (constants.KServeDeploymentMode, error) {
 
-	// If ISVC specifically sets deployment mode using an annotation, return bool depending on value
-	value, exists := isvc.Annotations[inferenceServiceDeploymentModeAnnotation]
+	// If explicitly sets deployment mode using an annotation, return bool depending on value
+	value, exists := annotations[KServeDeploymentModeAnnotation]
 	if exists {
 		switch value {
 		case string(constants.ModelMesh):
@@ -56,10 +56,10 @@ func GetDeploymentModeForIsvc(ctx context.Context, cli client.Client, isvc *kser
 		case string(constants.RawDeployment):
 			return constants.RawDeployment, nil
 		default:
-			return "", fmt.Errorf("the deployment mode '%s' of the Inference Service is invalid", value)
+			return "", fmt.Errorf("the deployment mode '%s' of the KServe resource is invalid", value)
 		}
 	} else {
-		// ISVC does not specifically set deployment mode using an annotation, determine the default from configmap
+		// There is no explicit deployment mode using an annotation, determine the default from configmap
 		controllerNs := os.Getenv("POD_NAMESPACE")
 		inferenceServiceConfigMap := &corev1.ConfigMap{}
 		err := cli.Get(ctx, client.ObjectKey{

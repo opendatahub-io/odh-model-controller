@@ -73,7 +73,7 @@ func (r *KserveRawInferenceServiceReconciler) CleanupNamespaceIfNoKserveIsvcExis
 
 	for i := len(inferenceServiceList.Items) - 1; i >= 0; i-- {
 		inferenceService := inferenceServiceList.Items[i]
-		isvcDeploymentMode, err := utils.GetDeploymentModeForIsvc(ctx, r.client, &inferenceService)
+		isvcDeploymentMode, err := utils.GetDeploymentModeForKServeResource(ctx, r.client, inferenceService.GetAnnotations())
 		if err != nil {
 			return err
 		}
