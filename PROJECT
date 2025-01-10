@@ -60,7 +60,8 @@ resources:
   webhooks:
     validation: true
     webhookVersion: v1
-- domain: kserve.io
+- controller: true
+  domain: kserve.io
   external: true
   group: serving
   kind: InferenceGraph
