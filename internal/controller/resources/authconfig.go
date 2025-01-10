@@ -54,7 +54,7 @@ type AuthConfigTemplateLoader interface {
 }
 
 type AuthTypeDetector interface {
-	Detect(ctx context.Context, annotations map[string]string) (AuthType, error)
+	Detect(ctx context.Context, annotations map[string]string) AuthType
 }
 
 type AuthConfigStore interface {
@@ -207,17 +207,17 @@ func NewKServeAuthTypeDetector(client client.Client) AuthTypeDetector {
 	}
 }
 
-func (k *kserveAuthTypeDetector) Detect(_ context.Context, annotations map[string]string) (AuthType, error) {
+func (k *kserveAuthTypeDetector) Detect(_ context.Context, annotations map[string]string) AuthType {
 	if value, exist := annotations[constants.LabelEnableAuthODH]; exist {
 		if strings.ToLower(value) == "true" {
-			return UserDefined, nil
+			return UserDefined
 		}
 	} else { // backward compat
 		if strings.ToLower(annotations[constants.LabelEnableAuth]) == "true" {
-			return UserDefined, nil
+			return UserDefined
 		}
 	}
-	return Anonymous, nil
+	return Anonymous
 }
 
 type kserveInferenceEndpointsHostExtractor struct {

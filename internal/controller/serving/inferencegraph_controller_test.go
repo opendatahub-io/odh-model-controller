@@ -23,11 +23,13 @@ import (
 	"github.com/kuadrant/authorino/api/v1beta2"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
+	"github.com/onsi/gomega/gcustom"
 	corev1 "k8s.io/api/core/v1"
 	k8sErrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"knative.dev/pkg/apis"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	"github.com/opendatahub-io/odh-model-controller/internal/controller/constants"
 	testutils "github.com/opendatahub-io/odh-model-controller/test/utils"
@@ -184,6 +186,23 @@ var _ = Describe("InferenceGraph Controller", func() {
 				key := types.NamespacedName{Name: inferenceGraph.Name + "-ig", Namespace: inferenceGraph.Namespace}
 				return k8sClient.Get(ctx, key, authConfig)
 			}).WithPolling(interval).WithTimeout(timeout).Should(WithTransform(k8sErrors.IsNotFound, BeTrue()))
+
+			eventMatcher := gcustom.MakeMatcher(func(actual corev1.Event) (bool, error) {
+				if actual.InvolvedObject.Kind != "InferenceGraph" ||
+					actual.InvolvedObject.Namespace != inferenceGraph.GetNamespace() ||
+					actual.InvolvedObject.Name != inferenceGraph.GetName() ||
+					actual.Reason != constants.AuthUnavailable {
+					return false, nil
+				}
+				return true, nil
+			}).WithMessage("have InvolvedObject.Kind = InferenceGraph and Reason = " + constants.AuthUnavailable)
+
+			Eventually(func(g Gomega) {
+				events := corev1.EventList{}
+				g.Expect(k8sClient.List(ctx, &events, client.InNamespace(inferenceGraph.GetNamespace()))).To(Succeed())
+				g.Expect(events.Items).NotTo(BeEmpty())
+				g.Expect(events.Items).To(ContainElement(eventMatcher))
+			}).WithPolling(interval).WithTimeout(timeout).Should(Succeed())
 		})
 	})
 })

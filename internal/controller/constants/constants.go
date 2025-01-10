@@ -86,6 +86,13 @@ const (
 	ServingCertAnnotationKey = "service.beta.openshift.io/serving-cert-secret-name"
 )
 
+// Events
+const (
+	// AuthUnavailable is logged in an Event when an InferenceGraph is configured to
+	// be protected with auth, but Authorino is not configured.
+	AuthUnavailable = "AuthStackUnavailable"
+)
+
 // errors
 const (
 	NoSuitableRuntimeError = "not found error: no suitable runtime found."

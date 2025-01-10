@@ -23,9 +23,11 @@ import (
 	"github.com/go-logr/logr"
 	servingv1alpha1 "github.com/kserve/kserve/pkg/apis/serving/v1alpha1"
 	authorinov1beta2 "github.com/kuadrant/authorino/api/v1beta2"
+	v1 "k8s.io/api/core/v1"
 	apierrs "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/client-go/tools/record"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/log"
@@ -40,8 +42,8 @@ import (
 // InferenceGraphReconciler reconciles a InferenceGraph object
 type InferenceGraphReconciler struct {
 	client.Client
-	Scheme *runtime.Scheme
-
+	Scheme         *runtime.Scheme
+	Recorder       record.EventRecorder
 	deltaProcessor processors.DeltaProcessor
 	detector       resources.AuthTypeDetector
 	templateLoader resources.AuthConfigTemplateLoader
@@ -49,15 +51,15 @@ type InferenceGraphReconciler struct {
 }
 
 // +kubebuilder:rbac:groups=serving.kserve.io,resources=inferencegraphs,verbs=get;list;watch
-// not needed: kubebuilder:rbac:groups=serving.kserve.io,resources=inferencegraphs/status,verbs=get;update;patch
 // +kubebuilder:rbac:groups=serving.kserve.io,resources=inferencegraphs/finalizers,verbs=update
-
+// +kubebuilder:rbac:groups=core,resources=events,verbs=create;patch
 // +kubebuilder:rbac:groups=authorino.kuadrant.io,resources=authconfigs,verbs=get;list;watch;create;update;patch;delete
 
 func NewInferenceGraphReconciler(mgr ctrl.Manager) *InferenceGraphReconciler {
 	return &InferenceGraphReconciler{
 		Client:         mgr.GetClient(),
 		Scheme:         mgr.GetScheme(),
+		Recorder:       mgr.GetEventRecorderFor("serving-inferencegraph-controller"),
 		deltaProcessor: processors.NewDeltaProcessor(),
 		detector:       resources.NewKServeAuthTypeDetector(mgr.GetClient()),
 		templateLoader: resources.NewStaticTemplateLoader(),
@@ -95,6 +97,13 @@ func (r *InferenceGraphReconciler) reconcileAuthConfig(ctx context.Context, logg
 	}
 	if !authorinoEnabled {
 		logger.V(1).Info("Skipping AuthConfig reconciliation, authorization is not enabled")
+
+		authType := r.detector.Detect(ctx, ig.GetAnnotations())
+		if authType == resources.UserDefined {
+			// Raise an event that the IG wants auth enabled, but the auth stack is missing
+			r.Recorder.Eventf(ig, v1.EventTypeWarning, constants.AuthUnavailable, "InferenceGraph %s is requiring auth, but the auth stack is not available", ig.GetName())
+		}
+
 		return nil
 	}
 
@@ -121,11 +130,7 @@ func (r *InferenceGraphReconciler) reconcileAuthConfig(ctx context.Context, logg
 }
 
 func (r *InferenceGraphReconciler) createDesiredAuthConfig(ctx context.Context, ig *servingv1alpha1.InferenceGraph) (*authorinov1beta2.AuthConfig, error) {
-	authType, err := r.detector.Detect(ctx, ig.GetAnnotations())
-	if err != nil {
-		return nil, fmt.Errorf("failed to detect auth type: %w", err)
-	}
-
+	authType := r.detector.Detect(ctx, ig.GetAnnotations())
 	template, err := r.templateLoader.Load(ctx, authType, ig)
 	if err != nil {
 		return nil, fmt.Errorf("failed to load template for AuthType %s: %w", authType, err)
