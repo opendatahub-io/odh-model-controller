@@ -32,6 +32,7 @@ import (
 	. "github.com/onsi/gomega/gstruct"
 	gomegatypes "github.com/onsi/gomega/types"
 	routev1 "github.com/openshift/api/route/v1"
+	monitoringv1 "github.com/prometheus-operator/prometheus-operator/pkg/apis/monitoring/v1"
 	istioclientv1beta1 "istio.io/client-go/pkg/apis/networking/v1beta1"
 	istiosecv1b1 "istio.io/client-go/pkg/apis/security/v1beta1"
 	corev1 "k8s.io/api/core/v1"
@@ -643,7 +644,7 @@ var _ = Describe("InferenceService Controller", func() {
 			return servingRuntime
 		}
 
-		createInferenceService := func(namespace, name string, path string) *kservev1beta1.InferenceService {
+		createInferenceService := func(namespace, name string, path string, isRaw ...bool) *kservev1beta1.InferenceService {
 			inferenceService := &kservev1beta1.InferenceService{}
 			err := testutils.ConvertToStructuredResource(path, inferenceService)
 			Expect(err).NotTo(HaveOccurred())
@@ -651,55 +652,38 @@ var _ = Describe("InferenceService Controller", func() {
 			if len(name) != 0 {
 				inferenceService.Name = name
 			}
+			raw := len(isRaw) > 0 && isRaw[0]
+			if raw {
+				if inferenceService.Annotations == nil {
+					inferenceService.Annotations = map[string]string{}
+				}
+				inferenceService.Annotations["serving.kserve.io/deploymentMode"] = "RawDeployment"
+			}
 			if err := k8sClient.Create(ctx, inferenceService); err != nil && !k8sErrors.IsAlreadyExists(err) {
 				Fail(err.Error())
 			}
 			return inferenceService
 		}
 
-		BeforeEach(func() {
-			testNs = testutils.Namespaces.Create(ctx, k8sClient).Name
-
-			inferenceServiceConfig := &corev1.ConfigMap{}
-			Expect(testutils.ConvertToStructuredResource(InferenceServiceConfigPath1, inferenceServiceConfig)).To(Succeed())
-			if err := k8sClient.Create(ctx, inferenceServiceConfig); err != nil && !k8sErrors.IsAlreadyExists(err) {
-				Fail(err.Error())
-			}
-		})
-
-		When("deploying a Kserve model", func() {
-			It("if the runtime is supported for metrics, it should create a configmap with prometheus queries", func() {
-				_ = createServingRuntime(testNs, KserveServingRuntimePath1)
-				_ = createInferenceService(testNs, KserveOvmsInferenceServiceName, KserveInferenceServicePath1)
-
-				metricsConfigMap, err := testutils.WaitForConfigMap(k8sClient, testNs, KserveOvmsInferenceServiceName+constants.KserveMetricsConfigMapNameSuffix, 30, 1*time.Second)
-				Expect(err).NotTo(HaveOccurred())
-				Expect(metricsConfigMap).NotTo(BeNil())
-
-				finaldata := utils.SubstituteVariablesInQueries(constants.OvmsMetricsData, testNs, KserveOvmsInferenceServiceName)
-				expectedMetricsConfigMap := &corev1.ConfigMap{
+		verifyConfigMap := func(isvcName string, namespace string, supported bool, metricsData string) {
+			metricsConfigMap, err := testutils.WaitForConfigMap(k8sClient, namespace, isvcName+constants.KserveMetricsConfigMapNameSuffix, 30, 1*time.Second)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(metricsConfigMap).NotTo(BeNil())
+			var expectedMetricsConfigMap *corev1.ConfigMap
+			if supported {
+				finaldata := utils.SubstituteVariablesInQueries(metricsData, namespace, isvcName)
+				expectedMetricsConfigMap = &corev1.ConfigMap{
 					ObjectMeta: metav1.ObjectMeta{
-						Name:      KserveOvmsInferenceServiceName + constants.KserveMetricsConfigMapNameSuffix,
-						Namespace: testNs,
+						Name:      isvcName + constants.KserveMetricsConfigMapNameSuffix,
+						Namespace: namespace,
 					},
 					Data: map[string]string{
 						"supported": "true",
 						"metrics":   finaldata,
 					},
 				}
-				Expect(testutils.CompareConfigMap(metricsConfigMap, expectedMetricsConfigMap)).Should(BeTrue())
-				Expect(expectedMetricsConfigMap.Data).NotTo(HaveKeyWithValue("metrics", ContainSubstring("${REQUEST_RATE_INTERVAL}")))
-			})
-
-			It("if the runtime is not supported for metrics, it should create a configmap with the unsupported config", func() {
-				_ = createServingRuntime(testNs, UnsupprtedMetricsServingRuntimePath)
-				_ = createInferenceService(testNs, UnsupportedMetricsInferenceServiceName, UnsupportedMetricsInferenceServicePath)
-
-				metricsConfigMap, err := testutils.WaitForConfigMap(k8sClient, testNs, UnsupportedMetricsInferenceServiceName+constants.KserveMetricsConfigMapNameSuffix, 30, 1*time.Second)
-				Expect(err).NotTo(HaveOccurred())
-				Expect(metricsConfigMap).NotTo(BeNil())
-
-				expectedMetricsConfigMap := &corev1.ConfigMap{
+			} else {
+				expectedMetricsConfigMap = &corev1.ConfigMap{
 					ObjectMeta: metav1.ObjectMeta{
 						Name:      UnsupportedMetricsInferenceServiceName + constants.KserveMetricsConfigMapNameSuffix,
 						Namespace: testNs,
@@ -708,50 +692,77 @@ var _ = Describe("InferenceService Controller", func() {
 						"supported": "false",
 					},
 				}
-				Expect(testutils.CompareConfigMap(metricsConfigMap, expectedMetricsConfigMap)).Should(BeTrue())
+			}
+			Expect(testutils.CompareConfigMap(metricsConfigMap, expectedMetricsConfigMap)).Should(BeTrue())
+			Expect(expectedMetricsConfigMap.Data).NotTo(HaveKeyWithValue("metrics", ContainSubstring("${REQUEST_RATE_INTERVAL}")))
+		}
+
+		BeforeEach(func() {
+			testNs = testutils.Namespaces.Create(ctx, k8sClient).Name
+
+			inferenceServiceConfig := &corev1.ConfigMap{}
+			Expect(testutils.ConvertToStructuredResource(InferenceServiceConfigPath1, inferenceServiceConfig)).To(Succeed())
+			if err := k8sClient.Create(ctx, inferenceServiceConfig); err != nil {
+				Fail(err.Error())
+			}
+		})
+
+		When("deploying a Kserve model", func() {
+			It("[serverless] if the runtime is supported for metrics, it should create a configmap with prometheus queries", func() {
+				_ = createServingRuntime(testNs, KserveServingRuntimePath1)
+				_ = createInferenceService(testNs, KserveOvmsInferenceServiceName, KserveInferenceServicePath1)
+
+				verifyConfigMap(KserveOvmsInferenceServiceName, testNs, true, constants.OvmsMetricsData)
 			})
 
-			It("if the isvc does not have a runtime specified, an unsupported metrics configmap should be created", func() {
+			It("[raw] if the runtime is supported for metrics, it should create a configmap with prometheus queries", func() {
+				_ = createServingRuntime(testNs, KserveServingRuntimePath1)
+				_ = createInferenceService(testNs, KserveOvmsInferenceServiceName, KserveInferenceServicePath1, true)
+
+				verifyConfigMap(KserveOvmsInferenceServiceName, testNs, true, constants.OvmsMetricsData)
+			})
+
+			It("[serverless] if the runtime is not supported for metrics, it should create a configmap with the unsupported config", func() {
+				_ = createServingRuntime(testNs, UnsupprtedMetricsServingRuntimePath)
+				_ = createInferenceService(testNs, UnsupportedMetricsInferenceServiceName, UnsupportedMetricsInferenceServicePath)
+
+				verifyConfigMap(UnsupportedMetricsInferenceServiceName, testNs, false, "")
+			})
+
+			It("[raw] if the runtime is not supported for metrics, it should create a configmap with the unsupported config", func() {
+				_ = createServingRuntime(testNs, UnsupprtedMetricsServingRuntimePath)
+				_ = createInferenceService(testNs, UnsupportedMetricsInferenceServiceName, UnsupportedMetricsInferenceServicePath, true)
+
+				verifyConfigMap(UnsupportedMetricsInferenceServiceName, testNs, false, "")
+			})
+
+			It("[serverless] if the isvc does not have a runtime specified, an unsupported metrics configmap should be created", func() {
 				_ = createInferenceService(testNs, NilRuntimeInferenceServiceName, NilRuntimeInferenceServicePath)
 
-				metricsConfigMap, err := testutils.WaitForConfigMap(k8sClient, testNs, NilRuntimeInferenceServiceName+constants.KserveMetricsConfigMapNameSuffix, 30, 1*time.Second)
-				Expect(err).NotTo(HaveOccurred())
-				Expect(metricsConfigMap).NotTo(BeNil())
-
-				expectedmetricsConfigMap := &corev1.ConfigMap{
-					ObjectMeta: metav1.ObjectMeta{
-						Name:      NilRuntimeInferenceServiceName + constants.KserveMetricsConfigMapNameSuffix,
-						Namespace: testNs,
-					},
-					Data: map[string]string{
-						"supported": "false",
-					},
-				}
-				Expect(testutils.CompareConfigMap(metricsConfigMap, expectedmetricsConfigMap)).Should(BeTrue())
+				verifyConfigMap(NilRuntimeInferenceServiceName, testNs, false, "")
 			})
 
-			It("if the isvc does not have the model field specified, an unsupported metrics configmap should be created", func() {
+			It("[raw] if the isvc does not have a runtime specified, an unsupported metrics configmap should be created", func() {
+				_ = createInferenceService(testNs, NilRuntimeInferenceServiceName, NilRuntimeInferenceServicePath, true)
+
+				verifyConfigMap(NilRuntimeInferenceServiceName, testNs, false, "")
+			})
+
+			It("[serverless] if the isvc does not have the model field specified, an unsupported metrics configmap should be created", func() {
 				_ = createInferenceService(testNs, NilModelInferenceServiceName, NilModelInferenceServicePath)
 
-				metricsConfigMap, err := testutils.WaitForConfigMap(k8sClient, testNs, NilModelInferenceServiceName+constants.KserveMetricsConfigMapNameSuffix, 30, 1*time.Second)
-				Expect(err).NotTo(HaveOccurred())
-				Expect(metricsConfigMap).NotTo(BeNil())
+				verifyConfigMap(NilModelInferenceServiceName, testNs, false, "")
+			})
 
-				expectedCM := &corev1.ConfigMap{
-					ObjectMeta: metav1.ObjectMeta{
-						Name:      NilModelInferenceServiceName + constants.KserveMetricsConfigMapNameSuffix,
-						Namespace: testNs,
-					},
-					Data: map[string]string{
-						"supported": "false",
-					},
-				}
-				Expect(testutils.CompareConfigMap(metricsConfigMap, expectedCM)).Should(BeTrue())
+			It("[raw] if the isvc does not have the model field specified, an unsupported metrics configmap should be created", func() {
+				_ = createInferenceService(testNs, NilModelInferenceServiceName, NilModelInferenceServicePath, true)
+
+				verifyConfigMap(NilModelInferenceServiceName, testNs, false, "")
 			})
 		})
 
 		When("deleting the deployed models", func() {
-			It("it should delete the associated configmap", func() {
+			It("[serverless] it should delete the associated configmap", func() {
 				_ = createServingRuntime(testNs, KserveServingRuntimePath1)
 				OvmsInferenceService := createInferenceService(testNs, KserveOvmsInferenceServiceName, KserveInferenceServicePath1)
 
@@ -765,6 +776,29 @@ var _ = Describe("InferenceService Controller", func() {
 
 				_ = createServingRuntime(testNs, UnsupprtedMetricsServingRuntimePath)
 				SklearnInferenceService := createInferenceService(testNs, UnsupportedMetricsInferenceServiceName, UnsupportedMetricsInferenceServicePath)
+
+				Expect(k8sClient.Delete(ctx, SklearnInferenceService)).Should(Succeed())
+				Eventually(func() error {
+					configmap := &corev1.ConfigMap{}
+					key := types.NamespacedName{Name: UnsupportedMetricsInferenceServiceName + constants.KserveMetricsConfigMapNameSuffix, Namespace: SklearnInferenceService.Namespace}
+					err := k8sClient.Get(ctx, key, configmap)
+					return err
+				}, timeout, interval).ShouldNot(Succeed())
+			})
+			It("[raw] it should delete the associated configmap", func() {
+				_ = createServingRuntime(testNs, KserveServingRuntimePath1)
+				OvmsInferenceService := createInferenceService(testNs, KserveOvmsInferenceServiceName, KserveInferenceServicePath1, true)
+
+				Expect(k8sClient.Delete(ctx, OvmsInferenceService)).Should(Succeed())
+				Eventually(func() error {
+					configmap := &corev1.ConfigMap{}
+					key := types.NamespacedName{Name: KserveOvmsInferenceServiceName + constants.KserveMetricsConfigMapNameSuffix, Namespace: OvmsInferenceService.Namespace}
+					err := k8sClient.Get(ctx, key, configmap)
+					return err
+				}, timeout, interval).ShouldNot(Succeed())
+
+				_ = createServingRuntime(testNs, UnsupprtedMetricsServingRuntimePath)
+				SklearnInferenceService := createInferenceService(testNs, UnsupportedMetricsInferenceServiceName, UnsupportedMetricsInferenceServicePath, true)
 
 				Expect(k8sClient.Delete(ctx, SklearnInferenceService)).Should(Succeed())
 				Eventually(func() error {
@@ -1093,6 +1127,26 @@ var _ = Describe("InferenceService Controller", func() {
 					return k8sClient.Get(ctx, key, route)
 				}, timeout, interval).ShouldNot(HaveOccurred())
 			})
+			It("it should create a metrics service and servicemonitor auth", func() {
+				_ = createServingRuntime(testNs, KserveServingRuntimePath1)
+				inferenceService := createInferenceService(testNs, KserveOvmsInferenceServiceName, KserveInferenceServicePath1)
+				if err := k8sClient.Create(ctx, inferenceService); err != nil {
+					Expect(err).NotTo(HaveOccurred())
+				}
+				metricsService := &corev1.Service{}
+				Eventually(func() error {
+					key := types.NamespacedName{Name: inferenceService.Name + "-metrics", Namespace: inferenceService.Namespace}
+					return k8sClient.Get(ctx, key, metricsService)
+				}, timeout, interval).Should(Succeed())
+
+				serviceMonitor := &monitoringv1.ServiceMonitor{}
+				Eventually(func() error {
+					key := types.NamespacedName{Name: inferenceService.Name + "-metrics", Namespace: inferenceService.Namespace}
+					return k8sClient.Get(ctx, key, serviceMonitor)
+				}, timeout, interval).Should(Succeed())
+
+				Expect(serviceMonitor.Spec.Selector.MatchLabels).To(HaveKeyWithValue("name", inferenceService.Name+"-metrics"))
+			})
 		})
 		When("deleting a Kserve RawDeployment model", func() {
 			It("the associated route should be deleted", func() {
@@ -1108,6 +1162,27 @@ var _ = Describe("InferenceService Controller", func() {
 				Eventually(func() error {
 					key := types.NamespacedName{Name: inferenceService.Name, Namespace: inferenceService.Namespace}
 					return k8sClient.Get(ctx, key, route)
+				}, timeout, interval).Should(HaveOccurred())
+			})
+			It("the associated metrics service and servicemonitor should be deleted", func() {
+				_ = createServingRuntime(testNs, KserveServingRuntimePath1)
+				inferenceService := createInferenceService(testNs, KserveOvmsInferenceServiceName, KserveInferenceServicePath1)
+				if err := k8sClient.Create(ctx, inferenceService); err != nil {
+					Expect(err).NotTo(HaveOccurred())
+				}
+
+				Expect(k8sClient.Delete(ctx, inferenceService)).Should(Succeed())
+
+				metricsService := &corev1.Service{}
+				Eventually(func() error {
+					key := types.NamespacedName{Name: inferenceService.Name, Namespace: inferenceService.Namespace}
+					return k8sClient.Get(ctx, key, metricsService)
+				}, timeout, interval).Should(HaveOccurred())
+
+				serviceMonitor := &monitoringv1.ServiceMonitor{}
+				Eventually(func() error {
+					key := types.NamespacedName{Name: inferenceService.Name, Namespace: inferenceService.Namespace}
+					return k8sClient.Get(ctx, key, serviceMonitor)
 				}, timeout, interval).Should(HaveOccurred())
 			})
 		})

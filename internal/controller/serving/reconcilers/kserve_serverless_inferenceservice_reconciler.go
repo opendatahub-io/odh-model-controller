@@ -40,8 +40,6 @@ func NewKServeServerlessInferenceServiceReconciler(client client.Client, clientR
 	subResourceReconciler := []SubResourceReconciler{
 		NewKserveServiceMeshMemberReconciler(client),
 		NewKserveRouteReconciler(client, kClient),
-		NewKServeMetricsServiceReconciler(client),
-		NewKServeMetricsServiceMonitorReconciler(client),
 		NewKServePrometheusRoleBindingReconciler(client),
 		NewKServeIstioTelemetryReconciler(client),
 		NewKServeIstioServiceMonitorReconciler(client),
