@@ -14,7 +14,7 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package pod
+package core
 
 import (
 	"context"
@@ -130,8 +130,8 @@ var _ = BeforeSuite(func() {
 	})
 	Expect(err).NotTo(HaveOccurred())
 
-	SetupPodWebhookWithManager(mgr)
-
+	err = SetupPodWebhookWithManager(mgr)
+	Expect(err).NotTo(HaveOccurred())
 	// +kubebuilder:scaffold:webhook
 
 	go func() {

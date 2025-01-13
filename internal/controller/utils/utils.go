@@ -432,3 +432,7 @@ func SubstituteVariablesInQueries(data string, namespace string, name string) st
 		"${KV_CACHE_SAMPLING_RATE}", constants.GPUKVCacheSamplingInterval)
 	return replacer.Replace(data)
 }
+
+func IsRayTLSSecret(name string) bool {
+	return name == constants.RayCASecretName || name == constants.RayTLSSecretName
+}

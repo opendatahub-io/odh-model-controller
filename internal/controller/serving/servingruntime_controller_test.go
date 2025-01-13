@@ -117,7 +117,7 @@ var _ = Describe("ServingRuntime Controller (ODH Monitoring Controller)", func()
 	})
 })
 
-var _ = Describe("Multi Node Reconciler", func() {
+var _ = Describe("ServingRuntime Controller (Multi Node Reconciler)", func() {
 	controllerNS := os.Getenv("POD_NAMESPACE")
 	ctx := context.Background()
 

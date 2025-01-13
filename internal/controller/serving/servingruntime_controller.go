@@ -148,7 +148,7 @@ func (r *ServingRuntimeReconciler) modelMeshEnabled(_ string, labels map[string]
 
 // monitoringThisNameSpace return true if this Namespace should be monitored by monitoring stack
 func (r *ServingRuntimeReconciler) monitoringThisNameSpace(ns string, labels map[string]string, monitoringNs string) bool {
-	if monitoringNs == ""{
+	if monitoringNs == "" {
 		return false
 	}
 	if ns == OpenshiftMonitoringNS || ns == monitoringNs {
@@ -264,7 +264,7 @@ func (r *ServingRuntimeReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 
 	if monitoringNs == "" {
 		logger.Info("No monitoring namespace detected, skipping monitoring reconciliation.")
-	} else if !isRayTLSSecret(req.Name) {
+	} else if !utils.IsRayTLSSecret(req.Name) {
 		logger.Info("Monitoring Controller reconciling.")
 		err = r.reconcileRoleBinding(ctx, req, monitoringNs)
 		if err != nil {
@@ -279,7 +279,6 @@ func (r *ServingRuntimeReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 	}
 	multiNodeSRExistInNS := existMultiNodeServingRuntimeInNs(servingRuntimeList)
 	logger.Info("Multi Node reconciling.")
-
 	if err = r.reconcileMultiNodeSR(ctx, logger, req.Name, multiNodeSRExistInNS, controllerNs, req.Namespace); err != nil {
 		return ctrl.Result{}, err
 	}
@@ -288,6 +287,7 @@ func (r *ServingRuntimeReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 	return ctrl.Result{}, nil
 }
 
+// When multi-node servingruntime is created in a namespace, ray-ca-tls secret in controller namespace and ray-tls secret in user namespace will be created.
 func (r *ServingRuntimeReconciler) reconcileMultiNodeSR(ctx context.Context, logger logr.Logger, reqName string, multiNodeSRExistInNS bool, controllerNamespace, targetNamespace string) error {
 	// recnocile Ray Ca Cert
 	if ctx.Err() == nil { // this is for unit test, when context is down, still it tries to create secret even though api server is down
@@ -340,7 +340,7 @@ func (r *ServingRuntimeReconciler) reconcileDefaultRayServerCertSecretInUserNS(l
 		}
 
 	} else {
-		if !isRayTLSSecret(reqName) {
+		if !utils.IsRayTLSSecret(reqName) {
 			if err := r.Client.Delete(context.TODO(), rayDefaultSecret); err != nil {
 				if apierrs.IsNotFound(err) {
 					return nil
@@ -388,10 +388,6 @@ func existMultiNodeServingRuntimeInNs(srList servingv1alpha1.ServingRuntimeList)
 		}
 	}
 	return isMultiNodeServingRuntime
-}
-
-func isRayTLSSecret(name string) bool {
-	return name == constants.RayCASecretName || name == constants.RayTLSSecretName
 }
 
 func (r *ServingRuntimeReconciler) reconcileRayTlsSecretReader(logger logr.Logger, namespace string, multiNodeExist bool) error {
@@ -510,7 +506,7 @@ func (r *ServingRuntimeReconciler) SetupWithManager(mgr ctrl.Manager) error {
 		Watches(
 			&corev1.Secret{},
 			handler.EnqueueRequestsFromMapFunc(func(ctx context.Context, o client.Object) []reconcile.Request {
-				if !isRayTLSSecret(o.GetName()) {
+				if !utils.IsRayTLSSecret(o.GetName()) {
 					return []reconcile.Request{}
 				}
 

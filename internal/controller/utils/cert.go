@@ -280,12 +280,6 @@ func generateCertSecret(c client.Client, certSecret *corev1.Secret) error {
 			return recreateSecret(c, existingSecret, certSecret)
 		}
 
-		// update data if found with same type but outdated content
-		if isSecretOutdated(existingSecret.Data, certSecret.Data) {
-			if errUpdate := c.Update(context.TODO(), certSecret); errUpdate != nil {
-				return fmt.Errorf("failed to update existing secret: %w", errUpdate)
-			}
-		}
 	case k8serr.IsNotFound(errGet):
 		// Secret does not exist, create it
 		if errCreate := c.Create(context.TODO(), certSecret); errCreate != nil {
@@ -296,24 +290,6 @@ func generateCertSecret(c client.Client, certSecret *corev1.Secret) error {
 	}
 
 	return nil
-}
-
-// isSecretOutdated compares two secret data of type map[string][]byte and returns true if they are not equal.
-func isSecretOutdated(existingSecretData, newSecretData map[string][]byte) bool {
-	if len(existingSecretData) != len(newSecretData) {
-		return true
-	}
-
-	for key, value1 := range existingSecretData {
-		value2, ok := newSecretData[key]
-		if !ok {
-			return true
-		}
-		if !bytes.Equal(value1, value2) {
-			return true
-		}
-	}
-	return false
 }
 
 func isCertExpired(cert []byte, beforeYear int) (bool, error) {

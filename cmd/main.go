@@ -252,6 +252,9 @@ func main() {
 	}
 
 	nimState := os.Getenv("NIM_STATE")
+	if nimState == "" {
+		nimState = "managed"
+	}
 	signalHandlerCtx := ctrl.SetupSignalHandler()
 	if !slices.Contains([]string{"removed", ""}, nimState) {
 		if err = (&nim.AccountReconciler{

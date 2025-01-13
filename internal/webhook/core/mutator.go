@@ -1,63 +1,44 @@
-package pod
+package core
 
 import (
 	"context"
-	"encoding/json"
-	"net/http"
+	"fmt"
 
+	"github.com/go-logr/logr"
 	"github.com/opendatahub-io/odh-model-controller/internal/controller/constants"
-	admissionv1 "k8s.io/api/admission/v1"
 	corev1 "k8s.io/api/core/v1"
-	"k8s.io/client-go/kubernetes/scheme"
-
+	"k8s.io/apimachinery/pkg/runtime"
+	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
-	logf "sigs.k8s.io/controller-runtime/pkg/log"
-	"sigs.k8s.io/controller-runtime/pkg/manager"
 	"sigs.k8s.io/controller-runtime/pkg/webhook"
-	"sigs.k8s.io/controller-runtime/pkg/webhook/admission"
 )
 
-// +kubebuilder:webhook:path=/mutate-pods,mutating=true,failurePolicy=fail,groups="",resources=pods,verbs=create,versions=v1,name=inferenceservice.odh-model-controller-webhook-server.pod-mutator,reinvocationPolicy=IfNeeded
-var podlog = logf.Log.WithName("inferenceservice-pod-mutating-webhook")
+// +kubebuilder:webhook:path=/mutate--v1-pod,mutating=true,failurePolicy=fail,groups="",resources=pods,verbs=create,versions=v1,name=mutating.pod.odh-model-controller.opendatahub.io,reinvocationPolicy=IfNeeded,admissionReviewVersions=v1,sideEffects=none
+
+var podlog logr.Logger
 
 // Mutator is a webhook that injects incoming pods
-type Mutator struct {
-	Client  client.Client
-	Decoder admission.Decoder
+type PodMutatorDefaultor struct {
+	Client client.Client
 }
 
-// Handle decodes the incoming Pod and executes mutation logic.
-func (mutator *Mutator) Handle(ctx context.Context, req admission.Request) admission.Response {
-	pod := &corev1.Pod{}
-	if err := mutator.Decoder.Decode(req, pod); err != nil {
-		podlog.Error(err, "Failed to decode pod", "name", req.Name, "namespace", req.Namespace)
-		return admission.Errored(http.StatusBadRequest, err)
-	}
-	// Only mutate on Pod creation
-	if req.Operation != admissionv1.Create {
-		return admission.Allowed("not create operation")
-	}
+var _ webhook.CustomDefaulter = &PodMutatorDefaultor{}
+
+// Handle incoming Pod and executes mutation logic.
+func (m *PodMutatorDefaultor) podMutator(pod *corev1.Pod) error {
 	if !needMutate(pod) {
-		return admission.ValidationResponse(true, "The pod does not need to be mutated")
+		return nil
 	}
 
-	// For some reason pod namespace is always empty when coming to pod mutator, need to set from admission request
-	pod.Namespace = req.AdmissionRequest.Namespace
-
-	if err := mutator.mutate(pod); err != nil {
+	if err := m.mutate(pod); err != nil {
 		podlog.Error(err, "Failed to mutate pod", "name", pod.Name, "namespace", pod.Namespace)
-		return admission.Errored(http.StatusInternalServerError, err)
+		return err
 	}
 
-	patch, err := json.Marshal(pod)
-	if err != nil {
-		podlog.Error(err, "Failed to marshal pod", "name", pod.Name, "namespace", pod.Namespace)
-		return admission.Errored(http.StatusInternalServerError, err)
-	}
-	return admission.PatchResponseFromRaw(req.AdmissionRequest.Object.Raw, patch)
+	return nil
 }
 
-func (mutator *Mutator) mutate(pod *corev1.Pod) error {
+func (m *PodMutatorDefaultor) mutate(pod *corev1.Pod) error {
 	if needToAddRayTLSGenerator(pod) {
 		rayTLSGeneratorScript := getRayTLSGeneratorScriptInitContainer()
 		pod.Spec.InitContainers = append(pod.Spec.InitContainers, *rayTLSGeneratorScript)
@@ -166,17 +147,27 @@ func needToAddRayTLSGenerator(pod *corev1.Pod) bool {
 	return false
 }
 
-// SetupPodWebhookWithManager sets up the MutatingWebhook with the controller manager.
-func SetupPodWebhookWithManager(mgr manager.Manager) {
-	// Initialize the Mutator (this will handle mutations)
-	mutator := &Mutator{Client: mgr.GetClient(),
-		Decoder: admission.NewDecoder(scheme.Scheme)}
+// Default implements webhook.CustomDefaulter so a webhook will be registered for the Kind InferenceGraph.
+func (m *PodMutatorDefaultor) Default(ctx context.Context, obj runtime.Object) error {
+	pod, ok := obj.(*corev1.Pod)
 
-	// Create the admission handler
-	wh := &webhook.Admission{
-		Handler: mutator,
+	if !ok {
+		return fmt.Errorf("expected an Pod object but got %T", obj)
+	}
+	logger := podlog.WithValues("name", pod.GetName())
+	logger.Info("Defaulting for Pod")
+
+	err := m.podMutator(pod)
+	if err != nil {
+		return err
 	}
 
-	// Register the webhook with the manager
-	mgr.GetWebhookServer().Register("/mutate-pods", wh)
+	return nil
+}
+
+// SetupPodWebhookWithManager sets up the MutatingWebhook with the controller manager.
+func SetupPodWebhookWithManager(mgr ctrl.Manager) error {
+	return ctrl.NewWebhookManagedBy(mgr).For(&corev1.Pod{}).
+		WithDefaulter(&PodMutatorDefaultor{Client: mgr.GetClient()}).
+		Complete()
 }
