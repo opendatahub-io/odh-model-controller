@@ -15,7 +15,7 @@ limitations under the License.
 
 package constants
 
-type IsvcDeploymentMode string
+type KServeDeploymentMode string
 
 const (
 	InferenceServiceKind = "InferenceService"
@@ -43,9 +43,9 @@ const (
 
 // isvc modes
 var (
-	Serverless    IsvcDeploymentMode = "Serverless"
-	RawDeployment IsvcDeploymentMode = "RawDeployment"
-	ModelMesh     IsvcDeploymentMode = "ModelMesh"
+	Serverless    KServeDeploymentMode = "Serverless"
+	RawDeployment KServeDeploymentMode = "RawDeployment"
+	ModelMesh     KServeDeploymentMode = "ModelMesh"
 )
 
 // model registry
@@ -73,6 +73,7 @@ const (
 	DefaultStorageConfig             = "storage-config"
 	IntervalValue                    = "1m"
 	RequestRateInterval              = "5m"
+	GPUKVCacheSamplingInterval       = "24h"
 	OvmsImageName                    = "openvino_model_server"
 	TgisImageName                    = "text-generation-inference"
 	VllmImageName                    = "vllm"
@@ -85,6 +86,13 @@ const (
 	ServingCertAnnotationKey = "service.beta.openshift.io/serving-cert-secret-name"
 )
 
+// Events
+const (
+	// AuthUnavailable is logged in an Event when an InferenceGraph is configured to
+	// be protected with auth, but Authorino is not configured.
+	AuthUnavailable = "AuthStackUnavailable"
+)
+
 // errors
 const (
 	NoSuitableRuntimeError = "not found error: no suitable runtime found."
@@ -93,9 +101,6 @@ const (
 // NIM
 const (
 	NimApplyConfigFieldManager = "nim-account-controller"
-	NimDataConfigMapName       = "nvidia-nim-images-data"
-	NimRuntimeTemplateName     = "nvidia-nim-serving-template"
-	NimPullSecretName          = "nvidia-nim-image-pull"
 )
 
 // Ray

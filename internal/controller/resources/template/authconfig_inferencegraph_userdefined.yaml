@@ -24,12 +24,12 @@ spec:
           group:
             value: "serving.kserve.io"
           resource:
-            value: inferenceservices
+            value: inferencegraphs
           namespace:
             value: {{ .Namespace }}
           subresource:
             value: ""
           name:
-            value: "{{ .InferenceServiceName }}"
+            value: "{{ .ResourceName }}"
         user:
           selector: auth.identity.user.username

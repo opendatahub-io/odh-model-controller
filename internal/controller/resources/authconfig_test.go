@@ -9,7 +9,6 @@ import (
 	. "github.com/onsi/gomega"
 	"github.com/tidwall/gjson"
 	v1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/apimachinery/pkg/types"
 	"knative.dev/pkg/apis"
 	duckv1 "knative.dev/pkg/apis/duck/v1"
 	knservingv1 "knative.dev/serving/pkg/apis/serving/v1"
@@ -79,43 +78,34 @@ var _ = When("InferenceService is ready", func() {
 	})
 
 	Context("Template loading", func() {
-
-		It("should resolve UserDefined template", func() {
-			typeName := types.NamespacedName{
-				Name:      "test",
+		dummyIsvc := kservev1beta1.InferenceService{
+			ObjectMeta: v1.ObjectMeta{
 				Namespace: "test-ns",
-			}
+				Name:      "test",
+			},
+		}
 
+		It("should resolve UserDefined template for InferenceService", func() {
 			ac, err := resources.NewStaticTemplateLoader().Load(
 				context.Background(),
 				resources.UserDefined,
-				typeName)
+				&dummyIsvc)
 
 			Expect(err).To(Succeed())
-			Expect(gjson.ParseBytes(ac.Spec.Authorization["kubernetes-rbac"].KubernetesSubjectAccessReview.ResourceAttributes.Namespace.Value.Raw).String()).To(Equal(typeName.Namespace))
+			Expect(gjson.ParseBytes(ac.Spec.Authorization["kubernetes-rbac"].KubernetesSubjectAccessReview.ResourceAttributes.Namespace.Value.Raw).String()).To(Equal(dummyIsvc.Namespace))
 		})
 
 		It("should default to kubernetes.default.svc Audience", func() {
-			typeName := types.NamespacedName{
-				Name:      "test",
-				Namespace: "test-ns",
-			}
-
 			ac, err := resources.NewStaticTemplateLoader().Load(
 				context.Background(),
 				resources.UserDefined,
-				typeName)
+				&dummyIsvc)
 
 			Expect(err).To(Succeed())
 			Expect(ac.Spec.Authentication["kubernetes-user"].KubernetesTokenReview.Audiences).To(ContainElement("https://kubernetes.default.svc"))
 		})
 
 		It("should read AUTH_AUDIENCE env var for Audience", func() {
-			typeName := types.NamespacedName{
-				Name:      "test",
-				Namespace: "test-ns",
-			}
-
 			_ = os.Setenv("AUTH_AUDIENCE", "http://test.com")
 			defer func() {
 				_ = os.Unsetenv("AUTH_AUDIENCE")
@@ -124,33 +114,23 @@ var _ = When("InferenceService is ready", func() {
 			ac, err := resources.NewStaticTemplateLoader().Load(
 				context.Background(),
 				resources.UserDefined,
-				typeName)
+				&dummyIsvc)
 
 			Expect(err).To(Succeed())
 			Expect(ac.Spec.Authentication["kubernetes-user"].KubernetesTokenReview.Audiences).To(ContainElement("http://test.com"))
 		})
 
 		It("should default to opendatahub.io.. AuthorinoLabel", func() {
-			typeName := types.NamespacedName{
-				Name:      "test",
-				Namespace: "test-ns",
-			}
-
 			ac, err := resources.NewStaticTemplateLoader().Load(
 				context.Background(),
 				resources.UserDefined,
-				typeName)
+				&dummyIsvc)
 
 			Expect(err).To(Succeed())
 			Expect(ac.ObjectMeta.Labels["security.opendatahub.io/authorization-group"]).To(Equal("default"))
 		})
 
 		It("should read AUTH_AUDIENCE env var for Audience", func() {
-			typeName := types.NamespacedName{
-				Name:      "test",
-				Namespace: "test-ns",
-			}
-
 			_ = os.Setenv("AUTHORINO_LABEL", "opendatahub=test")
 			defer func() {
 				_ = os.Unsetenv("AUTHORINO_LABEL")
@@ -159,7 +139,7 @@ var _ = When("InferenceService is ready", func() {
 			ac, err := resources.NewStaticTemplateLoader().Load(
 				context.Background(),
 				resources.UserDefined,
-				typeName)
+				&dummyIsvc)
 
 			Expect(err).To(Succeed())
 			Expect(ac.ObjectMeta.Labels["opendatahub"]).To(Equal("test"))

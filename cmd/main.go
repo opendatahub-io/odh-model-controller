@@ -32,6 +32,8 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/apimachinery/pkg/types"
+
 	"k8s.io/client-go/kubernetes"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/cache"
@@ -42,6 +44,7 @@ import (
 	metricsserver "sigs.k8s.io/controller-runtime/pkg/metrics/server"
 	"sigs.k8s.io/controller-runtime/pkg/webhook"
 
+	v1 "github.com/opendatahub-io/odh-model-controller/api/nim/v1"
 	corecontroller "github.com/opendatahub-io/odh-model-controller/internal/controller/core"
 	"github.com/opendatahub-io/odh-model-controller/internal/controller/nim"
 	servingcontroller "github.com/opendatahub-io/odh-model-controller/internal/controller/serving"
@@ -49,8 +52,14 @@ import (
 	webhookcore "github.com/opendatahub-io/odh-model-controller/internal/webhook/core"
 	webhooknimv1 "github.com/opendatahub-io/odh-model-controller/internal/webhook/nim/v1"
 	webhookservingv1 "github.com/opendatahub-io/odh-model-controller/internal/webhook/serving/v1"
+	webhookservingv1alpha1 "github.com/opendatahub-io/odh-model-controller/internal/webhook/serving/v1alpha1"
 	webhookservingv1beta1 "github.com/opendatahub-io/odh-model-controller/internal/webhook/serving/v1beta1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	// +kubebuilder:scaffold:imports
+)
+
+const (
+	enableWebhooksEnv = "ENABLE_WEBHOOKS"
 )
 
 var (
@@ -253,17 +262,62 @@ func main() {
 			setupLog.Error(err, "unable to create controller", "controller", "NIMAccount")
 			os.Exit(1)
 		}
+	} else {
+		accounts := &v1.AccountList{}
+		if err := mgr.GetClient().List(signalHandlerCtx, accounts); err != nil {
+			setupLog.Error(err, "failed to fetch accounts")
+		}
+		for _, account := range accounts.Items {
+			setupLog.V(1).Info("Cleaning up resources for account", "namespace", account.Namespace, "name", account.Name)
+			// Call CleanupResources for the current account
+			if err = utils.CleanupResources(signalHandlerCtx, &account, mgr.GetClient()); err != nil {
+				setupLog.Error(err, "failed to perform clean up on some accounts")
+			}
+
+			msg := "NIM has been disabled"
+			cleanStatus := v1.AccountStatus{
+				NIMConfig:       nil,
+				RuntimeTemplate: nil,
+				NIMPullSecret:   nil,
+				Conditions: []metav1.Condition{
+					utils.MakeNimCondition(utils.NimConditionAccountStatus, metav1.ConditionUnknown, account.Generation,
+						"AccountNotReconciled", msg),
+					utils.MakeNimCondition(utils.NimConditionAPIKeyValidation, metav1.ConditionUnknown, account.Generation,
+						"ApiKeyNotReconciled", msg),
+					utils.MakeNimCondition(utils.NimConditionConfigMapUpdate, metav1.ConditionUnknown, account.Generation,
+						"ConfigMapNotReconciled", msg),
+					utils.MakeNimCondition(utils.NimConditionTemplateUpdate, metav1.ConditionUnknown, account.Generation,
+						"TemplateNotReconciled", msg),
+					utils.MakeNimCondition(utils.NimConditionSecretUpdate, metav1.ConditionUnknown, account.Generation,
+						"SecretNotReconciled", msg),
+				},
+			}
+			subject := types.NamespacedName{Name: account.Name, Namespace: account.Namespace}
+
+			if err = utils.UpdateStatus(signalHandlerCtx, subject, cleanStatus, mgr.GetClient()); err != nil {
+				setupLog.Error(err, "failed to perform clean up on some accounts")
+			}
+
+		}
+
 	}
 
 	// nolint:goconst
-	if os.Getenv("ENABLE_WEBHOOKS") != "false" {
+	if os.Getenv(enableWebhooksEnv) != "false" {
+		if err = webhookcore.SetupPodWebhookWithManager(mgr); err != nil {
+			setupLog.Error(err, "unable to create webhook", "webhook", "Pod")
+			os.Exit(1)
+		}
+	}
+	// nolint:goconst
+	if os.Getenv(enableWebhooksEnv) != "false" {
 		if err = webhooknimv1.SetupAccountWebhookWithManager(mgr); err != nil {
 			setupLog.Error(err, "unable to create webhook", "webhook", "NIMAccount")
 			os.Exit(1)
 		}
 	}
 	// nolint:goconst
-	if os.Getenv("ENABLE_WEBHOOKS") != "false" {
+	if os.Getenv(enableWebhooksEnv) != "false" {
 		if kserveWithMeshEnabled {
 			if err = webhookservingv1.SetupServiceWebhookWithManager(mgr); err != nil {
 				setupLog.Error(err, "unable to create webhook", "webhook", "Knative Service")
@@ -275,17 +329,25 @@ func main() {
 		}
 	}
 	// nolint:goconst
-	if os.Getenv("ENABLE_WEBHOOKS") != "false" {
+	if os.Getenv(enableWebhooksEnv) != "false" {
 		if err = webhookservingv1beta1.SetupInferenceServiceWebhookWithManager(mgr); err != nil {
 			setupLog.Error(err, "unable to create webhook", "webhook", "InferenceService")
 			os.Exit(1)
 		}
 	}
-	// nolint:goconst
-	if os.Getenv("ENABLE_WEBHOOKS") != "false" {
-		webhookcore.SetupPodWebhookWithManager(mgr)
-	}
 
+	if os.Getenv(enableWebhooksEnv) != "false" {
+		if err = webhookservingv1alpha1.SetupInferenceGraphWebhookWithManager(mgr); err != nil {
+			setupLog.Error(err, "unable to create webhook", "webhook", "InferenceGraph")
+			os.Exit(1)
+		}
+	}
+	if kserveWithMeshEnabled {
+		if err = servingcontroller.NewInferenceGraphReconciler(mgr).SetupWithManager(mgr); err != nil {
+			setupLog.Error(err, "unable to create controller", "controller", "InferenceGraph")
+			os.Exit(1)
+		}
+	}
 	// +kubebuilder:scaffold:builder
 
 	if err := mgr.AddHealthzCheck("healthz", healthz.Ping); err != nil {
