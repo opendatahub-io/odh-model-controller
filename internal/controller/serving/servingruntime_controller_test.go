@@ -57,7 +57,7 @@ func deleteServingRuntime(path string, ctx context.Context) {
 var _ = Describe("ServingRuntime Controller (ODH Monitoring Controller)", func() {
 	Context("In a modelmesh enabled namespace", func() {
 		BeforeEach(func() {
-			os.Setenv("MONITORING_NAMESPACE", "monitoring-ns")
+			_ = os.Setenv("MONITORING_NAMESPACE", "monitoring-ns")
 			ns := &corev1.Namespace{}
 			Expect(k8sClient.Get(ctx, types.NamespacedName{Name: WorkingNamespace}, ns)).NotTo(HaveOccurred())
 			ns.Labels["modelmesh-enabled"] = "true"
@@ -282,7 +282,7 @@ var _ = Describe("ServingRuntime Controller (Multi Node Reconciler)", func() {
 				return err
 			}, timeout, interval).Should(Succeed())
 
-			//Check if the tls Secret updates ca.crt value
+			// Check if the tls Secret updates ca.crt value
 			Eventually(func() error {
 				rayTlsSecret := &corev1.Secret{}
 				key := types.NamespacedName{Name: constants.RayTLSSecretName, Namespace: testNs}
