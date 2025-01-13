@@ -36,7 +36,7 @@ var _ = Describe("Pod Mutator Webhook", func() {
 
 			// Verify that the InitContainer was added
 			Expect(multinodePod.Spec.InitContainers).ShouldNot(BeNil())
-			Expect(len(multinodePod.Spec.InitContainers)).Should(Equal(1))
+			Expect(multinodePod.Spec.InitContainers).Should(HaveLen(1))
 			Expect(multinodePod.Spec.InitContainers[0].Name).To(Equal(constants.RayTLSGeneratorInitContainerName))
 		})
 		It("should return true if RAY_USE_TLS is set to 1", func() {
