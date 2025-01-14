@@ -32,24 +32,24 @@ import (
 	"github.com/opendatahub-io/odh-model-controller/internal/controller/resources"
 )
 
-var _ SubResourceReconciler = (*KserveMetricsServiceMonitorReconciler)(nil)
+var _ SubResourceReconciler = (*KserveRawMetricsServiceMonitorReconciler)(nil)
 
-type KserveMetricsServiceMonitorReconciler struct {
+type KserveRawMetricsServiceMonitorReconciler struct {
 	NoResourceRemoval
 	client                client.Client
 	serviceMonitorHandler resources.ServiceMonitorHandler
 	deltaProcessor        processors.DeltaProcessor
 }
 
-func NewKServeMetricsServiceMonitorReconciler(client client.Client) *KserveMetricsServiceMonitorReconciler {
-	return &KserveMetricsServiceMonitorReconciler{
+func NewKServeRawMetricsServiceMonitorReconciler(client client.Client) *KserveRawMetricsServiceMonitorReconciler {
+	return &KserveRawMetricsServiceMonitorReconciler{
 		client:                client,
 		serviceMonitorHandler: resources.NewServiceMonitorHandler(client),
 		deltaProcessor:        processors.NewDeltaProcessor(),
 	}
 }
 
-func (r *KserveMetricsServiceMonitorReconciler) Reconcile(ctx context.Context, log logr.Logger, isvc *kservev1beta1.InferenceService) error {
+func (r *KserveRawMetricsServiceMonitorReconciler) Reconcile(ctx context.Context, log logr.Logger, isvc *kservev1beta1.InferenceService) error {
 	log.V(1).Info("Reconciling Metrics ServiceMonitor for InferenceService")
 
 	// Create Desired resource
@@ -71,7 +71,7 @@ func (r *KserveMetricsServiceMonitorReconciler) Reconcile(ctx context.Context, l
 	return nil
 }
 
-func (r *KserveMetricsServiceMonitorReconciler) createDesiredResource(ctx context.Context, log logr.Logger, isvc *kservev1beta1.InferenceService) (*v1.ServiceMonitor, error) {
+func (r *KserveRawMetricsServiceMonitorReconciler) createDesiredResource(ctx context.Context, log logr.Logger, isvc *kservev1beta1.InferenceService) (*v1.ServiceMonitor, error) {
 	isvcRuntime, err := utils.FindSupportingRuntimeForISvc(ctx, r.client, log, isvc)
 	if err != nil {
 		return nil, err
@@ -103,11 +103,11 @@ func (r *KserveMetricsServiceMonitorReconciler) createDesiredResource(ctx contex
 	return desiredServiceMonitor, nil
 }
 
-func (r *KserveMetricsServiceMonitorReconciler) getExistingResource(ctx context.Context, log logr.Logger, isvc *kservev1beta1.InferenceService) (*v1.ServiceMonitor, error) {
+func (r *KserveRawMetricsServiceMonitorReconciler) getExistingResource(ctx context.Context, log logr.Logger, isvc *kservev1beta1.InferenceService) (*v1.ServiceMonitor, error) {
 	return r.serviceMonitorHandler.FetchServiceMonitor(ctx, log, types.NamespacedName{Name: getMetricsServiceMonitorName(isvc), Namespace: isvc.Namespace})
 }
 
-func (r *KserveMetricsServiceMonitorReconciler) processDelta(ctx context.Context, log logr.Logger, desiredServiceMonitor *v1.ServiceMonitor, existingServiceMonitor *v1.ServiceMonitor) (err error) {
+func (r *KserveRawMetricsServiceMonitorReconciler) processDelta(ctx context.Context, log logr.Logger, desiredServiceMonitor *v1.ServiceMonitor, existingServiceMonitor *v1.ServiceMonitor) (err error) {
 	comparator := comparators.GetServiceMonitorComparator()
 	delta := r.deltaProcessor.ComputeDelta(comparator, desiredServiceMonitor, existingServiceMonitor)
 

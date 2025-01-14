@@ -39,8 +39,8 @@ func NewKServeRawInferenceServiceReconciler(client client.Client) *KserveRawInfe
 	subResourceReconciler := []SubResourceReconciler{
 		NewKserveRawClusterRoleBindingReconciler(client),
 		NewKserveRawRouteReconciler(client),
-		NewKServeMetricsServiceReconciler(client),
-		NewKServeMetricsServiceMonitorReconciler(client),
+		NewKServeRawMetricsServiceReconciler(client),
+		NewKServeRawMetricsServiceMonitorReconciler(client),
 		NewKserveMetricsDashboardReconciler(client),
 	}
 

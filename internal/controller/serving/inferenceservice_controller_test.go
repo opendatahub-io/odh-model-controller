@@ -736,13 +736,13 @@ var _ = Describe("InferenceService Controller", func() {
 				verifyConfigMap(UnsupportedMetricsInferenceServiceName, testNs, false, "")
 			})
 
-			It("[serverless] if the isvc does not have a runtime specified, an unsupported metrics configmap should be created", func() {
+			It("[serverless] if the isvc does not have a runtime specified and there is no supported runtime, an unsupported metrics configmap should be created", func() {
 				_ = createInferenceService(testNs, NilRuntimeInferenceServiceName, NilRuntimeInferenceServicePath)
 
 				verifyConfigMap(NilRuntimeInferenceServiceName, testNs, false, "")
 			})
 
-			It("[raw] if the isvc does not have a runtime specified, an unsupported metrics configmap should be created", func() {
+			It("[raw] if the isvc does not have a runtime specified and there is no supported runtime, an unsupported metrics configmap should be created", func() {
 				_ = createInferenceService(testNs, NilRuntimeInferenceServiceName, NilRuntimeInferenceServicePath, true)
 
 				verifyConfigMap(NilRuntimeInferenceServiceName, testNs, false, "")
@@ -762,6 +762,8 @@ var _ = Describe("InferenceService Controller", func() {
 		})
 
 		When("deleting the deployed models", func() {
+			timeout10s := time.Second * 10
+			interval4s := time.Second * 4
 			It("[serverless] it should delete the associated configmap", func() {
 				_ = createServingRuntime(testNs, KserveServingRuntimePath1)
 				OvmsInferenceService := createInferenceService(testNs, KserveOvmsInferenceServiceName, KserveInferenceServicePath1)
@@ -772,7 +774,7 @@ var _ = Describe("InferenceService Controller", func() {
 					key := types.NamespacedName{Name: KserveOvmsInferenceServiceName + constants.KserveMetricsConfigMapNameSuffix, Namespace: OvmsInferenceService.Namespace}
 					err := k8sClient.Get(ctx, key, configmap)
 					return err
-				}, timeout, interval).ShouldNot(Succeed())
+				}, timeout10s, interval4s).ShouldNot(Succeed())
 
 				_ = createServingRuntime(testNs, UnsupprtedMetricsServingRuntimePath)
 				SklearnInferenceService := createInferenceService(testNs, UnsupportedMetricsInferenceServiceName, UnsupportedMetricsInferenceServicePath)
@@ -783,7 +785,7 @@ var _ = Describe("InferenceService Controller", func() {
 					key := types.NamespacedName{Name: UnsupportedMetricsInferenceServiceName + constants.KserveMetricsConfigMapNameSuffix, Namespace: SklearnInferenceService.Namespace}
 					err := k8sClient.Get(ctx, key, configmap)
 					return err
-				}, timeout, interval).ShouldNot(Succeed())
+				}, timeout10s, interval4s).ShouldNot(Succeed())
 			})
 			It("[raw] it should delete the associated configmap", func() {
 				_ = createServingRuntime(testNs, KserveServingRuntimePath1)
@@ -795,7 +797,7 @@ var _ = Describe("InferenceService Controller", func() {
 					key := types.NamespacedName{Name: KserveOvmsInferenceServiceName + constants.KserveMetricsConfigMapNameSuffix, Namespace: OvmsInferenceService.Namespace}
 					err := k8sClient.Get(ctx, key, configmap)
 					return err
-				}, timeout, interval).ShouldNot(Succeed())
+				}, timeout10s, interval4s).ShouldNot(Succeed())
 
 				_ = createServingRuntime(testNs, UnsupprtedMetricsServingRuntimePath)
 				SklearnInferenceService := createInferenceService(testNs, UnsupportedMetricsInferenceServiceName, UnsupportedMetricsInferenceServicePath, true)
@@ -806,7 +808,7 @@ var _ = Describe("InferenceService Controller", func() {
 					key := types.NamespacedName{Name: UnsupportedMetricsInferenceServiceName + constants.KserveMetricsConfigMapNameSuffix, Namespace: SklearnInferenceService.Namespace}
 					err := k8sClient.Get(ctx, key, configmap)
 					return err
-				}, timeout, interval).ShouldNot(Succeed())
+				}, timeout10s, interval4s).ShouldNot(Succeed())
 			})
 		})
 	})

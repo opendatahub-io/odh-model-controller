@@ -22,6 +22,7 @@ import (
 	"github.com/go-logr/logr"
 	kservev1beta1 "github.com/kserve/kserve/pkg/apis/serving/v1beta1"
 	"github.com/kserve/kserve/pkg/constants"
+	constants2 "github.com/opendatahub-io/odh-model-controller/internal/controller/constants"
 	"github.com/opendatahub-io/odh-model-controller/internal/controller/utils"
 	v1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -35,28 +36,24 @@ import (
 	"github.com/opendatahub-io/odh-model-controller/internal/controller/resources"
 )
 
-const (
-	inferenceServiceLabelName = "serving.kserve.io/inferenceservice"
-)
+var _ SubResourceReconciler = (*KserveRawMetricsServiceReconciler)(nil)
 
-var _ SubResourceReconciler = (*KserveMetricsServiceReconciler)(nil)
-
-type KserveMetricsServiceReconciler struct {
+type KserveRawMetricsServiceReconciler struct {
 	NoResourceRemoval
 	client         client.Client
 	serviceHandler resources.ServiceHandler
 	deltaProcessor processors.DeltaProcessor
 }
 
-func NewKServeMetricsServiceReconciler(client client.Client) *KserveMetricsServiceReconciler {
-	return &KserveMetricsServiceReconciler{
+func NewKServeRawMetricsServiceReconciler(client client.Client) *KserveRawMetricsServiceReconciler {
+	return &KserveRawMetricsServiceReconciler{
 		client:         client,
 		serviceHandler: resources.NewServiceHandler(client),
 		deltaProcessor: processors.NewDeltaProcessor(),
 	}
 }
 
-func (r *KserveMetricsServiceReconciler) Reconcile(ctx context.Context, log logr.Logger, isvc *kservev1beta1.InferenceService) error {
+func (r *KserveRawMetricsServiceReconciler) Reconcile(ctx context.Context, log logr.Logger, isvc *kservev1beta1.InferenceService) error {
 	log.V(1).Info("Reconciling Metrics Service for InferenceService, checking if there are resource for deletion")
 
 	// Create Desired resource
@@ -78,7 +75,7 @@ func (r *KserveMetricsServiceReconciler) Reconcile(ctx context.Context, log logr
 	return nil
 }
 
-func (r *KserveMetricsServiceReconciler) createDesiredResource(ctx context.Context, log logr.Logger, isvc *kservev1beta1.InferenceService) (*v1.Service, error) {
+func (r *KserveRawMetricsServiceReconciler) createDesiredResource(ctx context.Context, log logr.Logger, isvc *kservev1beta1.InferenceService) (*v1.Service, error) {
 	isvcRuntime, err := utils.FindSupportingRuntimeForISvc(ctx, r.client, log, isvc)
 	if err != nil {
 		return nil, err
@@ -113,7 +110,7 @@ func (r *KserveMetricsServiceReconciler) createDesiredResource(ctx context.Conte
 			},
 			Type: v1.ServiceTypeClusterIP,
 			Selector: map[string]string{
-				inferenceServiceLabelName: isvc.Name,
+				constants2.KserveGroupAnnotation: isvc.Name,
 			},
 		},
 	}
@@ -124,11 +121,11 @@ func (r *KserveMetricsServiceReconciler) createDesiredResource(ctx context.Conte
 	return metricsService, nil
 }
 
-func (r *KserveMetricsServiceReconciler) getExistingResource(ctx context.Context, log logr.Logger, isvc *kservev1beta1.InferenceService) (*v1.Service, error) {
+func (r *KserveRawMetricsServiceReconciler) getExistingResource(ctx context.Context, log logr.Logger, isvc *kservev1beta1.InferenceService) (*v1.Service, error) {
 	return r.serviceHandler.FetchService(ctx, log, types.NamespacedName{Name: getMetricsServiceName(isvc), Namespace: isvc.Namespace})
 }
 
-func (r *KserveMetricsServiceReconciler) processDelta(ctx context.Context, log logr.Logger, desiredService *v1.Service, existingService *v1.Service) (err error) {
+func (r *KserveRawMetricsServiceReconciler) processDelta(ctx context.Context, log logr.Logger, desiredService *v1.Service, existingService *v1.Service) (err error) {
 	comparator := comparators.GetServiceComparator()
 	delta := r.deltaProcessor.ComputeDelta(comparator, desiredService, existingService)
 
