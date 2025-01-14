@@ -251,22 +251,29 @@ var _ = Describe("ServingRuntime Controller (Multi Node Reconciler)", func() {
 
 			rayTlsSecret := &corev1.Secret{}
 			Eventually(func() error {
-				key := types.NamespacedName{Name: constants.RayCASecretName, Namespace: controllerNS}
+				key := types.NamespacedName{Name: constants.RayTLSSecretName, Namespace: testNs}
 				err = k8sClient.Get(ctx, key, rayTlsSecret)
-				if reflect.DeepEqual((rayTlsSecret.Data["ca.crt"]), []byte("wrong-data")) {
-					err = fmt.Errorf("it is not updated")
+				if !reflect.DeepEqual((rayTlsSecret.Data["ca.crt"]), []byte("wrong-data")) {
+					err = fmt.Errorf("tls ca cert is not updated yet")
 				}
 				return err
 			}, timeout, interval).Should(Succeed())
 
 			Eventually(func() error {
+				rayTlsKey := types.NamespacedName{Name: constants.RayTLSSecretName, Namespace: testNs}
+				if err = k8sClient.Get(ctx, rayTlsKey, rayTlsSecret); err != nil {
+					return err
+				}
+
 				originalCaSecret := &corev1.Secret{}
 				key := types.NamespacedName{Name: constants.RayCASecretName, Namespace: controllerNS}
-				err = k8sClient.Get(ctx, key, originalCaSecret)
-				if reflect.DeepEqual((originalCaSecret.Data["tls.crt"]), rayTlsSecret.Data["ca.crt"]) {
-					return fmt.Errorf("it is not rollbacked")
+				if err = k8sClient.Get(ctx, key, originalCaSecret); err != nil {
+					return err
 				}
-				return err
+				if !reflect.DeepEqual((originalCaSecret.Data["tls.crt"]), rayTlsSecret.Data["ca.crt"]) {
+					return fmt.Errorf("tls ca.crt is not synced")
+				}
+				return nil
 			}, timeout, interval).Should(Succeed())
 
 			// It should recreate 'ray-ca-tls' Secret in ctrlNS when it is manually deleted

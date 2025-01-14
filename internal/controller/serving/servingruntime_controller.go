@@ -19,6 +19,7 @@ package serving
 import (
 	"bytes"
 	"context"
+	"fmt"
 	"os"
 	"reflect"
 
@@ -47,6 +48,8 @@ const (
 	MonitoringSA          = "prometheus-custom"
 	rayCaCertNameInUserNS = "ca.crt"
 )
+
+var controllerNamespace string
 
 // ServingRuntimeReconciler reconciles a ServingRuntime object. Formerly
 // known as MonitoringReconciler.
@@ -249,9 +252,10 @@ func (r *ServingRuntimeReconciler) reconcileRoleBinding(ctx context.Context, req
 // - https://pkg.go.dev/sigs.k8s.io/controller-runtime@v0.19.1/pkg/reconcile
 func (r *ServingRuntimeReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
 	// Initialize logger format
-	logger := log.FromContext(ctx).WithValues("ResourceName", req.Name, "Namespace", req.Namespace)
+	// logger := log.FromContext(ctx).WithValues("ResourceName", req.Name, "Namespace", req.Namespace)
+	logger := log.Log.WithValues("ResourceName", req.Name, "Namespace", req.Namespace)
 
-	controllerNs := os.Getenv("POD_NAMESPACE")
+	controllerNamespace = os.Getenv("POD_NAMESPACE")
 	monitoringNs := os.Getenv("MONITORING_NAMESPACE")
 	ns := &corev1.Namespace{}
 	namespacedName := types.NamespacedName{
@@ -279,7 +283,7 @@ func (r *ServingRuntimeReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 	}
 	multiNodeSRExistInNS := existMultiNodeServingRuntimeInNs(servingRuntimeList)
 	logger.Info("Multi Node reconciling.")
-	if err = r.reconcileMultiNodeSR(ctx, logger, req.Name, multiNodeSRExistInNS, controllerNs, req.Namespace); err != nil {
+	if err = r.reconcileMultiNodeSR(ctx, logger, req.Name, multiNodeSRExistInNS, req.Namespace); err != nil {
 		return ctrl.Result{}, err
 	}
 	logger.Info("Multi Node reconciled successfully.")
@@ -288,23 +292,21 @@ func (r *ServingRuntimeReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 }
 
 // When multi-node servingruntime is created in a namespace, ray-ca-tls secret in controller namespace and ray-tls secret in user namespace will be created.
-func (r *ServingRuntimeReconciler) reconcileMultiNodeSR(ctx context.Context, logger logr.Logger, reqName string, multiNodeSRExistInNS bool, controllerNamespace, targetNamespace string) error {
+func (r *ServingRuntimeReconciler) reconcileMultiNodeSR(ctx context.Context, logger logr.Logger, reqName string, multiNodeSRExistInNS bool, targetNamespace string) error {
 	// recnocile Ray Ca Cert
-	if ctx.Err() == nil { // this is for unit test, when context is down, still it tries to create secret even though api server is down
-		createCaCertErr := utils.CreateSelfSignedCACertificate(r.Client, constants.RayCASecretName, "", controllerNamespace)
-		if createCaCertErr != nil {
-			logger.Error(createCaCertErr, "fail to create/update ray ca cert secret", "secret", constants.RayCASecretName, "namespace", controllerNamespace)
-			return createCaCertErr
-		}
+	createCaCertErr := utils.CreateSelfSignedCACertificate(ctx, r.Client, constants.RayCASecretName, "", controllerNamespace)
+	if createCaCertErr != nil {
+		logger.Error(createCaCertErr, "fail to create/update ray ca cert secret", "secret", constants.RayCASecretName, "namespace", controllerNamespace)
+		return createCaCertErr
 	}
 	caCertSecret := &corev1.Secret{}
-	err := r.Client.Get(context.TODO(), types.NamespacedName{Name: constants.RayCASecretName, Namespace: controllerNamespace}, caCertSecret)
+	err := r.Client.Get(ctx, types.NamespacedName{Name: constants.RayCASecretName, Namespace: controllerNamespace}, caCertSecret)
 	if err != nil {
 		logger.Error(err, "fail to get ray ca cert secret", "secret", constants.RayCASecretName, "namespace", controllerNamespace)
 		return err
 	}
 	// reconcile a default ray tls secret
-	createServerCertErr := r.reconcileDefaultRayServerCertSecretInUserNS(logger, reqName, targetNamespace, caCertSecret, multiNodeSRExistInNS)
+	createServerCertErr := r.reconcileDefaultRayServerCertSecretInUserNS(ctx, logger, reqName, targetNamespace, caCertSecret, multiNodeSRExistInNS)
 	if createServerCertErr != nil {
 		return createServerCertErr
 	}
@@ -312,46 +314,67 @@ func (r *ServingRuntimeReconciler) reconcileMultiNodeSR(ctx context.Context, log
 	return nil
 }
 
-func (r *ServingRuntimeReconciler) reconcileDefaultRayServerCertSecretInUserNS(logger logr.Logger, reqName, targetNamespace string, caCertSecret *corev1.Secret, multiNodeSRExistInNS bool) error {
+func (r *ServingRuntimeReconciler) reconcileDefaultRayServerCertSecretInUserNS(ctx context.Context, logger logr.Logger, reqName, targetNamespace string, caCertSecret *corev1.Secret, multiNodeSRExistInNS bool) error {
+
 	rayDefaultSecret := getDesiredRayDefaultSecret(targetNamespace, caCertSecret)
+	if targetNamespace == controllerNamespace {
+		logger.Info("ray ca tls secret modified so ray tls cert need to be updated to sync ca.crt")
+		var servingRuntimeList servingv1alpha1.ServingRuntimeList
+		if err := r.Client.List(ctx, &servingRuntimeList); err != nil {
+			return err
+		}
+		for _, sr := range servingRuntimeList.Items {
+			if isMultiNodeServingRuntime(sr.Name) {
+				rayDefaultSecret.SetNamespace(sr.Namespace)
+				if err := r.Client.Update(ctx, rayDefaultSecret); err != nil {
+					if apierrs.IsNotFound(err) {
+						return nil
+					}
+					logger.Error(err, "fail to delete ray tls secret", "secret", constants.RayTLSSecretName, "namespace", targetNamespace)
+					return err
+				}
+				logger.Info(fmt.Sprintf("Secret(%s) in namespace(%s) updated successfully", rayDefaultSecret.Name, sr.Namespace))
+			}
+		}
+	}
 
 	if multiNodeSRExistInNS {
 		// it creates a ray tls secret with ca cert in the user namespace where multinode runtime created.
 		defaultCertSecret := &corev1.Secret{}
-		if err := r.Client.Get(context.TODO(), types.NamespacedName{Name: constants.RayTLSSecretName, Namespace: targetNamespace}, defaultCertSecret); err != nil {
+		if err := r.Client.Get(ctx, types.NamespacedName{Name: constants.RayTLSSecretName, Namespace: targetNamespace}, defaultCertSecret); err != nil {
 			if apierrs.IsNotFound(err) {
-				if err := r.Client.Create(context.TODO(), rayDefaultSecret); err != nil {
+				if err := r.Client.Create(ctx, rayDefaultSecret); err != nil {
 					logger.Error(err, "fail to create ray tls secret", "secret", constants.RayTLSSecretName, "namespace", targetNamespace)
 					return err
 				}
-			}
-			logger.Error(err, "fail to get ray tls secret", "secret", constants.RayCASecretName, "namespace", targetNamespace)
-			return err
-		}
-
-		// If the ca secret is updated, it updates the ca cert in default ray tls secret in the user namespace
-		if !bytes.Equal(caCertSecret.Data[corev1.TLSCertKey], defaultCertSecret.Data[rayCaCertNameInUserNS]) {
-			updatedDefaultCertSecret := defaultCertSecret.DeepCopy()
-			updatedDefaultCertSecret.Data[rayCaCertNameInUserNS] = caCertSecret.Data[corev1.TLSCertKey]
-			if err := r.Client.Update(context.TODO(), updatedDefaultCertSecret); err != nil {
-				logger.Error(err, "fail to update ray tls secret", "secret", constants.RayCASecretName, "namespace", targetNamespace)
+			} else {
+				logger.Error(err, "fail to get ray tls secret", "secret", constants.RayTLSSecretName, "namespace", targetNamespace)
 				return err
 			}
+		} else {
+			// If the ca secret is updated, it updates the ca cert in default ray tls secret in the user namespace
+			if !bytes.Equal(caCertSecret.Data[corev1.TLSCertKey], defaultCertSecret.Data[rayCaCertNameInUserNS]) {
+				updatedDefaultCertSecret := defaultCertSecret.DeepCopy()
+				updatedDefaultCertSecret.Data[rayCaCertNameInUserNS] = caCertSecret.Data[corev1.TLSCertKey]
+				if err := r.Client.Update(ctx, updatedDefaultCertSecret); err != nil {
+					logger.Error(err, "fail to update ray tls secret", "secret", constants.RayTLSSecretName, "namespace", targetNamespace)
+					return err
+				}
+			}
 		}
-
 	} else {
 		if !utils.IsRayTLSSecret(reqName) {
-			if err := r.Client.Delete(context.TODO(), rayDefaultSecret); err != nil {
+			if err := r.Client.Delete(ctx, rayDefaultSecret); err != nil {
 				if apierrs.IsNotFound(err) {
 					return nil
 				}
-				logger.Error(err, "fail to delete ray tls secret", "secret", constants.RayCASecretName, "namespace", targetNamespace)
+				logger.Error(err, "fail to delete ray tls secret", "secret", constants.RayTLSSecretName, "namespace", targetNamespace)
 				return err
 			}
 		}
 	}
 
-	if err := r.reconcileRayTlsSecretReader(logger, targetNamespace, multiNodeSRExistInNS); err != nil {
+	if err := r.reconcileRayTlsSecretReader(ctx, logger, targetNamespace, multiNodeSRExistInNS); err != nil {
 		return err
 	}
 	return nil
@@ -377,80 +400,82 @@ func getDesiredRayDefaultSecret(namespace string, caSecret *corev1.Secret) *core
 	}
 }
 
+func existMultiNodeServingRuntimeInNs(srList servingv1alpha1.ServingRuntimeList) bool {
+	existMultiNodeServingRuntime := false
+	for _, sr := range srList.Items {
+		existMultiNodeServingRuntime = isMultiNodeServingRuntime(sr.Name)
+	}
+	return existMultiNodeServingRuntime
+}
+
 // Determine if ServingRuntime matches specific conditions
 // TO-DO upstream Kserve 0.15 will have a new API WorkerSpec
 // So for now, it will check servingRuntime name, but after we move to 0.15, it needs to check workerSpec is specified or not.(RHOAIENG-16147)
-func existMultiNodeServingRuntimeInNs(srList servingv1alpha1.ServingRuntimeList) bool {
-	isMultiNodeServingRuntime := false
-	for _, sr := range srList.Items {
-		if sr.Name == "vllm-multinode-runtime" {
-			isMultiNodeServingRuntime = true
-		}
-	}
-	return isMultiNodeServingRuntime
+func isMultiNodeServingRuntime(srName string) bool {
+	return srName == "vllm-multinode-runtime"
 }
-
-func (r *ServingRuntimeReconciler) reconcileRayTlsSecretReader(logger logr.Logger, namespace string, multiNodeExist bool) error {
+func (r *ServingRuntimeReconciler) reconcileRayTlsSecretReader(ctx context.Context, logger logr.Logger, namespace string, multiNodeExist bool) error {
 	desiredRole := getDesiredRayTlsSecretReaderRole(namespace)
 	desiredRoleBinding := getDesiredRayTlsSecretReaderRB(namespace)
+
+	// Reconcile Role
+	if err := r.reconcileResource(ctx, logger, desiredRole, &k8srbacv1.Role{}, multiNodeExist, "role"); err != nil {
+		return err
+	}
+
+	// Reconcile RoleBinding
+	if err := r.reconcileResource(ctx, logger, desiredRoleBinding, &k8srbacv1.RoleBinding{}, multiNodeExist, "rolebinding"); err != nil {
+		return err
+	}
+
+	return nil
+}
+func (r *ServingRuntimeReconciler) reconcileResource(ctx context.Context, logger logr.Logger, resource client.Object, existing client.Object, multiNodeExist bool, kind string) error {
 	if multiNodeExist {
-		existRole := &k8srbacv1.Role{}
-		if err := r.Client.Get(context.TODO(), types.NamespacedName{Name: desiredRole.Name, Namespace: desiredRole.Namespace}, existRole); err != nil {
+		// Try to fetch the existing resource
+		if err := r.Client.Get(ctx, types.NamespacedName{Name: resource.GetName(), Namespace: resource.GetNamespace()}, existing); err != nil {
 			if apierrs.IsNotFound(err) {
-				if err := r.Client.Create(context.TODO(), desiredRole); err != nil {
-					logger.Error(err, "fail to create role", "role", constants.RayTLSSecretReaderRoleName, "namespace", namespace)
+				// Resource not found, create it
+				if err := r.Client.Create(ctx, resource); err != nil {
+					logger.Error(err, "failed to create resource", "kind", kind, "name", resource.GetName(), "namespace", resource.GetNamespace())
 					return err
 				}
-			}
-			logger.Error(err, "fail to get role", "role", constants.RayTLSSecretReaderRoleName, "namespace", namespace)
-			return err
-		}
-		if !reflect.DeepEqual(desiredRole.Rules, existRole.Rules) {
-			if err := r.Client.Update(context.TODO(), desiredRole); err != nil {
-				logger.Error(err, "fail to update role", "role", constants.RayTLSSecretReaderRoleName, "namespace", namespace)
+				logger.Info("created resource", "kind", kind, "name", resource.GetName(), "namespace", resource.GetNamespace())
+			} else {
+				// Other errors
+				logger.Error(err, "failed to get resource", "kind", kind, "name", resource.GetName(), "namespace", resource.GetNamespace())
 				return err
 			}
-		}
-		existRB := &k8srbacv1.RoleBinding{}
-		if err := r.Client.Get(context.TODO(), types.NamespacedName{Name: desiredRoleBinding.Name, Namespace: desiredRoleBinding.Namespace}, existRB); err != nil {
-			if apierrs.IsNotFound(err) {
-				if err := r.Client.Create(context.TODO(), desiredRoleBinding); err != nil {
-					logger.Error(err, "fail to create rolebinding", "rolebinding", constants.RayTLSSecretReaderRoleBindingName, "namespace", namespace)
+		} else {
+			// Resource exists, check if update is needed
+			if !reflect.DeepEqual(resource, existing) {
+				resource.SetResourceVersion(existing.GetResourceVersion()) // Preserve resource version
+				if err := r.Client.Update(ctx, resource); err != nil {
+					logger.Error(err, "failed to update resource", "kind", kind, "name", resource.GetName(), "namespace", resource.GetNamespace())
 					return err
 				}
-			}
-			logger.Error(err, "fail to get rolebinding", "rolebinding", constants.RayTLSSecretReaderRoleBindingName, "namespace", namespace)
-			return err
-		}
-		if !(reflect.DeepEqual(desiredRoleBinding.Subjects, existRB.Subjects) && reflect.DeepEqual(desiredRoleBinding.RoleRef, existRB.RoleRef)) {
-			if err := r.Client.Update(context.TODO(), desiredRoleBinding); err != nil {
-				logger.Error(err, "fail to update rolebinding", "rolebinding", constants.RayTLSSecretReaderRoleBindingName, "namespace", namespace)
-				return err
+				logger.Info("updated resource", "kind", kind, "name", resource.GetName(), "namespace", resource.GetNamespace())
 			}
 		}
 	} else {
-		if err := r.Client.Delete(context.TODO(), desiredRoleBinding); err != nil {
+		if err := r.Client.Delete(ctx, resource); err != nil {
 			if apierrs.IsNotFound(err) {
 				return nil
 			}
-			logger.Error(err, "fail to delete rolebinding", "rolebinding", constants.RayTLSSecretReaderRoleBindingName, "namespace", namespace)
+			logger.Error(err, "fail to delete resource", "kind", kind, "name", resource.GetName(), "namespace", resource.GetNamespace())
 			return err
 		}
-		if err := r.Client.Delete(context.TODO(), desiredRole); err != nil {
-			if apierrs.IsNotFound(err) {
-				return nil
-			}
-			logger.Error(err, "fail to delete rolebinding", "role", constants.RayTLSSecretReaderRoleName, "namespace", namespace)
-			return err
-		}
+		logger.Info("deleted resource", "kind", kind, "name", resource.GetName(), "namespace", resource.GetNamespace())
 	}
+
 	return nil
 }
-func getDesiredRayTlsSecretReaderRole(namespace string) *k8srbacv1.Role {
+
+func getDesiredRayTlsSecretReaderRole(targetNamespace string) *k8srbacv1.Role {
 	return &k8srbacv1.Role{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      constants.RayTLSSecretReaderRoleName,
-			Namespace: namespace,
+			Namespace: targetNamespace,
 			Labels: map[string]string{
 				"opendatahub.io/managed":       "true",
 				"app.kubernetes.io/name":       "ray-tls-secret-reader",
@@ -470,11 +495,11 @@ func getDesiredRayTlsSecretReaderRole(namespace string) *k8srbacv1.Role {
 	}
 }
 
-func getDesiredRayTlsSecretReaderRB(namespace string) *k8srbacv1.RoleBinding {
+func getDesiredRayTlsSecretReaderRB(targetNamespace string) *k8srbacv1.RoleBinding {
 	return &k8srbacv1.RoleBinding{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      constants.RayTLSSecretReaderRoleBindingName,
-			Namespace: namespace,
+			Namespace: targetNamespace,
 			Labels: map[string]string{
 				"opendatahub.io/managed":       "true",
 				"app.kubernetes.io/name":       "ray-tls-secret-reader",
@@ -487,7 +512,7 @@ func getDesiredRayTlsSecretReaderRB(namespace string) *k8srbacv1.RoleBinding {
 			{
 				Kind:      "ServiceAccount",
 				Name:      "default",
-				Namespace: namespace,
+				Namespace: targetNamespace,
 			},
 		},
 		RoleRef: k8srbacv1.RoleRef{
@@ -503,6 +528,7 @@ func (r *ServingRuntimeReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	return ctrl.NewControllerManagedBy(mgr).
 		For(&servingv1alpha1.ServingRuntime{}).
 		Named("servingruntime").
+		Owns(&k8srbacv1.RoleBinding{}).
 		Watches(
 			&corev1.Secret{},
 			handler.EnqueueRequestsFromMapFunc(func(ctx context.Context, o client.Object) []reconcile.Request {
@@ -540,9 +566,10 @@ func (r *ServingRuntimeReconciler) SetupWithManager(mgr ctrl.Manager) error {
 				// Only reconcile on RoleBindings that this controller creates.
 				// We avoid using owner references, as there is no logical owner
 				// of the RoleBinding this controller creates.
-				if o.GetName() != RoleBindingName {
+				if !isWatchingRoleBinding(o.GetName()) {
 					return []reconcile.Request{}
 				}
+
 				_, odhManaged := o.GetLabels()["opendatahub.io/managed"]
 				if !odhManaged {
 					return []reconcile.Request{}
@@ -555,8 +582,26 @@ func (r *ServingRuntimeReconciler) SetupWithManager(mgr ctrl.Manager) error {
 				}
 
 				reconcileRequests := append([]reconcile.Request{}, reconcile.Request{NamespacedName: namespacedName})
+				return reconcileRequests
+			})).
+		// Watch for changes to ModelMesh Enabled namespaces & a select few others
+		Watches(&k8srbacv1.Role{},
+			handler.EnqueueRequestsFromMapFunc(func(ctx context.Context, o client.Object) []reconcile.Request {
 
+				if o.GetName() != constants.RayTLSSecretReaderRoleName {
+					return []reconcile.Request{}
+				}
+
+				namespacedName := types.NamespacedName{
+					Name:      o.GetName(),
+					Namespace: o.GetNamespace(),
+				}
+				reconcileRequests := append([]reconcile.Request{}, reconcile.Request{NamespacedName: namespacedName})
 				return reconcileRequests
 			})).
 		Complete(r)
+}
+
+func isWatchingRoleBinding(name string) bool {
+	return name == RoleBindingName || name == constants.RayTLSSecretReaderRoleBindingName
 }

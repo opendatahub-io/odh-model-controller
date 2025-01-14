@@ -46,17 +46,19 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/webhook"
 
 	"github.com/go-logr/logr"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+
 	v1 "github.com/opendatahub-io/odh-model-controller/api/nim/v1"
 	corecontroller "github.com/opendatahub-io/odh-model-controller/internal/controller/core"
 	"github.com/opendatahub-io/odh-model-controller/internal/controller/nim"
 	servingcontroller "github.com/opendatahub-io/odh-model-controller/internal/controller/serving"
 	"github.com/opendatahub-io/odh-model-controller/internal/controller/utils"
-	webhookcore "github.com/opendatahub-io/odh-model-controller/internal/webhook/core"
+
+	webhookcorev1 "github.com/opendatahub-io/odh-model-controller/internal/webhook/core/v1"
 	webhooknimv1 "github.com/opendatahub-io/odh-model-controller/internal/webhook/nim/v1"
 	webhookservingv1 "github.com/opendatahub-io/odh-model-controller/internal/webhook/serving/v1"
 	webhookservingv1alpha1 "github.com/opendatahub-io/odh-model-controller/internal/webhook/serving/v1alpha1"
 	webhookservingv1beta1 "github.com/opendatahub-io/odh-model-controller/internal/webhook/serving/v1beta1"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	// +kubebuilder:scaffold:imports
 )
 
@@ -304,7 +306,7 @@ func setupWebhooks(mgr ctrl.Manager, setupLog logr.Logger, kserveWithMeshEnabled
 		name    string
 		setupFn func(ctrl.Manager) error
 	}{
-		{"Pod", webhookcore.SetupPodWebhookWithManager},
+		{"Pod", webhookcorev1.SetupPodWebhookWithManager},
 		{"NIMAccount", webhooknimv1.SetupAccountWebhookWithManager},
 		{"InferenceService", webhookservingv1beta1.SetupInferenceServiceWebhookWithManager},
 		{"InferenceGraph", webhookservingv1alpha1.SetupInferenceGraphWebhookWithManager},

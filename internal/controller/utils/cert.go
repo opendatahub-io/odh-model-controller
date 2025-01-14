@@ -22,20 +22,20 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
-func CreateSelfSignedCACertificate(c client.Client, secretName, domain, namespace string) error {
-	certSecret, err := GenerateSelfSignedCACertificateAsSecret(secretName, domain, namespace)
+func CreateSelfSignedCACertificate(ctx context.Context, c client.Client, secretName, domain, namespace string) error {
+	certSecret, err := GenerateSelfSignedCACertificateAsSecret(ctx, secretName, domain, namespace)
 	if err != nil {
 		return fmt.Errorf("failed generating self-signed ca certificate: %w", err)
 	}
 
-	if errGen := generateCertSecret(c, certSecret); errGen != nil {
+	if errGen := generateCertSecret(ctx, c, certSecret); errGen != nil {
 		return fmt.Errorf("failed update self-signed ca certificate secret: %w", errGen)
 	}
 
 	return nil
 }
 
-func GenerateSelfSignedCACertificateAsSecret(name, addr, namespace string) (*corev1.Secret, error) {
+func GenerateSelfSignedCACertificateAsSecret(ctx context.Context, name, addr, namespace string) (*corev1.Secret, error) {
 	cert, key, err := generateCACertificate(addr)
 	if err != nil {
 		return nil, errors.WithStack(err)
@@ -128,9 +128,9 @@ func generateCACertificate(addr string) ([]byte, []byte, error) {
 	return certBuffer.Bytes(), keyBuffer.Bytes(), nil
 }
 
-func CreateSelfSignedCertificate(c client.Client, caSecretName, caSecretNamespace, targetSecretName, targetNamespace string, sanIPs, sanDNSs []string) (*corev1.Secret, error) {
+func CreateSelfSignedCertificate(ctx context.Context, c client.Client, caSecretName, caSecretNamespace, targetSecretName, targetNamespace string, sanIPs, sanDNSs []string) (*corev1.Secret, error) {
 	caCertSecret := &corev1.Secret{}
-	err := c.Get(context.TODO(), client.ObjectKey{Namespace: caSecretNamespace, Name: caSecretName}, caCertSecret)
+	err := c.Get(ctx, client.ObjectKey{Namespace: caSecretNamespace, Name: caSecretName}, caCertSecret)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get ca secret:%w", err)
 	}
@@ -140,7 +140,7 @@ func CreateSelfSignedCertificate(c client.Client, caSecretName, caSecretNamespac
 		return nil, fmt.Errorf("failed generating self-signed certificate: %w", err)
 	}
 
-	if errGen := generateCertSecret(c, certSecret); errGen != nil {
+	if errGen := generateCertSecret(ctx, c, certSecret); errGen != nil {
 		return nil, fmt.Errorf("failed update self-signed certificate secret: %w", errGen)
 	}
 
@@ -253,20 +253,20 @@ func generateCertificate(sanIPs, sanDNSs []string, caCertSecret *corev1.Secret) 
 }
 
 // recreateSecret deletes the existing secret and creates a new one.
-func recreateSecret(c client.Client, existingSecret, newSecret *corev1.Secret) error {
-	if err := c.Delete(context.TODO(), existingSecret); err != nil {
+func recreateSecret(ctx context.Context, c client.Client, existingSecret, newSecret *corev1.Secret) error {
+	if err := c.Delete(ctx, existingSecret); err != nil {
 		return fmt.Errorf("failed to delete existing secret before recreating new one: %w", err)
 	}
-	if err := c.Create(context.TODO(), newSecret); err != nil {
+	if err := c.Create(ctx, newSecret); err != nil {
 		return fmt.Errorf("failed to create new secret after existing one has been deleted: %w", err)
 	}
 	return nil
 }
 
 // generateCertSecret creates a secret if it does not exist; recreate this secret if type not match; update data if outdated.
-func generateCertSecret(c client.Client, certSecret *corev1.Secret) error {
+func generateCertSecret(ctx context.Context, c client.Client, certSecret *corev1.Secret) error {
 	existingSecret := &corev1.Secret{}
-	errGet := c.Get(context.TODO(), client.ObjectKeyFromObject(certSecret), existingSecret)
+	errGet := c.Get(ctx, client.ObjectKeyFromObject(certSecret), existingSecret)
 	switch {
 	case errGet == nil:
 		// check existing cert is expired
@@ -277,12 +277,12 @@ func generateCertSecret(c client.Client, certSecret *corev1.Secret) error {
 
 		// Secret exists but with a different type, delete and create it again
 		if existingSecret.Type != certSecret.Type || certExpired {
-			return recreateSecret(c, existingSecret, certSecret)
+			return recreateSecret(ctx, c, existingSecret, certSecret)
 		}
 
 	case k8serr.IsNotFound(errGet):
 		// Secret does not exist, create it
-		if errCreate := c.Create(context.TODO(), certSecret); errCreate != nil {
+		if errCreate := c.Create(ctx, certSecret); errCreate != nil {
 			return fmt.Errorf("failed creating new certificate secret: %w", errCreate)
 		}
 	default:
