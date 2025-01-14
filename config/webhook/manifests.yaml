@@ -24,6 +24,14 @@ webhooks:
     resources:
     - pods
   sideEffects: None
+  namespaceSelector:
+    matchExpressions:
+      - key: control-plane
+        operator: DoesNotExist
+  objectSelector:
+    matchExpressions:
+      - key: serving.kserve.io/inferenceservice
+        operator: Exists  
 - admissionReviewVersions:
   - v1
   clientConfig:
