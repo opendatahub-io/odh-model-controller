@@ -67,7 +67,7 @@ func (r *KserveGatewayReconciler) Reconcile(ctx context.Context, log logr.Logger
 	_, meshNamespace = utils.GetIstioControlPlaneName(ctx, r.client)
 
 	// return if Address.URL is not set
-	if isvc.Status.Address != nil && isvc.Status.Address.URL == nil {
+	if isvc.Status.Address == nil || isvc.Status.Address.URL == nil {
 		log.V(1).Info("Waiting for the URL as the InferenceService is not ready yet")
 		return nil
 	}
