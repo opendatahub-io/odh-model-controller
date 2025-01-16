@@ -108,8 +108,8 @@ func (r *KserveRawRouteReconciler) createDesiredResource(ctx context.Context, lo
 		log.Error(err, "Failed to fetch service for InferenceService", "InferenceService", isvc.Name)
 		return nil, err
 	}
-	var servicePort int32
 	var targetService corev1.Service
+	var targetPort intstr.IntOrString
 	for _, service := range serviceList.Items {
 		if val, ok := service.Labels["component"]; ok {
 			if val == "transformer" {
@@ -121,15 +121,16 @@ func (r *KserveRawRouteReconciler) createDesiredResource(ctx context.Context, lo
 			}
 		}
 	}
-
-	for _, port := range targetService.Spec.Ports {
-		if !enableAuth {
-			if port.Name == "http" || port.Name == targetService.Name {
-				servicePort = port.Port
-			}
-		} else {
+	if enableAuth {
+		for _, port := range targetService.Spec.Ports {
 			if port.Name == "https" {
-				servicePort = port.Port
+				targetPort = intstr.FromInt32(port.Port)
+			}
+		}
+	} else {
+		for _, port := range targetService.Spec.Ports {
+			if port.Name == "http" || port.Name == targetService.Name {
+				targetPort = intstr.FromString(port.Name)
 			}
 		}
 	}
@@ -149,7 +150,7 @@ func (r *KserveRawRouteReconciler) createDesiredResource(ctx context.Context, lo
 				Weight: ptr.To(int32(100)),
 			},
 			Port: &v1.RoutePort{
-				TargetPort: intstr.FromInt32(servicePort),
+				TargetPort: targetPort,
 			},
 			WildcardPolicy: v1.WildcardPolicyNone,
 		},
