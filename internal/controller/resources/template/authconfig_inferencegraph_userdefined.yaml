@@ -1,0 +1,35 @@
+apiVersion: authorino.kuadrant.io/v1beta2
+kind: AuthConfig
+metadata:
+  labels:
+    {{ .AuthorinoLabel }}
+spec:
+  hosts:
+  - "UPDATED.RUNTIME"
+  authentication:
+    kubernetes-user:
+      credentials:
+        authorizationHeader: {}
+      kubernetesTokenReview:
+        audiences:
+{{- range .Audiences }}
+        - "{{ . }}"
+{{- end }}
+  authorization:
+    kubernetes-rbac:
+      kubernetesSubjectAccessReview:
+        resourceAttributes:
+          verb:
+            value: get
+          group:
+            value: "serving.kserve.io"
+          resource:
+            value: inferencegraphs
+          namespace:
+            value: {{ .Namespace }}
+          subresource:
+            value: ""
+          name:
+            value: "{{ .ResourceName }}"
+        user:
+          selector: auth.identity.user.username
