@@ -1,7 +1,5 @@
-# odh-model-controller
-// TODO(user): Add simple overview of use/purpose
+# ODH Model Controller
 
-## Description
 The controller will watch the Predictor custom resource events to
 extend the KServe modelmesh-serving controller behavior with the following
 capabilities:
@@ -11,94 +9,37 @@ capabilities:
 It has been developed using **Golang** and
 **[Kubebuilder](https://book.kubebuilder.io/quick-start.html)**.
 
-## Getting Started
+## Implementation detail
 
-### Prerequisites
-- go version v1.22.0+
-- podman version v5.2+.
-- kubectl version v1.11.3+.
-- Access to a Kubernetes v1.11.3+ cluster.
 
-### To Deploy on the cluster
-**Build and push your image to the location specified by `IMG`:**
 
-```sh
-make container-build container-push IMG=<some-registry>/odh-model-controller:tag
+## Developer docs
+
+Follow the instructions below if you want to extend the controller
+functionality:
+
+### Run unit tests
+
+Unit tests have been developed using the [**Kubernetes envtest
+framework**](https://pkg.go.dev/sigs.k8s.io/controller-runtime/pkg/envtest).
+
+Run the following command to execute them:
+
+```shell
+make test
 ```
 
-**NOTE:** This image ought to be published in the personal registry you specified.
-And it is required to have access to pull the image from the working environment.
-Make sure you have the proper permission to the registry if the above commands don’t work.
+### Deploy local changes
 
-**Install the CRDs into the cluster:**
+Build a new image with your local changes and push it to `<YOUR_IMAGE>` (by
+default `quay.io/${USER}/odh-model-controller:latest`).
 
-```sh
-make install
+```shell
+make -e IMG=<YOUR_IMAGE> container-build container-push
 ```
 
-**Deploy the Manager to the cluster with the image specified by `IMG`:**
+Deploy the manager using the image in your registry:
 
-```sh
-make deploy IMG=<some-registry>/odh-model-controller:tag
+```shell
+make deploy -e K8S_NAMESPACE=<YOUR_NAMESPACE> -e IMG=<YOUR_IMAGE>
 ```
-
-> **NOTE**: If you encounter RBAC errors, you may need to grant yourself cluster-admin
-privileges or be logged in as admin.
-
-**Create instances of your solution**
-You can apply the samples (examples) from the config/sample:
-
-```sh
-kubectl apply -k config/samples/
-```
-
->**NOTE**: Ensure that the samples has default values to test it out.
-
-### To Uninstall
-**Delete the instances (CRs) from the cluster:**
-
-```sh
-kubectl delete -k config/samples/
-```
-
-**Delete the APIs(CRDs) from the cluster:**
-
-```sh
-make uninstall
-```
-
-**UnDeploy the controller from the cluster:**
-
-```sh
-make undeploy
-```
-
-## Project Distribution
-
-Following are the steps to build the installer and distribute this project to users.
-
-1. Build the installer for the image built and published in the registry:
-
-```sh
-make build-installer IMG=<some-registry>/odh-model-controller:tag
-```
-
-NOTE: The makefile target mentioned above generates an 'install.yaml'
-file in the dist directory. This file contains all the resources built
-with Kustomize, which are necessary to install this project without
-its dependencies.
-
-2. Using the installer
-
-Users can just run kubectl apply -f <URL for YAML BUNDLE> to install the project, i.e.:
-
-```sh
-kubectl apply -f https://raw.githubusercontent.com/<org>/odh-model-controller/<tag or branch>/dist/install.yaml
-```
-
-## Contributing
-// TODO(user): Add detailed information on how you would like others to contribute to this project
-
-**NOTE:** Run `make help` for more information on all potential `make` targets
-
-More information can be found via the [Kubebuilder Documentation](https://book.kubebuilder.io/introduction.html)

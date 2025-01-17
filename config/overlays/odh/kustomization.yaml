@@ -1,0 +1,10 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+resources:
+  - ../../default
+
+patches:
+- path: odh_model_controller_manager_patch.yaml
+  
+configurations:
+  - params.yaml

@@ -1,0 +1,28 @@
+resources:
+- ../../crd/external
+- ../../default
+
+patches:
+- path: odh_model_controller_manager_patch.yaml
+
+namespace: default
+configMapGenerator:
+- envs:
+  - params.env
+  name: odh-model-controller-parameters
+generatorOptions:
+  disableNameSuffixHash: true
+
+
+replacements:
+- source:
+    kind: ConfigMap
+    version: v1
+    name: odh-model-controller-parameters
+    fieldPath: data.monitoring-namespace
+  targets:
+  - select:
+      kind: Deployment
+      name: odh-model-controller
+    fieldPaths:
+      - spec.template.spec.containers.0.env.0.value
