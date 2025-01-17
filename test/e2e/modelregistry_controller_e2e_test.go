@@ -7,20 +7,23 @@ import (
 	"time"
 
 	kservev1beta1 "github.com/kserve/kserve/pkg/apis/serving/v1beta1"
-	"github.com/kubeflow/model-registry/pkg/openapi"
 	. "github.com/onsi/ginkgo"
 	. "github.com/onsi/gomega"
+	"github.com/opendatahub-io/model-registry/pkg/api"
+	"github.com/opendatahub-io/model-registry/pkg/core"
+	"github.com/opendatahub-io/model-registry/pkg/openapi"
+	"github.com/opendatahub-io/odh-model-controller/controllers/constants"
+	"github.com/opendatahub-io/odh-model-controller/test/utils"
+	"google.golang.org/grpc"
+	"google.golang.org/grpc/credentials/insecure"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
-
-	"github.com/opendatahub-io/odh-model-controller/internal/controller/constants"
-	"github.com/opendatahub-io/odh-model-controller/test/utils"
 )
 
 var (
 	err                 error
-	modelRegistryClient *openapi.APIClient
+	modelRegistryClient api.ModelRegistryApi
 	mlmdAddr            string
 )
 
@@ -63,7 +66,7 @@ var _ = Describe("ModelRegistry controller e2e", func() {
 
 		Consistently(func() error {
 			// incremental id
-			_, _, err := modelRegistryClient.ModelRegistryServiceAPI.GetInferenceService(ctx, "4").Execute()
+			_, err := modelRegistryClient.GetInferenceServiceById("4")
 			return err
 		}, time.Second*20, interval).Should(HaveOccurred())
 	})
@@ -83,8 +86,7 @@ var _ = Describe("ModelRegistry controller e2e", func() {
 
 		AfterEach(func() {
 			By("removing finalizers from inference service")
-			_, err := utils.Run(exec.Command(kubectl, "patch", "inferenceservice", "dummy-inference-service",
-				"--type", "json", "--patch", "[ { \"op\": \"remove\", \"path\": \"/metadata/finalizers\" } ]"))
+			_, err := utils.Run(exec.Command(kubectl, "patch", "inferenceservice", "dummy-inference-service", "--type", "json", "--patch", "[ { \"op\": \"remove\", \"path\": \"/metadata/finalizers\" } ]"))
 			Expect(err).ToNot(HaveOccurred())
 		})
 
@@ -96,7 +98,7 @@ var _ = Describe("ModelRegistry controller e2e", func() {
 			// incremental id
 			isId := "4"
 			Eventually(func() error {
-				is, _, err = modelRegistryClient.ModelRegistryServiceAPI.GetInferenceService(ctx, isId).Execute()
+				is, err = modelRegistryClient.GetInferenceServiceById(isId)
 				return err
 			}, timeout, interval).ShouldNot(HaveOccurred())
 
@@ -132,7 +134,7 @@ var _ = Describe("ModelRegistry controller e2e", func() {
 			// incremental id
 			isId := "4"
 			Eventually(func() error {
-				is, _, err = modelRegistryClient.ModelRegistryServiceAPI.GetInferenceService(ctx, isId).Execute()
+				is, err = modelRegistryClient.GetInferenceServiceById(isId)
 				return err
 			}, timeout, interval).ShouldNot(HaveOccurred())
 
@@ -192,7 +194,7 @@ var _ = Describe("ModelRegistry controller e2e", func() {
 			// incremental id
 			isId := "4"
 			Eventually(func() error {
-				is, _, err = modelRegistryClient.ModelRegistryServiceAPI.GetInferenceService(ctx, isId).Execute()
+				is, err = modelRegistryClient.GetInferenceServiceById(isId)
 				return err
 			}, timeout, interval).ShouldNot(HaveOccurred())
 
@@ -231,19 +233,17 @@ var _ = Describe("ModelRegistry controller e2e", func() {
 
 			// simulate ServingEnvironment creation
 			envName := WorkingNamespace
-			_, _, err := modelRegistryClient.ModelRegistryServiceAPI.CreateServingEnvironment(ctx).
-				ServingEnvironmentCreate(openapi.ServingEnvironmentCreate{
-					Name: &envName,
-				}).Execute()
+			_, err := modelRegistryClient.UpsertServingEnvironment(&openapi.ServingEnvironment{
+				Name: &envName,
+			})
 			Expect(err).ToNot(HaveOccurred())
 
-			inferenceService, _, err = modelRegistryClient.ModelRegistryServiceAPI.CreateInferenceService(ctx).
-				InferenceServiceCreate(openapi.InferenceServiceCreate{
-					Name:                 &versionName,
-					DesiredState:         openapi.INFERENCESERVICESTATE_DEPLOYED.Ptr(),
-					RegisteredModelId:    *registeredModel.Id,
-					ServingEnvironmentId: "3",
-				}).Execute()
+			inferenceService, err = modelRegistryClient.UpsertInferenceService(&openapi.InferenceService{
+				Name:                 &versionName,
+				DesiredState:         openapi.INFERENCESERVICESTATE_DEPLOYED.Ptr(),
+				RegisteredModelId:    *registeredModel.Id,
+				ServingEnvironmentId: "3",
+			})
 			Expect(err).ToNot(HaveOccurred())
 			Expect(inferenceService.GetId()).To(Equal("4"))
 
@@ -262,7 +262,7 @@ var _ = Describe("ModelRegistry controller e2e", func() {
 			// incremental id
 			isId := "4"
 			Eventually(func() bool {
-				is, _, err = modelRegistryClient.ModelRegistryServiceAPI.GetInferenceService(ctx, isId).Execute()
+				is, err = modelRegistryClient.GetInferenceServiceById(isId)
 				if err != nil {
 					return false
 				}
@@ -282,7 +282,7 @@ var _ = Describe("ModelRegistry controller e2e", func() {
 // UTILS
 
 // deployAndCheckModelRegistry setup model registry deployments and creates model registry client connection
-func deployAndCheckModelRegistry() *openapi.APIClient {
+func deployAndCheckModelRegistry() api.ModelRegistryApi {
 	cmd := exec.Command(kubectl, "apply", "-f", ModelRegistryDatabaseDeploymentPath)
 	_, err := utils.Run(cmd)
 	Expect(err).ToNot(HaveOccurred())
@@ -300,31 +300,30 @@ func deployAndCheckModelRegistry() *openapi.APIClient {
 	mrServiceList := &corev1.ServiceList{}
 	err = cli.List(ctx, mrServiceList, opts...)
 	Expect(err).ToNot(HaveOccurred())
-	Expect(mrServiceList.Items).To(HaveLen(1))
+	Expect(len(mrServiceList.Items)).To(Equal(1))
 
-	var restApiPort *int32
+	var grpcPort *int32
 	for _, port := range mrServiceList.Items[0].Spec.Ports {
-		if port.Name == "http-api" {
-			restApiPort = &port.NodePort
+		if port.Name == "grpc-api" {
+			grpcPort = &port.NodePort
 			break
 		}
 	}
-	Expect(restApiPort).ToNot(BeNil())
+	Expect(grpcPort).ToNot(BeNil())
 
-	mlmdAddr = fmt.Sprintf("localhost:%d", *restApiPort)
+	mlmdAddr = fmt.Sprintf("localhost:%d", *grpcPort)
+	grpcConn, err := grpc.DialContext(
+		ctx,
+		mlmdAddr,
+		grpc.WithReturnConnectionError(),
+		grpc.WithBlock(),
+		grpc.WithTransportCredentials(insecure.NewCredentials()),
+	)
+	Expect(err).ToNot(HaveOccurred())
+	mr, err := core.NewModelRegistryService(grpcConn)
+	Expect(err).ToNot(HaveOccurred())
 
-	cfg := &openapi.Configuration{
-		Servers: openapi.ServerConfigurations{
-			{
-				URL: mlmdAddr,
-			},
-		},
-	}
-
-	client := openapi.NewAPIClient(cfg)
-	Expect(client).ToNot(BeNil())
-
-	return client
+	return mr
 }
 
 // undeployModelRegistry cleanup model registry deployments
@@ -378,44 +377,38 @@ func getPodReadyCondition(pod *corev1.Pod) bool {
 	return false
 }
 
-func fillModelRegistryContent(mr *openapi.APIClient) {
+func fillModelRegistryContent(mr api.ModelRegistryApi) {
 	// envName := WorkingNamespace
 	// servingEnvironment, err = mr.GetServingEnvironmentByParams(&envName, nil)
 	// Expect(err).ToNot(HaveOccurred())
 
-	registeredModel, _, err = mr.ModelRegistryServiceAPI.FindRegisteredModel(ctx).Name(modelName).Execute()
+	registeredModel, err = mr.GetRegisteredModelByParams(&modelName, nil)
 	if err != nil {
 		// register a new model
-		registeredModel, _, err = mr.ModelRegistryServiceAPI.CreateRegisteredModel(ctx).RegisteredModelCreate(
-			openapi.RegisteredModelCreate{
-				Name: modelName,
-			}).Execute()
+		registeredModel, err = mr.UpsertRegisteredModel(&openapi.RegisteredModel{
+			Name: &modelName,
+		})
 		Expect(err).ToNot(HaveOccurred())
 	}
 
-	modelVersion, _, err = mr.ModelRegistryServiceAPI.FindModelVersion(ctx).Name(versionName).
-		ParentResourceId(*registeredModel.Id).Execute()
+	modelVersion, err = mr.GetModelVersionByParams(&versionName, registeredModel.Id, nil)
 	if err != nil {
-		modelVersion, _, err = mr.ModelRegistryServiceAPI.CreateModelVersion(ctx).ModelVersionCreate(
-			openapi.ModelVersionCreate{
-				Name:              versionName,
-				RegisteredModelId: *registeredModel.Id,
-			}).Execute()
+		modelVersion, err = mr.UpsertModelVersion(&openapi.ModelVersion{
+			Name: &versionName,
+		}, registeredModel.Id)
 		Expect(err).ToNot(HaveOccurred())
 	}
 
 	modelArtifactName := fmt.Sprintf("%s-artifact", versionName)
-	modelArtifact, _, err = mr.ModelRegistryServiceAPI.FindModelArtifact(ctx).Name(modelArtifactName).
-		ParentResourceId(*modelVersion.Id).Execute()
+	modelArtifact, err = mr.GetModelArtifactByParams(&modelArtifactName, modelVersion.Id, nil)
 	if err != nil {
-		modelArtifact, _, err = mr.ModelRegistryServiceAPI.CreateModelArtifact(ctx).ModelArtifactCreate(
-			openapi.ModelArtifactCreate{
-				Name:               &modelArtifactName,
-				ModelFormatName:    &modelFormatName,
-				ModelFormatVersion: &modelFormatVersion,
-				StorageKey:         &storageKey,
-				StoragePath:        &storagePath,
-			}).Execute()
+		modelArtifact, err = mr.UpsertModelArtifact(&openapi.ModelArtifact{
+			Name:               &modelArtifactName,
+			ModelFormatName:    &modelFormatName,
+			ModelFormatVersion: &modelFormatVersion,
+			StorageKey:         &storageKey,
+			StoragePath:        &storagePath,
+		}, modelVersion.Id)
 		Expect(err).ToNot(HaveOccurred())
 	}
 }

@@ -8,7 +8,7 @@ on:
       - main
     tags:
       - 'latest'
-      - 'odh-v*'
+      - 'v*'
 
 
 env:
