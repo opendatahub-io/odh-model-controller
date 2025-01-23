@@ -27,6 +27,10 @@ patches:
       clientConfig:
         service:
           name: odh-model-controller-webhook-service
+    - name: vinferencegraph-v1alpha1.odh-model-controller.opendatahub.io
+      clientConfig:
+        service:
+          name: odh-model-controller-webhook-service
   target:
     group: admissionregistration.k8s.io
     kind: ValidatingWebhookConfiguration
