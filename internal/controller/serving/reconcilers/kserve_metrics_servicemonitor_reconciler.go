@@ -20,8 +20,11 @@ import (
 
 	"github.com/go-logr/logr"
 	kservev1beta1 "github.com/kserve/kserve/pkg/apis/serving/v1beta1"
+	"github.com/opendatahub-io/odh-model-controller/internal/controller/utils"
 	v1 "github.com/prometheus-operator/prometheus-operator/pkg/apis/monitoring/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
+	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	"github.com/opendatahub-io/odh-model-controller/internal/controller/comparators"
@@ -29,29 +32,28 @@ import (
 	"github.com/opendatahub-io/odh-model-controller/internal/controller/resources"
 )
 
-var _ SubResourceReconciler = (*KserveMetricsServiceMonitorReconciler)(nil)
+var _ SubResourceReconciler = (*KserveRawMetricsServiceMonitorReconciler)(nil)
 
-type KserveMetricsServiceMonitorReconciler struct {
+type KserveRawMetricsServiceMonitorReconciler struct {
 	NoResourceRemoval
 	client                client.Client
 	serviceMonitorHandler resources.ServiceMonitorHandler
 	deltaProcessor        processors.DeltaProcessor
 }
 
-func NewKServeMetricsServiceMonitorReconciler(client client.Client) *KserveMetricsServiceMonitorReconciler {
-	return &KserveMetricsServiceMonitorReconciler{
+func NewKServeRawMetricsServiceMonitorReconciler(client client.Client) *KserveRawMetricsServiceMonitorReconciler {
+	return &KserveRawMetricsServiceMonitorReconciler{
 		client:                client,
 		serviceMonitorHandler: resources.NewServiceMonitorHandler(client),
 		deltaProcessor:        processors.NewDeltaProcessor(),
 	}
 }
 
-// TODO remove this reconcile loop in future versions
-func (r *KserveMetricsServiceMonitorReconciler) Reconcile(ctx context.Context, log logr.Logger, isvc *kservev1beta1.InferenceService) error {
+func (r *KserveRawMetricsServiceMonitorReconciler) Reconcile(ctx context.Context, log logr.Logger, isvc *kservev1beta1.InferenceService) error {
 	log.V(1).Info("Reconciling Metrics ServiceMonitor for InferenceService")
 
 	// Create Desired resource
-	desiredResource, err := r.createDesiredResource(isvc)
+	desiredResource, err := r.createDesiredResource(ctx, log, isvc)
 	if err != nil {
 		return err
 	}
@@ -69,16 +71,43 @@ func (r *KserveMetricsServiceMonitorReconciler) Reconcile(ctx context.Context, l
 	return nil
 }
 
-// TODO remove this reconcile loop in future versions
-func (r *KserveMetricsServiceMonitorReconciler) createDesiredResource(isvc *kservev1beta1.InferenceService) (*v1.ServiceMonitor, error) {
-	return nil, nil
+func (r *KserveRawMetricsServiceMonitorReconciler) createDesiredResource(ctx context.Context, log logr.Logger, isvc *kservev1beta1.InferenceService) (*v1.ServiceMonitor, error) {
+	isvcRuntime, err := utils.FindSupportingRuntimeForISvc(ctx, r.client, log, isvc)
+	if err != nil {
+		return nil, err
+	}
+
+	desiredServiceMonitor := &v1.ServiceMonitor{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      getMetricsServiceMonitorName(isvc),
+			Namespace: isvc.Namespace,
+		},
+		Spec: v1.ServiceMonitorSpec{
+			Endpoints: []v1.Endpoint{
+				{
+					Port:   isvcRuntime.Name + "-metrics",
+					Scheme: "http",
+				},
+			},
+			NamespaceSelector: v1.NamespaceSelector{},
+			Selector: metav1.LabelSelector{
+				MatchLabels: map[string]string{
+					"name": getMetricsServiceMonitorName(isvc),
+				},
+			},
+		},
+	}
+	if err := ctrl.SetControllerReference(isvc, desiredServiceMonitor, r.client.Scheme()); err != nil {
+		return nil, err
+	}
+	return desiredServiceMonitor, nil
 }
 
-func (r *KserveMetricsServiceMonitorReconciler) getExistingResource(ctx context.Context, log logr.Logger, isvc *kservev1beta1.InferenceService) (*v1.ServiceMonitor, error) {
+func (r *KserveRawMetricsServiceMonitorReconciler) getExistingResource(ctx context.Context, log logr.Logger, isvc *kservev1beta1.InferenceService) (*v1.ServiceMonitor, error) {
 	return r.serviceMonitorHandler.FetchServiceMonitor(ctx, log, types.NamespacedName{Name: getMetricsServiceMonitorName(isvc), Namespace: isvc.Namespace})
 }
 
-func (r *KserveMetricsServiceMonitorReconciler) processDelta(ctx context.Context, log logr.Logger, desiredServiceMonitor *v1.ServiceMonitor, existingServiceMonitor *v1.ServiceMonitor) (err error) {
+func (r *KserveRawMetricsServiceMonitorReconciler) processDelta(ctx context.Context, log logr.Logger, desiredServiceMonitor *v1.ServiceMonitor, existingServiceMonitor *v1.ServiceMonitor) (err error) {
 	comparator := comparators.GetServiceMonitorComparator()
 	delta := r.deltaProcessor.ComputeDelta(comparator, desiredServiceMonitor, existingServiceMonitor)
 

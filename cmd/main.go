@@ -29,8 +29,10 @@ import (
 	_ "k8s.io/client-go/plugin/pkg/client/auth"
 	"k8s.io/client-go/rest"
 
+	"github.com/kserve/kserve/pkg/apis/serving/v1alpha1"
 	istiov1beta1 "istio.io/client-go/pkg/apis/security/v1beta1"
 	corev1 "k8s.io/api/core/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
@@ -41,12 +43,12 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/healthz"
 	"sigs.k8s.io/controller-runtime/pkg/log/zap"
+	"sigs.k8s.io/controller-runtime/pkg/manager"
 	"sigs.k8s.io/controller-runtime/pkg/metrics/filters"
 	metricsserver "sigs.k8s.io/controller-runtime/pkg/metrics/server"
 	"sigs.k8s.io/controller-runtime/pkg/webhook"
 
 	"github.com/go-logr/logr"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
 	v1 "github.com/opendatahub-io/odh-model-controller/api/nim/v1"
 	corecontroller "github.com/opendatahub-io/odh-model-controller/internal/controller/core"
@@ -164,11 +166,68 @@ func main() {
 		os.Exit(1)
 	}
 
-	nimState := os.Getenv("NIM_STATE")
-	if nimState == "" {
-		nimState = "managed"
-	}
 	signalHandlerCtx := ctrl.SetupSignalHandler()
+	setupNim(mgr, signalHandlerCtx, kubeClient)
+
+	if os.Getenv(enableWebhooksEnv) != "false" {
+		if kserveWithMeshEnabled {
+			if err = webhookservingv1.SetupServiceWebhookWithManager(mgr); err != nil {
+				setupLog.Error(err, "unable to create webhook", "webhook", "Knative Service")
+				os.Exit(1)
+			}
+		} else {
+			setupLog.Info("Skipping setup of Knative Service validating/mutating Webhook, " +
+				"because KServe Serverless setup seems to be disabled.")
+		}
+
+		if err = webhookservingv1beta1.SetupInferenceServiceWebhookWithManager(mgr); err != nil {
+			setupLog.Error(err, "unable to create webhook", "webhook", "InferenceService")
+			os.Exit(1)
+		}
+
+		if err = webhookservingv1alpha1.SetupInferenceGraphWebhookWithManager(mgr); err != nil {
+			setupLog.Error(err, "unable to create webhook", "webhook", "InferenceGraph")
+			os.Exit(1)
+		}
+	}
+
+	inferenceGraphCrdAvailable, igCrdErr := utils.IsCrdAvailable(
+		mgr.GetConfig(),
+		v1alpha1.SchemeGroupVersion.String(),
+		"InferenceGraph")
+	if igCrdErr != nil {
+		setupLog.Error(igCrdErr, "unable to check if InferenceGraph CRD is available", "controller", "InferenceGraph")
+		os.Exit(1)
+	} else if inferenceGraphCrdAvailable {
+		if err = servingcontroller.NewInferenceGraphReconciler(mgr).SetupWithManager(mgr); err != nil {
+			setupLog.Error(err, "unable to create controller", "controller", "InferenceGraph")
+			os.Exit(1)
+		}
+	} else {
+		setupLog.Info("controller is turned off", "controller", "InferenceGraph")
+	}
+	// +kubebuilder:scaffold:builder
+
+	if err = mgr.AddHealthzCheck("healthz", healthz.Ping); err != nil {
+		setupLog.Error(err, "unable to set up health check")
+		os.Exit(1)
+	}
+	if err = mgr.AddReadyzCheck("readyz", healthz.Ping); err != nil {
+		setupLog.Error(err, "unable to set up ready check")
+		os.Exit(1)
+	}
+
+	setupLog.Info("starting manager")
+	if err = mgr.Start(signalHandlerCtx); err != nil {
+		setupLog.Error(err, "problem running manager")
+		os.Exit(1)
+	}
+}
+
+func setupNim(mgr manager.Manager, signalHandlerCtx context.Context, kubeClient *kubernetes.Clientset) {
+	var err error
+
+	nimState := os.Getenv("NIM_STATE")
 	if !slices.Contains([]string{"removed", ""}, nimState) {
 		if err = (&nim.AccountReconciler{
 			Client:  mgr.GetClient(),
