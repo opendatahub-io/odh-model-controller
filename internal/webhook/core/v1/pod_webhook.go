@@ -152,9 +152,9 @@ func needToAddRayTLSGenerator(pod *corev1.Pod) bool {
 
 	// Check if RAY_USE_TLS is set to 1 in the main containers
 	for _, container := range pod.Spec.Containers {
-		if container.Name == "kserve-container" || container.Name == "worker-container" {
+		if container.Name == constants.InferenceServiceContainerName || container.Name == constants.WorkerContainerName {
 			for _, envVar := range container.Env {
-				if envVar.Name == "RAY_USE_TLS" && envVar.Value == "1" {
+				if envVar.Name == "RAY_USE_TLS" && envVar.Value != "0" {
 					return true
 				}
 			}

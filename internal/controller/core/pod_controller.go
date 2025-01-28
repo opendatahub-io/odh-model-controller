@@ -100,6 +100,7 @@ func (r *PodReconciler) Reconcile(ctx context.Context, req reconcile.Request) (r
 	}
 	return reconcile.Result{}, nil
 }
+
 func (r *PodReconciler) reconcileRayTls(ctx context.Context, logger logr.Logger, controllerNamespace, targetNamespace string, pod *corev1.Pod) error {
 	// Get the CA certificate secret
 	caCertSecret := &corev1.Secret{}

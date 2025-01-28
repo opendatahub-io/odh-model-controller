@@ -41,6 +41,13 @@ const (
 	KserveServiceAccountName    = "default"
 )
 
+// InferenceService container names
+const (
+	InferenceServiceContainerName = "kserve-container"
+	// WorkerContainerName is for worker node container
+	WorkerContainerName = "worker-container"
+)
+
 // isvc modes
 var (
 	Serverless    KServeDeploymentMode = "Serverless"

@@ -60,7 +60,7 @@ var _ = Describe("Pod Mutator Webhook", func() {
 			Expect(result).To(BeTrue())
 		})
 
-		It("should return true if RAY_USE_TLS is set to 0", func() {
+		It("should return false if RAY_USE_TLS is set to 0", func() {
 			container := &multinodePod.Spec.Containers[0]
 			// Update the environment variable
 			for i := range container.Env {
