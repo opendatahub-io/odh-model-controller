@@ -21,13 +21,13 @@ import (
 	"fmt"
 
 	"github.com/go-logr/logr"
+	kserveconstants "github.com/kserve/kserve/pkg/constants"
 	"github.com/opendatahub-io/odh-model-controller/internal/controller/constants"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/webhook"
-	kserveconstants "github.com/kserve/kserve/pkg/constants"
 )
 
 // +kubebuilder:webhook:path=/mutate--v1-pod,mutating=true,failurePolicy=fail,groups="",resources=pods,verbs=create,versions=v1,name=mutating.pod.odh-model-controller.opendatahub.io,reinvocationPolicy=IfNeeded,admissionReviewVersions=v1,sideEffects=none
@@ -43,9 +43,6 @@ var _ webhook.CustomDefaulter = &PodMutatorDefaultor{}
 
 // Handle incoming Pod and executes mutation logic.
 func (m *PodMutatorDefaultor) podMutator(pod *corev1.Pod) error {
-	if !needMutate(pod) {
-		return nil
-	}
 
 	if err := m.mutate(pod); err != nil {
 		podlog.Error(err, "Failed to mutate pod", "name", pod.Name, "namespace", pod.Namespace)
@@ -76,8 +73,10 @@ TARGET_RAY_CA_PEM_FILE_PATH="/etc/ray/tls/ca.crt"
 TARGET_RAY_TLS_PEM_FILE_PATH="/etc/ray/tls/tls.pem"
 MAX_RETRIES=15
 RETRY_INTERVAL=2
+INITIAL_DELAY_SECONDS=4
 retries=0
 
+sleep #INITIAL_DELAY_SECONDS
 while [ $retries -lt $MAX_RETRIES ]; do
   RAY_PEM_CONTENT=$(oc get secret ray-tls -n $POD_NAMESPACE -o jsonpath="$JSONPATH")
   if [[ -n $RAY_PEM_CONTENT ]]; then
@@ -137,10 +136,6 @@ fi
 			},
 		},
 	}
-}
-
-func needMutate(pod *corev1.Pod) bool {
-	return needToAddRayTLSGenerator(pod)
 }
 
 func needToAddRayTLSGenerator(pod *corev1.Pod) bool {

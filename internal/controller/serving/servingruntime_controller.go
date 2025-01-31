@@ -22,6 +22,7 @@ import (
 	"fmt"
 	"os"
 	"reflect"
+	"slices"
 
 	"github.com/go-logr/logr"
 	servingv1alpha1 "github.com/kserve/kserve/pkg/apis/serving/v1alpha1"
@@ -429,45 +430,70 @@ func (r *ServingRuntimeReconciler) reconcileRayTlsSecretReader(ctx context.Conte
 
 	return nil
 }
-func (r *ServingRuntimeReconciler) reconcileResource(ctx context.Context, logger logr.Logger, resource client.Object, existing client.Object, multiNodeExist bool, kind string) error {
+func (r *ServingRuntimeReconciler) reconcileResource(ctx context.Context, logger logr.Logger, desired client.Object, existing client.Object, multiNodeExist bool, kind string) error {
 	if multiNodeExist {
 		// Try to fetch the existing resource
-		if err := r.Client.Get(ctx, types.NamespacedName{Name: resource.GetName(), Namespace: resource.GetNamespace()}, existing); err != nil {
+		if err := r.Client.Get(ctx, types.NamespacedName{Name: desired.GetName(), Namespace: desired.GetNamespace()}, existing); err != nil {
 			if apierrs.IsNotFound(err) {
 				// Resource not found, create it
-				if err := r.Client.Create(ctx, resource); err != nil {
-					logger.Error(err, "failed to create resource", "kind", kind, "name", resource.GetName(), "namespace", resource.GetNamespace())
+				if err := r.Client.Create(ctx, desired); err != nil {
+					logger.Error(err, "failed to create resource", "kind", kind, "name", desired.GetName(), "namespace", desired.GetNamespace())
 					return err
 				}
-				logger.Info("created resource", "kind", kind, "name", resource.GetName(), "namespace", resource.GetNamespace())
+				logger.Info("created resource", "kind", kind, "name", desired.GetName(), "namespace", desired.GetNamespace())
 			} else {
 				// Other errors
-				logger.Error(err, "failed to get resource", "kind", kind, "name", resource.GetName(), "namespace", resource.GetNamespace())
+				logger.Error(err, "failed to get resource", "kind", kind, "name", desired.GetName(), "namespace", desired.GetNamespace())
 				return err
 			}
 		} else {
 			// Resource exists, check if update is needed
-			if !reflect.DeepEqual(resource, existing) {
-				resource.SetResourceVersion(existing.GetResourceVersion()) // Preserve resource version
-				if err := r.Client.Update(ctx, resource); err != nil {
-					logger.Error(err, "failed to update resource", "kind", kind, "name", resource.GetName(), "namespace", resource.GetNamespace())
+			if !isResourceIdentical(desired, existing) {
+				desired.SetResourceVersion(existing.GetResourceVersion()) // Preserve resource version
+				if err := r.Client.Update(ctx, desired); err != nil {
+					logger.Error(err, "failed to update resource", "kind", kind, "name", desired.GetName(), "namespace", desired.GetNamespace())
 					return err
 				}
-				logger.Info("updated resource", "kind", kind, "name", resource.GetName(), "namespace", resource.GetNamespace())
+				logger.Info("updated resource", "kind", kind, "name", desired.GetName(), "namespace", desired.GetNamespace())
 			}
 		}
 	} else {
-		if err := r.Client.Delete(ctx, resource); err != nil {
+		if err := r.Client.Delete(ctx, desired); err != nil {
 			if apierrs.IsNotFound(err) {
 				return nil
 			}
-			logger.Error(err, "fail to delete resource", "kind", kind, "name", resource.GetName(), "namespace", resource.GetNamespace())
+			logger.Error(err, "fail to delete resource", "kind", kind, "name", desired.GetName(), "namespace", desired.GetNamespace())
 			return err
 		}
-		logger.Info("deleted resource", "kind", kind, "name", resource.GetName(), "namespace", resource.GetNamespace())
+		logger.Info("deleted resource", "kind", kind, "name", desired.GetName(), "namespace", desired.GetNamespace())
 	}
 
 	return nil
+}
+
+func isResourceIdentical(desired, existing client.Object) bool {
+	isEqual := false
+	desiredRB, ok := desired.(*k8srbacv1.RoleBinding)
+	if ok {
+		existingRB, _ := existing.(*k8srbacv1.RoleBinding)
+		if desiredRB.RoleRef == existingRB.RoleRef || reflect.DeepEqual(desiredRB.ObjectMeta.Labels, existingRB.ObjectMeta.Labels) {
+			isEqual = true
+		}
+
+		for _, s := range desiredRB.Subjects {
+			found := slices.ContainsFunc(existingRB.Subjects, func(e k8srbacv1.Subject) bool {
+				return reflect.DeepEqual(s, e)
+			})
+			if !found {
+				return false
+			}
+		}
+
+	} else {
+		return reflect.DeepEqual(desired, existing)
+	}
+
+	return isEqual
 }
 
 func getDesiredRayTlsSecretReaderRole(targetNamespace string) *k8srbacv1.Role {

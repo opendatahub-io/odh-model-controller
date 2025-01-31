@@ -26,6 +26,7 @@ import (
 	"github.com/opendatahub-io/odh-model-controller/internal/controller/constants"
 	"github.com/opendatahub-io/odh-model-controller/internal/controller/utils"
 	corev1 "k8s.io/api/core/v1"
+	k8srbacv1 "k8s.io/api/rbac/v1"
 	"k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -89,7 +90,7 @@ func checkPodHasIP(oldPod *corev1.Pod, newPod *corev1.Pod) bool {
 func checkMultiNodePod(pod *corev1.Pod) bool {
 	for _, contatiner := range pod.Spec.Containers {
 		for _, env := range contatiner.Env {
-			return env.Name == "RAY_USE_TLS"
+			return env.Name == "RAY_USE_TLS" && env.Value != "0"
 		}
 	}
 
@@ -110,12 +111,44 @@ func (r *PodReconciler) Reconcile(ctx context.Context, req reconcile.Request) (r
 		logger.Error(err, "Failed to get Pod", "pod", req.Name, "namespace", req.Namespace)
 		return reconcile.Result{}, err
 	}
-
-	err := r.reconcileRayTls(ctx, controllerNs, req.Namespace, pod)
+	err := reconcileRoleBinding(r.Client, req.Namespace, pod)
+	if err != nil {
+		return reconcile.Result{}, err
+	}
+	err = r.reconcileRayTls(ctx, controllerNs, req.Namespace, pod)
 	if err != nil {
 		return reconcile.Result{}, err
 	}
 	return reconcile.Result{}, nil
+}
+
+func reconcileRoleBinding(k8sClient client.Client, targetNamespace string, pod *corev1.Pod) error {
+	if pod.Spec.ServiceAccountName != "default" {
+		roleBinding := &k8srbacv1.RoleBinding{}
+		if err := k8sClient.Get(context.TODO(), types.NamespacedName{Name: constants.RayTLSSecretReaderRoleBindingName, Namespace: targetNamespace}, roleBinding); err != nil {
+			logger.Error(err, "failed to get RoleBinding", "name", constants.RayTLSSecretReaderRoleBindingName, "namespace", targetNamespace)
+			return err
+		}
+		for _, subject := range roleBinding.Subjects {
+			if subject.Kind == "ServiceAccount" && subject.Name == pod.Spec.ServiceAccountName && subject.Namespace == targetNamespace {
+				logger.Info("ServiceAccount already exists in RoleBinding, no update needed.", "RoleBinding", constants.RayTLSSecretReaderRoleBindingName)
+				return nil
+			}
+		}
+		roleBinding.Subjects = append(roleBinding.Subjects, k8srbacv1.Subject{
+			Kind:      "ServiceAccount",
+			Name:      pod.Spec.ServiceAccountName,
+			Namespace: targetNamespace,
+		})
+
+		err := k8sClient.Update(context.TODO(), roleBinding)
+		if err != nil {
+			logger.Error(err, "failed to update RoleBinding", "name", constants.RayTLSSecretReaderRoleBindingName, "namespace", targetNamespace)
+			return err
+		}
+	}
+
+	return nil
 }
 
 func (r *PodReconciler) reconcileRayTls(ctx context.Context, controllerNamespace, targetNamespace string, pod *corev1.Pod) error {
@@ -207,7 +240,7 @@ func removeRedundantCertsFromSecretData(k8sClient client.Client, rayCertSecret *
 		logger.Error(err, "failed to list pods in namespace", "namespace", rayCertSecret.Namespace)
 		return nil, err
 	}
-	
+
 	existingPodIPs := make(map[string]struct{})
 	for _, pod := range podList.Items {
 		existingPodIPs[pod.Status.PodIP] = struct{}{}
