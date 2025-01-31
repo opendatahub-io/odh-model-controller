@@ -27,6 +27,7 @@ import (
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/webhook"
+	kserveconstants "github.com/kserve/kserve/pkg/constants"
 )
 
 // +kubebuilder:webhook:path=/mutate--v1-pod,mutating=true,failurePolicy=fail,groups="",resources=pods,verbs=create,versions=v1,name=mutating.pod.odh-model-controller.opendatahub.io,reinvocationPolicy=IfNeeded,admissionReviewVersions=v1,sideEffects=none
@@ -152,7 +153,7 @@ func needToAddRayTLSGenerator(pod *corev1.Pod) bool {
 
 	// Check if RAY_USE_TLS is set to 1 in the main containers
 	for _, container := range pod.Spec.Containers {
-		if container.Name == constants.InferenceServiceContainerName || container.Name == constants.WorkerContainerName {
+		if container.Name == kserveconstants.InferenceServiceContainerName || container.Name == constants.WorkerContainerName {
 			for _, envVar := range container.Env {
 				if envVar.Name == "RAY_USE_TLS" && envVar.Value != "0" {
 					return true

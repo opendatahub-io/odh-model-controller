@@ -252,7 +252,6 @@ func (r *ServingRuntimeReconciler) reconcileRoleBinding(ctx context.Context, req
 // - https://pkg.go.dev/sigs.k8s.io/controller-runtime@v0.19.1/pkg/reconcile
 func (r *ServingRuntimeReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
 	// Initialize logger format
-	// logger := log.FromContext(ctx).WithValues("ResourceName", req.Name, "Namespace", req.Namespace)
 	logger := log.Log.WithValues("ResourceName", req.Name, "Namespace", req.Namespace)
 
 	controllerNamespace = os.Getenv("POD_NAMESPACE")
@@ -330,7 +329,7 @@ func (r *ServingRuntimeReconciler) reconcileDefaultRayServerCertSecretInUserNS(c
 					if apierrs.IsNotFound(err) {
 						return nil
 					}
-					logger.Error(err, "fail to delete ray tls secret", "secret", constants.RayTLSSecretName, "namespace", targetNamespace)
+					logger.Error(err, "fail to update ray tls secret", "secret", constants.RayTLSSecretName, "namespace", targetNamespace)
 					return err
 				}
 				logger.Info(fmt.Sprintf("Secret(%s) in namespace(%s) updated successfully", rayDefaultSecret.Name, sr.Namespace))

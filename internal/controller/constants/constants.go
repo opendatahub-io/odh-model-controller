@@ -43,7 +43,7 @@ const (
 
 // InferenceService container names
 const (
-	InferenceServiceContainerName = "kserve-container"
+	// TO-DO this will be replaced by upstream constants when 0.15 is released
 	// WorkerContainerName is for worker node container
 	WorkerContainerName = "worker-container"
 )
