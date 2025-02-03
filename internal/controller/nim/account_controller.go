@@ -437,24 +437,6 @@ func (r *AccountReconciler) reconcileNimPullSecret(
 	return secret, nil
 }
 
-// updateStatus is used for fetching an updating the status of the account
-func (r *AccountReconciler) updateStatus(ctx context.Context, subject types.NamespacedName, status v1.AccountStatus) {
-	logger := log.FromContext(ctx)
-	logger.V(1).Info("updating status")
-
-	account := &v1.Account{}
-	if err := r.Client.Get(ctx, subject, account); err != nil {
-		if !k8serrors.IsNotFound(err) {
-			logger.Error(err, "failed to fetch account for status update")
-		}
-	} else {
-		account.Status = *status.DeepCopy()
-		if err = r.Client.Status().Update(ctx, account); err != nil {
-			logger.Error(err, "failed to update account status")
-		}
-	}
-}
-
 // createOwnerReferenceCfg is used to create an owner reference config to use with server side apply
 func (r *AccountReconciler) createOwnerReferenceCfg(account *v1.Account) *ssametav1.OwnerReferenceApplyConfiguration {
 	// we fetch the gvk instead of getting the kind and apiversion from the object, because of an alleged envtest bug
