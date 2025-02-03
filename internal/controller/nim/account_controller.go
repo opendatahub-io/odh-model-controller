@@ -302,11 +302,11 @@ func (r *AccountReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 	logger.V(1).Info(templateOk)
 	meta.SetStatusCondition(&targetStatus.Conditions, makeAccountFailureCondition(account.Generation, templateOk))
 	if updateErr := utils.UpdateStatus(ctx, accountSubject, *targetStatus, r.Client); updateErr != nil {
-		logger.Error(updateErr, "failed to create status for runtime template reconciled successfully")
+		logger.Error(updateErr, "failed to create status for runtime template reconciled successful")
 	}
 	meta.SetStatusCondition(&targetStatus.Conditions, makeTemplateSuccessfulCondition(account.Generation, templateOk))
 	if updateErr := utils.UpdateStatus(ctx, accountSubject, *targetStatus, r.Client); updateErr != nil {
-		logger.Error(updateErr, "failed to create status for runtime template reconciled successfully")
+		logger.Error(updateErr, "failed to create status for runtime template reconciled successful")
 	}
 
 	// reconcile pull secret
