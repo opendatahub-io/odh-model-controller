@@ -70,8 +70,10 @@ func (r *NimHttpClientMock) Do(req *http.Request) (*http.Response, error) {
 		// check testdata/ngc_catalog_response_page_0.json
 		authHeaderParts := strings.Split(req.Header.Get("Authorization"), " ")
 		if authHeaderParts[0] == "Bearer" && authHeaderParts[1] == "this-is-my-fake-token-please-dont-share-it-with-anyone" {
-			// the token is returned by the nvcr.io/proxy-auth endpoint (stubbed), check testdata/runtime_token_response.json
-			return &http.Response{StatusCode: 200}, nil
+			if req.Header.Get("Accept") == "application/vnd.oci.image.index.v1+json" {
+				// the token is returned by the nvcr.io/proxy-auth endpoint (stubbed), check testdata/runtime_token_response.json
+				return &http.Response{StatusCode: 200}, nil
+			}
 		}
 	}
 
