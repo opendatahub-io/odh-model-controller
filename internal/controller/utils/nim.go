@@ -273,6 +273,7 @@ func attemptToPullManifest(runtime NimRuntime, tokenResp *NimTokenResponse) erro
 	}
 
 	req.Header.Add("Authorization", fmt.Sprintf("Bearer %s", tokenResp.Token))
+	req.Header.Add("Accept", "application/vnd.oci.image.index.v1+json")
 
 	resp, respErr := NimHttpClient.Do(req)
 	if respErr != nil {
