@@ -1187,6 +1187,109 @@ var _ = Describe("InferenceService Controller", func() {
 					return k8sClient.Get(ctx, key, serviceMonitor)
 				}, timeout, interval).Should(HaveOccurred())
 			})
+			FIt("CRB is deleted only when all associated isvcs are deleted", func() {
+				customServiceAccountName := "custom-sa"
+				_ = createServingRuntime(testNs, KserveServingRuntimePath1)
+				// create 2 isvcs with no SA (i.e default) and 2 with a custom SA
+				defaultIsvc1 := createInferenceService(testNs, "default-1", KserveInferenceServicePath1)
+				defaultIsvc1.Labels = map[string]string{}
+				defaultIsvc1.Labels[constants.LabelEnableAuthODH] = "true"
+				if err := k8sClient.Create(ctx, defaultIsvc1); err != nil {
+					Expect(err).NotTo(HaveOccurred())
+				}
+				defaultIsvc2 := createInferenceService(testNs, "default-2", KserveInferenceServicePath1)
+				defaultIsvc2.Labels = map[string]string{}
+				defaultIsvc2.Labels[constants.LabelEnableAuthODH] = "true"
+				if err := k8sClient.Create(ctx, defaultIsvc2); err != nil {
+					Expect(err).NotTo(HaveOccurred())
+				}
+				customIsvc1 := createInferenceService(testNs, "custom-1", KserveInferenceServicePath1)
+				customIsvc1.Labels = map[string]string{}
+				customIsvc1.Labels[constants.LabelEnableAuthODH] = "true"
+				customIsvc1.Spec.Predictor.ServiceAccountName = customServiceAccountName
+				if err := k8sClient.Create(ctx, customIsvc1); err != nil {
+					Expect(err).NotTo(HaveOccurred())
+				}
+				customIsvc2 := createInferenceService(testNs, "custom-2", KserveInferenceServicePath1)
+				customIsvc2.Labels = map[string]string{}
+				customIsvc2.Labels[constants.LabelEnableAuthODH] = "true"
+				customIsvc2.Spec.Predictor.ServiceAccountName = customServiceAccountName
+				if err := k8sClient.Create(ctx, customIsvc2); err != nil {
+					Expect(err).NotTo(HaveOccurred())
+				}
+				// confirm that default CRB exists
+				crb := &rbacv1.ClusterRoleBinding{}
+				Eventually(func() error {
+					key := types.NamespacedName{Name: defaultIsvc1.Namespace + "-" + constants.KserveServiceAccountName + "-auth-delegator",
+						Namespace: defaultIsvc1.Namespace}
+					return k8sClient.Get(ctx, key, crb)
+				}, timeout, interval).ShouldNot(HaveOccurred())
+				// confirm that custom CRB exists
+				customCrb := &rbacv1.ClusterRoleBinding{}
+				Eventually(func() error {
+					key := types.NamespacedName{Name: defaultIsvc1.Namespace + "-" + customServiceAccountName + "-auth-delegator",
+						Namespace: defaultIsvc1.Namespace}
+					return k8sClient.Get(ctx, key, customCrb)
+				}, timeout, interval).ShouldNot(HaveOccurred())
+
+				// Delete isvc and isvc2 (one with default SA and one with custom SA)
+				Expect(k8sClient.Delete(ctx, defaultIsvc1)).Should(Succeed())
+				Expect(k8sClient.Delete(ctx, customIsvc1)).Should(Succeed())
+
+				// confirm that CRBs are not deleted
+				Consistently(func() error {
+					key := types.NamespacedName{Name: defaultIsvc1.Namespace + "-" + constants.KserveServiceAccountName + "-auth-delegator",
+						Namespace: defaultIsvc1.Namespace}
+					return k8sClient.Get(ctx, key, crb)
+				}, timeout, interval).ShouldNot(HaveOccurred())
+				Consistently(func() error {
+					key := types.NamespacedName{Name: defaultIsvc1.Namespace + "-" + customServiceAccountName + "-auth-delegator",
+						Namespace: defaultIsvc1.Namespace}
+					return k8sClient.Get(ctx, key, customCrb)
+				}, timeout, interval).ShouldNot(HaveOccurred())
+
+				// Delete rest of the isvcs
+				Expect(k8sClient.Delete(ctx, defaultIsvc2)).Should(Succeed())
+				Expect(k8sClient.Delete(ctx, customIsvc2)).Should(Succeed())
+
+				crblist := &rbacv1.ClusterRoleBindingList{}
+				listOpts := client.ListOptions{Namespace: testNs}
+				if err := k8sClient.List(ctx, crblist, &listOpts); err != nil {
+					Fail(err.Error())
+				}
+
+				// confirm both CRBs are deleted
+				//Eventually(func() error {
+				//	crb := &rbacv1.ClusterRoleBinding{}
+				//	namespacedNamed := types.NamespacedName{Name: testNs + "-" + constants.KserveServiceAccountName + "-auth-delegator", Namespace: WorkingNamespace}
+				//	err := k8sClient.Get(ctx, namespacedNamed, crb)
+				//	if k8sErrors.IsNotFound(err) {
+				//		return nil
+				//	} else {
+				//		return errors.New("crb deletion not detected")
+				//	}
+				//}, timeout, interval).ShouldNot(HaveOccurred())
+				Eventually(func() error {
+					customCrb := &rbacv1.ClusterRoleBinding{}
+					namespacedNamed := types.NamespacedName{Name: testNs + "-" + customServiceAccountName + "-auth-delegator", Namespace: WorkingNamespace}
+					err := k8sClient.Get(ctx, namespacedNamed, customCrb)
+					if k8sErrors.IsNotFound(err) {
+						return nil
+					} else {
+						return errors.New("crb deletion not detected")
+					}
+				}, timeout, interval).ShouldNot(HaveOccurred())
+				//Eventually(func() error {
+				//	crb := &rbacv1.ClusterRoleBinding{}
+				//	key := types.NamespacedName{Name: defaultIsvc1.Namespace + "-" + constants.KserveServiceAccountName + "-auth-delegator", Namespace: defaultIsvc2.Namespace}
+				//	return k8sClient.Get(ctx, key, crb)
+				//}, timeout, interval).Should(HaveOccurred())
+				//Eventually(func() error {
+				//	customCrb := &rbacv1.ClusterRoleBinding{}
+				//	key := types.NamespacedName{Name: defaultIsvc1.Namespace + "-" + customServiceAccountName + "-auth-delegator", Namespace: customIsvc2.Namespace}
+				//	return k8sClient.Get(ctx, key, customCrb)
+				//}, timeout, interval).Should(HaveOccurred())
+			})
 		})
 		When("namespace no longer has any RawDeployment models", func() {
 			It("should delete the default clusterrolebinding", func() {

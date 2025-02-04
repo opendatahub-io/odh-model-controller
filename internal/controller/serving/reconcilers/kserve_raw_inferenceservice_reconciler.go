@@ -68,7 +68,7 @@ func (r *KserveRawInferenceServiceReconciler) OnDeletionOfKserveInferenceService
 	return deleteErrors.ErrorOrNil()
 }
 
-func (r *KserveRawInferenceServiceReconciler) CleanupNamespaceIfNoKserveIsvcExists(ctx context.Context, log logr.Logger, namespace string) error {
+func (r *KserveRawInferenceServiceReconciler) CleanupNamespaceIfNoRawKserveIsvcExists(ctx context.Context, log logr.Logger, namespace string) error {
 	inferenceServiceList := &kservev1beta1.InferenceServiceList{}
 	if err := r.client.List(ctx, inferenceServiceList, client.InNamespace(namespace)); err != nil {
 		return err

@@ -257,6 +257,7 @@ func (r *InferenceServiceReconciler) SetupWithManager(mgr ctrl.Manager) error {
 
 // general clean-up, mostly resources in different namespaces from kservev1beta1.InferenceService
 func (r *InferenceServiceReconciler) onDeletion(ctx context.Context, log logr.Logger, inferenceService *kservev1beta1.InferenceService) error {
+
 	log.V(1).Info("Running cleanup logic")
 
 	IsvcDeploymentMode, err := utils.GetDeploymentModeForKServeResource(ctx, r.Client, inferenceService.GetAnnotations())
@@ -281,7 +282,7 @@ func (r *InferenceServiceReconciler) DeleteResourcesIfNoIsvcExists(ctx context.C
 	if err := r.mmISVCReconciler.DeleteModelMeshResourcesIfNoMMIsvcExists(ctx, log, namespace); err != nil {
 		return err
 	}
-	if err := r.kserveRawISVCReconciler.CleanupNamespaceIfNoKserveIsvcExists(ctx, log, namespace); err != nil {
+	if err := r.kserveRawISVCReconciler.CleanupNamespaceIfNoRawKserveIsvcExists(ctx, log, namespace); err != nil {
 		return err
 	}
 	return nil
