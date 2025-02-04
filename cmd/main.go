@@ -304,6 +304,9 @@ func setupNim(mgr manager.Manager, signalHandlerCtx context.Context, kubeClient 
 	var err error
 
 	nimState := os.Getenv("NIM_STATE")
+	if nimState == "" {
+		nimState = "managed"
+	}
 	if nimState != "removed" {
 		if err = (&nim.AccountReconciler{
 			Client:  mgr.GetClient(),
