@@ -21,7 +21,6 @@ import (
 	"crypto/tls"
 	"flag"
 	"os"
-	"slices"
 	"strconv"
 
 	// Import all Kubernetes client auth plugins (e.g. Azure, GCP, OIDC, etc.)
@@ -305,7 +304,10 @@ func setupNim(mgr manager.Manager, signalHandlerCtx context.Context, kubeClient 
 	var err error
 
 	nimState := os.Getenv("NIM_STATE")
-	if !slices.Contains([]string{"removed", ""}, nimState) {
+	if nimState == "" {
+		nimState = "managed"
+	}
+	if nimState != "removed" {
 		if err = (&nim.AccountReconciler{
 			Client:  mgr.GetClient(),
 			Scheme:  mgr.GetScheme(),
