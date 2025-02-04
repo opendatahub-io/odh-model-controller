@@ -105,7 +105,7 @@ spec:
               configMapKeyRef:
                 name: odh-model-controller-parameters
                 key: nim-state
-                optional: true
+                optional: false
         livenessProbe:
           httpGet:
             path: /healthz
