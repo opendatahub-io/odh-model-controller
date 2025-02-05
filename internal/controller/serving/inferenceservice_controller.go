@@ -122,8 +122,7 @@ func (r *InferenceServiceReconciler) ReconcileServing(ctx context.Context, req c
 		logger.Info("Stop InferenceService reconciliation")
 		// InferenceService not found, so we check for any other inference services that might be using Kserve/ModelMesh
 		// If none are found, we delete the common namespace-scoped resources that were created for Kserve/ModelMesh.
-		err1 := r.DeleteResourcesIfNoIsvcExists(ctx, logger, req.Namespace)
-		if err1 != nil {
+		if err1 := r.DeleteResourcesIfNoIsvcExists(ctx, logger, req.Namespace); err1 != nil {
 			logger.Error(err1, "Unable to clean up resources")
 			return ctrl.Result{}, err1
 		}
@@ -275,6 +274,10 @@ func (r *InferenceServiceReconciler) onDeletion(ctx context.Context, log logr.Lo
 }
 
 func (r *InferenceServiceReconciler) DeleteResourcesIfNoIsvcExists(ctx context.Context, log logr.Logger, namespace string) error {
+	// If there are no ISVCs left, all 3 of these functions get called. Issue is that when the Serverless reconciler gets called
+	// and there is no servicemesh installed (which is the case with RawDeployment) the Serverless reconciler will fail when it calls
+	// the subresourcereconciler Cleanup function. This is because the Serverless reconciler will try to get the ServiceMesh resources and clean them up.
+	// Adding a no match error check will prevent this from erroring out due to that.
 	if err := r.kserveServerlessISVCReconciler.CleanupNamespaceIfNoKserveIsvcExists(ctx, log, namespace); err != nil {
 		return err
 	}
