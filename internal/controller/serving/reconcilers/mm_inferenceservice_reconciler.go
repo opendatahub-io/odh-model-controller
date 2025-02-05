@@ -60,20 +60,22 @@ func (r *ModelMeshInferenceServiceReconciler) DeleteModelMeshResourcesIfNoMMIsvc
 		return err
 	}
 
-	for i := len(inferenceServiceList.Items) - 1; i >= 0; i-- {
-		inferenceService := inferenceServiceList.Items[i]
-		isvcDeploymentMode, err := utils.GetDeploymentModeForKServeResource(ctx, r.client, inferenceService.GetAnnotations())
+	var existingModelMeshIsvcs []kservev1beta1.InferenceService
+	for _, isvc := range inferenceServiceList.Items {
+		isvcDeploymentMode, err := utils.GetDeploymentModeForKServeResource(ctx, r.client, isvc.GetAnnotations())
 		if err != nil {
 			return err
 		}
-		if isvcDeploymentMode != constants.ModelMesh {
-			inferenceServiceList.Items = append(inferenceServiceList.Items[:i], inferenceServiceList.Items[i+1:]...)
+		if isvcDeploymentMode == constants.ModelMesh {
+			if isvc.GetDeletionTimestamp() == nil {
+				existingModelMeshIsvcs = append(existingModelMeshIsvcs, isvc)
+			}
 		}
 	}
 
 	// If there are no ModelMesh InferenceServices in the namespace, delete namespace-scoped resources needed for ModelMesh
 	var cleanupErrors *multierror.Error
-	if len(inferenceServiceList.Items) == 0 {
+	if len(existingModelMeshIsvcs) == 0 {
 		for _, reconciler := range r.subResourceReconcilers {
 			cleanupErrors = multierror.Append(cleanupErrors, reconciler.Cleanup(ctx, log, isvcNs))
 		}

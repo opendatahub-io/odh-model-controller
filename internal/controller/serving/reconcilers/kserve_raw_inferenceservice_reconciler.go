@@ -74,20 +74,22 @@ func (r *KserveRawInferenceServiceReconciler) CleanupNamespaceIfNoRawKserveIsvcE
 		return err
 	}
 
-	for i := len(inferenceServiceList.Items) - 1; i >= 0; i-- {
-		inferenceService := inferenceServiceList.Items[i]
-		isvcDeploymentMode, err := utils.GetDeploymentModeForKServeResource(ctx, r.client, inferenceService.GetAnnotations())
+	var existingKserveRawIsvcs []kservev1beta1.InferenceService
+	for _, isvc := range inferenceServiceList.Items {
+		isvcDeploymentMode, err := utils.GetDeploymentModeForKServeResource(ctx, r.client, isvc.GetAnnotations())
 		if err != nil {
 			return err
 		}
-		if isvcDeploymentMode != constants.RawDeployment {
-			inferenceServiceList.Items = append(inferenceServiceList.Items[:i], inferenceServiceList.Items[i+1:]...)
+		if isvcDeploymentMode == constants.RawDeployment {
+			if isvc.GetDeletionTimestamp() == nil {
+				existingKserveRawIsvcs = append(existingKserveRawIsvcs, isvc)
+			}
 		}
 	}
 
 	// If there are no Kserve Raw InferenceServices in the namespace, delete namespace-scoped resources needed for Kserve Raw
 	var cleanupErrors *multierror.Error
-	if len(inferenceServiceList.Items) == 0 {
+	if len(existingKserveRawIsvcs) == 0 {
 		for _, reconciler := range r.subResourceReconcilers {
 			cleanupErrors = multierror.Append(cleanupErrors, reconciler.Cleanup(ctx, log, namespace))
 		}
