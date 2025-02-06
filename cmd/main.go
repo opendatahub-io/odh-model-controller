@@ -77,6 +77,7 @@ func getEnvAsBool(name string, defaultValue bool) bool {
 	return defaultValue
 }
 
+// nolint:gocyclo
 func main() {
 	var metricsAddr string
 	var enableLeaderElection bool
