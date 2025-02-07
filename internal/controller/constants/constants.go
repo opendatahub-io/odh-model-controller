@@ -65,6 +65,7 @@ const (
 	ModelRegistryModelVersionIdLabel     = "modelregistry.opendatahub.io/model-version-id"
 	ModelRegistryRegisteredModelIdLabel  = "modelregistry.opendatahub.io/registered-model-id"
 	ModelRegistryFinalizer               = "modelregistry.opendatahub.io/finalizer"
+	ModelRegistryServiceAnnotation       = "routing.opendatahub.io/external-address-rest"
 )
 
 const (
