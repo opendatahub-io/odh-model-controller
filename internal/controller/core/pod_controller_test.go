@@ -5,9 +5,12 @@ import (
 	"sync"
 	"testing"
 
+	"github.com/go-logr/logr"
+	"github.com/go-logr/zapr"
 	"github.com/google/uuid"
 	"github.com/opendatahub-io/odh-model-controller/internal/controller/constants"
 	"github.com/stretchr/testify/assert"
+	"go.uber.org/zap"
 	corev1 "k8s.io/api/core/v1"
 	k8srbacv1 "k8s.io/api/rbac/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -16,11 +19,24 @@ import (
 	clientfake "sigs.k8s.io/controller-runtime/pkg/client/fake"
 )
 
+func setupLogger(t *testing.T) logr.Logger {
+	zapLogger, _ := zap.NewProduction()
+	t.Cleanup(func() {
+		if err := zapLogger.Sync(); err != nil {
+			t.Errorf("failed to sync zap logger: %v", err)
+		}
+	})
+
+	return zapr.NewLogger(zapLogger)
+}
+
 // TestUpdateSecret_Concurrent tests that updateSecret correctly updates secret data with optimistic locking.
 // Used TEST CERT
 func TestUpdateSecret_Concurrent(t *testing.T) {
 	namespace := "test-namespace"
 	secretName := constants.RayTLSSecretName
+	logger := setupLogger(t)
+
 	fakeClient := clientfake.NewClientBuilder().WithObjects(
 		&corev1.Secret{
 			ObjectMeta: metav1.ObjectMeta{
@@ -94,7 +110,7 @@ func TestUpdateSecret_Concurrent(t *testing.T) {
 			err = fakeClient.Create(context.TODO(), podCopy)
 			assert.NoError(t, err, "should be able to create the Pod")
 
-			err := updateSecret(fakeClient, caCertSecret, namespace, podCopy)
+			err := updateSecret(fakeClient, logger, caCertSecret, namespace, podCopy)
 			assert.NoError(t, err, "updateSecret should not return an error")
 		}(podIPs[i])
 	}
@@ -118,6 +134,7 @@ func TestUpdateSecret_Concurrent(t *testing.T) {
 func TestReconcileRoleBinding(t *testing.T) {
 	targetNamespace := "test-namespace-2"
 	testSA := "custom-sa"
+	logger := setupLogger(t)
 
 	fakeClient := clientfake.NewClientBuilder().WithObjects(
 		&k8srbacv1.RoleBinding{
@@ -169,7 +186,7 @@ func TestReconcileRoleBinding(t *testing.T) {
 		},
 	}
 
-	err := reconcileRoleBinding(fakeClient, targetNamespace, testPod)
+	err := reconcileRoleBinding(fakeClient, logger, targetNamespace, testPod)
 	assert.NoError(t, err, "Expected no error during reconcileRoleBinding")
 
 	roleBinding := &k8srbacv1.RoleBinding{}

@@ -28,7 +28,7 @@ var _ = Describe("Pod Mutator Webhook", func() {
 	var defaulter PodMutatorDefaultor
 	var multinodePod *corev1.Pod
 	BeforeEach(func() {
-		defaulter = PodMutatorDefaultor{Client: k8sClient}
+		defaulter = PodMutatorDefaultor{}
 
 		multinodePod = &corev1.Pod{
 			Spec: corev1.PodSpec{

@@ -476,7 +476,7 @@ func isResourceIdentical(desired, existing client.Object) bool {
 	desiredRB, ok := desired.(*k8srbacv1.RoleBinding)
 	if ok {
 		existingRB, _ := existing.(*k8srbacv1.RoleBinding)
-		if desiredRB.RoleRef == existingRB.RoleRef || reflect.DeepEqual(desiredRB.ObjectMeta.Labels, existingRB.ObjectMeta.Labels) {
+		if desiredRB.RoleRef == existingRB.RoleRef && reflect.DeepEqual(desiredRB.ObjectMeta.Labels, existingRB.ObjectMeta.Labels) {
 			isEqual = true
 		}
 

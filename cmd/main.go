@@ -169,28 +169,6 @@ func main() {
 	signalHandlerCtx := ctrl.SetupSignalHandler()
 	setupNim(mgr, signalHandlerCtx, kubeClient)
 
-	if os.Getenv(enableWebhooksEnv) != "false" {
-		if kserveWithMeshEnabled {
-			if err = webhookservingv1.SetupServiceWebhookWithManager(mgr); err != nil {
-				setupLog.Error(err, "unable to create webhook", "webhook", "Knative Service")
-				os.Exit(1)
-			}
-		} else {
-			setupLog.Info("Skipping setup of Knative Service validating/mutating Webhook, " +
-				"because KServe Serverless setup seems to be disabled.")
-		}
-
-		if err = webhookservingv1beta1.SetupInferenceServiceWebhookWithManager(mgr); err != nil {
-			setupLog.Error(err, "unable to create webhook", "webhook", "InferenceService")
-			os.Exit(1)
-		}
-
-		if err = webhookservingv1alpha1.SetupInferenceGraphWebhookWithManager(mgr); err != nil {
-			setupLog.Error(err, "unable to create webhook", "webhook", "InferenceGraph")
-			os.Exit(1)
-		}
-	}
-
 	inferenceGraphCrdAvailable, igCrdErr := utils.IsCrdAvailable(
 		mgr.GetConfig(),
 		v1alpha1.SchemeGroupVersion.String(),
@@ -205,16 +183,6 @@ func main() {
 		}
 	} else {
 		setupLog.Info("controller is turned off", "controller", "InferenceGraph")
-	}
-	// +kubebuilder:scaffold:builder
-
-	if err = mgr.AddHealthzCheck("healthz", healthz.Ping); err != nil {
-		setupLog.Error(err, "unable to set up health check")
-		os.Exit(1)
-	}
-	if err = mgr.AddReadyzCheck("readyz", healthz.Ping); err != nil {
-		setupLog.Error(err, "unable to set up ready check")
-		os.Exit(1)
 	}
 
 	setupLog.Info("starting manager")

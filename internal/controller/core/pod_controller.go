@@ -47,8 +47,6 @@ type PodReconciler struct {
 	Scheme *runtime.Scheme
 }
 
-var logger logr.Logger
-
 // SetupWithManager sets up the controller with the Manager.
 func (r *PodReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	// Create a builder that only watch OpenDataHub global certificate ConfigMap
@@ -99,7 +97,7 @@ func checkMultiNodePod(pod *corev1.Pod) bool {
 
 func (r *PodReconciler) Reconcile(ctx context.Context, req reconcile.Request) (reconcile.Result, error) {
 	// Initialize logger format
-	logger = log.FromContext(ctx).WithValues("Pod", req.Name, "namespace", req.Namespace)
+	logger := log.FromContext(ctx).WithValues("Pod", req.Name, "namespace", req.Namespace)
 
 	controllerNs := os.Getenv("POD_NAMESPACE")
 
@@ -111,18 +109,18 @@ func (r *PodReconciler) Reconcile(ctx context.Context, req reconcile.Request) (r
 		logger.Error(err, "Failed to get Pod", "pod", req.Name, "namespace", req.Namespace)
 		return reconcile.Result{}, err
 	}
-	err := reconcileRoleBinding(r.Client, req.Namespace, pod)
+	err := reconcileRoleBinding(r.Client, logger, req.Namespace, pod)
 	if err != nil {
 		return reconcile.Result{}, err
 	}
-	err = r.reconcileRayTls(ctx, controllerNs, req.Namespace, pod)
+	err = r.reconcileRayTls(ctx, logger, controllerNs, req.Namespace, pod)
 	if err != nil {
 		return reconcile.Result{}, err
 	}
 	return reconcile.Result{}, nil
 }
 
-func reconcileRoleBinding(k8sClient client.Client, targetNamespace string, pod *corev1.Pod) error {
+func reconcileRoleBinding(k8sClient client.Client, logger logr.Logger, targetNamespace string, pod *corev1.Pod) error {
 	if pod.Spec.ServiceAccountName != "default" {
 		roleBinding := &k8srbacv1.RoleBinding{}
 		if err := k8sClient.Get(context.TODO(), types.NamespacedName{Name: constants.RayTLSSecretReaderRoleBindingName, Namespace: targetNamespace}, roleBinding); err != nil {
@@ -151,7 +149,7 @@ func reconcileRoleBinding(k8sClient client.Client, targetNamespace string, pod *
 	return nil
 }
 
-func (r *PodReconciler) reconcileRayTls(ctx context.Context, controllerNamespace, targetNamespace string, pod *corev1.Pod) error {
+func (r *PodReconciler) reconcileRayTls(ctx context.Context, logger logr.Logger, controllerNamespace, targetNamespace string, pod *corev1.Pod) error {
 	// Get the CA certificate secret
 	caCertSecret := &corev1.Secret{}
 	if err := r.Client.Get(ctx, types.NamespacedName{Name: constants.RayCASecretName, Namespace: controllerNamespace}, caCertSecret); err != nil {
@@ -160,7 +158,7 @@ func (r *PodReconciler) reconcileRayTls(ctx context.Context, controllerNamespace
 	}
 
 	// Add a new certificate to the default Ray server certificate secret
-	if err := updateSecret(r.Client, caCertSecret, targetNamespace, pod); err != nil {
+	if err := updateSecret(r.Client, logger, caCertSecret, targetNamespace, pod); err != nil {
 		return err
 	}
 
@@ -168,7 +166,7 @@ func (r *PodReconciler) reconcileRayTls(ctx context.Context, controllerNamespace
 }
 
 // Helper function to update a Kubernetes secret with retry logic (it solves 'Operation cannot be fulfilled error')
-func updateSecret(k8sClient client.Client, caCertSecret *corev1.Secret, targetNamespace string, pod *corev1.Pod) error {
+func updateSecret(k8sClient client.Client, logger logr.Logger, caCertSecret *corev1.Secret, targetNamespace string, pod *corev1.Pod) error {
 
 	backoff := wait.Backoff{
 		Steps:    5,               // t retries. return error after t retries.
@@ -176,7 +174,7 @@ func updateSecret(k8sClient client.Client, caCertSecret *corev1.Secret, targetNa
 		Factor:   2.0,             // from second retry, it will wait double
 	}
 	return retry.RetryOnConflict(backoff, func() error {
-		updatedSecret, err := addOrUpdateRayServerCert(k8sClient, caCertSecret, targetNamespace, pod)
+		updatedSecret, err := addOrUpdateRayServerCert(k8sClient, logger, caCertSecret, targetNamespace, pod)
 		if err != nil {
 			return err
 		}
@@ -195,7 +193,7 @@ func updateSecret(k8sClient client.Client, caCertSecret *corev1.Secret, targetNa
 	})
 }
 
-func addOrUpdateRayServerCert(k8sClient client.Client, caCertSecret *corev1.Secret, targetNamespace string, pod *corev1.Pod) (*corev1.Secret, error) {
+func addOrUpdateRayServerCert(k8sClient client.Client, logger logr.Logger, caCertSecret *corev1.Secret, targetNamespace string, pod *corev1.Pod) (*corev1.Secret, error) {
 	podIP := pod.Status.PodIP
 	sanIPs := []string{podIP}
 	sanDNSs := []string{"*." + pod.Namespace + ".svc.cluster.local"}
@@ -208,7 +206,7 @@ func addOrUpdateRayServerCert(k8sClient client.Client, caCertSecret *corev1.Secr
 	}
 
 	// Remove redundant certificates from the secret
-	updatedCertSecret, err := removeRedundantCertsFromSecretData(k8sClient, rayCertSecret)
+	updatedCertSecret, err := removeRedundantCertsFromSecretData(k8sClient, logger, rayCertSecret)
 	if err != nil {
 		logger.Error(err, "Failed to remove redundant certificates", "secret", rayCertSecret.Name, "namespace", rayCertSecret.Namespace)
 		return nil, err
@@ -231,7 +229,7 @@ func addOrUpdateRayServerCert(k8sClient client.Client, caCertSecret *corev1.Secr
 	return updatedCertSecret, nil
 }
 
-func removeRedundantCertsFromSecretData(k8sClient client.Client, rayCertSecret *corev1.Secret) (*corev1.Secret, error) {
+func removeRedundantCertsFromSecretData(k8sClient client.Client, logger logr.Logger, rayCertSecret *corev1.Secret) (*corev1.Secret, error) {
 	updatedRayCertSecret := rayCertSecret.DeepCopy()
 
 	podList := &corev1.PodList{}

@@ -26,17 +26,15 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	ctrl "sigs.k8s.io/controller-runtime"
-	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/webhook"
 )
 
-// +kubebuilder:webhook:path=/mutate--v1-pod,mutating=true,failurePolicy=fail,groups="",resources=pods,verbs=create,versions=v1,name=mutating.pod.odh-model-controller.opendatahub.io,reinvocationPolicy=IfNeeded,admissionReviewVersions=v1,sideEffects=none
+// +kubebuilder:webhook:path=/mutate--v1-pod,mutating=true,failurePolicy=fail,groups="",resources=pods,verbs=create,versions=v1,name=mutating.pod.odh-model-controller.opendatahub.io,admissionReviewVersions=v1,sideEffects=none
 
 var podlog logr.Logger
 
 // Mutator is a webhook that injects incoming pods
 type PodMutatorDefaultor struct {
-	Client client.Client
 }
 
 var _ webhook.CustomDefaulter = &PodMutatorDefaultor{}
@@ -76,7 +74,7 @@ RETRY_INTERVAL=2
 INITIAL_DELAY_SECONDS=4
 retries=0
 
-sleep #INITIAL_DELAY_SECONDS
+sleep $INITIAL_DELAY_SECONDS
 while [ $retries -lt $MAX_RETRIES ]; do
   RAY_PEM_CONTENT=$(oc get secret ray-tls -n $POD_NAMESPACE -o jsonpath="$JSONPATH")
   if [[ -n $RAY_PEM_CONTENT ]]; then
@@ -179,6 +177,6 @@ func (m *PodMutatorDefaultor) Default(ctx context.Context, obj runtime.Object) e
 // SetupPodWebhookWithManager sets up the MutatingWebhook with the controller manager.
 func SetupPodWebhookWithManager(mgr ctrl.Manager) error {
 	return ctrl.NewWebhookManagedBy(mgr).For(&corev1.Pod{}).
-		WithDefaulter(&PodMutatorDefaultor{Client: mgr.GetClient()}).
+		WithDefaulter(&PodMutatorDefaultor{}).
 		Complete()
 }

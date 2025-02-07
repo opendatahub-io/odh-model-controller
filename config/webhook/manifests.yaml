@@ -13,7 +13,6 @@ webhooks:
       path: /mutate--v1-pod
   failurePolicy: Fail
   name: mutating.pod.odh-model-controller.opendatahub.io
-  reinvocationPolicy: IfNeeded
   rules:
   - apiGroups:
     - ""
