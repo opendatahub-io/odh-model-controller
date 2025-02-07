@@ -100,21 +100,19 @@ objects:
                 - bash
                 - -c
                 - |
-                  # Check if the registered ray nodes count is the same as PIPELINE_PARALLEL_SIZE
-                  gpu_status=$(ray status --address ${RAY_ADDRESS} | grep GPU)
-                  if [[ -z ${gpu_status} ]]; then
-                    echo "Unhealthy - GPU does not exist"
+                  # Check if the registered ray nodes count is greater or the same than PIPELINE_PARALLEL_SIZE
+                  registered_node_count=$(ray status --address ${RAY_ADDRESS} | grep -c node_)
+                  if [[ ! ${registered_node_count} -ge "${PIPELINE_PARALLEL_SIZE}" ]]; then
+                    echo "Unhealthy - Registered nodes count (${registered_node_count}) does not match PIPELINE_PARALLEL_SIZE (${PIPELINE_PARALLEL_SIZE})."
                     exit 1
-                  fi
+                  fi     
 
-                  used_gpu=$(echo "${gpu_status}" | awk '{print $1}' | cut -d'/' -f1)
-                  reserved_gpu=$(echo "${gpu_status}" | awk '{print $1}' | cut -d'/' -f2)
-
-                  # Determine health status based on GPU usage
-                  if [[ "${used_gpu}" != "${reserved_gpu}" ]]; then
-                    echo "Unhealthy - Used: ${used_gpu}, Reserved: ${reserved_gpu}"
+                  # Check model health
+                  health_check=$(curl -o /dev/null -s -w "%{http_code}\n" http://localhost:8080/health)
+                  if [[ ${health_check} != 200 ]]; then
+                    echo "Unhealthy - vLLM Runtime Health Check failed." 
                     exit 1
-                  fi
+                  fi    
           readinessProbe:
             failureThreshold: 2
             periodSeconds: 5
@@ -125,29 +123,6 @@ objects:
                 - bash
                 - -c
                 - |
-                  # Check if the registered nodes count matches PIPELINE_PARALLEL_SIZE
-                  registered_node_count=$(ray status --address ${RAY_ADDRESS} | grep -c node_)
-                  if [[ ${registered_node_count} -ne "${PIPELINE_PARALLEL_SIZE}" ]]; then
-                    echo "Unhealthy - Registered nodes count (${registered_node_count}) does not match PIPELINE_PARALLEL_SIZE (${PIPELINE_PARALLEL_SIZE})."
-                    exit 1
-                  fi
-
-                  # Check if the registered ray nodes count is the same as PIPELINE_PARALLEL_SIZE
-                  gpu_status=$(ray status --address ${RAY_ADDRESS} | grep GPU)
-                  if [[ -z ${gpu_status} ]]; then
-                    echo "Unhealthy - GPU does not exist"
-                    exit 1
-                  fi
-
-                  used_gpu=$(echo "${gpu_status}" | awk '{print $1}' | cut -d'/' -f1)
-                  reserved_gpu=$(echo "${gpu_status}" | awk '{print $1}' | cut -d'/' -f2)
-
-                  # Determine health status based on GPU usage
-                  if [[ "${used_gpu}" != "${reserved_gpu}" ]]; then
-                    echo "Unhealthy - Used: ${used_gpu}, Reserved: ${reserved_gpu}"
-                    exit 1
-                  fi
-
                   # Check model health 
                   health_check=$(curl -o /dev/null -s -w "%{http_code}\n" http://localhost:8080/health)
                   if [[ ${health_check} != 200 ]]; then
@@ -168,7 +143,7 @@ objects:
                   # This need when head node have issues and restarted.
                   # It will wait for new worker node.                     
                   registered_node_count=$(ray status --address ${RAY_ADDRESS} | grep -c node_)
-                  if [[ ${registered_node_count} -ne "${PIPELINE_PARALLEL_SIZE}" ]]; then
+                  if [[ ${registered_node_count} -ge "${PIPELINE_PARALLEL_SIZE}" ]]; then
                     echo "Unhealthy - Registered nodes count (${registered_node_count}) does not match PIPELINE_PARALLEL_SIZE (${PIPELINE_PARALLEL_SIZE})."
                     exit 1
                   fi
@@ -193,6 +168,9 @@ objects:
             sizeLimit: 12Gi
         - name: ray-tls
           emptyDir: {}
+        - name: ray-tls-secret
+          secret:
+            secretName: ray-tls          
       workerSpec:
         pipelineParallelSize: 2
         tensorParallelSize: 1
@@ -271,7 +249,7 @@ objects:
                   - |
                     # Check if the registered nodes count matches PIPELINE_PARALLEL_SIZE
                     registered_node_count=$(ray status --address ${HEAD_SVC}.${POD_NAMESPACE}.svc.cluster.local:6379 | grep -c node_)
-                    if [[ ${registered_node_count} -ne "${PIPELINE_PARALLEL_SIZE}" ]]; then
+                    if [[ ${registered_node_count} -ge "${PIPELINE_PARALLEL_SIZE}" ]]; then
                       echo "Unhealthy - Registered nodes count (${registered_node_count}) does not match PIPELINE_PARALLEL_SIZE (${PIPELINE_PARALLEL_SIZE})."
                       exit 1
                     fi
@@ -287,7 +265,7 @@ objects:
                   - -c
                   - |
                     registered_node_count=$(ray status --address ${HEAD_SVC}.${POD_NAMESPACE}.svc.cluster.local:6379 | grep -c node_)
-                    if [[ ${registered_node_count} -ne "${PIPELINE_PARALLEL_SIZE}" ]]; then
+                    if [[ ${registered_node_count} -ge "${PIPELINE_PARALLEL_SIZE}" ]]; then
                       echo "Unhealthy - Registered nodes count (${registered_node_count}) does not match PIPELINE_PARALLEL_SIZE (${PIPELINE_PARALLEL_SIZE})."
                       exit 1
                     fi  
@@ -309,3 +287,6 @@ objects:
               sizeLimit: 12Gi
           - name: ray-tls
             emptyDir: {}
+          - name: ray-tls-secret
+            secret:
+              secretName: ray-tls

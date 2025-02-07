@@ -112,9 +112,8 @@ const (
 
 // Ray
 const (
-	RayCASecretName                   = "ray-ca-tls"
-	RayTLSSecretName                  = "ray-tls"
-	RayTLSGeneratorInitContainerName  = "ray-tls-generator"
-	RayTLSSecretReaderRoleName        = "ray-tls-secret-reader"
-	RayTLSSecretReaderRoleBindingName = "ray-tls-secret-reader-rolebinding"
+	RayUseTlsEnvName                 = "RAY_USE_TLS"
+	RayCASecretName                  = "ray-ca-tls"
+	RayTLSSecretName                 = "ray-tls"
+	RayTLSGeneratorInitContainerName = "ray-tls-generator"
 )

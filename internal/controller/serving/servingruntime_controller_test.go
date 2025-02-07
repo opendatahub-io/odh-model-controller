@@ -122,7 +122,7 @@ var _ = Describe("ServingRuntime Controller (Multi Node Reconciler)", func() {
 	ctx := context.Background()
 
 	Context("when a non-multinode ServingRuntime created", func() {
-		It("should not create 'ray-tls' Secret and 'ray-tls-secret-reader' role/rolebinding in the testNs", func() {
+		It("should not create 'ray-tls' Secret in the testNs", func() {
 			testNamespace := testutils.Namespaces.Create(ctx, k8sClient)
 			testNs := testNamespace.Name
 
@@ -133,31 +133,16 @@ var _ = Describe("ServingRuntime Controller (Multi Node Reconciler)", func() {
 			nonMultinodeServingRuntime.SetNamespace(testNs)
 			Expect(k8sClient.Create(ctx, nonMultinodeServingRuntime)).Should(Succeed())
 
-			Eventually(func() error {
+			Consistently(func() error {
 				secret := &corev1.Secret{}
 				key := types.NamespacedName{Name: constants.RayTLSSecretName, Namespace: testNs}
 				err = k8sClient.Get(ctx, key, secret)
 				return err
 			}, time.Second*3, interval).ShouldNot(Succeed())
-
-			Eventually(func() error {
-				role := &k8srbacv1.Role{}
-				key := types.NamespacedName{Name: constants.RayTLSSecretReaderRoleName, Namespace: testNs}
-				err = k8sClient.Get(ctx, key, role)
-				return err
-			}, time.Second*3, interval).ShouldNot(Succeed())
-
-			Eventually(func() error {
-				rolebinding := &k8srbacv1.RoleBinding{}
-				key := types.NamespacedName{Name: constants.RayTLSSecretReaderRoleBindingName, Namespace: testNs}
-				err = k8sClient.Get(ctx, key, rolebinding)
-				return err
-			}, time.Second*3, interval).ShouldNot(Succeed())
-
 		})
 	})
 	Context("when a multinode ServingRuntime created", func() {
-		It("should create 'ray-ca-tls' Secret in ctrlNS and 'ray-tls' Secret, 'ray-tls-secret-reader' role/rolebinding in the testNs", func() {
+		It("should create 'ray-ca-tls' Secret in ctrlNS and 'ray-tls' Secret in the testNs", func() {
 			testNamespace := testutils.Namespaces.Create(ctx, k8sClient)
 			testNs := testNamespace.Name
 
@@ -179,20 +164,6 @@ var _ = Describe("ServingRuntime Controller (Multi Node Reconciler)", func() {
 				secret := &corev1.Secret{}
 				key := types.NamespacedName{Name: constants.RayTLSSecretName, Namespace: testNs}
 				err = k8sClient.Get(ctx, key, secret)
-				return err
-			}, timeout, interval).Should(Succeed())
-
-			Eventually(func() error {
-				role := &k8srbacv1.Role{}
-				key := types.NamespacedName{Name: constants.RayTLSSecretReaderRoleName, Namespace: testNs}
-				err = k8sClient.Get(ctx, key, role)
-				return err
-			}, timeout, interval).Should(Succeed())
-
-			Eventually(func() error {
-				rolebinding := &k8srbacv1.RoleBinding{}
-				key := types.NamespacedName{Name: constants.RayTLSSecretReaderRoleBindingName, Namespace: testNs}
-				err = k8sClient.Get(ctx, key, rolebinding)
 				return err
 			}, timeout, interval).Should(Succeed())
 		})
@@ -225,22 +196,9 @@ var _ = Describe("ServingRuntime Controller (Multi Node Reconciler)", func() {
 				return err
 			}, timeout, interval).Should(Succeed())
 
-			Eventually(func() error {
-				role := &k8srbacv1.Role{}
-				key := types.NamespacedName{Name: constants.RayTLSSecretReaderRoleName, Namespace: testNs}
-				err = k8sClient.Get(ctx, key, role)
-				return err
-			}, timeout, interval).Should(Succeed())
-
-			Eventually(func() error {
-				rolebinding := &k8srbacv1.RoleBinding{}
-				key := types.NamespacedName{Name: constants.RayTLSSecretReaderRoleBindingName, Namespace: testNs}
-				err = k8sClient.Get(ctx, key, rolebinding)
-				return err
-			}, timeout, interval).Should(Succeed())
 		})
-		It("auto-recovery for required files of multi-node ServingRuntime when it is removed or updated", func() {
-			// It should rollback ca.crt in 'ray-tls' Secret in the testNs when ca.crt in the Secret is manually changed
+
+		It("should rollback ca.crt in 'ray-tls' Secret in the testNs when ca.crt in the Secret is manually changed", func() {
 			originalRayTlsSecret := &corev1.Secret{}
 			key := types.NamespacedName{Name: constants.RayTLSSecretName, Namespace: testNs}
 			Expect(k8sClient.Get(ctx, key, originalRayTlsSecret)).Should(Succeed())
@@ -275,10 +233,10 @@ var _ = Describe("ServingRuntime Controller (Multi Node Reconciler)", func() {
 				}
 				return nil
 			}, timeout, interval).Should(Succeed())
-
-			// It should recreate 'ray-ca-tls' Secret in ctrlNS when it is manually deleted
+		})
+		It("should recreate 'ray-ca-tls' Secret in ctrlNS when it is manually deleted", func() {
 			caSecret := &corev1.Secret{}
-			key = types.NamespacedName{Name: constants.RayCASecretName, Namespace: controllerNS}
+			key := types.NamespacedName{Name: constants.RayCASecretName, Namespace: controllerNS}
 			Expect(k8sClient.Get(ctx, key, caSecret)).Should(Succeed())
 			Expect(k8sClient.Delete(ctx, caSecret)).Should(Succeed())
 
@@ -299,10 +257,10 @@ var _ = Describe("ServingRuntime Controller (Multi Node Reconciler)", func() {
 				}
 				return err
 			}, timeout, interval).Should(Succeed())
-
-			// It should recreate 'ray-tls' Secret in the testNs when it is manually deleted
-			rayTlsSecret = &corev1.Secret{}
-			key = types.NamespacedName{Name: constants.RayTLSSecretName, Namespace: testNs}
+		})
+		It("should recreate 'ray-tls' Secret in the testNs when it is manually deleted", func() {
+			rayTlsSecret := &corev1.Secret{}
+			key := types.NamespacedName{Name: constants.RayTLSSecretName, Namespace: testNs}
 			Expect(k8sClient.Get(ctx, key, rayTlsSecret)).Should(Succeed())
 			Expect(k8sClient.Delete(ctx, rayTlsSecret)).Should(Succeed())
 
@@ -312,34 +270,7 @@ var _ = Describe("ServingRuntime Controller (Multi Node Reconciler)", func() {
 				err = k8sClient.Get(ctx, key, updatedRayTlsSecret)
 				return err
 			}, timeout, interval).Should(Succeed())
-
-			// It should recreate 'ray-tls-secret-reader' role in the testNs when it is manually deleted
-			originalRole := &k8srbacv1.Role{}
-			key = types.NamespacedName{Name: constants.RayTLSSecretReaderRoleName, Namespace: testNs}
-			Expect(k8sClient.Get(ctx, key, originalRole)).Should(Succeed())
-			Expect(k8sClient.Delete(ctx, originalRole)).Should(Succeed())
-
-			Eventually(func() error {
-				newRole := &k8srbacv1.Role{}
-				key := types.NamespacedName{Name: constants.RayTLSSecretReaderRoleName, Namespace: testNs}
-				err = k8sClient.Get(ctx, key, newRole)
-				return err
-			}, timeout, interval).Should(Succeed())
-
-			// It should recreate 'ray-tls-secret-reader-rolebinding' rolebinding in the testNs when it is manually deleted
-			originalRoleBinding := &k8srbacv1.RoleBinding{}
-			key = types.NamespacedName{Name: constants.RayTLSSecretReaderRoleBindingName, Namespace: testNs}
-			Expect(k8sClient.Get(ctx, key, originalRoleBinding)).Should(Succeed())
-			Expect(k8sClient.Delete(ctx, originalRoleBinding)).Should(Succeed())
-
-			Eventually(func() error {
-				newRolebinding := &k8srbacv1.RoleBinding{}
-				key := types.NamespacedName{Name: constants.RayTLSSecretReaderRoleBindingName, Namespace: testNs}
-				err = k8sClient.Get(ctx, key, newRolebinding)
-				return err
-			}, timeout, interval).Should(Succeed())
 		})
-
 	})
 
 	Context("when a multinode ServingRuntime removed", func() {
@@ -367,23 +298,9 @@ var _ = Describe("ServingRuntime Controller (Multi Node Reconciler)", func() {
 				err = k8sClient.Get(ctx, key, secret)
 				return err
 			}, timeout, interval).Should(Succeed())
-
-			Eventually(func() error {
-				role := &k8srbacv1.Role{}
-				key := types.NamespacedName{Name: constants.RayTLSSecretReaderRoleName, Namespace: testNs}
-				err = k8sClient.Get(ctx, key, role)
-				return err
-			}, timeout, interval).Should(Succeed())
-
-			Eventually(func() error {
-				rolebinding := &k8srbacv1.RoleBinding{}
-				key := types.NamespacedName{Name: constants.RayTLSSecretReaderRoleBindingName, Namespace: testNs}
-				err = k8sClient.Get(ctx, key, rolebinding)
-				return err
-			}, timeout, interval).Should(Succeed())
 		})
 
-		It("should remove 'ray-tls' Secret, 'ray-tls-secret-reader' role/rolebinding in the testNs", func() {
+		It("should remove 'ray-tls' Secret in the testNs", func() {
 			By("deleting multinode ServingRuntime")
 			multinodeServingRuntime := &kservev1alpha1.ServingRuntime{}
 			err := testutils.ConvertToStructuredResource(multinodeServingRuntimePath, multinodeServingRuntime)
@@ -395,26 +312,6 @@ var _ = Describe("ServingRuntime Controller (Multi Node Reconciler)", func() {
 				rayTlsSecret := &corev1.Secret{}
 				key := types.NamespacedName{Name: constants.RayTLSSecretName, Namespace: testNs}
 				err = k8sClient.Get(ctx, key, rayTlsSecret)
-				if apierrs.IsNotFound(err) {
-					return nil // Success condition: the resource is not found
-				}
-				return fmt.Errorf("resource still exists or another error occurred: %v", err)
-			}, timeout, interval).Should(Succeed(), "Expected the resource to be deleted, but it still exists")
-
-			Eventually(func() error {
-				rayTlsSecretReaderRole := &k8srbacv1.Role{}
-				key := types.NamespacedName{Name: constants.RayTLSSecretReaderRoleName, Namespace: testNs}
-				err = k8sClient.Get(ctx, key, rayTlsSecretReaderRole)
-				if apierrs.IsNotFound(err) {
-					return nil // Success condition: the resource is not found
-				}
-				return fmt.Errorf("resource still exists or another error occurred: %v", err)
-			}, timeout, interval).Should(Succeed(), "Expected the resource to be deleted, but it still exists")
-
-			Eventually(func() error {
-				rayTlsSecretReaderRoleBinding := &k8srbacv1.RoleBinding{}
-				key := types.NamespacedName{Name: constants.RayTLSSecretReaderRoleName, Namespace: testNs}
-				err = k8sClient.Get(ctx, key, rayTlsSecretReaderRoleBinding)
 				if apierrs.IsNotFound(err) {
 					return nil // Success condition: the resource is not found
 				}

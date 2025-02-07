@@ -12,9 +12,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"go.uber.org/zap"
 	corev1 "k8s.io/api/core/v1"
-	k8srbacv1 "k8s.io/api/rbac/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	clientfake "sigs.k8s.io/controller-runtime/pkg/client/fake"
 )
@@ -22,11 +20,8 @@ import (
 func setupLogger(t *testing.T) logr.Logger {
 	zapLogger, _ := zap.NewProduction()
 	t.Cleanup(func() {
-		if err := zapLogger.Sync(); err != nil {
-			t.Errorf("failed to sync zap logger: %v", err)
-		}
+		_ = zapLogger.Sync()
 	})
-
 	return zapr.NewLogger(zapLogger)
 }
 
@@ -80,7 +75,7 @@ func TestUpdateSecret_Concurrent(t *testing.T) {
 					},
 					Env: []corev1.EnvVar{
 						{
-							Name:  "RAY_USE_TLS",
+							Name:  constants.RayUseTlsEnvName,
 							Value: "1",
 						},
 					},
@@ -110,7 +105,7 @@ func TestUpdateSecret_Concurrent(t *testing.T) {
 			err = fakeClient.Create(context.TODO(), podCopy)
 			assert.NoError(t, err, "should be able to create the Pod")
 
-			err := updateSecret(fakeClient, logger, caCertSecret, namespace, podCopy)
+			err := updateSecret(context.TODO(), fakeClient, logger, caCertSecret, namespace, podCopy)
 			assert.NoError(t, err, "updateSecret should not return an error")
 		}(podIPs[i])
 	}
@@ -128,77 +123,4 @@ func TestUpdateSecret_Concurrent(t *testing.T) {
 		assert.NotEmpty(t, combinedCert, "Certificate data should not be empty for pod IP: %s", podIP)
 	}
 
-}
-
-// TestReconcileRoleBinding tests the reconcileRoleBinding function
-func TestReconcileRoleBinding(t *testing.T) {
-	targetNamespace := "test-namespace-2"
-	testSA := "custom-sa"
-	logger := setupLogger(t)
-
-	fakeClient := clientfake.NewClientBuilder().WithObjects(
-		&k8srbacv1.RoleBinding{
-			ObjectMeta: metav1.ObjectMeta{
-				Name:      constants.RayTLSSecretReaderRoleBindingName,
-				Namespace: targetNamespace,
-			},
-			Subjects: []k8srbacv1.Subject{
-				{
-					Kind:      "ServiceAccount",
-					Name:      "default",
-					Namespace: targetNamespace,
-				},
-			},
-			RoleRef: k8srbacv1.RoleRef{
-				Kind:     "Role",
-				Name:     constants.RayTLSSecretReaderRoleName,
-				APIGroup: "rbac.authorization.k8s.io",
-			},
-		},
-	).Build()
-
-	testPod := &corev1.Pod{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:      "example-pod",
-			Namespace: targetNamespace,
-			Labels: map[string]string{
-				"component": "predictor",
-			},
-		},
-		Spec: corev1.PodSpec{
-			ServiceAccountName: testSA,
-			Containers: []corev1.Container{
-				{
-					Name:  "kserve-container",
-					Image: "nginx:latest",
-					Args: []string{
-						"--arg1=value1",
-						"--arg2=value2",
-					},
-					Env: []corev1.EnvVar{
-						{
-							Name:  "RAY_USE_TLS",
-							Value: "1",
-						},
-					},
-				},
-			},
-		},
-	}
-
-	err := reconcileRoleBinding(fakeClient, logger, targetNamespace, testPod)
-	assert.NoError(t, err, "Expected no error during reconcileRoleBinding")
-
-	roleBinding := &k8srbacv1.RoleBinding{}
-	err = fakeClient.Get(context.TODO(), types.NamespacedName{Name: constants.RayTLSSecretReaderRoleBindingName, Namespace: targetNamespace}, roleBinding)
-	assert.NoError(t, err, "Expected RoleBinding to exist")
-
-	found := false
-	for _, subject := range roleBinding.Subjects {
-		if subject.Kind == "ServiceAccount" && subject.Name == testSA && subject.Namespace == targetNamespace {
-			found = true
-			break
-		}
-	}
-	assert.True(t, found, "Expected ServiceAccount to be added to RoleBinding")
 }

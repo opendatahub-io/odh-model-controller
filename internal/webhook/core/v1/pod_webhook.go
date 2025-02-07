@@ -62,43 +62,56 @@ func (m *PodMutatorDefaultor) mutate(pod *corev1.Pod) error {
 func getRayTLSGeneratorScriptInitContainer() *corev1.Container {
 
 	script := `
-echo "Generating Self Signed Certificate for Ray nodes"
-REFORMAT_IP=$(echo ${POD_IP} | sed 's+\.+\\.+g')
-JSONPATH={.data.$REFORMAT_IP}
-RAY_PEM_CONTENT=""
-RAY_CA_PEM_CONTENT=$(oc get secret ray-tls -n $POD_NAMESPACE -o jsonpath="{.data.ca\.crt}")
-TARGET_RAY_CA_PEM_FILE_PATH="/etc/ray/tls/ca.crt"
-TARGET_RAY_TLS_PEM_FILE_PATH="/etc/ray/tls/tls.pem"
-MAX_RETRIES=15
-RETRY_INTERVAL=2
-INITIAL_DELAY_SECONDS=4
-retries=0
+SECRET_DIR="/etc/ray-secret"
+TLS_DIR="/etc/ray/tls"
+SOURCE_RAY_TLS_PEM_FILE_PATH="${SECRET_DIR}/${POD_IP}"
+TARGET_RAY_TLS_PEM_FILE_PATH="${TLS_DIR}/tls.pem"
+SOURCE_RAY_CA_PEM_FILE_PATH="${SECRET_DIR}/ca.crt"
+TARGET_RAY_CA_PEM_FILE_PATH="${TLS_DIR}/ca.crt"
+
+RETRY_INTERVAL=10
+MAX_RETRIES=24
+INITIAL_DELAY_SECONDS=10
 
 sleep $INITIAL_DELAY_SECONDS
-while [ $retries -lt $MAX_RETRIES ]; do
-  RAY_PEM_CONTENT=$(oc get secret ray-tls -n $POD_NAMESPACE -o jsonpath="$JSONPATH")
-  if [[ -n $RAY_PEM_CONTENT ]]; then
-    break
-  fi
-  retries=$((retries + 1))
-  echo "Cert file not generated yet. Retrying in ${RETRY_INTERVAL} seconds... ($retries/$MAX_RETRIES)"
-  sleep $RETRY_INTERVAL
+
+for ((retries = 0; i < MAX_RETRIES; retries++)); do
+    if [[ -f "$SOURCE_RAY_CA_PEM_FILE_PATH" ]]; then
+        cp "$SOURCE_RAY_CA_PEM_FILE_PATH" "$TARGET_RAY_CA_PEM_FILE_PATH"
+        chmod 644 "$TARGET_RAY_CA_PEM_FILE_PATH"
+        break
+    fi
+    echo "Not found ca cert. Retrying in ${RETRY_INTERVAL} seconds... ($retries/$MAX_RETRIES)"
+    sleep $RETRY_INTERVAL
 done
-if [ $retries -eq $MAX_RETRIES ]; then
-  echo "Error: Cert file not generated!"
-  exit 1
+
+if [[ ! -f "$SOURCE_RAY_CA_PEM_FILE_PATH" ]]; then
+    echo "Error: CA Cert file not found!"
 fi
 
-echo $RAY_PEM_CONTENT|base64 -d > $TARGET_RAY_TLS_PEM_FILE_PATH
-echo $RAY_CA_PEM_CONTENT|base64 -d > $TARGET_RAY_CA_PEM_FILE_PATH
+for ((retires = 0; i < MAX_RETRIES; retries++)); do
+    if [[ -f "$SOURCE_RAY_TLS_PEM_FILE_PATH" ]]; then
+        cp "$SOURCE_RAY_TLS_PEM_FILE_PATH" "$TARGET_RAY_TLS_PEM_FILE_PATH"
+        chmod 644 "$TARGET_RAY_TLS_PEM_FILE_PATH"
+        break
+    fi
+    echo "Cert file not generated yet. Retrying in ${RETRY_INTERVAL} seconds... ($retries/$MAX_RETRIES)"
 
-if [ -f "$TARGET_RAY_TLS_PEM_FILE_PATH" ] && [ -f "$TARGET_RAY_CA_PEM_FILE_PATH" ] ; then
-  echo "Certificate files created successfully!"
-  exit 0
+    sleep $RETRY_INTERVAL
+done
+
+if [[ ! -f "$SOURCE_RAY_TLS_PEM_FILE_PATH" ]]; then
+    echo "Error: Cert file not generated!"
+fi
+
+if [ -f "$TARGET_RAY_TLS_PEM_FILE_PATH" ] && [ -f "$TARGET_RAY_CA_PEM_FILE_PATH" ]; then
+    echo "Certificate files created successfully!"
+    exit 0
 else
-  echo "Error: Failed to create certificate files."
-  exit 1
+    echo "Error: Failed to create certificate files."
+    exit 1
 fi
+
 `
 	return &corev1.Container{
 		Name:  constants.RayTLSGeneratorInitContainerName,
@@ -118,19 +131,15 @@ fi
 					},
 				},
 			},
-			{
-				Name: "POD_NAMESPACE",
-				ValueFrom: &corev1.EnvVarSource{
-					FieldRef: &corev1.ObjectFieldSelector{
-						FieldPath: "metadata.namespace",
-					},
-				},
-			},
 		},
 		VolumeMounts: []corev1.VolumeMount{
 			{
 				Name:      "ray-tls",
 				MountPath: "/etc/ray/tls",
+			},
+			{
+				Name:      "ray-tls-secret",
+				MountPath: "/etc/ray-secret",
 			},
 		},
 	}
@@ -148,7 +157,7 @@ func needToAddRayTLSGenerator(pod *corev1.Pod) bool {
 	for _, container := range pod.Spec.Containers {
 		if container.Name == kserveconstants.InferenceServiceContainerName || container.Name == constants.WorkerContainerName {
 			for _, envVar := range container.Env {
-				if envVar.Name == "RAY_USE_TLS" && envVar.Value != "0" {
+				if envVar.Name == constants.RayUseTlsEnvName && envVar.Value != "0" {
 					return true
 				}
 			}

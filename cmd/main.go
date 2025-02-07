@@ -149,7 +149,7 @@ func main() {
 		setupLog.Error(kserveWithMeshEnabledErr, "could not determine if kserve have service mesh enabled")
 	}
 
-	if err := setupReconcilers(mgr, setupLog, kubeClient, cfg, kserveWithMeshEnabled); err != nil {
+	if err := setupReconcilers(mgr, setupLog, kubeClient, cfg); err != nil {
 		os.Exit(1)
 	}
 	// +kubebuilder:scaffold:builder
@@ -168,22 +168,6 @@ func main() {
 
 	signalHandlerCtx := ctrl.SetupSignalHandler()
 	setupNim(mgr, signalHandlerCtx, kubeClient)
-
-	inferenceGraphCrdAvailable, igCrdErr := utils.IsCrdAvailable(
-		mgr.GetConfig(),
-		v1alpha1.SchemeGroupVersion.String(),
-		"InferenceGraph")
-	if igCrdErr != nil {
-		setupLog.Error(igCrdErr, "unable to check if InferenceGraph CRD is available", "controller", "InferenceGraph")
-		os.Exit(1)
-	} else if inferenceGraphCrdAvailable {
-		if err = servingcontroller.NewInferenceGraphReconciler(mgr).SetupWithManager(mgr); err != nil {
-			setupLog.Error(err, "unable to create controller", "controller", "InferenceGraph")
-			os.Exit(1)
-		}
-	} else {
-		setupLog.Info("controller is turned off", "controller", "InferenceGraph")
-	}
 
 	setupLog.Info("starting manager")
 	if err = mgr.Start(signalHandlerCtx); err != nil {
@@ -361,7 +345,7 @@ func setupWebhooks(mgr ctrl.Manager, setupLog logr.Logger, kserveWithMeshEnabled
 }
 
 func setupReconcilers(mgr ctrl.Manager, setupLog logr.Logger,
-	kubeClient kubernetes.Interface, cfg *rest.Config, kserveWithMeshEnabled bool) error {
+	kubeClient kubernetes.Interface, cfg *rest.Config) error {
 	if err := setupInferenceServiceReconciler(mgr, kubeClient, cfg); err != nil {
 		setupLog.Error(err, "unable to create controller", "controller", "InferenceService")
 		return err
@@ -382,11 +366,21 @@ func setupReconcilers(mgr ctrl.Manager, setupLog logr.Logger,
 		setupLog.Error(err, "unable to create controller", "controller", "ServingRuntime")
 		return err
 	}
-	if kserveWithMeshEnabled {
+
+	inferenceGraphCrdAvailable, igCrdErr := utils.IsCrdAvailable(
+		mgr.GetConfig(),
+		v1alpha1.SchemeGroupVersion.String(),
+		"InferenceGraph")
+	if igCrdErr != nil {
+		setupLog.Error(igCrdErr, "unable to check if InferenceGraph CRD is available", "controller", "InferenceGraph")
+		return igCrdErr
+	} else if inferenceGraphCrdAvailable {
 		if err := setupInferenceGraphReconciler(mgr); err != nil {
 			setupLog.Error(err, "unable to create controller", "controller", "InferenceGraph")
 			return err
 		}
+	} else {
+		setupLog.Info("controller is turned off", "controller", "InferenceGraph")
 	}
 	return nil
 }

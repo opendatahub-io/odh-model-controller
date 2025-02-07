@@ -22,7 +22,6 @@ import (
 	"fmt"
 	"os"
 	"reflect"
-	"slices"
 
 	"github.com/go-logr/logr"
 	servingv1alpha1 "github.com/kserve/kserve/pkg/apis/serving/v1alpha1"
@@ -268,7 +267,7 @@ func (r *ServingRuntimeReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 
 	if monitoringNs == "" {
 		logger.Info("No monitoring namespace detected, skipping monitoring reconciliation.")
-	} else if !utils.IsRayTLSSecret(req.Name) {
+	} else {
 		logger.Info("Monitoring Controller reconciling.")
 		err = r.reconcileRoleBinding(ctx, req, monitoringNs)
 		if err != nil {
@@ -374,9 +373,6 @@ func (r *ServingRuntimeReconciler) reconcileDefaultRayServerCertSecretInUserNS(c
 		}
 	}
 
-	if err := r.reconcileRayTlsSecretReader(ctx, logger, targetNamespace, multiNodeSRExistInNS); err != nil {
-		return err
-	}
 	return nil
 }
 
@@ -414,139 +410,6 @@ func existMultiNodeServingRuntimeInNs(srList servingv1alpha1.ServingRuntimeList)
 func isMultiNodeServingRuntime(srName string) bool {
 	return srName == "vllm-multinode-runtime"
 }
-func (r *ServingRuntimeReconciler) reconcileRayTlsSecretReader(ctx context.Context, logger logr.Logger, namespace string, multiNodeExist bool) error {
-	desiredRole := getDesiredRayTlsSecretReaderRole(namespace)
-	desiredRoleBinding := getDesiredRayTlsSecretReaderRB(namespace)
-
-	// Reconcile Role
-	if err := r.reconcileResource(ctx, logger, desiredRole, &k8srbacv1.Role{}, multiNodeExist, "role"); err != nil {
-		return err
-	}
-
-	// Reconcile RoleBinding
-	if err := r.reconcileResource(ctx, logger, desiredRoleBinding, &k8srbacv1.RoleBinding{}, multiNodeExist, "rolebinding"); err != nil {
-		return err
-	}
-
-	return nil
-}
-func (r *ServingRuntimeReconciler) reconcileResource(ctx context.Context, logger logr.Logger, desired client.Object, existing client.Object, multiNodeExist bool, kind string) error {
-	if multiNodeExist {
-		// Try to fetch the existing resource
-		if err := r.Client.Get(ctx, types.NamespacedName{Name: desired.GetName(), Namespace: desired.GetNamespace()}, existing); err != nil {
-			if apierrs.IsNotFound(err) {
-				// Resource not found, create it
-				if err := r.Client.Create(ctx, desired); err != nil {
-					logger.Error(err, "failed to create resource", "kind", kind, "name", desired.GetName(), "namespace", desired.GetNamespace())
-					return err
-				}
-				logger.Info("created resource", "kind", kind, "name", desired.GetName(), "namespace", desired.GetNamespace())
-			} else {
-				// Other errors
-				logger.Error(err, "failed to get resource", "kind", kind, "name", desired.GetName(), "namespace", desired.GetNamespace())
-				return err
-			}
-		} else {
-			// Resource exists, check if update is needed
-			if !isResourceIdentical(desired, existing) {
-				desired.SetResourceVersion(existing.GetResourceVersion()) // Preserve resource version
-				if err := r.Client.Update(ctx, desired); err != nil {
-					logger.Error(err, "failed to update resource", "kind", kind, "name", desired.GetName(), "namespace", desired.GetNamespace())
-					return err
-				}
-				logger.Info("updated resource", "kind", kind, "name", desired.GetName(), "namespace", desired.GetNamespace())
-			}
-		}
-	} else {
-		if err := r.Client.Delete(ctx, desired); err != nil {
-			if apierrs.IsNotFound(err) {
-				return nil
-			}
-			logger.Error(err, "fail to delete resource", "kind", kind, "name", desired.GetName(), "namespace", desired.GetNamespace())
-			return err
-		}
-		logger.Info("deleted resource", "kind", kind, "name", desired.GetName(), "namespace", desired.GetNamespace())
-	}
-
-	return nil
-}
-
-func isResourceIdentical(desired, existing client.Object) bool {
-	isEqual := false
-	desiredRB, ok := desired.(*k8srbacv1.RoleBinding)
-	if ok {
-		existingRB, _ := existing.(*k8srbacv1.RoleBinding)
-		if desiredRB.RoleRef == existingRB.RoleRef && reflect.DeepEqual(desiredRB.ObjectMeta.Labels, existingRB.ObjectMeta.Labels) {
-			isEqual = true
-		}
-
-		for _, s := range desiredRB.Subjects {
-			found := slices.ContainsFunc(existingRB.Subjects, func(e k8srbacv1.Subject) bool {
-				return reflect.DeepEqual(s, e)
-			})
-			if !found {
-				return false
-			}
-		}
-
-	} else {
-		return reflect.DeepEqual(desired, existing)
-	}
-
-	return isEqual
-}
-
-func getDesiredRayTlsSecretReaderRole(targetNamespace string) *k8srbacv1.Role {
-	return &k8srbacv1.Role{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:      constants.RayTLSSecretReaderRoleName,
-			Namespace: targetNamespace,
-			Labels: map[string]string{
-				"opendatahub.io/managed":       "true",
-				"app.kubernetes.io/name":       "ray-tls-secret-reader",
-				"app.kubernetes.io/component":  "odh-model-serving",
-				"app.kubernetes.io/part-of":    "kserve",
-				"app.kubernetes.io/managed-by": "odh-model-controller",
-			},
-		},
-		Rules: []k8srbacv1.PolicyRule{
-			{
-				APIGroups:     []string{""},
-				Resources:     []string{"secrets"},
-				Verbs:         []string{"get"},
-				ResourceNames: []string{constants.RayTLSSecretName},
-			},
-		},
-	}
-}
-
-func getDesiredRayTlsSecretReaderRB(targetNamespace string) *k8srbacv1.RoleBinding {
-	return &k8srbacv1.RoleBinding{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:      constants.RayTLSSecretReaderRoleBindingName,
-			Namespace: targetNamespace,
-			Labels: map[string]string{
-				"opendatahub.io/managed":       "true",
-				"app.kubernetes.io/name":       "ray-tls-secret-reader",
-				"app.kubernetes.io/component":  "odh-model-serving",
-				"app.kubernetes.io/part-of":    "kserve",
-				"app.kubernetes.io/managed-by": "odh-model-controller",
-			},
-		},
-		Subjects: []k8srbacv1.Subject{
-			{
-				Kind:      "ServiceAccount",
-				Name:      "default",
-				Namespace: targetNamespace,
-			},
-		},
-		RoleRef: k8srbacv1.RoleRef{
-			Kind:     "Role",
-			Name:     constants.RayTLSSecretReaderRoleName,
-			APIGroup: "rbac.authorization.k8s.io",
-		},
-	}
-}
 
 // SetupWithManager sets up the controller with the Manager.
 func (r *ServingRuntimeReconciler) SetupWithManager(mgr ctrl.Manager) error {
@@ -579,7 +442,7 @@ func (r *ServingRuntimeReconciler) SetupWithManager(mgr ctrl.Manager) error {
 
 				namespacedName := types.NamespacedName{
 					Name:      o.GetName(),
-					Namespace: o.GetNamespace(),
+					Namespace: o.GetName(),
 				}
 				reconcileRequests := append([]reconcile.Request{}, reconcile.Request{NamespacedName: namespacedName})
 				return reconcileRequests
@@ -588,12 +451,6 @@ func (r *ServingRuntimeReconciler) SetupWithManager(mgr ctrl.Manager) error {
 		Watches(&k8srbacv1.RoleBinding{},
 			handler.EnqueueRequestsFromMapFunc(func(ctx context.Context, o client.Object) []reconcile.Request {
 				logger := log.FromContext(ctx)
-				// Only reconcile on RoleBindings that this controller creates.
-				// We avoid using owner references, as there is no logical owner
-				// of the RoleBinding this controller creates.
-				if !isWatchingRoleBinding(o.GetName()) {
-					return []reconcile.Request{}
-				}
 
 				_, odhManaged := o.GetLabels()["opendatahub.io/managed"]
 				if !odhManaged {
@@ -609,24 +466,5 @@ func (r *ServingRuntimeReconciler) SetupWithManager(mgr ctrl.Manager) error {
 				reconcileRequests := append([]reconcile.Request{}, reconcile.Request{NamespacedName: namespacedName})
 				return reconcileRequests
 			})).
-		// Watch for changes to ModelMesh Enabled namespaces & a select few others
-		Watches(&k8srbacv1.Role{},
-			handler.EnqueueRequestsFromMapFunc(func(ctx context.Context, o client.Object) []reconcile.Request {
-
-				if o.GetName() != constants.RayTLSSecretReaderRoleName {
-					return []reconcile.Request{}
-				}
-
-				namespacedName := types.NamespacedName{
-					Name:      o.GetName(),
-					Namespace: o.GetNamespace(),
-				}
-				reconcileRequests := append([]reconcile.Request{}, reconcile.Request{NamespacedName: namespacedName})
-				return reconcileRequests
-			})).
 		Complete(r)
-}
-
-func isWatchingRoleBinding(name string) bool {
-	return name == RoleBindingName || name == constants.RayTLSSecretReaderRoleBindingName
 }

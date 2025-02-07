@@ -36,7 +36,7 @@ var _ = Describe("Pod Mutator Webhook", func() {
 					{
 						Name: "worker-container",
 						Env: []corev1.EnvVar{
-							{Name: "RAY_USE_TLS", Value: "1"},
+							{Name: constants.RayUseTlsEnvName, Value: "1"},
 						},
 					},
 				},
@@ -47,13 +47,40 @@ var _ = Describe("Pod Mutator Webhook", func() {
 	Describe("Handle method", func() {
 		It("should add ray-tls-generator init-container to the pod if RAY_USE_TLS is set to 1", func() {
 			// mutate multinode pad
-			err := defaulter.podMutator(multinodePod)
+			err := defaulter.Default(ctx, multinodePod)
 			Expect(err).NotTo(HaveOccurred())
 
 			// Verify that the InitContainer was added
 			Expect(multinodePod.Spec.InitContainers).ShouldNot(BeNil())
 			Expect(multinodePod.Spec.InitContainers).Should(HaveLen(1))
 			Expect(multinodePod.Spec.InitContainers[0].Name).To(Equal(constants.RayTLSGeneratorInitContainerName))
+		})
+		It("should not add ray-tls-generator init-container to the pod if RAY_USE_TLS is set to 0", func() {
+			container := &multinodePod.Spec.Containers[0]
+			// Update the environment variable
+			for i := range container.Env {
+				if container.Env[i].Name == constants.RayUseTlsEnvName {
+					container.Env[i].Value = "0"
+					break
+				}
+			}
+			// mutate multinode pad
+			err := defaulter.Default(ctx, multinodePod)
+			Expect(err).NotTo(HaveOccurred())
+
+			// Verify that the InitContainer was added
+			Expect(multinodePod.Spec.InitContainers).Should(BeNil())
+		})
+
+		It("should not add ray-tls-generator init-container to the pod if RAY_USE_TLS is not set", func() {
+			container := &multinodePod.Spec.Containers[0]
+			container.Env = []corev1.EnvVar{}
+			// mutate multinode pad
+			err := defaulter.Default(ctx, multinodePod)
+			Expect(err).NotTo(HaveOccurred())
+
+			// Verify that the InitContainer was added
+			Expect(multinodePod.Spec.InitContainers).Should(BeNil())
 		})
 		It("should return true if RAY_USE_TLS is set to 1", func() {
 			result := needToAddRayTLSGenerator(multinodePod)
@@ -64,7 +91,7 @@ var _ = Describe("Pod Mutator Webhook", func() {
 			container := &multinodePod.Spec.Containers[0]
 			// Update the environment variable
 			for i := range container.Env {
-				if container.Env[i].Name == "RAY_USE_TLS" {
+				if container.Env[i].Name == constants.RayUseTlsEnvName {
 					container.Env[i].Value = "0"
 					break
 				}
