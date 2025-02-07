@@ -21,7 +21,6 @@ import (
 	"crypto/tls"
 	"flag"
 	"os"
-	"slices"
 	"strconv"
 
 	// Import all Kubernetes client auth plugins (e.g. Azure, GCP, OIDC, etc.)
@@ -78,6 +77,7 @@ func getEnvAsBool(name string, defaultValue bool) bool {
 	return defaultValue
 }
 
+// nolint:gocyclo
 func main() {
 	var metricsAddr string
 	var enableLeaderElection bool
@@ -244,7 +244,10 @@ func main() {
 
 	nimState := os.Getenv("NIM_STATE")
 	signalHandlerCtx := ctrl.SetupSignalHandler()
-	if !slices.Contains([]string{"removed", ""}, nimState) {
+	if nimState == "" {
+		nimState = "managed"
+	}
+	if nimState != "removed" {
 		if err = (&nim.AccountReconciler{
 			Client:  mgr.GetClient(),
 			Scheme:  mgr.GetScheme(),

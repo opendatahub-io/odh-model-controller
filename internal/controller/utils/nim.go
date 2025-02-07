@@ -273,6 +273,7 @@ func attemptToPullManifest(runtime NimRuntime, tokenResp *NimTokenResponse) erro
 	}
 
 	req.Header.Add("Authorization", fmt.Sprintf("Bearer %s", tokenResp.Token))
+	req.Header.Add("Accept", "application/vnd.oci.image.index.v1+json")
 
 	resp, respErr := NimHttpClient.Do(req)
 	if respErr != nil {
@@ -331,8 +332,9 @@ func GetNimServingRuntimeTemplate(scheme *runtime.Scheme) (*v1alpha1.ServingRunt
 		Spec: v1alpha1.ServingRuntimeSpec{
 			ServingRuntimePodSpec: v1alpha1.ServingRuntimePodSpec{
 				Annotations: map[string]string{
-					"prometheus.io/path": "/metrics",
-					"prometheus.io/port": "8000",
+					"prometheus.io/path":                    "/metrics",
+					"prometheus.io/port":                    "8000",
+					"serving.knative.dev/progress-deadline": "30m",
 				},
 				Containers: []corev1.Container{
 					{Env: []corev1.EnvVar{
