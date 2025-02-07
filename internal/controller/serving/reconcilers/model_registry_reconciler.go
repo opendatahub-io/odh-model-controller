@@ -29,11 +29,15 @@ func NewModelRegistryInferenceServiceReconciler(client client.Client, log logr.L
 	if len(dscList.Items) > 0 {
 		dsc = dscList.Items[0]
 
-		ns, found, err := unstructured.NestedFieldCopy(dsc.Object, "spec", "components", "modelRegistry", "registriesNamespace")
-		if err == nil && found {
+		ns, found, err := unstructured.NestedFieldCopy(dsc.Object, "spec", "components", "modelregistry", "registriesNamespace")
+		if err != nil || !found {
+			log.Error(err, "Failed to get Model Registry Namespace from DataScienceCluster")
+		} else {
 			mrNamespaceFromDSC = ns.(string)
 		}
 	}
+
+	log.Info("Model Registry Namespace from DataScienceCluster", "Namespace", mrNamespaceFromDSC)
 
 	return infrctrl.NewInferenceServiceController(
 		client,
@@ -47,6 +51,7 @@ func NewModelRegistryInferenceServiceReconciler(client client.Client, log logr.L
 		constants.ModelRegistryNameLabel,
 		constants.ModelRegistryUrlAnnotation,
 		constants.ModelRegistryFinalizer,
+		constants.ModelRegistryServiceAnnotation,
 		mrNamespaceFromDSC,
 	)
 }
