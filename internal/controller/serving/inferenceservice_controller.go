@@ -234,6 +234,9 @@ func (r *InferenceServiceReconciler) SetupWithManager(mgr ctrl.Manager) error {
 			})).
 		Watches(&corev1.Secret{},
 			handler.EnqueueRequestsFromMapFunc(func(ctx context.Context, o client.Object) []reconcile.Request {
+				if utils.IsRayTLSSecret(o.GetName()) {
+					return []reconcile.Request{}
+				}
 				logger := log.FromContext(ctx)
 				logger.Info("Reconcile event triggered by Secret: " + o.GetName())
 				isvc := &kservev1beta1.InferenceService{}

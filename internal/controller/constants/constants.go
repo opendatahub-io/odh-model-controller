@@ -41,6 +41,13 @@ const (
 	KserveServiceAccountName    = "default"
 )
 
+// InferenceService container names
+const (
+	// TO-DO this will be replaced by upstream constants when 0.15 is released
+	// WorkerContainerName is for worker node container
+	WorkerContainerName = "worker-container"
+)
+
 // isvc modes
 var (
 	Serverless    KServeDeploymentMode = "Serverless"
@@ -101,4 +108,12 @@ const (
 // NIM
 const (
 	NimApplyConfigFieldManager = "nim-account-controller"
+)
+
+// Ray
+const (
+	RayUseTlsEnvName                 = "RAY_USE_TLS"
+	RayCASecretName                  = "ray-ca-tls"
+	RayTLSSecretName                 = "ray-tls"
+	RayTLSGeneratorInitContainerName = "ray-tls-generator"
 )

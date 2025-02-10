@@ -10,6 +10,25 @@ webhooks:
     service:
       name: webhook-service
       namespace: system
+      path: /mutate--v1-pod
+  failurePolicy: Fail
+  name: mutating.pod.odh-model-controller.opendatahub.io
+  rules:
+  - apiGroups:
+    - ""
+    apiVersions:
+    - v1
+    operations:
+    - CREATE
+    resources:
+    - pods
+  sideEffects: None
+- admissionReviewVersions:
+  - v1
+  clientConfig:
+    service:
+      name: webhook-service
+      namespace: system
       path: /mutate-serving-kserve-io-v1alpha1-inferencegraph
   failurePolicy: Fail
   name: minferencegraph-v1alpha1.odh-model-controller.opendatahub.io
