@@ -21,6 +21,7 @@ import (
 	"github.com/go-logr/logr"
 	"github.com/hashicorp/go-multierror"
 	kservev1beta1 "github.com/kserve/kserve/pkg/apis/serving/v1beta1"
+	"k8s.io/apimachinery/pkg/api/meta"
 	"k8s.io/client-go/kubernetes"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
@@ -97,9 +98,13 @@ func (r *KserveServerlessInferenceServiceReconciler) CleanupNamespaceIfNoKserveI
 	var cleanupErrors *multierror.Error
 	if len(inferenceServiceList.Items) == 0 {
 		for _, reconciler := range r.subResourceReconcilers {
-			cleanupErrors = multierror.Append(cleanupErrors, reconciler.Cleanup(ctx, log, namespace))
+			if err := reconciler.Cleanup(ctx, log, namespace); err != nil {
+				// See comment InferenceServiceReconciler.DeleteResourcesIfNoIsvcExists for more details.
+				if !meta.IsNoMatchError(err) {
+					cleanupErrors = multierror.Append(cleanupErrors, err)
+				}
+			}
 		}
 	}
-
 	return cleanupErrors.ErrorOrNil()
 }
