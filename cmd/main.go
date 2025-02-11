@@ -386,7 +386,8 @@ func setupReconcilers(mgr ctrl.Manager, setupLog logr.Logger,
 	return nil
 }
 
-func setupInferenceServiceReconciler(mgr ctrl.Manager, kubeClient kubernetes.Interface, cfg *rest.Config, enableMRInferenceServiceReconcile bool) error {
+func setupInferenceServiceReconciler(mgr ctrl.Manager, kubeClient kubernetes.Interface,
+	cfg *rest.Config, enableMRInferenceServiceReconcile bool) error {
 	return (servingcontroller.NewInferenceServiceReconciler(
 		setupLog,
 		mgr.GetClient(),
