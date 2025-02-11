@@ -83,20 +83,22 @@ func (r *KserveServerlessInferenceServiceReconciler) CleanupNamespaceIfNoKserveI
 		return err
 	}
 
-	for i := len(inferenceServiceList.Items) - 1; i >= 0; i-- {
-		inferenceService := inferenceServiceList.Items[i]
-		isvcDeploymentMode, err := utils.GetDeploymentModeForKServeResource(ctx, r.client, inferenceService.GetAnnotations())
+	var existingServerlessIsvcs []kservev1beta1.InferenceService
+	for _, isvc := range inferenceServiceList.Items {
+		isvcDeploymentMode, err := utils.GetDeploymentModeForKServeResource(ctx, r.client, isvc.GetAnnotations())
 		if err != nil {
 			return err
 		}
-		if isvcDeploymentMode != constants.Serverless {
-			inferenceServiceList.Items = append(inferenceServiceList.Items[:i], inferenceServiceList.Items[i+1:]...)
+		if isvcDeploymentMode == constants.Serverless {
+			if isvc.GetDeletionTimestamp() == nil {
+				existingServerlessIsvcs = append(existingServerlessIsvcs, isvc)
+			}
 		}
 	}
 
-	// If there are no Kserve InferenceServices in the namespace, delete namespace-scoped resources needed for Kserve Metrics
+	// If there are no Kserve Serverless InferenceServices in the namespace, delete namespace-scoped resources needed for Kserve Metrics
 	var cleanupErrors *multierror.Error
-	if len(inferenceServiceList.Items) == 0 {
+	if len(existingServerlessIsvcs) == 0 {
 		for _, reconciler := range r.subResourceReconcilers {
 			if err := reconciler.Cleanup(ctx, log, namespace); err != nil {
 				// See comment InferenceServiceReconciler.DeleteResourcesIfNoIsvcExists for more details.
