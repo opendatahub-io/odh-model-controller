@@ -147,7 +147,7 @@ func main() {
 		setupLog.Error(kserveWithMeshEnabledErr, "could not determine if kserve have service mesh enabled")
 	}
 
-	if err := setupReconcilers(mgr, setupLog, kubeClient, cfg); err != nil {
+	if err := setupReconcilers(mgr, setupLog, kubeClient, cfg, enableMRInferenceServiceReconcile); err != nil {
 		os.Exit(1)
 	}
 	// +kubebuilder:scaffold:builder
@@ -346,8 +346,8 @@ func setupWebhooks(mgr ctrl.Manager, setupLog logr.Logger, kserveWithMeshEnabled
 }
 
 func setupReconcilers(mgr ctrl.Manager, setupLog logr.Logger,
-	kubeClient kubernetes.Interface, cfg *rest.Config) error {
-	if err := setupInferenceServiceReconciler(mgr, kubeClient, cfg); err != nil {
+	kubeClient kubernetes.Interface, cfg *rest.Config, enableMRInferenceServiceReconcile bool) error {
+	if err := setupInferenceServiceReconciler(mgr, kubeClient, cfg, enableMRInferenceServiceReconcile); err != nil {
 		setupLog.Error(err, "unable to create controller", "controller", "InferenceService")
 		return err
 	}
@@ -386,7 +386,8 @@ func setupReconcilers(mgr ctrl.Manager, setupLog logr.Logger,
 	return nil
 }
 
-func setupInferenceServiceReconciler(mgr ctrl.Manager, kubeClient kubernetes.Interface, cfg *rest.Config) error {
+func setupInferenceServiceReconciler(mgr ctrl.Manager, kubeClient kubernetes.Interface,
+	cfg *rest.Config, enableMRInferenceServiceReconcile bool) error {
 	return (servingcontroller.NewInferenceServiceReconciler(
 		setupLog,
 		mgr.GetClient(),
@@ -394,7 +395,7 @@ func setupInferenceServiceReconciler(mgr ctrl.Manager, kubeClient kubernetes.Int
 		mgr.GetAPIReader(),
 		kubeClient,
 		getEnvAsBool("MESH_DISABLED", false),
-		getEnvAsBool("ENABLE_MR_INFERENCE_SERVICE_RECONCILE", false),
+		enableMRInferenceServiceReconcile,
 		getEnvAsBool("MR_SKIP_TLS_VERIFY", false),
 		cfg.BearerToken,
 	)).SetupWithManager(mgr)
