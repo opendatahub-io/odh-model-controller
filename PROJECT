@@ -29,8 +29,8 @@ resources:
   path: github.com/kserve/kserve/pkg/apis/serving/v1beta1
   version: v1beta1
   webhooks:
-    validation: true
     defaulting: true
+    validation: true
     webhookVersion: v1
 - controller: true
   core: true
@@ -69,5 +69,6 @@ resources:
   version: v1alpha1
   webhooks:
     defaulting: true
+    validation: true
     webhookVersion: v1
 version: "3"
