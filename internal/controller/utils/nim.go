@@ -25,6 +25,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/go-logr/logr"
 	"github.com/hashicorp/go-multierror"
 	"github.com/kserve/kserve/pkg/apis/serving/v1alpha1"
 	kserveconstants "github.com/kserve/kserve/pkg/constants"
@@ -477,6 +478,51 @@ func UpdateStatus(ctx context.Context, subject types.NamespacedName, status v1.A
 		account.Status = *status.DeepCopy()
 		if err = kubeClient.Status().Update(ctx, account); err != nil {
 			return err
+		}
+	}
+	return nil
+}
+
+// NIMCleanupRunner is a Runnable used for cleaning up NIM when disabled
+type NIMCleanupRunner struct {
+	Client client.Client
+	Logger logr.Logger
+}
+
+func (r *NIMCleanupRunner) Start(ctx context.Context) error {
+	accounts := &v1.AccountList{}
+	if err := r.Client.List(ctx, accounts); err != nil {
+		r.Logger.Error(err, "failed to fetch accounts")
+	}
+	for _, account := range accounts.Items {
+		r.Logger.V(1).Info("Cleaning up resources for account", "namespace", account.Namespace, "name", account.Name)
+		// Call CleanupResources for the current account
+		if err := CleanupResources(ctx, &account, r.Client); err != nil {
+			r.Logger.Error(err, "failed to perform clean up on some accounts")
+		}
+
+		msg := "NIM has been disabled"
+		cleanStatus := v1.AccountStatus{
+			NIMConfig:       nil,
+			RuntimeTemplate: nil,
+			NIMPullSecret:   nil,
+			Conditions: []metav1.Condition{
+				MakeNimCondition(NimConditionAccountStatus, metav1.ConditionUnknown, account.Generation,
+					"AccountNotReconciled", msg),
+				MakeNimCondition(NimConditionAPIKeyValidation, metav1.ConditionUnknown, account.Generation,
+					"ApiKeyNotReconciled", msg),
+				MakeNimCondition(NimConditionConfigMapUpdate, metav1.ConditionUnknown, account.Generation,
+					"ConfigMapNotReconciled", msg),
+				MakeNimCondition(NimConditionTemplateUpdate, metav1.ConditionUnknown, account.Generation,
+					"TemplateNotReconciled", msg),
+				MakeNimCondition(NimConditionSecretUpdate, metav1.ConditionUnknown, account.Generation,
+					"SecretNotReconciled", msg),
+			},
+		}
+		subject := types.NamespacedName{Name: account.Name, Namespace: account.Namespace}
+
+		if err := UpdateStatus(ctx, subject, cleanStatus, r.Client); err != nil {
+			r.Logger.Error(err, "failed to perform clean up on some accounts")
 		}
 	}
 	return nil
