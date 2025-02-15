@@ -65,42 +65,53 @@ func (r *KserveRawClusterRoleBindingReconciler) Reconcile(ctx context.Context, l
 	return nil
 }
 
-func (r *KserveRawClusterRoleBindingReconciler) Cleanup(ctx context.Context, log logr.Logger, isvcNs string) error {
-	log.V(1).Info("Deleting ClusterRoleBinding object for target namespace")
-	crbName := r.clusterRoleBindingHandler.GetClusterRoleBindingName(isvcNs, r.serviceAccountName)
-	return r.clusterRoleBindingHandler.DeleteClusterRoleBinding(ctx, types.NamespacedName{Name: crbName, Namespace: isvcNs})
-}
-
 func (r *KserveRawClusterRoleBindingReconciler) Delete(ctx context.Context, log logr.Logger, isvc *kservev1beta1.InferenceService) error {
-	log.V(1).Info("Custom CRB Deletion logic triggered")
-	if isvc.Spec.Predictor.ServiceAccountName == "" {
-		// isvc has default SA, no op
-		return nil
-	}
-	serviceAccount := isvc.Spec.Predictor.ServiceAccountName
-	// Get isvc list in namespace and filter for isvcs with the same SA
-	inferenceServiceList := &kservev1beta1.InferenceServiceList{}
-	if err := r.client.List(ctx, inferenceServiceList, client.InNamespace(isvc.Namespace)); err != nil {
-		log.V(1).Info("Error getting InferenceServiceList for CRB cleanup")
+
+	var isvcList kservev1beta1.InferenceServiceList
+	var listOpts client.ListOptions
+	namespace := isvc.Namespace
+	listOpts = client.ListOptions{Namespace: namespace}
+	// List all inference services in the namespace
+	if err := r.client.List(ctx, &isvcList, &listOpts); err != nil {
+		log.Error(err, "failed to list inference services")
 		return err
 	}
-	for i := len(inferenceServiceList.Items) - 1; i >= 0; i-- {
-		inferenceService := inferenceServiceList.Items[i]
-		if inferenceService.Spec.Predictor.ServiceAccountName != serviceAccount {
-			inferenceServiceList.Items = append(inferenceServiceList.Items[:i], inferenceServiceList.Items[i+1:]...)
+
+	hasCustomSA := false
+	isvcSA := r.serviceAccountName
+	if len(isvc.Spec.Predictor.ServiceAccountName) > 0 {
+		hasCustomSA = true
+		isvcSA = isvc.Spec.Predictor.ServiceAccountName
+	}
+	var existingIsvcs []kservev1beta1.InferenceService
+	for _, svc := range isvcList.Items {
+		if hasCustomSA {
+			if svc.Spec.Predictor.ServiceAccountName == isvcSA {
+				if svc.GetDeletionTimestamp() == nil {
+					existingIsvcs = append(existingIsvcs, svc)
+				}
+			}
+		} else {
+			if len(svc.Spec.Predictor.ServiceAccountName) == 0 {
+				if svc.GetDeletionTimestamp() == nil {
+					existingIsvcs = append(existingIsvcs, svc)
+				}
+			}
 		}
 	}
-	log.V(1).Info("len of isvclist", "len", len(inferenceServiceList.Items))
-	// If there are no isvcs left with this SA, then the current isvc was the last one, so it is deleted
-	if len(inferenceServiceList.Items) == 0 {
-		crbName := r.clusterRoleBindingHandler.GetClusterRoleBindingName(isvc.Namespace, serviceAccount)
+	if len(existingIsvcs) == 0 {
+		crbName := r.clusterRoleBindingHandler.GetClusterRoleBindingName(isvc.Namespace, isvcSA)
+		log.V(1).Info("Deleting ClusterRoleBinding " + crbName + " in namespace " + isvc.Namespace)
 		return r.clusterRoleBindingHandler.DeleteClusterRoleBinding(ctx, types.NamespacedName{Name: crbName, Namespace: isvc.Namespace})
 	}
-	// There are other isvcs with the same SA still present in the namespace, so do not delete yet
 	return nil
 }
 
 func (r *KserveRawClusterRoleBindingReconciler) createDesiredResource(isvc *kservev1beta1.InferenceService) *v1.ClusterRoleBinding {
+	if val, ok := isvc.Labels[constants.LabelEnableAuthODH]; !ok || val != "true" {
+		return nil
+	}
+
 	isvcSA := r.serviceAccountName
 	if isvc.Spec.Predictor.ServiceAccountName != "" {
 		isvcSA = isvc.Spec.Predictor.ServiceAccountName
@@ -121,4 +132,9 @@ func (r *KserveRawClusterRoleBindingReconciler) getExistingResource(ctx context.
 
 func (r *KserveRawClusterRoleBindingReconciler) processDelta(ctx context.Context, log logr.Logger, desiredCRB *v1.ClusterRoleBinding, existingCRB *v1.ClusterRoleBinding) (err error) {
 	return r.clusterRoleBindingHandler.ProcessDelta(ctx, log, desiredCRB, existingCRB, r.deltaProcessor)
+}
+
+func (r *KserveRawClusterRoleBindingReconciler) Cleanup(_ context.Context, _ logr.Logger, _ string) error {
+	// NO OP
+	return nil
 }

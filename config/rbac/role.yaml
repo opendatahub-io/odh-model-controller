@@ -239,10 +239,21 @@ rules:
   - serving.kserve.io
   resources:
   - inferenceservices
-  - inferenceservices/finalizers
   verbs:
   - get
   - list
+  - update
+  - watch
+- apiGroups:
+  - serving.kserve.io
+  resources:
+  - inferenceservices/finalizers
+  verbs:
+  - create
+  - delete
+  - get
+  - list
+  - patch
   - update
   - watch
 - apiGroups:

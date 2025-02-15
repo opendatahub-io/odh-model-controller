@@ -24,7 +24,6 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	"github.com/opendatahub-io/odh-model-controller/internal/controller/constants"
-	"github.com/opendatahub-io/odh-model-controller/internal/controller/utils"
 )
 
 var _ Reconciler = (*ModelMeshInferenceServiceReconciler)(nil)
@@ -54,30 +53,10 @@ func (r *ModelMeshInferenceServiceReconciler) Reconcile(ctx context.Context, log
 	return reconcileErrors.ErrorOrNil()
 }
 
-func (r *ModelMeshInferenceServiceReconciler) DeleteModelMeshResourcesIfNoMMIsvcExists(ctx context.Context, log logr.Logger, isvcNs string) error {
-	inferenceServiceList := &kservev1beta1.InferenceServiceList{}
-	if err := r.client.List(ctx, inferenceServiceList, client.InNamespace(isvcNs)); err != nil {
-		return err
-	}
-
-	for i := len(inferenceServiceList.Items) - 1; i >= 0; i-- {
-		inferenceService := inferenceServiceList.Items[i]
-		isvcDeploymentMode, err := utils.GetDeploymentModeForKServeResource(ctx, r.client, inferenceService.GetAnnotations())
-		if err != nil {
-			return err
-		}
-		if isvcDeploymentMode != constants.ModelMesh {
-			inferenceServiceList.Items = append(inferenceServiceList.Items[:i], inferenceServiceList.Items[i+1:]...)
-		}
-	}
-
-	// If there are no ModelMesh InferenceServices in the namespace, delete namespace-scoped resources needed for ModelMesh
+func (r *ModelMeshInferenceServiceReconciler) DeleteModelMeshResourcesIfNoMMIsvcExists(ctx context.Context, log logr.Logger, namespace string) error {
 	var cleanupErrors *multierror.Error
-	if len(inferenceServiceList.Items) == 0 {
-		for _, reconciler := range r.subResourceReconcilers {
-			cleanupErrors = multierror.Append(cleanupErrors, reconciler.Cleanup(ctx, log, isvcNs))
-		}
+	for _, reconciler := range r.subResourceReconcilers {
+		cleanupErrors = multierror.Append(cleanupErrors, reconciler.Cleanup(ctx, log, namespace))
 	}
-
 	return cleanupErrors.ErrorOrNil()
 }

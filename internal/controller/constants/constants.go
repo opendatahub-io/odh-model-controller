@@ -18,7 +18,8 @@ package constants
 type KServeDeploymentMode string
 
 const (
-	InferenceServiceKind = "InferenceService"
+	InferenceServiceKind             = "InferenceService"
+	InferenceServiceODHFinalizerName = "odh.inferenceservice.finalizers"
 
 	ServiceMeshMemberRollName        = "default"
 	ServiceMeshMemberName            = "default"

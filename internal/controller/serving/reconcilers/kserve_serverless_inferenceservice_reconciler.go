@@ -24,9 +24,6 @@ import (
 	"k8s.io/apimachinery/pkg/api/meta"
 	"k8s.io/client-go/kubernetes"
 	"sigs.k8s.io/controller-runtime/pkg/client"
-
-	constants "github.com/opendatahub-io/odh-model-controller/internal/controller/constants"
-	"github.com/opendatahub-io/odh-model-controller/internal/controller/utils"
 )
 
 var _ Reconciler = (*KserveServerlessInferenceServiceReconciler)(nil)
@@ -78,31 +75,12 @@ func (r *KserveServerlessInferenceServiceReconciler) OnDeletionOfKserveInference
 }
 
 func (r *KserveServerlessInferenceServiceReconciler) CleanupNamespaceIfNoKserveIsvcExists(ctx context.Context, log logr.Logger, namespace string) error {
-	inferenceServiceList := &kservev1beta1.InferenceServiceList{}
-	if err := r.client.List(ctx, inferenceServiceList, client.InNamespace(namespace)); err != nil {
-		return err
-	}
-
-	for i := len(inferenceServiceList.Items) - 1; i >= 0; i-- {
-		inferenceService := inferenceServiceList.Items[i]
-		isvcDeploymentMode, err := utils.GetDeploymentModeForKServeResource(ctx, r.client, inferenceService.GetAnnotations())
-		if err != nil {
-			return err
-		}
-		if isvcDeploymentMode != constants.Serverless {
-			inferenceServiceList.Items = append(inferenceServiceList.Items[:i], inferenceServiceList.Items[i+1:]...)
-		}
-	}
-
-	// If there are no Kserve InferenceServices in the namespace, delete namespace-scoped resources needed for Kserve Metrics
 	var cleanupErrors *multierror.Error
-	if len(inferenceServiceList.Items) == 0 {
-		for _, reconciler := range r.subResourceReconcilers {
-			if err := reconciler.Cleanup(ctx, log, namespace); err != nil {
-				// See comment InferenceServiceReconciler.DeleteResourcesIfNoIsvcExists for more details.
-				if !meta.IsNoMatchError(err) {
-					cleanupErrors = multierror.Append(cleanupErrors, err)
-				}
+	for _, reconciler := range r.subResourceReconcilers {
+		if err := reconciler.Cleanup(ctx, log, namespace); err != nil {
+			// See comment InferenceServiceReconciler.DeleteResourcesIfNoIsvcExists for more details.
+			if !meta.IsNoMatchError(err) {
+				cleanupErrors = multierror.Append(cleanupErrors, err)
 			}
 		}
 	}
