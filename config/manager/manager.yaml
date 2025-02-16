@@ -101,11 +101,11 @@ spec:
                 key: MESH_NAMESPACE
                 optional: true
           - name: NIM_STATE
-            valueFrom:
-              configMapKeyRef:
-                name: odh-model-controller-parameters
-                key: nim-state
-                optional: false
+            value: $(nim-state)
+          - name: KSERVE_STATE
+            value: $(kserve-state)
+          - name: MODELMESH_STATE
+            value: $(modelmeshserving-state)
         livenessProbe:
           httpGet:
             path: /healthz
