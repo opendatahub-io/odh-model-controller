@@ -88,6 +88,8 @@ func main() {
 	var tlsOpts []func(*tls.Config)
 	var monitoringNS string
 	var enableMRInferenceServiceReconcile bool
+	var kserveState string
+	var modelMeshState string
 
 	flag.StringVar(&metricsAddr, "metrics-bind-address", ":8080", "The address the metrics endpoint binds to. "+
 		"Use :8443 for HTTPS or :8080 for HTTP, or leave as 0 to disable the metrics service.")
@@ -103,6 +105,10 @@ func main() {
 		"The Namespace where the monitoring stack's Prometheus resides.")
 	flag.BoolVar(&enableMRInferenceServiceReconcile, "model-registry-inference-reconcile", false,
 		"Enable model registry inference service reconciliation. ")
+	flag.StringVar(&kserveState, "kserve-state", "managed", "Opendatahub operator sets the value "+
+		"based on component install state")
+	flag.StringVar(&modelMeshState, "modelmesh-state", "managed", "Opendatahub operator sets the value "+
+		"based on component install state")
 	opts := zap.Options{
 		Development: true,
 	}
@@ -137,13 +143,16 @@ func main() {
 		os.Exit(1)
 	}
 
+	setupLog.Info("Kserve State", "kserve-state", kserveState)
+	setupLog.Info("ModelMesh State", "modelmesh-state", modelMeshState)
+
 	kserveWithMeshEnabled, kserveWithMeshEnabledErr := utils.VerifyIfComponentIsEnabled(
 		context.Background(), mgr.GetClient(), utils.KServeWithServiceMeshComponent)
 	if kserveWithMeshEnabledErr != nil {
 		setupLog.Error(kserveWithMeshEnabledErr, "could not determine if kserve have service mesh enabled")
 	}
 
-	if err := setupReconcilers(mgr, setupLog, kubeClient, cfg); err != nil {
+	if err := setupReconcilers(mgr, setupLog, kubeClient, cfg, kserveState, modelMeshState); err != nil {
 		os.Exit(1)
 	}
 	// +kubebuilder:scaffold:builder
@@ -310,7 +319,7 @@ func setupWebhooks(mgr ctrl.Manager, setupLog logr.Logger, kserveWithMeshEnabled
 }
 
 func setupReconcilers(mgr ctrl.Manager, setupLog logr.Logger,
-	kubeClient kubernetes.Interface, cfg *rest.Config) error {
+	kubeClient kubernetes.Interface, cfg *rest.Config, kserveState string, _ string) error {
 	if err := setupInferenceServiceReconciler(mgr, kubeClient, cfg); err != nil {
 		setupLog.Error(err, "unable to create controller", "controller", "InferenceService")
 		return err
@@ -332,21 +341,26 @@ func setupReconcilers(mgr ctrl.Manager, setupLog logr.Logger,
 		return err
 	}
 
-	inferenceGraphCrdAvailable, igCrdErr := utils.IsCrdAvailable(
-		mgr.GetConfig(),
-		v1alpha1.SchemeGroupVersion.String(),
-		"InferenceGraph")
-	if igCrdErr != nil {
-		setupLog.Error(igCrdErr, "unable to check if InferenceGraph CRD is available", "controller", "InferenceGraph")
-		return igCrdErr
-	} else if inferenceGraphCrdAvailable {
-		if err := setupInferenceGraphReconciler(mgr); err != nil {
-			setupLog.Error(err, "unable to create controller", "controller", "InferenceGraph")
-			return err
+	if kserveState == "managed" {
+		inferenceGraphCrdAvailable, igCrdErr := utils.IsCrdAvailable(
+			mgr.GetConfig(),
+			v1alpha1.SchemeGroupVersion.String(),
+			"InferenceGraph")
+		if igCrdErr != nil {
+			setupLog.Error(igCrdErr, "unable to check if InferenceGraph CRD is available", "controller", "InferenceGraph")
+			return igCrdErr
+		} else if inferenceGraphCrdAvailable {
+			if err := setupInferenceGraphReconciler(mgr); err != nil {
+				setupLog.Error(err, "unable to create controller", "controller", "InferenceGraph")
+				return err
+			}
+		} else {
+			setupLog.Info("crds unavailable, skipping controller", "controller", "InferenceGraph")
 		}
 	} else {
-		setupLog.Info("controller is turned off", "controller", "InferenceGraph")
+		setupLog.Info("kserve state is not managed, skipping controller", "controller", "InferenceGraph")
 	}
+
 	return nil
 }
 

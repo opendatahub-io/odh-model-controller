@@ -63,6 +63,8 @@ spec:
         args:
           - --leader-elect
           - --health-probe-bind-address=:8081
+          - --kserve-state=$(KSERVE_STATE)
+          - --modelmesh-state=$(MODELMESH_STATE)
         image: controller:latest
         name: manager
         imagePullPolicy: Always
@@ -105,6 +107,18 @@ spec:
               configMapKeyRef:
                 name: odh-model-controller-parameters
                 key: nim-state
+                optional: false
+          - name: KSERVE_STATE
+            valueFrom:
+              configMapKeyRef:
+                name: odh-model-controller-parameters
+                key: kserve-state
+                optional: false
+          - name: MODELMESH_STATE
+            valueFrom:
+              configMapKeyRef:
+                name: odh-model-controller-parameters
+                key: modelmeshserving-state
                 optional: false
         livenessProbe:
           httpGet:
