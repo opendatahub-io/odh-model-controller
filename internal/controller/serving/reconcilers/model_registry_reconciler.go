@@ -2,6 +2,8 @@ package reconcilers
 
 import (
 	"context"
+	"errors"
+	"fmt"
 
 	"github.com/go-logr/logr"
 	infrctrl "github.com/kubeflow/model-registry/pkg/inferenceservice-controller"
@@ -12,7 +14,12 @@ import (
 	"github.com/opendatahub-io/odh-model-controller/internal/controller/utils"
 )
 
-func NewModelRegistryInferenceServiceReconciler(client client.Client, log logr.Logger, skipTLSVerify bool, bearerToken string) *infrctrl.InferenceServiceController {
+var (
+	errGetDSC                = errors.New("failed to get DataScienceCluster")
+	errGetMRNamespaceFromDSC = errors.New("failed to get Model Registry Namespace from DataScienceCluster")
+)
+
+func NewModelRegistryInferenceServiceReconciler(client client.Client, log logr.Logger, skipTLSVerify bool, bearerToken string) (*infrctrl.InferenceServiceController, error) {
 	mrNamespaceFromDSC := ""
 
 	dsc := unstructured.Unstructured{}
@@ -23,17 +30,29 @@ func NewModelRegistryInferenceServiceReconciler(client client.Client, log logr.L
 
 	err := client.List(context.Background(), &dscList)
 	if err != nil {
-		log.Error(err, "Failed to list DataScienceCluster")
+		return nil, fmt.Errorf("%w: %w", errGetDSC, err)
 	}
 
 	if len(dscList.Items) > 0 {
+		isNsOk := false
 		dsc = dscList.Items[0]
 
-		ns, found, err := unstructured.NestedFieldCopy(dsc.Object, "spec", "components", "modelRegistry", "registriesNamespace")
-		if err == nil && found {
-			mrNamespaceFromDSC = ns.(string)
+		ns, found, err := unstructured.NestedFieldCopy(dsc.Object, "spec", "components", "modelregistry", "registriesNamespace")
+		if err != nil || !found {
+			return nil, fmt.Errorf("%w: %w", errGetMRNamespaceFromDSC, err)
+		}
+
+		mrNamespaceFromDSC, isNsOk = ns.(string)
+		if !isNsOk {
+			return nil, fmt.Errorf("%w: invalid namespace", errGetMRNamespaceFromDSC)
 		}
 	}
+
+	if mrNamespaceFromDSC == "" {
+		return nil, fmt.Errorf("%w: empty namespace", errGetMRNamespaceFromDSC)
+	}
+
+	log.Info("Model Registry Namespace from DataScienceCluster", "Namespace", mrNamespaceFromDSC)
 
 	return infrctrl.NewInferenceServiceController(
 		client,
@@ -47,6 +66,7 @@ func NewModelRegistryInferenceServiceReconciler(client client.Client, log logr.L
 		constants.ModelRegistryNameLabel,
 		constants.ModelRegistryUrlAnnotation,
 		constants.ModelRegistryFinalizer,
+		constants.ModelRegistryServiceAnnotation,
 		mrNamespaceFromDSC,
-	)
+	), nil
 }
