@@ -12,7 +12,7 @@ require (
 	github.com/hashicorp/go-multierror v1.1.1
 	github.com/kserve/kserve v0.14.0
 	github.com/kuadrant/authorino v0.18.1
-	github.com/kubeflow/model-registry v0.2.7-alpha.0.20250210125605-b5509328e038
+	github.com/kubeflow/model-registry v0.2.14
 	github.com/onsi/ginkgo v1.16.5
 	github.com/onsi/ginkgo/v2 v2.22.1
 	github.com/onsi/gomega v1.36.2
