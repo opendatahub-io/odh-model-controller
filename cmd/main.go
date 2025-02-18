@@ -28,7 +28,6 @@ import (
 	_ "k8s.io/client-go/plugin/pkg/client/auth"
 	"k8s.io/client-go/rest"
 
-	"github.com/kserve/kserve/pkg/apis/serving/v1alpha1"
 	istiov1beta1 "istio.io/client-go/pkg/apis/security/v1beta1"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/labels"
@@ -338,20 +337,9 @@ func setupReconcilers(mgr ctrl.Manager, setupLog logr.Logger,
 	}
 
 	if kserveState == "managed" {
-		inferenceGraphCrdAvailable, igCrdErr := utils.IsCrdAvailable(
-			mgr.GetConfig(),
-			v1alpha1.SchemeGroupVersion.String(),
-			"InferenceGraph")
-		if igCrdErr != nil {
-			setupLog.Error(igCrdErr, "unable to check if InferenceGraph CRD is available", "controller", "InferenceGraph")
-			return igCrdErr
-		} else if inferenceGraphCrdAvailable {
-			if err := setupInferenceGraphReconciler(mgr); err != nil {
-				setupLog.Error(err, "unable to create controller", "controller", "InferenceGraph")
-				return err
-			}
-		} else {
-			setupLog.Info("crds unavailable, skipping controller", "controller", "InferenceGraph")
+		if err := setupInferenceGraphReconciler(mgr); err != nil {
+			setupLog.Error(err, "unable to create controller", "controller", "InferenceGraph")
+			return err
 		}
 	} else {
 		setupLog.Info("kserve state is not managed, skipping controller", "controller", "InferenceGraph")

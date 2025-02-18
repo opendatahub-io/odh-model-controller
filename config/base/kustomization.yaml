@@ -134,7 +134,7 @@ replacements:
           kind: Deployment
           name: odh-model-controller
         fieldPaths:
-          - spec.template.spec.containers.0.env.[name=NIM_STATE].value
+          - spec.template.spec.containers.[name=manager].env.[name=NIM_STATE].value
   - source:
       kind: ConfigMap
       version: v1

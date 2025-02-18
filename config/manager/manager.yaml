@@ -101,11 +101,11 @@ spec:
                 key: MESH_NAMESPACE
                 optional: true
           - name: NIM_STATE
-            value: $(nim-state)
+            value: replace
           - name: KSERVE_STATE
-            value: $(kserve-state)
+            value: replace
           - name: MODELMESH_STATE
-            value: $(modelmeshserving-state)
+            value: replace
         livenessProbe:
           httpGet:
             path: /healthz
