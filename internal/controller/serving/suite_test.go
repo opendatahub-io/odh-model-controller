@@ -178,7 +178,7 @@ var _ = BeforeSuite(func() {
 	}).SetupWithManager(mgr)
 	Expect(err).NotTo(HaveOccurred())
 
-	err = NewInferenceGraphReconciler(mgr).SetupWithManager(mgr)
+	err = NewInferenceGraphReconciler(mgr).SetupWithManager(mgr, true)
 	Expect(err).NotTo(HaveOccurred())
 
 	go func() {

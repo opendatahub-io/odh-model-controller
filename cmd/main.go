@@ -33,6 +33,7 @@ import (
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/client-go/kubernetes"
+	_ "k8s.io/client-go/plugin/pkg/client/auth"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/cache"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -273,7 +274,7 @@ func main() {
 		setupLog.Error(igCrdErr, "unable to check if InferenceGraph CRD is available", "controller", "InferenceGraph")
 		os.Exit(1)
 	} else if inferenceGraphCrdAvailable {
-		if err = servingcontroller.NewInferenceGraphReconciler(mgr).SetupWithManager(mgr); err != nil {
+		if err = servingcontroller.NewInferenceGraphReconciler(mgr).SetupWithManager(mgr, kserveWithMeshEnabled); err != nil {
 			setupLog.Error(err, "unable to create controller", "controller", "InferenceGraph")
 			os.Exit(1)
 		}
