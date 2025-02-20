@@ -103,7 +103,7 @@ objects:
                   # Check if the registered ray nodes count is greater or the same than PIPELINE_PARALLEL_SIZE
                   registered_node_count=$(ray status --address ${RAY_ADDRESS} | grep -c node_)
                   if [[ ! ${registered_node_count} -ge "${PIPELINE_PARALLEL_SIZE}" ]]; then
-                    echo "Unhealthy - Registered nodes count (${registered_node_count}) does not match PIPELINE_PARALLEL_SIZE (${PIPELINE_PARALLEL_SIZE})."
+                    echo "Unhealthy - Registered nodes count (${registered_node_count}) must not be less PIPELINE_PARALLEL_SIZE (${PIPELINE_PARALLEL_SIZE})."
                     exit 1
                   fi     
 
@@ -143,8 +143,8 @@ objects:
                   # This need when head node have issues and restarted.
                   # It will wait for new worker node.                     
                   registered_node_count=$(ray status --address ${RAY_ADDRESS} | grep -c node_)
-                  if [[ ${registered_node_count} -ge "${PIPELINE_PARALLEL_SIZE}" ]]; then
-                    echo "Unhealthy - Registered nodes count (${registered_node_count}) does not match PIPELINE_PARALLEL_SIZE (${PIPELINE_PARALLEL_SIZE})."
+                  if [[ ! ${registered_node_count} -ge "${PIPELINE_PARALLEL_SIZE}" ]]; then
+                    echo "Unhealthy - Registered nodes count (${registered_node_count}) must not be less PIPELINE_PARALLEL_SIZE (${PIPELINE_PARALLEL_SIZE})."
                     exit 1
                   fi
 
@@ -249,8 +249,8 @@ objects:
                   - |
                     # Check if the registered nodes count matches PIPELINE_PARALLEL_SIZE
                     registered_node_count=$(ray status --address ${HEAD_SVC}.${POD_NAMESPACE}.svc.cluster.local:6379 | grep -c node_)
-                    if [[ ${registered_node_count} -ge "${PIPELINE_PARALLEL_SIZE}" ]]; then
-                      echo "Unhealthy - Registered nodes count (${registered_node_count}) does not match PIPELINE_PARALLEL_SIZE (${PIPELINE_PARALLEL_SIZE})."
+                    if [[ ! ${registered_node_count} -ge "${PIPELINE_PARALLEL_SIZE}" ]]; then
+                      echo "Unhealthy - Registered nodes count (${registered_node_count}) must not be less PIPELINE_PARALLEL_SIZE (${PIPELINE_PARALLEL_SIZE})."
                       exit 1
                     fi
             startupProbe:
@@ -265,8 +265,8 @@ objects:
                   - -c
                   - |
                     registered_node_count=$(ray status --address ${HEAD_SVC}.${POD_NAMESPACE}.svc.cluster.local:6379 | grep -c node_)
-                    if [[ ${registered_node_count} -ge "${PIPELINE_PARALLEL_SIZE}" ]]; then
-                      echo "Unhealthy - Registered nodes count (${registered_node_count}) does not match PIPELINE_PARALLEL_SIZE (${PIPELINE_PARALLEL_SIZE})."
+                    if [[ ! ${registered_node_count} -ge "${PIPELINE_PARALLEL_SIZE}" ]]; then
+                      echo "Unhealthy - Registered nodes count (${registered_node_count}) must not be less PIPELINE_PARALLEL_SIZE (${PIPELINE_PARALLEL_SIZE})."
                       exit 1
                     fi  
 
