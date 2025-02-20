@@ -59,6 +59,7 @@ import (
 
 const (
 	enableWebhooksEnv = "ENABLE_WEBHOOKS"
+	managedState      = "managed"
 )
 
 var (
@@ -176,7 +177,7 @@ func setupNim(mgr manager.Manager, signalHandlerCtx context.Context, kubeClient 
 
 	nimState := os.Getenv("NIM_STATE")
 	if nimState == "" {
-		nimState = "managed"
+		nimState = managedState
 	}
 	if nimState != "removed" {
 		if err = (&nim.AccountReconciler{
@@ -333,7 +334,7 @@ func setupReconcilers(mgr ctrl.Manager, setupLog logr.Logger,
 		return err
 	}
 
-	if kserveState == "managed" {
+	if kserveState == managedState {
 		if err := setupInferenceGraphReconciler(mgr); err != nil {
 			setupLog.Error(err, "unable to create controller", "controller", "InferenceGraph")
 			return err
@@ -348,7 +349,7 @@ func setupInferenceServiceReconciler(mgr ctrl.Manager, kubeClient kubernetes.Int
 	enableMRInferenceServiceReconcile := false
 
 	mrState := os.Getenv("MODELREGISTRY_STATE")
-	if mrState == "managed" {
+	if mrState == managedState {
 		enableMRInferenceServiceReconcile = true
 	}
 
