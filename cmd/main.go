@@ -28,13 +28,10 @@ import (
 	_ "k8s.io/client-go/plugin/pkg/client/auth"
 	"k8s.io/client-go/rest"
 
-	"github.com/kserve/kserve/pkg/apis/serving/v1alpha1"
 	istiov1beta1 "istio.io/client-go/pkg/apis/security/v1beta1"
 	corev1 "k8s.io/api/core/v1"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/runtime"
-	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/kubernetes"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/cache"
@@ -47,8 +44,6 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/webhook"
 
 	"github.com/go-logr/logr"
-
-	v1 "github.com/opendatahub-io/odh-model-controller/api/nim/v1"
 	corecontroller "github.com/opendatahub-io/odh-model-controller/internal/controller/core"
 	"github.com/opendatahub-io/odh-model-controller/internal/controller/nim"
 	servingcontroller "github.com/opendatahub-io/odh-model-controller/internal/controller/serving"
@@ -141,13 +136,18 @@ func main() {
 		os.Exit(1)
 	}
 
+	kserveState := os.Getenv("KSERVE_STATE")
+	modelMeshState := os.Getenv("MODELMESH_STATE")
+	setupLog.Info("Installation status of Serving Components",
+		"kserve-state", kserveState, "modelmesh-state", modelMeshState)
+
 	kserveWithMeshEnabled, kserveWithMeshEnabledErr := utils.VerifyIfComponentIsEnabled(
 		context.Background(), mgr.GetClient(), utils.KServeWithServiceMeshComponent)
 	if kserveWithMeshEnabledErr != nil {
 		setupLog.Error(kserveWithMeshEnabledErr, "could not determine if kserve have service mesh enabled")
 	}
 
-	if err := setupReconcilers(mgr, setupLog, kubeClient, cfg); err != nil {
+	if err := setupReconcilers(mgr, setupLog, kubeClient, cfg, kserveState, modelMeshState); err != nil {
 		os.Exit(1)
 	}
 	// +kubebuilder:scaffold:builder
@@ -191,40 +191,8 @@ func setupNim(mgr manager.Manager, signalHandlerCtx context.Context, kubeClient 
 			os.Exit(1)
 		}
 	} else {
-		accounts := &v1.AccountList{}
-		if err := mgr.GetClient().List(signalHandlerCtx, accounts); err != nil {
-			setupLog.Error(err, "failed to fetch accounts")
-		}
-		for _, account := range accounts.Items {
-			setupLog.V(1).Info("Cleaning up resources for account", "namespace", account.Namespace, "name", account.Name)
-			// Call CleanupResources for the current account
-			if err = utils.CleanupResources(signalHandlerCtx, &account, mgr.GetClient()); err != nil {
-				setupLog.Error(err, "failed to perform clean up on some accounts")
-			}
-
-			msg := "NIM has been disabled"
-			cleanStatus := v1.AccountStatus{
-				NIMConfig:       nil,
-				RuntimeTemplate: nil,
-				NIMPullSecret:   nil,
-				Conditions: []metav1.Condition{
-					utils.MakeNimCondition(utils.NimConditionAccountStatus, metav1.ConditionUnknown, account.Generation,
-						"AccountNotReconciled", msg),
-					utils.MakeNimCondition(utils.NimConditionAPIKeyValidation, metav1.ConditionUnknown, account.Generation,
-						"ApiKeyNotReconciled", msg),
-					utils.MakeNimCondition(utils.NimConditionConfigMapUpdate, metav1.ConditionUnknown, account.Generation,
-						"ConfigMapNotReconciled", msg),
-					utils.MakeNimCondition(utils.NimConditionTemplateUpdate, metav1.ConditionUnknown, account.Generation,
-						"TemplateNotReconciled", msg),
-					utils.MakeNimCondition(utils.NimConditionSecretUpdate, metav1.ConditionUnknown, account.Generation,
-						"SecretNotReconciled", msg),
-				},
-			}
-			subject := types.NamespacedName{Name: account.Name, Namespace: account.Namespace}
-
-			if err = utils.UpdateStatus(signalHandlerCtx, subject, cleanStatus, mgr.GetClient()); err != nil {
-				setupLog.Error(err, "failed to perform clean up on some accounts")
-			}
+		if err = mgr.Add(&utils.NIMCleanupRunner{Client: mgr.GetClient(), Logger: setupLog}); err != nil {
+			setupLog.Error(err, "failed to add NIM cleanup runner")
 		}
 	}
 
@@ -346,7 +314,7 @@ func setupWebhooks(mgr ctrl.Manager, setupLog logr.Logger, kserveWithMeshEnabled
 }
 
 func setupReconcilers(mgr ctrl.Manager, setupLog logr.Logger,
-	kubeClient kubernetes.Interface, cfg *rest.Config) error {
+	kubeClient kubernetes.Interface, cfg *rest.Config, kserveState string, _ string) error {
 	if err := setupInferenceServiceReconciler(mgr, kubeClient, cfg); err != nil {
 		setupLog.Error(err, "unable to create controller", "controller", "InferenceService")
 		return err
@@ -368,21 +336,15 @@ func setupReconcilers(mgr ctrl.Manager, setupLog logr.Logger,
 		return err
 	}
 
-	inferenceGraphCrdAvailable, igCrdErr := utils.IsCrdAvailable(
-		mgr.GetConfig(),
-		v1alpha1.SchemeGroupVersion.String(),
-		"InferenceGraph")
-	if igCrdErr != nil {
-		setupLog.Error(igCrdErr, "unable to check if InferenceGraph CRD is available", "controller", "InferenceGraph")
-		return igCrdErr
-	} else if inferenceGraphCrdAvailable {
+	if kserveState == "managed" {
 		if err := setupInferenceGraphReconciler(mgr); err != nil {
 			setupLog.Error(err, "unable to create controller", "controller", "InferenceGraph")
 			return err
 		}
 	} else {
-		setupLog.Info("controller is turned off", "controller", "InferenceGraph")
+		setupLog.Info("kserve state is not managed, skipping controller", "controller", "InferenceGraph")
 	}
+
 	return nil
 }
 
