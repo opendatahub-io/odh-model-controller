@@ -146,7 +146,13 @@ func main() {
 		setupLog.Error(kserveWithMeshEnabledErr, "could not determine if kserve have service mesh enabled")
 	}
 
-	if err := setupReconcilers(mgr, setupLog, kubeClient, cfg, kserveState, modelMeshState); err != nil {
+	if err := setupReconcilers(
+		mgr,
+		setupLog,
+		kubeClient,
+		cfg,
+		kserveWithMeshEnabled,
+		kserveState, modelMeshState); err != nil {
 		os.Exit(1)
 	}
 	// +kubebuilder:scaffold:builder
@@ -313,7 +319,7 @@ func setupWebhooks(mgr ctrl.Manager, setupLog logr.Logger, kserveWithMeshEnabled
 }
 
 func setupReconcilers(mgr ctrl.Manager, setupLog logr.Logger,
-	kubeClient kubernetes.Interface, cfg *rest.Config, kserveState string, _ string) error {
+	kubeClient kubernetes.Interface, cfg *rest.Config, kserveWithMeshEnabled bool, kserveState string, _ string) error {
 	if err := setupInferenceServiceReconciler(mgr, kubeClient, cfg); err != nil {
 		setupLog.Error(err, "unable to create controller", "controller", "InferenceService")
 		return err
@@ -336,7 +342,7 @@ func setupReconcilers(mgr ctrl.Manager, setupLog logr.Logger,
 	}
 
 	if kserveState == "managed" {
-		if err := setupInferenceGraphReconciler(mgr); err != nil {
+		if err := setupInferenceGraphReconciler(mgr, kserveWithMeshEnabled); err != nil {
 			setupLog.Error(err, "unable to create controller", "controller", "InferenceGraph")
 			return err
 		}
@@ -389,6 +395,6 @@ func setupServingRuntimeReconciler(mgr ctrl.Manager) error {
 	}).SetupWithManager(mgr)
 }
 
-func setupInferenceGraphReconciler(mgr ctrl.Manager) error {
-	return servingcontroller.NewInferenceGraphReconciler(mgr).SetupWithManager(mgr)
+func setupInferenceGraphReconciler(mgr ctrl.Manager, isServingMode bool) error {
+	return servingcontroller.NewInferenceGraphReconciler(mgr).SetupWithManager(mgr, isServingMode)
 }
