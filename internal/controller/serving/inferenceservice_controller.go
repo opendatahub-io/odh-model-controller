@@ -201,12 +201,15 @@ func (r *InferenceServiceReconciler) Reconcile(ctx context.Context, req ctrl.Req
 	reconcileResult, reconcileErr := r.ReconcileServing(ctx, req)
 
 	if r.ModelRegistryEnabled {
-		mrReconciler := reconcilers.NewModelRegistryInferenceServiceReconciler(
+		mrReconciler, err := reconcilers.NewModelRegistryInferenceServiceReconciler(
 			r.Client,
 			log.FromContext(ctx).WithName("controllers").WithName("ModelRegistryInferenceService"),
 			r.modelRegistrySkipTls,
 			r.bearerToken,
 		)
+		if err != nil {
+			return reconcileResult, errors.Join(reconcileErr, err)
+		}
 
 		mrResult, mrErr := mrReconciler.Reconcile(ctx, req)
 
