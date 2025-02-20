@@ -25,7 +25,6 @@ import (
 
 	// Import all Kubernetes client auth plugins (e.g. Azure, GCP, OIDC, etc.)
 	// to ensure that exec-entrypoint and run can make use of them.
-	authorinov1beta2 "github.com/kuadrant/authorino/api/v1beta2"
 	istiov1beta1 "istio.io/client-go/pkg/apis/security/v1beta1"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/labels"
@@ -337,15 +336,7 @@ func setupReconcilers(mgr ctrl.Manager, setupLog logr.Logger,
 	}
 
 	if kserveState == "managed" {
-		authConfigCrdAvailable, authCrdErr := utils.IsCrdAvailable(
-			mgr.GetConfig(),
-			authorinov1beta2.GroupVersion.String(),
-			"AuthConfig")
-		if authCrdErr != nil {
-			setupLog.Error(authCrdErr, "unable to check if AuthConfig CRD is available", "controller", "InferenceGraph")
-			return authCrdErr
-		}
-		if err := setupInferenceGraphReconciler(mgr, authConfigCrdAvailable); err != nil {
+		if err := setupInferenceGraphReconciler(mgr); err != nil {
 			setupLog.Error(err, "unable to create controller", "controller", "InferenceGraph")
 			return err
 		}
@@ -398,6 +389,6 @@ func setupServingRuntimeReconciler(mgr ctrl.Manager) error {
 	}).SetupWithManager(mgr)
 }
 
-func setupInferenceGraphReconciler(mgr ctrl.Manager, authConfigCrdAvailable bool) error {
-	return servingcontroller.NewInferenceGraphReconciler(mgr).SetupWithManager(mgr, authConfigCrdAvailable)
+func setupInferenceGraphReconciler(mgr ctrl.Manager) error {
+	return servingcontroller.NewInferenceGraphReconciler(mgr).SetupWithManager(mgr)
 }
