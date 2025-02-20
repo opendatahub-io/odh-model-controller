@@ -86,7 +86,6 @@ func main() {
 	var enableHTTP2 bool
 	var tlsOpts []func(*tls.Config)
 	var monitoringNS string
-	var enableMRInferenceServiceReconcile bool
 
 	flag.StringVar(&metricsAddr, "metrics-bind-address", ":8080", "The address the metrics endpoint binds to. "+
 		"Use :8443 for HTTPS or :8080 for HTTP, or leave as 0 to disable the metrics service.")
@@ -100,8 +99,6 @@ func main() {
 		"If set, HTTP/2 will be enabled for the metrics and webhook servers")
 	flag.StringVar(&monitoringNS, "monitoring-namespace", "",
 		"The Namespace where the monitoring stack's Prometheus resides.")
-	flag.BoolVar(&enableMRInferenceServiceReconcile, "model-registry-inference-reconcile", false,
-		"Enable model registry inference service reconciliation. ")
 	opts := zap.Options{
 		Development: true,
 	}
@@ -147,8 +144,7 @@ func main() {
 		setupLog.Error(kserveWithMeshEnabledErr, "could not determine if kserve have service mesh enabled")
 	}
 
-	if err := setupReconcilers(mgr, setupLog, kubeClient, cfg, kserveState, modelMeshState,
-		enableMRInferenceServiceReconcile); err != nil {
+	if err := setupReconcilers(mgr, setupLog, kubeClient, cfg, kserveState, modelMeshState); err != nil {
 		os.Exit(1)
 	}
 	// +kubebuilder:scaffold:builder
@@ -315,9 +311,8 @@ func setupWebhooks(mgr ctrl.Manager, setupLog logr.Logger, kserveWithMeshEnabled
 }
 
 func setupReconcilers(mgr ctrl.Manager, setupLog logr.Logger,
-	kubeClient kubernetes.Interface, cfg *rest.Config, kserveState string, _ string,
-	enableMRInferenceServiceReconcile bool) error {
-	if err := setupInferenceServiceReconciler(mgr, kubeClient, cfg, enableMRInferenceServiceReconcile); err != nil {
+	kubeClient kubernetes.Interface, cfg *rest.Config, kserveState string, _ string) error {
+	if err := setupInferenceServiceReconciler(mgr, kubeClient, cfg); err != nil {
 		setupLog.Error(err, "unable to create controller", "controller", "InferenceService")
 		return err
 	}
@@ -349,8 +344,14 @@ func setupReconcilers(mgr ctrl.Manager, setupLog logr.Logger,
 	return nil
 }
 
-func setupInferenceServiceReconciler(mgr ctrl.Manager, kubeClient kubernetes.Interface,
-	cfg *rest.Config, enableMRInferenceServiceReconcile bool) error {
+func setupInferenceServiceReconciler(mgr ctrl.Manager, kubeClient kubernetes.Interface, cfg *rest.Config) error {
+	enableMRInferenceServiceReconcile := false
+
+	mrState := os.Getenv("MODELREGISTRY_STATE")
+	if mrState == "managed" {
+		enableMRInferenceServiceReconcile = true
+	}
+
 	return (servingcontroller.NewInferenceServiceReconciler(
 		setupLog,
 		mgr.GetClient(),
