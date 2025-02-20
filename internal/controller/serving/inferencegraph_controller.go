@@ -166,10 +166,14 @@ func (r *InferenceGraphReconciler) getExistingAuthConfig(ctx context.Context, ig
 }
 
 // SetupWithManager sets up the controller with the Manager.
-func (r *InferenceGraphReconciler) SetupWithManager(mgr ctrl.Manager, isServingMode bool) error {
+func (r *InferenceGraphReconciler) SetupWithManager(mgr ctrl.Manager, isServerlessMode bool) error {
 	builder := ctrl.NewControllerManagedBy(mgr).
 		For(&servingv1alpha1.InferenceGraph{}).
 		Named("serving-inferencegraph")
+	if !isServerlessMode {
+		return builder.Complete(r)
+	}
+
 	// dynamic add authconfig to watchlist based on serving mode + if authconfig crd is available
 	authConfigCrdAvailable, authCrdErr := utils.IsCrdAvailable(
 		mgr.GetConfig(),
@@ -178,10 +182,9 @@ func (r *InferenceGraphReconciler) SetupWithManager(mgr ctrl.Manager, isServingM
 	if authCrdErr != nil {
 		return fmt.Errorf("failed to check if  AuthConfig CRD in the cluster: %w", authCrdErr)
 	}
-	if authConfigCrdAvailable && isServingMode {
+	if authConfigCrdAvailable {
 		builder.Owns(&authorinov1beta2.AuthConfig{})
 	}
-
 	return builder.Complete(r)
 }
 

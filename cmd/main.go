@@ -395,6 +395,6 @@ func setupServingRuntimeReconciler(mgr ctrl.Manager) error {
 	}).SetupWithManager(mgr)
 }
 
-func setupInferenceGraphReconciler(mgr ctrl.Manager, isServingMode bool) error {
-	return servingcontroller.NewInferenceGraphReconciler(mgr).SetupWithManager(mgr, isServingMode)
+func setupInferenceGraphReconciler(mgr ctrl.Manager, isServerlessMode bool) error {
+	return servingcontroller.NewInferenceGraphReconciler(mgr).SetupWithManager(mgr, isServerlessMode)
 }
