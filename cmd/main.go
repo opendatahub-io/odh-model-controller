@@ -25,14 +25,13 @@ import (
 
 	// Import all Kubernetes client auth plugins (e.g. Azure, GCP, OIDC, etc.)
 	// to ensure that exec-entrypoint and run can make use of them.
-	_ "k8s.io/client-go/plugin/pkg/client/auth"
-	"k8s.io/client-go/rest"
-
 	istiov1beta1 "istio.io/client-go/pkg/apis/security/v1beta1"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/client-go/kubernetes"
+	_ "k8s.io/client-go/plugin/pkg/client/auth"
+	"k8s.io/client-go/rest"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/cache"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -147,7 +146,13 @@ func main() {
 		setupLog.Error(kserveWithMeshEnabledErr, "could not determine if kserve have service mesh enabled")
 	}
 
-	if err := setupReconcilers(mgr, setupLog, kubeClient, cfg, kserveState, modelMeshState); err != nil {
+	if err := setupReconcilers(
+		mgr,
+		setupLog,
+		kubeClient,
+		cfg,
+		kserveWithMeshEnabled,
+		kserveState, modelMeshState); err != nil {
 		os.Exit(1)
 	}
 	// +kubebuilder:scaffold:builder
@@ -314,7 +319,7 @@ func setupWebhooks(mgr ctrl.Manager, setupLog logr.Logger, kserveWithMeshEnabled
 }
 
 func setupReconcilers(mgr ctrl.Manager, setupLog logr.Logger,
-	kubeClient kubernetes.Interface, cfg *rest.Config, kserveState string, _ string) error {
+	kubeClient kubernetes.Interface, cfg *rest.Config, kserveWithMeshEnabled bool, kserveState string, _ string) error {
 	if err := setupInferenceServiceReconciler(mgr, kubeClient, cfg); err != nil {
 		setupLog.Error(err, "unable to create controller", "controller", "InferenceService")
 		return err
@@ -337,7 +342,7 @@ func setupReconcilers(mgr ctrl.Manager, setupLog logr.Logger,
 	}
 
 	if kserveState == "managed" {
-		if err := setupInferenceGraphReconciler(mgr); err != nil {
+		if err := setupInferenceGraphReconciler(mgr, kserveWithMeshEnabled); err != nil {
 			setupLog.Error(err, "unable to create controller", "controller", "InferenceGraph")
 			return err
 		}
@@ -390,6 +395,6 @@ func setupServingRuntimeReconciler(mgr ctrl.Manager) error {
 	}).SetupWithManager(mgr)
 }
 
-func setupInferenceGraphReconciler(mgr ctrl.Manager) error {
-	return servingcontroller.NewInferenceGraphReconciler(mgr).SetupWithManager(mgr)
+func setupInferenceGraphReconciler(mgr ctrl.Manager, isServerlessMode bool) error {
+	return servingcontroller.NewInferenceGraphReconciler(mgr).SetupWithManager(mgr, isServerlessMode)
 }
