@@ -20,15 +20,18 @@ import (
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	"github.com/opendatahub-io/odh-model-controller/internal/controller/constants"
-
+	testutils "github.com/opendatahub-io/odh-model-controller/test/utils"
 	corev1 "k8s.io/api/core/v1"
+	k8sErrors "k8s.io/apimachinery/pkg/api/errors"
 )
+
+const paramsEnvPath1 = "../../../controller/serving/testdata/configmaps/odh-model-controller-parameters.yaml"
 
 var _ = Describe("Pod Mutator Webhook", func() {
 	var defaulter PodMutatorDefaultor
 	var multinodePod *corev1.Pod
 	BeforeEach(func() {
-		defaulter = PodMutatorDefaultor{}
+		defaulter = PodMutatorDefaultor{client: k8sClient}
 
 		multinodePod = &corev1.Pod{
 			Spec: corev1.PodSpec{
@@ -41,6 +44,12 @@ var _ = Describe("Pod Mutator Webhook", func() {
 					},
 				},
 			},
+		}
+
+		paramsConfigMap := &corev1.ConfigMap{}
+		Expect(testutils.ConvertToStructuredResource(paramsEnvPath1, paramsConfigMap)).To(Succeed())
+		if err := k8sClient.Create(ctx, paramsConfigMap); err != nil && !k8sErrors.IsAlreadyExists(err) {
+			Fail(err.Error())
 		}
 	})
 
