@@ -1039,8 +1039,7 @@ var _ = Describe("InferenceService Controller", func() {
 			It("it should create a default clusterrolebinding for auth", func() {
 				_ = createServingRuntime(testNs, KserveServingRuntimePath1)
 				inferenceService := createInferenceService(testNs, KserveOvmsInferenceServiceName, KserveInferenceServicePath1)
-				inferenceService.Labels = map[string]string{}
-				inferenceService.Labels[constants.LabelEnableAuthODH] = "true"
+				inferenceService.Annotations[constants.LabelEnableAuthODH] = "true"
 				if err := k8sClient.Create(ctx, inferenceService); err != nil && !k8sErrors.IsAlreadyExists(err) {
 					Expect(err).NotTo(HaveOccurred())
 				}
@@ -1062,8 +1061,7 @@ var _ = Describe("InferenceService Controller", func() {
 				serviceAccountName := "custom-sa"
 				_ = createServingRuntime(testNs, KserveServingRuntimePath1)
 				inferenceService := createInferenceService(testNs, KserveOvmsInferenceServiceName, KserveInferenceServicePath1)
-				inferenceService.Labels = map[string]string{}
-				inferenceService.Labels[constants.LabelEnableAuthODH] = "true"
+				inferenceService.Annotations[constants.LabelEnableAuthODH] = "true"
 				inferenceService.Spec.Predictor.ServiceAccountName = serviceAccountName
 				if err := k8sClient.Create(ctx, inferenceService); err != nil && !k8sErrors.IsAlreadyExists(err) {
 					Expect(err).NotTo(HaveOccurred())
@@ -1196,27 +1194,23 @@ var _ = Describe("InferenceService Controller", func() {
 				_ = createServingRuntime(testNs, KserveServingRuntimePath1)
 				// create 2 isvcs with no SA (i.e default) and 2 with a custom SA
 				defaultIsvc1 := createInferenceService(testNs, "default-1", KserveInferenceServicePath1)
-				defaultIsvc1.Labels = map[string]string{}
-				defaultIsvc1.Labels[constants.LabelEnableAuthODH] = "true"
+				defaultIsvc1.Annotations[constants.LabelEnableAuthODH] = "true"
 				if err := k8sClient.Create(ctx, defaultIsvc1); err != nil {
 					Expect(err).NotTo(HaveOccurred())
 				}
 				defaultIsvc2 := createInferenceService(testNs, "default-2", KserveInferenceServicePath1)
-				defaultIsvc2.Labels = map[string]string{}
-				defaultIsvc2.Labels[constants.LabelEnableAuthODH] = "true"
+				defaultIsvc2.Annotations[constants.LabelEnableAuthODH] = "true"
 				if err := k8sClient.Create(ctx, defaultIsvc2); err != nil {
 					Expect(err).NotTo(HaveOccurred())
 				}
 				customIsvc1 := createInferenceService(testNs, "custom-1", KserveInferenceServicePath1)
-				customIsvc1.Labels = map[string]string{}
-				customIsvc1.Labels[constants.LabelEnableAuthODH] = "true"
+				customIsvc1.Annotations[constants.LabelEnableAuthODH] = "true"
 				customIsvc1.Spec.Predictor.ServiceAccountName = customServiceAccountName
 				if err := k8sClient.Create(ctx, customIsvc1); err != nil {
 					Expect(err).NotTo(HaveOccurred())
 				}
 				customIsvc2 := createInferenceService(testNs, "custom-2", KserveInferenceServicePath1)
-				customIsvc2.Labels = map[string]string{}
-				customIsvc2.Labels[constants.LabelEnableAuthODH] = "true"
+				customIsvc2.Annotations[constants.LabelEnableAuthODH] = "true"
 				customIsvc2.Spec.Predictor.ServiceAccountName = customServiceAccountName
 				if err := k8sClient.Create(ctx, customIsvc2); err != nil {
 					Expect(err).NotTo(HaveOccurred())
