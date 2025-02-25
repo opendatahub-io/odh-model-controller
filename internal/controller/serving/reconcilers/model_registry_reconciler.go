@@ -43,12 +43,8 @@ func NewModelRegistryInferenceServiceReconciler(client client.Client, log logr.L
 	}
 
 	mrNamespaceFromDSC, isNsOk := ns.(string)
-	if !isNsOk {
+	if !isNsOk || mrNamespaceFromDSC == "" {
 		return nil, fmt.Errorf("%w: invalid namespace", errGetMRNamespaceFromDSC)
-	}
-
-	if mrNamespaceFromDSC == "" {
-		return nil, fmt.Errorf("%w: empty namespace", errGetMRNamespaceFromDSC)
 	}
 
 	log.Info("Model Registry Namespace from DataScienceCluster", "Namespace", mrNamespaceFromDSC)
