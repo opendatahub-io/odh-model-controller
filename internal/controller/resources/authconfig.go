@@ -208,7 +208,7 @@ func NewKServeAuthTypeDetector(client client.Client) AuthTypeDetector {
 }
 
 func (k *kserveAuthTypeDetector) Detect(_ context.Context, annotations map[string]string) AuthType {
-	if value, exist := annotations[constants.LabelEnableAuthODH]; exist {
+	if value, exist := annotations[constants.EnableAuthODHAnnotation]; exist {
 		if strings.ToLower(value) == "true" {
 			return UserDefined
 		}
