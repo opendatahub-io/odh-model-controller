@@ -30,8 +30,8 @@ const (
 	KserveNetworkVisibility          = "networking.kserve.io/visibility"
 	KserveGroupAnnotation            = "serving.kserve.io/inferenceservice"
 
+	EnableAuthODHAnnotation   = "security.opendatahub.io/enable-auth"
 	LabelAuthGroup            = "security.opendatahub.io/authorization-group"
-	LabelEnableAuthODH        = "security.opendatahub.io/enable-auth"
 	LabelEnableAuth           = "enable-auth"
 	LabelEnableRoute          = "enable-route"
 	LabelEnableKserveRawRoute = "exposed"
