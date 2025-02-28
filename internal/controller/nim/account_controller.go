@@ -104,13 +104,11 @@ func (r *AccountReconciler) SetupWithManager(mgr ctrl.Manager, ctx context.Conte
 			})).
 		WithEventFilter(predicate.Funcs{
 			UpdateFunc: func(e event.UpdateEvent) bool {
-				oldSecret, isSecret := e.ObjectOld.(*corev1.Secret)
-				if isSecret {
+				if oldSecret, isSecret := e.ObjectOld.(*corev1.Secret); isSecret {
 					newSecret := e.ObjectNew.(*corev1.Secret)
 					return !semantic.EqualitiesOrDie().DeepDerivative(oldSecret.Data, newSecret.Data)
 				}
-				oldAccount, isAccount := e.ObjectOld.(*v1.Account)
-				if isAccount {
+				if oldAccount, isAccount := e.ObjectOld.(*v1.Account); isAccount {
 					newAccount := e.ObjectNew.(*v1.Account)
 					return !semantic.EqualitiesOrDie().DeepEqual(oldAccount.Spec, newAccount.Spec)
 				}
