@@ -33,12 +33,15 @@ import (
 	ssametav1 "k8s.io/client-go/applyconfigurations/meta/v1"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/tools/reference"
+	"k8s.io/utils/semantic"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/apiutil"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
+	"sigs.k8s.io/controller-runtime/pkg/event"
 	"sigs.k8s.io/controller-runtime/pkg/handler"
 	"sigs.k8s.io/controller-runtime/pkg/log"
+	"sigs.k8s.io/controller-runtime/pkg/predicate"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	v1 "github.com/opendatahub-io/odh-model-controller/api/nim/v1"
@@ -99,6 +102,21 @@ func (r *AccountReconciler) SetupWithManager(mgr ctrl.Manager, ctx context.Conte
 				}
 				return requests
 			})).
+		WithEventFilter(predicate.Funcs{
+			UpdateFunc: func(e event.UpdateEvent) bool {
+				oldSecret, isSecret := e.ObjectOld.(*corev1.Secret)
+				if isSecret {
+					newSecret := e.ObjectNew.(*corev1.Secret)
+					return !semantic.EqualitiesOrDie().DeepDerivative(oldSecret.Data, newSecret.Data)
+				}
+				oldAccount, isAccount := e.ObjectOld.(*v1.Account)
+				if isAccount {
+					newAccount := e.ObjectNew.(*v1.Account)
+					return !semantic.EqualitiesOrDie().DeepEqual(oldAccount.Spec, newAccount.Spec)
+				}
+				return false
+			},
+		}).
 		Complete(r)
 }
 
