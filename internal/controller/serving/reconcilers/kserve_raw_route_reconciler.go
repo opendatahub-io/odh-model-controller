@@ -87,7 +87,7 @@ func (r *KserveRawRouteReconciler) Cleanup(_ context.Context, _ logr.Logger, _ s
 func (r *KserveRawRouteReconciler) createDesiredResource(ctx context.Context, log logr.Logger, isvc *kservev1beta1.InferenceService) (*v1.Route, error) {
 	var err error
 	enableAuth := false
-	if enableAuth, err = strconv.ParseBool(isvc.Labels[constants.LabelEnableAuthODH]); err != nil {
+	if enableAuth, err = strconv.ParseBool(isvc.Annotations[constants.EnableAuthODHAnnotation]); err != nil {
 		enableAuth = false
 	}
 	createRoute := false

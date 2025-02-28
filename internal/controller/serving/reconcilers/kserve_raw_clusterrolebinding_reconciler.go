@@ -108,7 +108,7 @@ func (r *KserveRawClusterRoleBindingReconciler) Delete(ctx context.Context, log 
 }
 
 func (r *KserveRawClusterRoleBindingReconciler) createDesiredResource(isvc *kservev1beta1.InferenceService) *v1.ClusterRoleBinding {
-	if val, ok := isvc.Labels[constants.LabelEnableAuthODH]; !ok || val != "true" {
+	if val, ok := isvc.Annotations[constants.EnableAuthODHAnnotation]; !ok || val != "true" {
 		return nil
 	}
 

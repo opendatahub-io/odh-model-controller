@@ -19,13 +19,16 @@ package v1
 import (
 	"context"
 	"fmt"
+	"os"
 
 	"github.com/go-logr/logr"
 	kserveconstants "github.com/kserve/kserve/pkg/constants"
 	"github.com/opendatahub-io/odh-model-controller/internal/controller/constants"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/apimachinery/pkg/types"
 	ctrl "sigs.k8s.io/controller-runtime"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/webhook"
 )
 
@@ -35,6 +38,7 @@ var podlog logr.Logger
 
 // Mutator is a webhook that injects incoming pods
 type PodMutatorDefaultor struct {
+	client client.Client
 }
 
 var _ webhook.CustomDefaulter = &PodMutatorDefaultor{}
@@ -52,14 +56,22 @@ func (m *PodMutatorDefaultor) podMutator(pod *corev1.Pod) error {
 
 func (m *PodMutatorDefaultor) mutate(pod *corev1.Pod) error {
 	if needToAddRayTLSGenerator(pod) {
-		rayTLSGeneratorScript := getRayTLSGeneratorScriptInitContainer()
+		rayTLSGeneratorScript, err := getRayTLSGeneratorScriptInitContainer(m.client)
+		if err != nil {
+			return err
+		}
 		pod.Spec.InitContainers = append(pod.Spec.InitContainers, *rayTLSGeneratorScript)
 	}
 	return nil
 }
 
 // Add ray tls generator init-container into the pod when the pod has pod environment variable "RAY_USE_TLS" is 1.
-func getRayTLSGeneratorScriptInitContainer() *corev1.Container {
+func getRayTLSGeneratorScriptInitContainer(client client.Client) (*corev1.Container, error) {
+
+	ray_cert_image, err := getRayCertGeneratorImage(client)
+	if err != nil {
+		return nil, err
+	}
 
 	script := `
 SECRET_DIR="/etc/ray-secret"
@@ -113,9 +125,10 @@ else
 fi
 
 `
+
 	return &corev1.Container{
 		Name:  constants.RayTLSGeneratorInitContainerName,
-		Image: "registry.redhat.io/openshift4/ose-cli@sha256:25fef269ac6e7491cb8340119a9b473acbeb53bc6970ad029fdaae59c3d0ca61",
+		Image: ray_cert_image,
 		Command: []string{
 			"sh",
 			"-c",
@@ -142,7 +155,28 @@ fi
 				MountPath: "/etc/ray-secret",
 			},
 		},
+	}, nil
+}
+
+// Fetch the value of ray-cert-generator-image from the ConfigMap
+func getRayCertGeneratorImage(client client.Client) (string, error) {
+	controllerNs := os.Getenv("POD_NAMESPACE")
+
+	configMap := &corev1.ConfigMap{}
+	err := client.Get(context.TODO(), types.NamespacedName{
+		Namespace: controllerNs,
+		Name:      "odh-model-controller-parameters",
+	}, configMap)
+	if err != nil {
+		return "", err
 	}
+
+	image, ok := configMap.Data["ray-tls-generator-image"]
+	if !ok {
+		return "", fmt.Errorf("ray-tls-generator-image key not found in ConfigMap")
+	}
+
+	return image, nil
 }
 
 func needToAddRayTLSGenerator(pod *corev1.Pod) bool {
@@ -186,6 +220,6 @@ func (m *PodMutatorDefaultor) Default(ctx context.Context, obj runtime.Object) e
 // SetupPodWebhookWithManager sets up the MutatingWebhook with the controller manager.
 func SetupPodWebhookWithManager(mgr ctrl.Manager) error {
 	return ctrl.NewWebhookManagedBy(mgr).For(&corev1.Pod{}).
-		WithDefaulter(&PodMutatorDefaultor{}).
+		WithDefaulter(&PodMutatorDefaultor{client: mgr.GetClient()}).
 		Complete()
 }
