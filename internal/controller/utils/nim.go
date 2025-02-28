@@ -202,7 +202,7 @@ func logApiResponse(logger logr.Logger, resp *http.Response) {
 		if resp.ContentLength > 0 {
 			body, err := io.ReadAll(resp.Body)
 			if err != nil {
-				logger.V(1).Error(fmt.Errorf("failed to parse body"), "")
+				logger.V(1).Error(err,"failed to parse body")
 			} else {
 				logger.V(1).Info(fmt.Sprintf("got body %s", string(body)))
 			}
