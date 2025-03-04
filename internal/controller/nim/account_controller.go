@@ -68,7 +68,7 @@ var (
 
 func (r *AccountReconciler) SetupWithManager(mgr ctrl.Manager, ctx context.Context) error {
 	// TODO: Copied from original main.go... Should it be FromContext?
-	logger := ctrl.Log.WithName("controllers").WithName("ModelRegistryInferenceService")
+	logger := ctrl.Log.WithName("controllers").WithName("AccountControllerSetup")
 	log.IntoContext(ctx, logger)
 
 	if err := mgr.GetFieldIndexer().IndexField(ctx, &v1.Account{}, apiKeySpecPath, func(obj client.Object) []string {
