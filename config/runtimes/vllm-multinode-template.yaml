@@ -67,7 +67,7 @@ objects:
             - name: POD_IP
               valueFrom:
                 fieldRef:
-                  fieldPath: status.podIP              
+                  fieldPath: status.podIP
             - name: POD_NAMESPACE
               valueFrom:
                 fieldRef:
@@ -88,8 +88,6 @@ objects:
           volumeMounts:
             - name: shm
               mountPath: /dev/shm
-            - mountPath: /etc/ray/tls
-              name: ray-tls              
           livenessProbe:
             failureThreshold: 2
             periodSeconds: 5
@@ -112,7 +110,7 @@ objects:
                   if [[ ${health_check} != 200 ]]; then
                     echo "Unhealthy - vLLM Runtime Health Check failed." 
                     exit 1
-                  fi    
+                  fi
           readinessProbe:
             failureThreshold: 2
             periodSeconds: 5
@@ -166,11 +164,6 @@ objects:
           emptyDir:
             medium: Memory
             sizeLimit: 12Gi
-        - name: ray-tls
-          emptyDir: {}
-        - name: ray-tls-secret
-          secret:
-            secretName: ray-tls          
       workerSpec:
         pipelineParallelSize: 2
         tensorParallelSize: 1
@@ -224,7 +217,7 @@ objects:
               - name: POD_IP
                 valueFrom:
                   fieldRef:
-                    fieldPath: status.podIP                    
+                    fieldPath: status.podIP
             resources:
               limits:
                 cpu: '16'
@@ -235,8 +228,6 @@ objects:
             volumeMounts:
               - name: shm
                 mountPath: /dev/shm
-              - mountPath: /etc/ray/tls
-                name: ray-tls
             livenessProbe:
               failureThreshold: 2
               periodSeconds: 5
@@ -285,8 +276,3 @@ objects:
             emptyDir:
               medium: Memory
               sizeLimit: 12Gi
-          - name: ray-tls
-            emptyDir: {}
-          - name: ray-tls-secret
-            secret:
-              secretName: ray-tls
