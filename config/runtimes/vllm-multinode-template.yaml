@@ -2,8 +2,8 @@ apiVersion: template.openshift.io/v1
 kind: Template
 metadata:
   labels:
-    opendatahub.io/dashboard: "false"
-    opendatahub.io/ootb: "true"
+    opendatahub.io/dashboard: 'false'
+    opendatahub.io/ootb: 'true'
   annotations:
     description: vLLM is a high-throughput and memory-efficient inference and serving engine for LLMs
     openshift.io/display-name: vLLM ServingRuntime Multi-Node for KServe
@@ -12,7 +12,7 @@ metadata:
     template.openshift.io/documentation-url: https://github.com/opendatahub-io/vllm
     template.openshift.io/long-description: This template defines resources needed to deploy vLLM ServingRuntime Multi-Node with KServe in Red Hat OpenShift AI
     opendatahub.io/modelServingSupport: '["single"]'
-    opendatahub.io/apiProtocol: "REST"
+    opendatahub.io/apiProtocol: 'REST'
   name: vllm-multinode-runtime-template
 objects:
   - apiVersion: serving.kserve.io/v1alpha1
@@ -23,11 +23,11 @@ objects:
         openshift.io/display-name: vLLM ServingRuntime Multi-Node for KServe
         opendatahub.io/recommended-accelerators: '["nvidia.com/gpu"]'
       labels:
-        opendatahub.io/dashboard: "false"
+        opendatahub.io/dashboard: 'false'
     spec:
       annotations:
-        prometheus.io/port: "8080"
-        prometheus.io/path: "/metrics"
+        prometheus.io/port: '8080'
+        prometheus.io/path: '/metrics'
       multiModel: false
       supportedModelFormats:
         - autoSelect: true
@@ -36,7 +36,7 @@ objects:
       containers:
         - name: kserve-container
           image: $(vllm-image)
-          command: [ "bash", "-c" ]
+          command: ['bash', '-c']
           args:
             - |
               ray start --head --disable-usage-stats --include-dashboard false 
@@ -49,33 +49,47 @@ objects:
 
               export SERVED_MODEL_NAME=${MODEL_NAME}
               export MODEL_NAME=${MODEL_DIR} 
-              
+
               exec python3 -m vllm.entrypoints.openai.api_server --port=8080 --distributed-executor-backend ray --model=${MODEL_NAME} --served-model-name=${SERVED_MODEL_NAME} --tensor-parallel-size=${TENSOR_PARALLEL_SIZE} --pipeline-parallel-size=${PIPELINE_PARALLEL_SIZE} --disable_custom_all_reduce
           env:
+            - name: RAY_USE_TLS
+              value: '1'
+            - name: RAY_TLS_SERVER_CERT
+              value: '/etc/ray/tls/tls.pem'
+            - name: RAY_TLS_SERVER_KEY
+              value: '/etc/ray/tls/tls.pem'
+            - name: RAY_TLS_CA_CERT
+              value: '/etc/ray/tls/ca.crt'
             - name: RAY_PORT
-              value: "6379"
+              value: '6379'
             - name: RAY_ADDRESS
               value: 127.0.0.1:6379
+            - name: POD_IP
+              valueFrom:
+                fieldRef:
+                  fieldPath: status.podIP              
             - name: POD_NAMESPACE
               valueFrom:
                 fieldRef:
                   fieldPath: metadata.namespace
             - name: VLLM_NO_USAGE_STATS
-              value: "1"
+              value: '1'
             - name: HOME
               value: /tmp
             - name: HF_HOME
               value: /tmp/hf_home
           resources:
             limits:
-              cpu: "16"
+              cpu: '16'
               memory: 48Gi
             requests:
-              cpu: "8"
+              cpu: '8'
               memory: 24Gi
           volumeMounts:
             - name: shm
               mountPath: /dev/shm
+            - mountPath: /etc/ray/tls
+              name: ray-tls              
           livenessProbe:
             failureThreshold: 2
             periodSeconds: 5
@@ -86,21 +100,19 @@ objects:
                 - bash
                 - -c
                 - |
-                  # Check if the registered ray nodes count is the same as PIPELINE_PARALLEL_SIZE
-                  gpu_status=$(ray status --address ${RAY_ADDRESS} | grep GPU)
-                  if [[ -z ${gpu_status} ]]; then
-                    echo "Unhealthy - GPU does not exist"
+                  # Check if the registered ray nodes count is greater or the same than PIPELINE_PARALLEL_SIZE
+                  registered_node_count=$(ray status --address ${RAY_ADDRESS} | grep -c node_)
+                  if [[ ! ${registered_node_count} -ge "${PIPELINE_PARALLEL_SIZE}" ]]; then
+                    echo "Unhealthy - Registered nodes count (${registered_node_count}) must not be less PIPELINE_PARALLEL_SIZE (${PIPELINE_PARALLEL_SIZE})."
                     exit 1
-                  fi
+                  fi     
 
-                  used_gpu=$(echo "${gpu_status}" | awk '{print $1}' | cut -d'/' -f1)
-                  reserved_gpu=$(echo "${gpu_status}" | awk '{print $1}' | cut -d'/' -f2)
-
-                  # Determine health status based on GPU usage
-                  if [[ "${used_gpu}" != "${reserved_gpu}" ]]; then
-                    echo "Unhealthy - Used: ${used_gpu}, Reserved: ${reserved_gpu}"
+                  # Check model health
+                  health_check=$(curl -o /dev/null -s -w "%{http_code}\n" http://localhost:8080/health)
+                  if [[ ${health_check} != 200 ]]; then
+                    echo "Unhealthy - vLLM Runtime Health Check failed." 
                     exit 1
-                  fi
+                  fi    
           readinessProbe:
             failureThreshold: 2
             periodSeconds: 5
@@ -111,29 +123,6 @@ objects:
                 - bash
                 - -c
                 - |
-                  # Check if the registered nodes count matches PIPELINE_PARALLEL_SIZE
-                  registered_node_count=$(ray status --address ${RAY_ADDRESS} | grep -c node_)
-                  if [[ ${registered_node_count} -ne "${PIPELINE_PARALLEL_SIZE}" ]]; then
-                    echo "Unhealthy - Registered nodes count (${registered_node_count}) does not match PIPELINE_PARALLEL_SIZE (${PIPELINE_PARALLEL_SIZE})."
-                    exit 1
-                  fi
-
-                  # Check if the registered ray nodes count is the same as PIPELINE_PARALLEL_SIZE
-                  gpu_status=$(ray status --address ${RAY_ADDRESS} | grep GPU)
-                  if [[ -z ${gpu_status} ]]; then
-                    echo "Unhealthy - GPU does not exist"
-                    exit 1
-                  fi
-
-                  used_gpu=$(echo "${gpu_status}" | awk '{print $1}' | cut -d'/' -f1)
-                  reserved_gpu=$(echo "${gpu_status}" | awk '{print $1}' | cut -d'/' -f2)
-
-                  # Determine health status based on GPU usage
-                  if [[ "${used_gpu}" != "${reserved_gpu}" ]]; then
-                    echo "Unhealthy - Used: ${used_gpu}, Reserved: ${reserved_gpu}"
-                    exit 1
-                  fi
-                  
                   # Check model health 
                   health_check=$(curl -o /dev/null -s -w "%{http_code}\n" http://localhost:8080/health)
                   if [[ ${health_check} != 200 ]]; then
@@ -154,11 +143,11 @@ objects:
                   # This need when head node have issues and restarted.
                   # It will wait for new worker node.                     
                   registered_node_count=$(ray status --address ${RAY_ADDRESS} | grep -c node_)
-                  if [[ ${registered_node_count} -ne "${PIPELINE_PARALLEL_SIZE}" ]]; then
-                    echo "Unhealthy - Registered nodes count (${registered_node_count}) does not match PIPELINE_PARALLEL_SIZE (${PIPELINE_PARALLEL_SIZE})."
+                  if [[ ! ${registered_node_count} -ge "${PIPELINE_PARALLEL_SIZE}" ]]; then
+                    echo "Unhealthy - Registered nodes count (${registered_node_count}) must not be less PIPELINE_PARALLEL_SIZE (${PIPELINE_PARALLEL_SIZE})."
                     exit 1
                   fi
-                  
+
                   # Double check to make sure Model is ready to serve.
                   for i in 1 2; do                    
                     # Check model health
@@ -177,13 +166,18 @@ objects:
           emptyDir:
             medium: Memory
             sizeLimit: 12Gi
+        - name: ray-tls
+          emptyDir: {}
+        - name: ray-tls-secret
+          secret:
+            secretName: ray-tls          
       workerSpec:
         pipelineParallelSize: 2
         tensorParallelSize: 1
         containers:
           - name: worker-container
             image: $(vllm-image)
-            command: [ "bash", "-c" ]
+            command: ['bash', '-c']
             args:
               - |
                 SECONDS=0
@@ -203,7 +197,7 @@ objects:
                     echo "$SECONDS seconds elapsed: Still waiting for Global Control Service(GCS) to be ready."
                     echo "For troubleshooting, refer to the FAQ at https://docs.ray.io/en/master/cluster/kubernetes/troubleshooting/troubleshooting.html#kuberay-troubleshootin-guides"
                   fi
-                
+
                   sleep 5
                 done
 
@@ -211,6 +205,14 @@ objects:
                 echo "Attempting to connect to Ray cluster at $RAY_HEAD_ADDRESS ..."
                 ray start --address="${RAY_HEAD_ADDRESS}" --block
             env:
+              - name: RAY_USE_TLS
+                value: '1'
+              - name: RAY_TLS_SERVER_CERT
+                value: '/etc/ray/tls/tls.pem'
+              - name: RAY_TLS_SERVER_KEY
+                value: '/etc/ray/tls/tls.pem'
+              - name: RAY_TLS_CA_CERT
+                value: '/etc/ray/tls/ca.crt'
               - name: POD_NAME
                 valueFrom:
                   fieldRef:
@@ -219,16 +221,22 @@ objects:
                 valueFrom:
                   fieldRef:
                     fieldPath: metadata.namespace
+              - name: POD_IP
+                valueFrom:
+                  fieldRef:
+                    fieldPath: status.podIP                    
             resources:
               limits:
-                cpu: "16"
+                cpu: '16'
                 memory: 48Gi
               requests:
-                cpu: "8"
+                cpu: '8'
                 memory: 24Gi
             volumeMounts:
               - name: shm
                 mountPath: /dev/shm
+              - mountPath: /etc/ray/tls
+                name: ray-tls
             livenessProbe:
               failureThreshold: 2
               periodSeconds: 5
@@ -241,10 +249,10 @@ objects:
                   - |
                     # Check if the registered nodes count matches PIPELINE_PARALLEL_SIZE
                     registered_node_count=$(ray status --address ${HEAD_SVC}.${POD_NAMESPACE}.svc.cluster.local:6379 | grep -c node_)
-                    if [[ ${registered_node_count} -ne "${PIPELINE_PARALLEL_SIZE}" ]]; then
-                      echo "Unhealthy - Registered nodes count (${registered_node_count}) does not match PIPELINE_PARALLEL_SIZE (${PIPELINE_PARALLEL_SIZE})."
+                    if [[ ! ${registered_node_count} -ge "${PIPELINE_PARALLEL_SIZE}" ]]; then
+                      echo "Unhealthy - Registered nodes count (${registered_node_count}) must not be less PIPELINE_PARALLEL_SIZE (${PIPELINE_PARALLEL_SIZE})."
                       exit 1
-                    fi 
+                    fi
             startupProbe:
               failureThreshold: 40
               periodSeconds: 30
@@ -257,11 +265,11 @@ objects:
                   - -c
                   - |
                     registered_node_count=$(ray status --address ${HEAD_SVC}.${POD_NAMESPACE}.svc.cluster.local:6379 | grep -c node_)
-                    if [[ ${registered_node_count} -ne "${PIPELINE_PARALLEL_SIZE}" ]]; then
-                      echo "Unhealthy - Registered nodes count (${registered_node_count}) does not match PIPELINE_PARALLEL_SIZE (${PIPELINE_PARALLEL_SIZE})."
+                    if [[ ! ${registered_node_count} -ge "${PIPELINE_PARALLEL_SIZE}" ]]; then
+                      echo "Unhealthy - Registered nodes count (${registered_node_count}) must not be less PIPELINE_PARALLEL_SIZE (${PIPELINE_PARALLEL_SIZE})."
                       exit 1
                     fi  
-                    
+
                     # Double check to make sure Model is ready to serve.
                     for i in 1 2; do
                       # Check model health
@@ -276,4 +284,9 @@ objects:
           - name: shm
             emptyDir:
               medium: Memory
-              sizeLimit: 12Gi    
+              sizeLimit: 12Gi
+          - name: ray-tls
+            emptyDir: {}
+          - name: ray-tls-secret
+            secret:
+              secretName: ray-tls

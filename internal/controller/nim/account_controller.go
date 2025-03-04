@@ -111,6 +111,7 @@ func (r *AccountReconciler) SetupWithManager(mgr ctrl.Manager, ctx context.Conte
 //
 // For more details, check Reconcile and its Result here:
 // - https://pkg.go.dev/sigs.k8s.io/controller-runtime@v0.19.1/pkg/reconcile
+// nolint:gocyclo
 func (r *AccountReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
 	logger := log.FromContext(ctx).WithValues("Account", req.Name, "namespace", req.Namespace)
 	ctx = log.IntoContext(ctx, logger)
@@ -144,9 +145,11 @@ func (r *AccountReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 		},
 	}
 
-	defer func() {
-		r.updateStatus(ctx, req.NamespacedName, *targetStatus)
-	}()
+	accountSubject := types.NamespacedName{Name: req.Name, Namespace: req.Namespace}
+
+	if updateErr := utils.UpdateStatus(ctx, accountSubject, *targetStatus, r.Client); updateErr != nil {
+		logger.Error(updateErr, "failed to create the initial status")
+	}
 
 	// fetch api secret
 	secretNs := account.Spec.APIKeySecret.Namespace
@@ -165,12 +168,18 @@ func (r *AccountReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 			logger.V(1).Error(err, "failed to fetch api key secret")
 		}
 		meta.SetStatusCondition(&targetStatus.Conditions, makeAccountFailureCondition(account.Generation, msg))
+		if updateErr := utils.UpdateStatus(ctx, accountSubject, *targetStatus, r.Client); updateErr != nil {
+			logger.Error(updateErr, "failed to create status for api key secret")
+		}
 		r.cleanupResources(ctx, account)
 		return ctrl.Result{}, client.IgnoreNotFound(err)
 	}
 	foundApiKeySec := "found api key secret"
 	logger.V(1).Info(foundApiKeySec)
 	meta.SetStatusCondition(&targetStatus.Conditions, makeAccountFailureCondition(account.Generation, foundApiKeySec))
+	if updateErr := utils.UpdateStatus(ctx, accountSubject, *targetStatus, r.Client); updateErr != nil {
+		logger.Error(updateErr, "failed to create status for api key secret")
+	}
 
 	apiKeyBytes, foundKey := apiKeySecret.Data["api_key"]
 	if !foundKey {
@@ -178,6 +187,9 @@ func (r *AccountReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 		msg := "failed to find api key data in secret"
 		logger.V(1).Error(err, msg)
 		meta.SetStatusCondition(&targetStatus.Conditions, makeAccountFailureCondition(account.Generation, msg))
+		if updateErr := utils.UpdateStatus(ctx, accountSubject, *targetStatus, r.Client); updateErr != nil {
+			logger.Error(updateErr, "failed to create status for api key data in secret")
+		}
 		r.cleanupResources(ctx, account)
 		return ctrl.Result{}, err
 	}
@@ -185,6 +197,9 @@ func (r *AccountReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 	gotApiKey := "got api key"
 	logger.V(1).Info(gotApiKey)
 	meta.SetStatusCondition(&targetStatus.Conditions, makeAccountFailureCondition(account.Generation, gotApiKey))
+	if updateErr := utils.UpdateStatus(ctx, accountSubject, *targetStatus, r.Client); updateErr != nil {
+		logger.Error(updateErr, "failed to create status for api key")
+	}
 
 	// fetch available runtimes
 	availableRuntimes, runtimesErr := utils.GetAvailableNimRuntimes()
@@ -192,26 +207,44 @@ func (r *AccountReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 		msg := "failed to fetch NIM available custom runtimes"
 		logger.V(1).Error(runtimesErr, msg)
 		meta.SetStatusCondition(&targetStatus.Conditions, makeAccountFailureCondition(account.Generation, msg))
+		if updateErr := utils.UpdateStatus(ctx, accountSubject, *targetStatus, r.Client); updateErr != nil {
+			logger.Error(updateErr, "failed to create status for NIM fetch available custom runtimes")
+		}
 		r.cleanupResources(ctx, account)
 		return ctrl.Result{}, runtimesErr
 	}
 	runtimesOk := "got custom runtimes"
 	logger.V(1).Info(runtimesOk)
 	meta.SetStatusCondition(&targetStatus.Conditions, makeAccountFailureCondition(account.Generation, runtimesOk))
+	if updateErr := utils.UpdateStatus(ctx, accountSubject, *targetStatus, r.Client); updateErr != nil {
+		logger.Error(updateErr, "failed to create status for getting custom runtimes")
+	}
 
 	// validate api key
 	if err := utils.ValidateApiKey(apiKeyStr, availableRuntimes[0]); err != nil {
 		msg := "api key failed validation"
 		logger.Error(err, msg)
 		meta.SetStatusCondition(&targetStatus.Conditions, makeAccountFailureCondition(account.Generation, msg))
+		if updateErr := utils.UpdateStatus(ctx, accountSubject, *targetStatus, r.Client); updateErr != nil {
+			logger.Error(updateErr, "failed to create status for failed api key validation")
+		}
 		meta.SetStatusCondition(&targetStatus.Conditions, makeApiKeyFailureCondition(account.Generation, msg))
+		if updateErr := utils.UpdateStatus(ctx, accountSubject, *targetStatus, r.Client); updateErr != nil {
+			logger.Error(updateErr, "failed to create status for failed api key validation")
+		}
 		r.cleanupResources(ctx, account)
 		return ctrl.Result{}, nil
 	}
 	apiKeyOk := "api key validated successfully"
 	logger.V(1).Info(apiKeyOk)
 	meta.SetStatusCondition(&targetStatus.Conditions, makeAccountFailureCondition(account.Generation, apiKeyOk))
+	if updateErr := utils.UpdateStatus(ctx, accountSubject, *targetStatus, r.Client); updateErr != nil {
+		logger.Error(updateErr, "failed to create status for api key validation success")
+	}
 	meta.SetStatusCondition(&targetStatus.Conditions, makeApiKeySuccessfulCondition(account.Generation, apiKeyOk))
+	if updateErr := utils.UpdateStatus(ctx, accountSubject, *targetStatus, r.Client); updateErr != nil {
+		logger.Error(updateErr, "failed to create status for failed api key validation success")
+	}
 
 	ownerRefCfg := r.createOwnerReferenceCfg(account)
 
@@ -220,7 +253,13 @@ func (r *AccountReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 		msg := "nim configmap reconcile failed"
 		logger.V(1).Error(err, msg)
 		meta.SetStatusCondition(&targetStatus.Conditions, makeAccountFailureCondition(account.Generation, msg))
+		if updateErr := utils.UpdateStatus(ctx, accountSubject, *targetStatus, r.Client); updateErr != nil {
+			logger.Error(updateErr, "failed to create status for nim configmap reconcile failed")
+		}
 		meta.SetStatusCondition(&targetStatus.Conditions, makeConfigMapFailureCondition(account.Generation, msg))
+		if updateErr := utils.UpdateStatus(ctx, accountSubject, *targetStatus, r.Client); updateErr != nil {
+			logger.Error(updateErr, "failed to create status for nim configmap reconcile failed")
+		}
 		return ctrl.Result{}, err
 	} else {
 		ref, refErr := reference.GetReference(r.Scheme, cm)
@@ -232,14 +271,26 @@ func (r *AccountReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 	dataCmOk := "data config map reconciled successfully"
 	logger.V(1).Info(dataCmOk)
 	meta.SetStatusCondition(&targetStatus.Conditions, makeAccountFailureCondition(account.Generation, dataCmOk))
+	if updateErr := utils.UpdateStatus(ctx, accountSubject, *targetStatus, r.Client); updateErr != nil {
+		logger.Error(updateErr, "failed to create status for data config map reconciled successfully")
+	}
 	meta.SetStatusCondition(&targetStatus.Conditions, makeConfigMapSuccessfulCondition(account.Generation, dataCmOk))
+	if updateErr := utils.UpdateStatus(ctx, accountSubject, *targetStatus, r.Client); updateErr != nil {
+		logger.Error(updateErr, "failed to create status for data config map reconciled successfully")
+	}
 
 	// reconcile template
 	if template, err := r.reconcileRuntimeTemplate(ctx, account); err != nil {
 		msg := "runtime template reconcile failed"
 		logger.V(1).Error(err, msg)
 		meta.SetStatusCondition(&targetStatus.Conditions, makeAccountFailureCondition(account.Generation, msg))
+		if updateErr := utils.UpdateStatus(ctx, accountSubject, *targetStatus, r.Client); updateErr != nil {
+			logger.Error(updateErr, "failed to create status for runtime template reconcile failed")
+		}
 		meta.SetStatusCondition(&targetStatus.Conditions, makeTemplateFailureCondition(account.Generation, msg))
+		if updateErr := utils.UpdateStatus(ctx, accountSubject, *targetStatus, r.Client); updateErr != nil {
+			logger.Error(updateErr, "failed to create status for runtime template reconcile failed")
+		}
 		return ctrl.Result{}, err
 	} else {
 		ref, refErr := reference.GetReference(r.Scheme, template)
@@ -251,14 +302,26 @@ func (r *AccountReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 	templateOk := "runtime template reconciled successfully"
 	logger.V(1).Info(templateOk)
 	meta.SetStatusCondition(&targetStatus.Conditions, makeAccountFailureCondition(account.Generation, templateOk))
+	if updateErr := utils.UpdateStatus(ctx, accountSubject, *targetStatus, r.Client); updateErr != nil {
+		logger.Error(updateErr, "failed to create status for runtime template reconciled successful")
+	}
 	meta.SetStatusCondition(&targetStatus.Conditions, makeTemplateSuccessfulCondition(account.Generation, templateOk))
+	if updateErr := utils.UpdateStatus(ctx, accountSubject, *targetStatus, r.Client); updateErr != nil {
+		logger.Error(updateErr, "failed to create status for runtime template reconciled successful")
+	}
 
 	// reconcile pull secret
 	if pullSecret, err := r.reconcileNimPullSecret(ctx, ownerRefCfg, account.Namespace, apiKeyStr); err != nil {
 		msg := "pull secret reconcile failed"
 		logger.V(1).Error(err, msg)
 		meta.SetStatusCondition(&targetStatus.Conditions, makeAccountFailureCondition(account.Generation, msg))
+		if updateErr := utils.UpdateStatus(ctx, accountSubject, *targetStatus, r.Client); updateErr != nil {
+			logger.Error(updateErr, "failed to create status for pull secret reconcile failed")
+		}
 		meta.SetStatusCondition(&targetStatus.Conditions, makePullSecretFailureCondition(account.Generation, msg))
+		if updateErr := utils.UpdateStatus(ctx, accountSubject, *targetStatus, r.Client); updateErr != nil {
+			logger.Error(updateErr, "failed to create status for pull secret reconcile failed")
+		}
 		return ctrl.Result{}, err
 	} else {
 		ref, refErr := reference.GetReference(r.Scheme, pullSecret)
@@ -270,7 +333,13 @@ func (r *AccountReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 	pullSecOk := "pull secret reconciled successfully"
 	logger.V(1).Info(pullSecOk)
 	meta.SetStatusCondition(&targetStatus.Conditions, makeAccountSuccessfulCondition(account.Generation, "reconciled successfully"))
+	if updateErr := utils.UpdateStatus(ctx, accountSubject, *targetStatus, r.Client); updateErr != nil {
+		logger.Error(updateErr, "failed to create status for pull secret reconciled successfully")
+	}
 	meta.SetStatusCondition(&targetStatus.Conditions, makePullSecretSuccessfulCondition(account.Generation, pullSecOk))
+	if updateErr := utils.UpdateStatus(ctx, accountSubject, *targetStatus, r.Client); updateErr != nil {
+		logger.Error(updateErr, "failed to create status for pull secret reconciled successfully")
+	}
 
 	return ctrl.Result{}, nil
 }
@@ -367,24 +436,6 @@ func (r *AccountReconciler) reconcileNimPullSecret(
 		return nil, err
 	}
 	return secret, nil
-}
-
-// updateStatus is used for fetching an updating the status of the account
-func (r *AccountReconciler) updateStatus(ctx context.Context, subject types.NamespacedName, status v1.AccountStatus) {
-	logger := log.FromContext(ctx)
-	logger.V(1).Info("updating status")
-
-	account := &v1.Account{}
-	if err := r.Client.Get(ctx, subject, account); err != nil {
-		if !k8serrors.IsNotFound(err) {
-			logger.Error(err, "failed to fetch account for status update")
-		}
-	} else {
-		account.Status = *status.DeepCopy()
-		if err = r.Client.Status().Update(ctx, account); err != nil {
-			logger.Error(err, "failed to update account status")
-		}
-	}
 }
 
 // createOwnerReferenceCfg is used to create an owner reference config to use with server side apply

@@ -52,6 +52,18 @@ patches:
       clientConfig:
         service:
           name: odh-model-controller-webhook-service
+    - name: mutating.pod.odh-model-controller.opendatahub.io
+      clientConfig:
+        service:
+          name: odh-model-controller-webhook-service          
+      namespaceSelector:
+        matchExpressions:
+          - key: control-plane
+            operator: DoesNotExist
+      objectSelector:
+        matchExpressions:
+          - key: serving.kserve.io/inferenceservice
+            operator: Exists          
 
 - patch: |-
     - op: replace
@@ -71,6 +83,6 @@ patches:
     kind: MutatingWebhookConfiguration
     name: mutating-webhook-configuration
     version: v1
-
+            
 configurations:
 - kustomizeconfig.yaml
