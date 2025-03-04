@@ -176,7 +176,7 @@ func getNimRuntimes(logger logr.Logger, runtimes []NimRuntime, page, pageSize in
 	if respErr != nil {
 		return runtimes, respErr
 	}
-	logApiResponse(logger, resp)
+	logApiResponse(logger, req, resp)
 
 	body, bodyErr := io.ReadAll(resp.Body)
 	if bodyErr != nil {
@@ -196,7 +196,9 @@ func getNimRuntimes(logger logr.Logger, runtimes []NimRuntime, page, pageSize in
 	return runtimes, nil
 }
 
-func logApiResponse(logger logr.Logger, resp *http.Response) {
+func logApiResponse(logger logr.Logger, req *http.Request, resp *http.Response) {
+	logger.V(1).Info(fmt.Sprintf("sending api request %s", req.URL))
+
 	logger.V(1).Info(fmt.Sprintf("got api response %s", resp.Status))
 	if resp.StatusCode != http.StatusOK {
 		if resp.ContentLength > 0 {
@@ -267,7 +269,7 @@ func requestToken(logger logr.Logger, req *http.Request) (*NimTokenResponse, err
 	if respErr != nil {
 		return nil, respErr
 	}
-	logApiResponse(logger, resp)
+	logApiResponse(logger, req, resp)
 
 	body, bodyErr := io.ReadAll(resp.Body)
 	if bodyErr != nil {
@@ -296,7 +298,7 @@ func attemptToPullManifest(logger logr.Logger, runtime NimRuntime, tokenResp *Ni
 	if respErr != nil {
 		return respErr
 	}
-	logApiResponse(logger, resp)
+	logApiResponse(logger, req, resp)
 
 	if resp.StatusCode != http.StatusOK {
 		return fmt.Errorf("failed to pull manifest")
@@ -318,7 +320,7 @@ func getModelData(logger logr.Logger, runtime NimRuntime, tokenResp *NimTokenRes
 	if respErr != nil {
 		return nil, "", respErr
 	}
-	logApiResponse(logger, resp)
+	logApiResponse(logger, req, resp)
 
 	body, bodyErr := io.ReadAll(resp.Body)
 	if bodyErr != nil {
