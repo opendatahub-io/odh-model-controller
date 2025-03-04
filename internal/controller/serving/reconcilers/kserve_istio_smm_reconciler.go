@@ -52,7 +52,6 @@ func (r *KserveServiceMeshMemberReconciler) Reconcile(ctx context.Context, log l
 }
 
 func (r *KserveServiceMeshMemberReconciler) Cleanup(ctx context.Context, log logr.Logger, namespace string) error {
-	log.V(1).Info("Deleting Istio Telemetry object for target namespace")
 	existingSMM, getError := r.getExistingResource(ctx, log, namespace)
 	if getError != nil {
 		return getError

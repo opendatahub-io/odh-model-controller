@@ -25,13 +25,15 @@ import (
 
 	// Import all Kubernetes client auth plugins (e.g. Azure, GCP, OIDC, etc.)
 	// to ensure that exec-entrypoint and run can make use of them.
+	_ "k8s.io/client-go/plugin/pkg/client/auth"
+
+	"github.com/kserve/kserve/pkg/apis/serving/v1alpha1"
 	istiov1beta1 "istio.io/client-go/pkg/apis/security/v1beta1"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/client-go/kubernetes"
 	_ "k8s.io/client-go/plugin/pkg/client/auth"
-	"k8s.io/client-go/rest"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/cache"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -42,13 +44,10 @@ import (
 	metricsserver "sigs.k8s.io/controller-runtime/pkg/metrics/server"
 	"sigs.k8s.io/controller-runtime/pkg/webhook"
 
-	"github.com/go-logr/logr"
 	corecontroller "github.com/opendatahub-io/odh-model-controller/internal/controller/core"
 	"github.com/opendatahub-io/odh-model-controller/internal/controller/nim"
 	servingcontroller "github.com/opendatahub-io/odh-model-controller/internal/controller/serving"
 	"github.com/opendatahub-io/odh-model-controller/internal/controller/utils"
-
-	webhookcorev1 "github.com/opendatahub-io/odh-model-controller/internal/webhook/core/v1"
 	webhooknimv1 "github.com/opendatahub-io/odh-model-controller/internal/webhook/nim/v1"
 	webhookservingv1 "github.com/opendatahub-io/odh-model-controller/internal/webhook/serving/v1"
 	webhookservingv1alpha1 "github.com/opendatahub-io/odh-model-controller/internal/webhook/serving/v1alpha1"
@@ -125,92 +124,6 @@ func main() {
 		tlsOpts = append(tlsOpts, disableHTTP2)
 	}
 
-	// Create the manager
-	var err error
-	cfg := ctrl.GetConfigOrDie()
-	mgr := createManager(cfg, metricsAddr, probeAddr, enableLeaderElection, secureMetrics, tlsOpts)
-
-	kubeClient, kubeClientErr := kubernetes.NewForConfig(cfg)
-	if kubeClientErr != nil {
-		setupLog.Error(kubeClientErr, "unable to create clientset")
-		os.Exit(1)
-	}
-
-	kserveState := os.Getenv("KSERVE_STATE")
-	modelMeshState := os.Getenv("MODELMESH_STATE")
-	setupLog.Info("Installation status of Serving Components",
-		"kserve-state", kserveState, "modelmesh-state", modelMeshState)
-
-	kserveWithMeshEnabled, kserveWithMeshEnabledErr := utils.VerifyIfComponentIsEnabled(
-		context.Background(), mgr.GetClient(), utils.KServeWithServiceMeshComponent)
-	if kserveWithMeshEnabledErr != nil {
-		setupLog.Error(kserveWithMeshEnabledErr, "could not determine if kserve have service mesh enabled")
-	}
-
-	if err := setupReconcilers(
-		mgr,
-		setupLog,
-		kubeClient,
-		cfg,
-		kserveWithMeshEnabled,
-		kserveState, modelMeshState); err != nil {
-		os.Exit(1)
-	}
-	// +kubebuilder:scaffold:builder
-	if err := setupWebhooks(mgr, setupLog, kserveWithMeshEnabled); err != nil {
-		os.Exit(1)
-	}
-
-	if err := mgr.AddHealthzCheck("healthz", healthz.Ping); err != nil {
-		setupLog.Error(err, "unable to set up health check")
-		os.Exit(1)
-	}
-	if err := mgr.AddReadyzCheck("readyz", healthz.Ping); err != nil {
-		setupLog.Error(err, "unable to set up ready check")
-		os.Exit(1)
-	}
-
-	signalHandlerCtx := ctrl.SetupSignalHandler()
-	setupNim(mgr, signalHandlerCtx, kubeClient)
-
-	setupLog.Info("starting manager")
-	if err = mgr.Start(signalHandlerCtx); err != nil {
-		setupLog.Error(err, "problem running manager")
-		os.Exit(1)
-	}
-}
-
-func setupNim(mgr manager.Manager, signalHandlerCtx context.Context, kubeClient *kubernetes.Clientset) {
-	var err error
-
-	nimState := os.Getenv("NIM_STATE")
-	if nimState == "" {
-		nimState = "managed"
-	}
-	if nimState != "removed" {
-		if err = (&nim.AccountReconciler{
-			Client:  mgr.GetClient(),
-			Scheme:  mgr.GetScheme(),
-			KClient: kubeClient,
-		}).SetupWithManager(mgr, signalHandlerCtx); err != nil {
-			setupLog.Error(err, "unable to create controller", "controller", "NIMAccount")
-			os.Exit(1)
-		}
-	} else {
-		if err = mgr.Add(&utils.NIMCleanupRunner{Client: mgr.GetClient(), Logger: setupLog}); err != nil {
-			setupLog.Error(err, "failed to add NIM cleanup runner")
-		}
-	}
-
-	setupLog.Info("starting manager")
-	if err := mgr.Start(signalHandlerCtx); err != nil {
-		setupLog.Error(err, "problem running manager")
-		os.Exit(1)
-	}
-}
-
-func createManager(cfg *rest.Config, metricsAddr, probeAddr string,
-	enableLeaderElection, secureMetrics bool, tlsOpts []func(*tls.Config)) ctrl.Manager {
 	webhookServer := webhook.NewServer(webhook.Options{
 		TLSOpts: tlsOpts,
 	})
@@ -237,6 +150,7 @@ func createManager(cfg *rest.Config, metricsAddr, probeAddr string,
 		// this setup is not recommended for production.
 	}
 
+	cfg := ctrl.GetConfigOrDie()
 	mgr, err := ctrl.NewManager(cfg, ctrl.Options{
 		Scheme:                 scheme,
 		Metrics:                metricsServerOptions,
@@ -267,11 +181,6 @@ func createManager(cfg *rest.Config, metricsAddr, probeAddr string,
 						"opendatahub.io/managed": "true",
 					}),
 				},
-				&corev1.Pod{}: {
-					Label: labels.SelectorFromSet(labels.Set{
-						"component": "predictor",
-					}),
-				},
 			},
 		},
 	})
@@ -279,123 +188,144 @@ func createManager(cfg *rest.Config, metricsAddr, probeAddr string,
 		setupLog.Error(err, "unable to start manager")
 		os.Exit(1)
 	}
-	return mgr
-}
 
-func setupWebhooks(mgr ctrl.Manager, setupLog logr.Logger, kserveWithMeshEnabled bool) error {
-	if os.Getenv(enableWebhooksEnv) == "false" {
-		setupLog.Info("Webhooks are disabled via environment variable.")
-		return nil
+	kubeClient, kubeClientErr := kubernetes.NewForConfig(cfg)
+	if kubeClientErr != nil {
+		setupLog.Error(err, "unable to create clientset")
+		os.Exit(1)
 	}
 
-	webhookSetups := []struct {
-		name    string
-		setupFn func(ctrl.Manager) error
-	}{
-		{"Pod", webhookcorev1.SetupPodWebhookWithManager},
-		{"NIMAccount", webhooknimv1.SetupAccountWebhookWithManager},
-		{"InferenceService", webhookservingv1beta1.SetupInferenceServiceWebhookWithManager},
-		{"InferenceGraph", webhookservingv1alpha1.SetupInferenceGraphWebhookWithManager},
+	kserveWithMeshEnabled, kserveWithMeshEnabledErr := utils.VerifyIfComponentIsEnabled(
+		context.Background(), mgr.GetClient(), utils.KServeWithServiceMeshComponent)
+	if kserveWithMeshEnabledErr != nil {
+		setupLog.Error(kserveWithMeshEnabledErr, "could not determine if kserve have service mesh enabled")
 	}
 
-	for _, webhook := range webhookSetups {
-		if err := webhook.setupFn(mgr); err != nil {
-			setupLog.Error(err, "unable to create webhook", "webhook", webhook.name)
-			return err
-		}
-	}
-
-	// Handle Knative Service webhook setup conditionally
-	if kserveWithMeshEnabled {
-		if err := webhookservingv1.SetupServiceWebhookWithManager(mgr); err != nil {
-			setupLog.Error(err, "unable to create webhook", "webhook", "Knative Service")
-			return err
-		}
-	} else {
-		setupLog.Info("Skipping setup of Knative Service validating/mutating Webhook, " +
-			"because KServe Serverless setup seems to be disabled.")
-	}
-
-	return nil
-}
-
-func setupReconcilers(mgr ctrl.Manager, setupLog logr.Logger,
-	kubeClient kubernetes.Interface, cfg *rest.Config, kserveWithMeshEnabled bool, kserveState string, _ string) error {
-	if err := setupInferenceServiceReconciler(mgr, kubeClient, cfg); err != nil {
-		setupLog.Error(err, "unable to create controller", "controller", "InferenceService")
-		return err
-	}
-	if err := setupSecretReconciler(mgr); err != nil {
-		setupLog.Error(err, "unable to create controller", "controller", "Secret")
-		return err
-	}
-	if err := setupConfigMapReconciler(mgr); err != nil {
-		setupLog.Error(err, "unable to create controller", "controller", "ConfigMap")
-		return err
-	}
-	if err := setupPodReconciler(mgr); err != nil {
-		setupLog.Error(err, "unable to create controller", "controller", "Pod")
-		return err
-	}
-	if err := setupServingRuntimeReconciler(mgr); err != nil {
-		setupLog.Error(err, "unable to create controller", "controller", "ServingRuntime")
-		return err
-	}
-
-	if kserveState == "managed" {
-		if err := setupInferenceGraphReconciler(mgr, kserveWithMeshEnabled); err != nil {
-			setupLog.Error(err, "unable to create controller", "controller", "InferenceGraph")
-			return err
-		}
-	} else {
-		setupLog.Info("kserve state is not managed, skipping controller", "controller", "InferenceGraph")
-	}
-
-	return nil
-}
-
-func setupInferenceServiceReconciler(mgr ctrl.Manager, kubeClient kubernetes.Interface, cfg *rest.Config) error {
-	return (servingcontroller.NewInferenceServiceReconciler(
+	if err = (servingcontroller.NewInferenceServiceReconciler(
 		setupLog,
 		mgr.GetClient(),
 		mgr.GetScheme(),
 		mgr.GetAPIReader(),
 		kubeClient,
 		getEnvAsBool("MESH_DISABLED", false),
-		getEnvAsBool("ENABLE_MR_INFERENCE_SERVICE_RECONCILE", false),
+		enableMRInferenceServiceReconcile,
 		getEnvAsBool("MR_SKIP_TLS_VERIFY", false),
 		cfg.BearerToken,
-	)).SetupWithManager(mgr)
-}
-
-func setupSecretReconciler(mgr ctrl.Manager) error {
-	return (&corecontroller.SecretReconciler{
+	)).SetupWithManager(mgr); err != nil {
+		setupLog.Error(err, "unable to create controller", "controller", "InferenceService")
+		os.Exit(1)
+	}
+	if err = (&corecontroller.SecretReconciler{
 		Client: mgr.GetClient(),
 		Scheme: mgr.GetScheme(),
-	}).SetupWithManager(mgr)
-}
-
-func setupConfigMapReconciler(mgr ctrl.Manager) error {
-	return (&corecontroller.ConfigMapReconciler{
+	}).SetupWithManager(mgr); err != nil {
+		setupLog.Error(err, "unable to create controller", "controller", "Secret")
+		os.Exit(1)
+	}
+	if err = (&corecontroller.ConfigMapReconciler{
 		Client: mgr.GetClient(),
 		Scheme: mgr.GetScheme(),
-	}).SetupWithManager(mgr)
+	}).SetupWithManager(mgr); err != nil {
+		setupLog.Error(err, "unable to create controller", "controller", "ConfigMap")
+		os.Exit(1)
+	}
+	if monitoringNS != "" {
+		setupLog.Info("Monitoring namespace provided, setting up monitoring controller.")
+		if err = (&servingcontroller.ServingRuntimeReconciler{
+			Client:       mgr.GetClient(),
+			Scheme:       mgr.GetScheme(),
+			MonitoringNS: monitoringNS,
+		}).SetupWithManager(mgr); err != nil {
+			setupLog.Error(err, "unable to create controller", "controller", "ServingRuntime")
+			os.Exit(1)
+		}
+	}
+
+	signalHandlerCtx := ctrl.SetupSignalHandler()
+	setupNim(mgr, signalHandlerCtx, kubeClient)
+
+	if os.Getenv(enableWebhooksEnv) != "false" {
+		if kserveWithMeshEnabled {
+			if err = webhookservingv1.SetupServiceWebhookWithManager(mgr); err != nil {
+				setupLog.Error(err, "unable to create webhook", "webhook", "Knative Service")
+				os.Exit(1)
+			}
+		} else {
+			setupLog.Info("Skipping setup of Knative Service validating/mutating Webhook, " +
+				"because KServe Serverless setup seems to be disabled.")
+		}
+
+		if err = webhookservingv1beta1.SetupInferenceServiceWebhookWithManager(mgr); err != nil {
+			setupLog.Error(err, "unable to create webhook", "webhook", "InferenceService")
+			os.Exit(1)
+		}
+
+		if err = webhookservingv1alpha1.SetupInferenceGraphWebhookWithManager(mgr); err != nil {
+			setupLog.Error(err, "unable to create webhook", "webhook", "InferenceGraph")
+			os.Exit(1)
+		}
+	}
+
+	inferenceGraphCrdAvailable, igCrdErr := utils.IsCrdAvailable(
+		mgr.GetConfig(),
+		v1alpha1.SchemeGroupVersion.String(),
+		"InferenceGraph")
+	if igCrdErr != nil {
+		setupLog.Error(igCrdErr, "unable to check if InferenceGraph CRD is available", "controller", "InferenceGraph")
+		os.Exit(1)
+	} else if inferenceGraphCrdAvailable {
+		if err = servingcontroller.NewInferenceGraphReconciler(mgr).SetupWithManager(mgr, kserveWithMeshEnabled); err != nil {
+			setupLog.Error(err, "unable to create controller", "controller", "InferenceGraph")
+			os.Exit(1)
+		}
+	} else {
+		setupLog.Info("controller is turned off", "controller", "InferenceGraph")
+	}
+	// +kubebuilder:scaffold:builder
+
+	if err = mgr.AddHealthzCheck("healthz", healthz.Ping); err != nil {
+		setupLog.Error(err, "unable to set up health check")
+		os.Exit(1)
+	}
+	if err = mgr.AddReadyzCheck("readyz", healthz.Ping); err != nil {
+		setupLog.Error(err, "unable to set up ready check")
+		os.Exit(1)
+	}
+
+	setupLog.Info("starting manager")
+	if err = mgr.Start(signalHandlerCtx); err != nil {
+		setupLog.Error(err, "problem running manager")
+		os.Exit(1)
+	}
 }
 
-func setupPodReconciler(mgr ctrl.Manager) error {
-	return (&corecontroller.PodReconciler{
-		Client: mgr.GetClient(),
-		Scheme: mgr.GetScheme(),
-	}).SetupWithManager(mgr)
-}
+func setupNim(mgr manager.Manager, signalHandlerCtx context.Context, kubeClient *kubernetes.Clientset) {
+	var err error
 
-func setupServingRuntimeReconciler(mgr ctrl.Manager) error {
-	return (&servingcontroller.ServingRuntimeReconciler{
-		Client: mgr.GetClient(),
-		Scheme: mgr.GetScheme(),
-	}).SetupWithManager(mgr)
-}
+	nimState := os.Getenv("NIM_STATE")
+	if nimState == "" {
+		nimState = "managed"
+	}
+	if nimState != "removed" {
+		if err = (&nim.AccountReconciler{
+			Client:  mgr.GetClient(),
+			Scheme:  mgr.GetScheme(),
+			KClient: kubeClient,
+		}).SetupWithManager(mgr, signalHandlerCtx); err != nil {
+			setupLog.Error(err, "unable to create controller", "controller", "NIMAccount")
+			os.Exit(1)
+		}
+	} else {
+		if err = mgr.Add(&utils.NIMCleanupRunner{Client: mgr.GetClient(), Logger: setupLog}); err != nil {
+			setupLog.Error(err, "failed to add NIM cleanup runner")
+		}
+	}
 
-func setupInferenceGraphReconciler(mgr ctrl.Manager, isServerlessMode bool) error {
-	return servingcontroller.NewInferenceGraphReconciler(mgr).SetupWithManager(mgr, isServerlessMode)
+	// nolint:goconst
+	if os.Getenv(enableWebhooksEnv) != "false" {
+		if err = webhooknimv1.SetupAccountWebhookWithManager(mgr); err != nil {
+			setupLog.Error(err, "unable to create webhook", "webhook", "NIMAccount")
+			os.Exit(1)
+		}
+	}
 }
