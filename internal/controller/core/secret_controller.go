@@ -35,6 +35,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/predicate"
 
 	"github.com/opendatahub-io/odh-model-controller/internal/controller/constants"
+	"github.com/opendatahub-io/odh-model-controller/internal/controller/utils"
 )
 
 const (
@@ -198,15 +199,15 @@ func reconcileOpenDataHubSecrets() predicate.Predicate {
 	return predicate.Funcs{
 		CreateFunc: func(e event.CreateEvent) bool {
 			objectLabels := e.Object.GetLabels()
-			return checkOpenDataHubLabel(objectLabels)
+			return checkOpenDataHubLabel(objectLabels) && !utils.IsRayTLSSecret(e.Object.GetName())
 		},
 		DeleteFunc: func(e event.DeleteEvent) bool {
 			objectLabels := e.Object.GetLabels()
-			return checkOpenDataHubLabel(objectLabels)
+			return checkOpenDataHubLabel(objectLabels) && !utils.IsRayTLSSecret(e.Object.GetName())
 		},
 		UpdateFunc: func(e event.UpdateEvent) bool {
 			objectNewLabels := e.ObjectNew.GetLabels()
-			return checkOpenDataHubLabel(objectNewLabels)
+			return checkOpenDataHubLabel(objectNewLabels) && !utils.IsRayTLSSecret(e.ObjectNew.GetName())
 		},
 	}
 }

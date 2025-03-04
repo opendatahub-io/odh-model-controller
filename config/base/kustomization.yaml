@@ -128,6 +128,39 @@ replacements:
       kind: ConfigMap
       version: v1
       name: odh-model-controller-parameters
+      fieldPath: data.nim-state
+    targets:
+      - select:
+          kind: Deployment
+          name: odh-model-controller
+        fieldPaths:
+          - spec.template.spec.containers.[name=manager].env.[name=NIM_STATE].value
+  - source:
+      kind: ConfigMap
+      version: v1
+      name: odh-model-controller-parameters
+      fieldPath: data.kserve-state
+    targets:
+      - select:
+          kind: Deployment
+          name: odh-model-controller
+        fieldPaths:
+          - spec.template.spec.containers.[name=manager].env.[name=KSERVE_STATE].value
+  - source:
+      kind: ConfigMap
+      version: v1
+      name: odh-model-controller-parameters
+      fieldPath: data.modelmeshserving-state
+    targets:
+      - select:
+          kind: Deployment
+          name: odh-model-controller
+        fieldPaths:
+          - spec.template.spec.containers.[name=manager].env.[name=MODELMESH_STATE].value
+  - source:
+      kind: ConfigMap
+      version: v1
+      name: odh-model-controller-parameters
       fieldPath: metadata.namespace
     targets:
       - select:

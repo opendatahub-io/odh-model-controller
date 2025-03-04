@@ -1,4 +1,6 @@
 approvers:
+  - andresllh
+  - brettmthompson
   - danielezonca
   - hdefazio
   - israel-hdez
@@ -10,6 +12,8 @@ approvers:
   - terrytangyuan
   - VedantMahabaleshwarkar
 reviewers:
+  - andresllh
+  - brettmthompson
   - hdefazio
   - israel-hdez
   - Jooho
@@ -19,4 +23,3 @@ reviewers:
   - spolti
   - terrytangyuan
   - VedantMahabaleshwarkar
-  
