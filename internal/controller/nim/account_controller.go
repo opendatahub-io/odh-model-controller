@@ -68,7 +68,8 @@ var (
 
 func (r *AccountReconciler) SetupWithManager(mgr ctrl.Manager, ctx context.Context) error {
 	// TODO: Copied from original main.go... Should it be FromContext?
-	logger := ctrl.Log.WithName("controllers").WithName("ModelRegistryInferenceService")
+	logger := ctrl.Log.WithName("controllers").WithName("AccountControllerSetup")
+	log.IntoContext(ctx, logger)
 
 	if err := mgr.GetFieldIndexer().IndexField(ctx, &v1.Account{}, apiKeySpecPath, func(obj client.Object) []string {
 		return []string{obj.(*v1.Account).Spec.APIKeySecret.Name}
@@ -187,7 +188,7 @@ func (r *AccountReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 	meta.SetStatusCondition(&targetStatus.Conditions, makeAccountFailureCondition(account.Generation, gotApiKey))
 
 	// fetch available runtimes
-	availableRuntimes, runtimesErr := utils.GetAvailableNimRuntimes()
+	availableRuntimes, runtimesErr := utils.GetAvailableNimRuntimes(logger)
 	if runtimesErr != nil {
 		msg := "failed to fetch NIM available custom runtimes"
 		logger.V(1).Error(runtimesErr, msg)
@@ -200,7 +201,7 @@ func (r *AccountReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 	meta.SetStatusCondition(&targetStatus.Conditions, makeAccountFailureCondition(account.Generation, runtimesOk))
 
 	// validate api key
-	if err := utils.ValidateApiKey(apiKeyStr, availableRuntimes[0]); err != nil {
+	if err := utils.ValidateApiKey(logger, apiKeyStr, availableRuntimes[0]); err != nil {
 		msg := "api key failed validation"
 		logger.Error(err, msg)
 		meta.SetStatusCondition(&targetStatus.Conditions, makeAccountFailureCondition(account.Generation, msg))
@@ -280,7 +281,7 @@ func (r *AccountReconciler) reconcileNimConfig(
 	ctx context.Context, ownerCfg *ssametav1.OwnerReferenceApplyConfiguration,
 	namespace, apiKey string, runtimes []utils.NimRuntime,
 ) (*corev1.ConfigMap, error) {
-	data, dErr := utils.GetNimModelData(apiKey, runtimes)
+	data, dErr := utils.GetNimModelData(log.FromContext(ctx), apiKey, runtimes)
 	if dErr != nil {
 		return nil, dErr
 	}

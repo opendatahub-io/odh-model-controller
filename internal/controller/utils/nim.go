@@ -114,18 +114,18 @@ func init() {
 }
 
 // GetAvailableNimRuntimes is used for fetching a list of available NIM custom runtimes
-func GetAvailableNimRuntimes() ([]NimRuntime, error) {
-	return getNimRuntimes([]NimRuntime{}, 0, 1000)
+func GetAvailableNimRuntimes(logger logr.Logger) ([]NimRuntime, error) {
+	return getNimRuntimes(logger, []NimRuntime{}, 0, 1000)
 }
 
 // ValidateApiKey is used for validating the given API key by retrieving the token and pulling the given custom runtime
-func ValidateApiKey(apiKey string, runtime NimRuntime) error {
-	tokenResp, tokenErr := getRuntimeRegistryToken(apiKey, runtime.Resource)
+func ValidateApiKey(logger logr.Logger, apiKey string, runtime NimRuntime) error {
+	tokenResp, tokenErr := getRuntimeRegistryToken(logger, apiKey, runtime.Resource)
 	if tokenErr != nil {
 		return tokenErr
 	}
 
-	manifestErr := attemptToPullManifest(runtime, tokenResp)
+	manifestErr := attemptToPullManifest(logger, runtime, tokenResp)
 	if manifestErr != nil {
 		return manifestErr
 	}
@@ -134,16 +134,16 @@ func ValidateApiKey(apiKey string, runtime NimRuntime) error {
 }
 
 // GetNimModelData is used for fetching the model info for the given runtimes, returns configmap data
-func GetNimModelData(apiKey string, runtimes []NimRuntime) (map[string]string, error) {
+func GetNimModelData(logger logr.Logger, apiKey string, runtimes []NimRuntime) (map[string]string, error) {
 	data := map[string]string{}
-	tokenResp, tokenErr := getNgcToken(apiKey)
+	tokenResp, tokenErr := getNgcToken(logger, apiKey)
 	if tokenErr != nil {
 		return data, tokenErr
 	}
 
 	var modelErr error
 	for _, runtime := range runtimes {
-		model, unmarshaled, err := getModelData(runtime, tokenResp)
+		model, unmarshaled, err := getModelData(logger, runtime, tokenResp)
 		if err != nil {
 			modelErr = err
 			break
@@ -160,7 +160,7 @@ func GetNimModelData(apiKey string, runtimes []NimRuntime) (map[string]string, e
 
 // getNimRuntimes is used to send multiple requests to NVIDIA NIM runtimes endpoint, response pagination-based.
 // it parses the runtimes from every response and returns a list of all runtimes
-func getNimRuntimes(runtimes []NimRuntime, page, pageSize int) ([]NimRuntime, error) {
+func getNimRuntimes(logger logr.Logger, runtimes []NimRuntime, page, pageSize int) ([]NimRuntime, error) {
 	req, reqErr := http.NewRequest("GET", nimGetNgcCatalog, nil)
 	if reqErr != nil {
 		return runtimes, reqErr
@@ -176,6 +176,7 @@ func getNimRuntimes(runtimes []NimRuntime, page, pageSize int) ([]NimRuntime, er
 	if respErr != nil {
 		return runtimes, respErr
 	}
+	logApiResponse(logger, req, resp)
 
 	body, bodyErr := io.ReadAll(resp.Body)
 	if bodyErr != nil {
@@ -189,10 +190,26 @@ func getNimRuntimes(runtimes []NimRuntime, page, pageSize int) ([]NimRuntime, er
 
 	runtimes = append(runtimes, mapNimCatalogResponseToRuntimeList(catRes)...)
 	if catRes.Params.Page < catRes.ResultPageTotal-1 {
-		return getNimRuntimes(runtimes, page+1, pageSize)
+		return getNimRuntimes(logger, runtimes, page+1, pageSize)
 	}
 
 	return runtimes, nil
+}
+
+func logApiResponse(logger logr.Logger, req *http.Request, resp *http.Response) {
+	logger.V(1).Info(fmt.Sprintf("sending api request %s", req.URL))
+
+	logger.V(1).Info(fmt.Sprintf("got api response %s", resp.Status))
+	if resp.StatusCode != http.StatusOK {
+		if resp.ContentLength > 0 {
+			body, err := io.ReadAll(resp.Body)
+			if err != nil {
+				logger.V(1).Error(err, "failed to parse body")
+			} else {
+				logger.V(1).Info(fmt.Sprintf("got body %s", string(body)))
+			}
+		}
+	}
 }
 
 // mapNimCatalogResponseToRuntimeList is used for parsing the ngc catalog response to a list of available runtimes
@@ -222,7 +239,7 @@ func mapNimCatalogResponseToRuntimeList(resp *NimCatalogResponse) []NimRuntime {
 }
 
 // getRuntimeRegistryToken is used for fetching the token required for accessing NIM's runtimes
-func getRuntimeRegistryToken(apiKey, repo string) (*NimTokenResponse, error) {
+func getRuntimeRegistryToken(logger logr.Logger, apiKey, repo string) (*NimTokenResponse, error) {
 	req, reqErr := http.NewRequest("GET", fmt.Sprintf(nimGetRuntimeTokenFmt, repo), nil)
 	if reqErr != nil {
 		return nil, reqErr
@@ -231,11 +248,11 @@ func getRuntimeRegistryToken(apiKey, repo string) (*NimTokenResponse, error) {
 	encoded := base64.StdEncoding.EncodeToString([]byte(fmt.Sprintf("$oauthtoken:%s", apiKey)))
 	req.Header.Add("Authorization", fmt.Sprintf("Basic %s", encoded))
 
-	return requestToken(req)
+	return requestToken(logger, req)
 }
 
 // getNgcToken is used for fetching the token required for accessing NIM's models
-func getNgcToken(apiKey string) (*NimTokenResponse, error) {
+func getNgcToken(logger logr.Logger, apiKey string) (*NimTokenResponse, error) {
 	req, reqErr := http.NewRequest("GET", nimGetNgcToken, nil)
 	if reqErr != nil {
 		return nil, reqErr
@@ -243,15 +260,16 @@ func getNgcToken(apiKey string) (*NimTokenResponse, error) {
 
 	req.Header.Add("Authorization", fmt.Sprintf("ApiKey %s", apiKey))
 
-	return requestToken(req)
+	return requestToken(logger, req)
 }
 
 // requestToken is used for sending a token requests and parse the response
-func requestToken(req *http.Request) (*NimTokenResponse, error) {
+func requestToken(logger logr.Logger, req *http.Request) (*NimTokenResponse, error) {
 	resp, respErr := NimHttpClient.Do(req)
 	if respErr != nil {
 		return nil, respErr
 	}
+	logApiResponse(logger, req, resp)
 
 	body, bodyErr := io.ReadAll(resp.Body)
 	if bodyErr != nil {
@@ -267,7 +285,7 @@ func requestToken(req *http.Request) (*NimTokenResponse, error) {
 }
 
 // attemptToPullManifest is used for pulling a runtime for verifying access
-func attemptToPullManifest(runtime NimRuntime, tokenResp *NimTokenResponse) error {
+func attemptToPullManifest(logger logr.Logger, runtime NimRuntime, tokenResp *NimTokenResponse) error {
 	req, reqErr := http.NewRequest("GET", fmt.Sprintf(nimGetRuntimeManifestFmt, runtime.Resource, runtime.Version), nil)
 	if reqErr != nil {
 		return reqErr
@@ -280,6 +298,7 @@ func attemptToPullManifest(runtime NimRuntime, tokenResp *NimTokenResponse) erro
 	if respErr != nil {
 		return respErr
 	}
+	logApiResponse(logger, req, resp)
 
 	if resp.StatusCode != http.StatusOK {
 		return fmt.Errorf("failed to pull manifest")
@@ -289,7 +308,7 @@ func attemptToPullManifest(runtime NimRuntime, tokenResp *NimTokenResponse) erro
 }
 
 // getModelData is used for fetching NIM model data for the given runtime
-func getModelData(runtime NimRuntime, tokenResp *NimTokenResponse) (*NimModel, string, error) {
+func getModelData(logger logr.Logger, runtime NimRuntime, tokenResp *NimTokenResponse) (*NimModel, string, error) {
 	req, reqErr := http.NewRequest("GET", fmt.Sprintf(nimGetNgcModelDataFmt, runtime.Org, runtime.Team, runtime.Image), nil)
 	if reqErr != nil {
 		return nil, "", reqErr
@@ -301,6 +320,7 @@ func getModelData(runtime NimRuntime, tokenResp *NimTokenResponse) (*NimModel, s
 	if respErr != nil {
 		return nil, "", respErr
 	}
+	logApiResponse(logger, req, resp)
 
 	body, bodyErr := io.ReadAll(resp.Body)
 	if bodyErr != nil {
