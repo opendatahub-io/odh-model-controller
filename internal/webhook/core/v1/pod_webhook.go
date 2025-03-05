@@ -56,6 +56,7 @@ func (m *PodMutatorDefaultor) podMutator(pod *corev1.Pod) error {
 
 func (m *PodMutatorDefaultor) mutate(pod *corev1.Pod) error {
 	if needToAddRayTLSGenerator(pod) {
+		addRayTLSVolumesAndVolumeMounts(pod)
 		rayTLSGeneratorScript, err := getRayTLSGeneratorScriptInitContainer(m.client)
 		if err != nil {
 			return err
@@ -63,6 +64,39 @@ func (m *PodMutatorDefaultor) mutate(pod *corev1.Pod) error {
 		pod.Spec.InitContainers = append(pod.Spec.InitContainers, *rayTLSGeneratorScript)
 	}
 	return nil
+}
+
+// Add ray tls volumes into the pod.
+// Add ray tls volumeMount into the pod when the container name is "kserve-container" or "worker-container".
+func addRayTLSVolumesAndVolumeMounts(pod *corev1.Pod) {
+	pod.Spec.Volumes = append(pod.Spec.Volumes, []corev1.Volume{
+		{
+			Name: constants.RayTLSVolumeName,
+			VolumeSource: corev1.VolumeSource{
+				EmptyDir: &corev1.EmptyDirVolumeSource{},
+			},
+		},
+		{
+			Name: constants.RayTLSSecretVolumeName,
+			VolumeSource: corev1.VolumeSource{
+				Secret: &corev1.SecretVolumeSource{
+					SecretName: constants.RayTLSSecretName,
+				},
+			},
+		},
+	}...)
+
+	for i := range pod.Spec.Containers {
+		container := &pod.Spec.Containers[i]
+
+		if container.Name == "kserve-container" || container.Name == "worker-container" {
+			container.VolumeMounts = append(container.VolumeMounts, corev1.VolumeMount{
+				Name:      constants.RayTLSVolumeName,
+				MountPath: constants.RayTLSVolumeMountPath,
+			})
+			break
+		}
+	}
 }
 
 // Add ray tls generator init-container into the pod when the pod has pod environment variable "RAY_USE_TLS" is 1.
@@ -147,12 +181,12 @@ fi
 		},
 		VolumeMounts: []corev1.VolumeMount{
 			{
-				Name:      "ray-tls",
-				MountPath: "/etc/ray/tls",
+				Name:      constants.RayTLSVolumeName,
+				MountPath: constants.RayTLSVolumeMountPath,
 			},
 			{
-				Name:      "ray-tls-secret",
-				MountPath: "/etc/ray-secret",
+				Name:      constants.RayTLSSecretVolumeName,
+				MountPath: constants.RayTLSSecretMountPath,
 			},
 		},
 	}, nil
