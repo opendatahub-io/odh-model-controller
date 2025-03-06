@@ -25,16 +25,13 @@ import (
 
 	// Import all Kubernetes client auth plugins (e.g. Azure, GCP, OIDC, etc.)
 	// to ensure that exec-entrypoint and run can make use of them.
-	_ "k8s.io/client-go/plugin/pkg/client/auth"
-
-	"github.com/kserve/kserve/pkg/apis/serving/v1alpha1"
 	istiov1beta1 "istio.io/client-go/pkg/apis/security/v1beta1"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/runtime"
-
 	"k8s.io/client-go/kubernetes"
 	_ "k8s.io/client-go/plugin/pkg/client/auth"
+	"k8s.io/client-go/rest"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/cache"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -45,10 +42,13 @@ import (
 	metricsserver "sigs.k8s.io/controller-runtime/pkg/metrics/server"
 	"sigs.k8s.io/controller-runtime/pkg/webhook"
 
+	"github.com/go-logr/logr"
 	corecontroller "github.com/opendatahub-io/odh-model-controller/internal/controller/core"
 	"github.com/opendatahub-io/odh-model-controller/internal/controller/nim"
 	servingcontroller "github.com/opendatahub-io/odh-model-controller/internal/controller/serving"
 	"github.com/opendatahub-io/odh-model-controller/internal/controller/utils"
+
+	webhookcorev1 "github.com/opendatahub-io/odh-model-controller/internal/webhook/core/v1"
 	webhooknimv1 "github.com/opendatahub-io/odh-model-controller/internal/webhook/nim/v1"
 	webhookservingv1 "github.com/opendatahub-io/odh-model-controller/internal/webhook/serving/v1"
 	webhookservingv1alpha1 "github.com/opendatahub-io/odh-model-controller/internal/webhook/serving/v1alpha1"
@@ -125,76 +125,21 @@ func main() {
 		tlsOpts = append(tlsOpts, disableHTTP2)
 	}
 
-	webhookServer := webhook.NewServer(webhook.Options{
-		TLSOpts: tlsOpts,
-	})
-
-	// Metrics endpoint is enabled in 'config/default/kustomization.yaml'. The Metrics options configure the server.
-	// More info:
-	// - https://pkg.go.dev/sigs.k8s.io/controller-runtime@v0.19.1/pkg/metrics/server
-	// - https://book.kubebuilder.io/reference/metrics.html
-	metricsServerOptions := metricsserver.Options{
-		BindAddress:   metricsAddr,
-		SecureServing: secureMetrics,
-		TLSOpts:       tlsOpts,
-	}
-
-	if secureMetrics {
-		// FilterProvider is used to protect the metrics endpoint with authn/authz.
-		// These configurations ensure that only authorized users and service accounts
-		// can access the metrics endpoint. The RBAC are configured in 'config/rbac/kustomization.yaml'. More info:
-		// https://pkg.go.dev/sigs.k8s.io/controller-runtime@v0.19.1/pkg/metrics/filters#WithAuthenticationAndAuthorization
-		metricsServerOptions.FilterProvider = filters.WithAuthenticationAndAuthorization
-
-		// TODO(user): If CertDir, CertName, and KeyName are not specified, controller-runtime will automatically
-		// generate self-signed certificates for the metrics server. While convenient for development and testing,
-		// this setup is not recommended for production.
-	}
-
+	// Create the manager
+	var err error
 	cfg := ctrl.GetConfigOrDie()
-	mgr, err := ctrl.NewManager(cfg, ctrl.Options{
-		Scheme:                 scheme,
-		Metrics:                metricsServerOptions,
-		WebhookServer:          webhookServer,
-		HealthProbeBindAddress: probeAddr,
-		LeaderElection:         enableLeaderElection,
-		LeaderElectionID:       "odh-model-controller.opendatahub.io",
-		// LeaderElectionReleaseOnCancel defines if the leader should step down voluntarily
-		// when the Manager ends. This requires the binary to immediately end when the
-		// Manager is stopped, otherwise, this setting is unsafe. Setting this significantly
-		// speeds up voluntary leader transitions as the new leader don't have to wait
-		// LeaseDuration time first.
-		//
-		// In the default scaffold provided, the program ends immediately after
-		// the manager stops, so would be fine to enable this option. However,
-		// if you are doing or is intended to do any operation such as perform cleanups
-		// after the manager stops then its usage might be unsafe.
-		// LeaderElectionReleaseOnCancel: true,
-		Client: client.Options{
-			Cache: &client.CacheOptions{
-				DisableFor: []client.Object{&istiov1beta1.AuthorizationPolicy{}},
-			},
-		},
-		Cache: cache.Options{
-			ByObject: map[client.Object]cache.ByObject{
-				&corev1.Secret{}: {
-					Label: labels.SelectorFromSet(labels.Set{
-						"opendatahub.io/managed": "true",
-					}),
-				},
-			},
-		},
-	})
-	if err != nil {
-		setupLog.Error(err, "unable to start manager")
-		os.Exit(1)
-	}
+	mgr := createManager(cfg, metricsAddr, probeAddr, enableLeaderElection, secureMetrics, tlsOpts)
 
 	kubeClient, kubeClientErr := kubernetes.NewForConfig(cfg)
 	if kubeClientErr != nil {
-		setupLog.Error(err, "unable to create clientset")
+		setupLog.Error(kubeClientErr, "unable to create clientset")
 		os.Exit(1)
 	}
+
+	kserveState := os.Getenv("KSERVE_STATE")
+	modelMeshState := os.Getenv("MODELMESH_STATE")
+	setupLog.Info("Installation status of Serving Components",
+		"kserve-state", kserveState, "modelmesh-state", modelMeshState)
 
 	kserveWithMeshEnabled, kserveWithMeshEnabledErr := utils.VerifyIfComponentIsEnabled(
 		context.Background(), mgr.GetClient(), utils.KServeWithServiceMeshComponent)
@@ -202,96 +147,31 @@ func main() {
 		setupLog.Error(kserveWithMeshEnabledErr, "could not determine if kserve have service mesh enabled")
 	}
 
-	if err = (servingcontroller.NewInferenceServiceReconciler(
+	if err := setupReconcilers(
+		mgr,
 		setupLog,
-		mgr.GetClient(),
-		mgr.GetScheme(),
-		mgr.GetAPIReader(),
 		kubeClient,
-		getEnvAsBool("MESH_DISABLED", false),
-		enableMRInferenceServiceReconcile,
-		getEnvAsBool("MR_SKIP_TLS_VERIFY", false),
-		cfg.BearerToken,
-	)).SetupWithManager(mgr); err != nil {
-		setupLog.Error(err, "unable to create controller", "controller", "InferenceService")
+		cfg,
+		kserveWithMeshEnabled,
+		kserveState, modelMeshState); err != nil {
 		os.Exit(1)
 	}
-	if err = (&corecontroller.SecretReconciler{
-		Client: mgr.GetClient(),
-		Scheme: mgr.GetScheme(),
-	}).SetupWithManager(mgr); err != nil {
-		setupLog.Error(err, "unable to create controller", "controller", "Secret")
+	// +kubebuilder:scaffold:builder
+	if err := setupWebhooks(mgr, setupLog, kserveWithMeshEnabled); err != nil {
 		os.Exit(1)
 	}
-	if err = (&corecontroller.ConfigMapReconciler{
-		Client: mgr.GetClient(),
-		Scheme: mgr.GetScheme(),
-	}).SetupWithManager(mgr); err != nil {
-		setupLog.Error(err, "unable to create controller", "controller", "ConfigMap")
+
+	if err := mgr.AddHealthzCheck("healthz", healthz.Ping); err != nil {
+		setupLog.Error(err, "unable to set up health check")
 		os.Exit(1)
 	}
-	if monitoringNS != "" {
-		setupLog.Info("Monitoring namespace provided, setting up monitoring controller.")
-		if err = (&servingcontroller.ServingRuntimeReconciler{
-			Client:       mgr.GetClient(),
-			Scheme:       mgr.GetScheme(),
-			MonitoringNS: monitoringNS,
-		}).SetupWithManager(mgr); err != nil {
-			setupLog.Error(err, "unable to create controller", "controller", "ServingRuntime")
-			os.Exit(1)
-		}
+	if err := mgr.AddReadyzCheck("readyz", healthz.Ping); err != nil {
+		setupLog.Error(err, "unable to set up ready check")
+		os.Exit(1)
 	}
 
 	signalHandlerCtx := ctrl.SetupSignalHandler()
 	setupNim(mgr, signalHandlerCtx, kubeClient)
-
-	if os.Getenv(enableWebhooksEnv) != "false" {
-		if kserveWithMeshEnabled {
-			if err = webhookservingv1.SetupServiceWebhookWithManager(mgr); err != nil {
-				setupLog.Error(err, "unable to create webhook", "webhook", "Knative Service")
-				os.Exit(1)
-			}
-		} else {
-			setupLog.Info("Skipping setup of Knative Service validating/mutating Webhook, " +
-				"because KServe Serverless setup seems to be disabled.")
-		}
-
-		if err = webhookservingv1beta1.SetupInferenceServiceWebhookWithManager(mgr); err != nil {
-			setupLog.Error(err, "unable to create webhook", "webhook", "InferenceService")
-			os.Exit(1)
-		}
-
-		if err = webhookservingv1alpha1.SetupInferenceGraphWebhookWithManager(mgr); err != nil {
-			setupLog.Error(err, "unable to create webhook", "webhook", "InferenceGraph")
-			os.Exit(1)
-		}
-	}
-
-	inferenceGraphCrdAvailable, igCrdErr := utils.IsCrdAvailable(
-		mgr.GetConfig(),
-		v1alpha1.SchemeGroupVersion.String(),
-		"InferenceGraph")
-	if igCrdErr != nil {
-		setupLog.Error(igCrdErr, "unable to check if InferenceGraph CRD is available", "controller", "InferenceGraph")
-		os.Exit(1)
-	} else if inferenceGraphCrdAvailable {
-		if err = servingcontroller.NewInferenceGraphReconciler(mgr).SetupWithManager(mgr, kserveWithMeshEnabled); err != nil {
-			setupLog.Error(err, "unable to create controller", "controller", "InferenceGraph")
-			os.Exit(1)
-		}
-	} else {
-		setupLog.Info("controller is turned off", "controller", "InferenceGraph")
-	}
-	// +kubebuilder:scaffold:builder
-
-	if err = mgr.AddHealthzCheck("healthz", healthz.Ping); err != nil {
-		setupLog.Error(err, "unable to set up health check")
-		os.Exit(1)
-	}
-	if err = mgr.AddReadyzCheck("readyz", healthz.Ping); err != nil {
-		setupLog.Error(err, "unable to set up ready check")
-		os.Exit(1)
-	}
 
 	setupLog.Info("starting manager")
 	if err = mgr.Start(signalHandlerCtx); err != nil {
@@ -322,11 +202,200 @@ func setupNim(mgr manager.Manager, signalHandlerCtx context.Context, kubeClient 
 		}
 	}
 
-	// nolint:goconst
-	if os.Getenv(enableWebhooksEnv) != "false" {
-		if err = webhooknimv1.SetupAccountWebhookWithManager(mgr); err != nil {
-			setupLog.Error(err, "unable to create webhook", "webhook", "NIMAccount")
-			os.Exit(1)
+	setupLog.Info("starting manager")
+	if err := mgr.Start(signalHandlerCtx); err != nil {
+		setupLog.Error(err, "problem running manager")
+		os.Exit(1)
+	}
+}
+
+func createManager(cfg *rest.Config, metricsAddr, probeAddr string,
+	enableLeaderElection, secureMetrics bool, tlsOpts []func(*tls.Config)) ctrl.Manager {
+	webhookServer := webhook.NewServer(webhook.Options{
+		TLSOpts: tlsOpts,
+	})
+
+	// Metrics endpoint is enabled in 'config/default/kustomization.yaml'. The Metrics options configure the server.
+	// More info:
+	// - https://pkg.go.dev/sigs.k8s.io/controller-runtime@v0.19.1/pkg/metrics/server
+	// - https://book.kubebuilder.io/reference/metrics.html
+	metricsServerOptions := metricsserver.Options{
+		BindAddress:   metricsAddr,
+		SecureServing: secureMetrics,
+		TLSOpts:       tlsOpts,
+	}
+
+	if secureMetrics {
+		// FilterProvider is used to protect the metrics endpoint with authn/authz.
+		// These configurations ensure that only authorized users and service accounts
+		// can access the metrics endpoint. The RBAC are configured in 'config/rbac/kustomization.yaml'. More info:
+		// https://pkg.go.dev/sigs.k8s.io/controller-runtime@v0.19.1/pkg/metrics/filters#WithAuthenticationAndAuthorization
+		metricsServerOptions.FilterProvider = filters.WithAuthenticationAndAuthorization
+
+		// TODO(user): If CertDir, CertName, and KeyName are not specified, controller-runtime will automatically
+		// generate self-signed certificates for the metrics server. While convenient for development and testing,
+		// this setup is not recommended for production.
+	}
+
+	mgr, err := ctrl.NewManager(cfg, ctrl.Options{
+		Scheme:                 scheme,
+		Metrics:                metricsServerOptions,
+		WebhookServer:          webhookServer,
+		HealthProbeBindAddress: probeAddr,
+		LeaderElection:         enableLeaderElection,
+		LeaderElectionID:       "odh-model-controller.opendatahub.io",
+		// LeaderElectionReleaseOnCancel defines if the leader should step down voluntarily
+		// when the Manager ends. This requires the binary to immediately end when the
+		// Manager is stopped, otherwise, this setting is unsafe. Setting this significantly
+		// speeds up voluntary leader transitions as the new leader don't have to wait
+		// LeaseDuration time first.
+		//
+		// In the default scaffold provided, the program ends immediately after
+		// the manager stops, so would be fine to enable this option. However,
+		// if you are doing or is intended to do any operation such as perform cleanups
+		// after the manager stops then its usage might be unsafe.
+		// LeaderElectionReleaseOnCancel: true,
+		Client: client.Options{
+			Cache: &client.CacheOptions{
+				DisableFor: []client.Object{&istiov1beta1.AuthorizationPolicy{}},
+			},
+		},
+		Cache: cache.Options{
+			ByObject: map[client.Object]cache.ByObject{
+				&corev1.Secret{}: {
+					Label: labels.SelectorFromSet(labels.Set{
+						"opendatahub.io/managed": "true",
+					}),
+				},
+				&corev1.Pod{}: {
+					Label: labels.SelectorFromSet(labels.Set{
+						"component": "predictor",
+					}),
+				},
+			},
+		},
+	})
+	if err != nil {
+		setupLog.Error(err, "unable to start manager")
+		os.Exit(1)
+	}
+	return mgr
+}
+
+func setupWebhooks(mgr ctrl.Manager, setupLog logr.Logger, kserveWithMeshEnabled bool) error {
+	if os.Getenv(enableWebhooksEnv) == "false" {
+		setupLog.Info("Webhooks are disabled via environment variable.")
+		return nil
+	}
+
+	webhookSetups := []struct {
+		name    string
+		setupFn func(ctrl.Manager) error
+	}{
+		{"Pod", webhookcorev1.SetupPodWebhookWithManager},
+		{"NIMAccount", webhooknimv1.SetupAccountWebhookWithManager},
+		{"InferenceService", webhookservingv1beta1.SetupInferenceServiceWebhookWithManager},
+		{"InferenceGraph", webhookservingv1alpha1.SetupInferenceGraphWebhookWithManager},
+	}
+
+	for _, webhook := range webhookSetups {
+		if err := webhook.setupFn(mgr); err != nil {
+			setupLog.Error(err, "unable to create webhook", "webhook", webhook.name)
+			return err
 		}
 	}
+
+	// Handle Knative Service webhook setup conditionally
+	if kserveWithMeshEnabled {
+		if err := webhookservingv1.SetupServiceWebhookWithManager(mgr); err != nil {
+			setupLog.Error(err, "unable to create webhook", "webhook", "Knative Service")
+			return err
+		}
+	} else {
+		setupLog.Info("Skipping setup of Knative Service validating/mutating Webhook, " +
+			"because KServe Serverless setup seems to be disabled.")
+	}
+
+	return nil
+}
+
+func setupReconcilers(mgr ctrl.Manager, setupLog logr.Logger,
+	kubeClient kubernetes.Interface, cfg *rest.Config, kserveWithMeshEnabled bool, kserveState string, _ string) error {
+	if err := setupInferenceServiceReconciler(mgr, kubeClient, cfg); err != nil {
+		setupLog.Error(err, "unable to create controller", "controller", "InferenceService")
+		return err
+	}
+	if err := setupSecretReconciler(mgr); err != nil {
+		setupLog.Error(err, "unable to create controller", "controller", "Secret")
+		return err
+	}
+	if err := setupConfigMapReconciler(mgr); err != nil {
+		setupLog.Error(err, "unable to create controller", "controller", "ConfigMap")
+		return err
+	}
+	if err := setupPodReconciler(mgr); err != nil {
+		setupLog.Error(err, "unable to create controller", "controller", "Pod")
+		return err
+	}
+	if err := setupServingRuntimeReconciler(mgr); err != nil {
+		setupLog.Error(err, "unable to create controller", "controller", "ServingRuntime")
+		return err
+	}
+
+	if kserveState == "managed" {
+		if err := setupInferenceGraphReconciler(mgr, kserveWithMeshEnabled); err != nil {
+			setupLog.Error(err, "unable to create controller", "controller", "InferenceGraph")
+			return err
+		}
+	} else {
+		setupLog.Info("kserve state is not managed, skipping controller", "controller", "InferenceGraph")
+	}
+
+	return nil
+}
+
+func setupInferenceServiceReconciler(mgr ctrl.Manager, kubeClient kubernetes.Interface, cfg *rest.Config) error {
+	return (servingcontroller.NewInferenceServiceReconciler(
+		setupLog,
+		mgr.GetClient(),
+		mgr.GetScheme(),
+		mgr.GetAPIReader(),
+		kubeClient,
+		getEnvAsBool("MESH_DISABLED", false),
+		getEnvAsBool("ENABLE_MR_INFERENCE_SERVICE_RECONCILE", false),
+		getEnvAsBool("MR_SKIP_TLS_VERIFY", false),
+		cfg.BearerToken,
+	)).SetupWithManager(mgr)
+}
+
+func setupSecretReconciler(mgr ctrl.Manager) error {
+	return (&corecontroller.SecretReconciler{
+		Client: mgr.GetClient(),
+		Scheme: mgr.GetScheme(),
+	}).SetupWithManager(mgr)
+}
+
+func setupConfigMapReconciler(mgr ctrl.Manager) error {
+	return (&corecontroller.ConfigMapReconciler{
+		Client: mgr.GetClient(),
+		Scheme: mgr.GetScheme(),
+	}).SetupWithManager(mgr)
+}
+
+func setupPodReconciler(mgr ctrl.Manager) error {
+	return (&corecontroller.PodReconciler{
+		Client: mgr.GetClient(),
+		Scheme: mgr.GetScheme(),
+	}).SetupWithManager(mgr)
+}
+
+func setupServingRuntimeReconciler(mgr ctrl.Manager) error {
+	return (&servingcontroller.ServingRuntimeReconciler{
+		Client: mgr.GetClient(),
+		Scheme: mgr.GetScheme(),
+	}).SetupWithManager(mgr)
+}
+
+func setupInferenceGraphReconciler(mgr ctrl.Manager, isServerlessMode bool) error {
+	return servingcontroller.NewInferenceGraphReconciler(mgr).SetupWithManager(mgr, isServerlessMode)
 }
