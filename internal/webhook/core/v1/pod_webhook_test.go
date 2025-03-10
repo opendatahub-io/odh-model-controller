@@ -17,6 +17,8 @@ limitations under the License.
 package v1
 
 import (
+	"fmt"
+
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	"github.com/opendatahub-io/odh-model-controller/internal/controller/constants"
@@ -54,7 +56,7 @@ var _ = Describe("Pod Mutator Webhook", func() {
 	})
 
 	Describe("Handle method", func() {
-		It("should add ray-tls-generator init-container to the pod if RAY_USE_TLS is set to 1", func() {
+		It("should add ray-tls-generator init-container/volumes/volumeMounts to the pod if RAY_USE_TLS is set to 1", func() {
 			// mutate multinode pad
 			err := defaulter.Default(ctx, multinodePod)
 			Expect(err).NotTo(HaveOccurred())
@@ -63,8 +65,41 @@ var _ = Describe("Pod Mutator Webhook", func() {
 			Expect(multinodePod.Spec.InitContainers).ShouldNot(BeNil())
 			Expect(multinodePod.Spec.InitContainers).Should(HaveLen(1))
 			Expect(multinodePod.Spec.InitContainers[0].Name).To(Equal(constants.RayTLSGeneratorInitContainerName))
+
+			// Verify that the volumes were added
+			Expect(multinodePod.Spec.Volumes).ShouldNot(BeNil())
+			foundTLS := false
+			foundTLSSecret := false
+
+			for _, volume := range multinodePod.Spec.Volumes {
+				if volume.Name == constants.RayTLSVolumeName {
+					foundTLS = true
+				}
+				if volume.Name == constants.RayTLSSecretVolumeName {
+					foundTLSSecret = true
+				}
+
+				if foundTLS && foundTLSSecret {
+					break
+				}
+			}
+
+			Expect(foundTLS).To(BeTrue(), fmt.Sprintf("Expected volume %s to be present", constants.RayTLSVolumeName))
+			Expect(foundTLSSecret).To(BeTrue(), fmt.Sprintf("Expected volume %s to be present", constants.RayTLSSecretVolumeName))
+
+			// Verify that the volumeMount was added
+			container := &multinodePod.Spec.Containers[0]
+			Expect(container.VolumeMounts).ShouldNot(BeNil())
+			foundTLSMount := false
+			for _, mount := range container.VolumeMounts {
+				if mount.MountPath == constants.RayTLSVolumeMountPath {
+					foundTLSMount = true
+				}
+			}
+
+			Expect(foundTLSMount).To(BeTrue(), fmt.Sprintf("Expected volume mount path %s to be present", constants.RayTLSVolumeMountPath))
 		})
-		It("should not add ray-tls-generator init-container to the pod if RAY_USE_TLS is set to 0", func() {
+		It("should not add ray-tls-generator init-container/volumes/volumeMounts to the pod if RAY_USE_TLS is set to 0", func() {
 			container := &multinodePod.Spec.Containers[0]
 			// Update the environment variable
 			for i := range container.Env {
@@ -77,19 +112,31 @@ var _ = Describe("Pod Mutator Webhook", func() {
 			err := defaulter.Default(ctx, multinodePod)
 			Expect(err).NotTo(HaveOccurred())
 
-			// Verify that the InitContainer was added
+			// Verify that the InitContainer was not added
 			Expect(multinodePod.Spec.InitContainers).Should(BeNil())
+
+			// Verify that the volumes were not added
+			Expect(multinodePod.Spec.Volumes).Should(BeNil())
+
+			// Verify that the volumeMount was not added
+			Expect(container.VolumeMounts).Should(BeNil())
 		})
 
-		It("should not add ray-tls-generator init-container to the pod if RAY_USE_TLS is not set", func() {
+		It("should not add ray-tls-generator init-container/volumes/volumeMounts to the pod if RAY_USE_TLS is not set", func() {
 			container := &multinodePod.Spec.Containers[0]
 			container.Env = []corev1.EnvVar{}
 			// mutate multinode pad
 			err := defaulter.Default(ctx, multinodePod)
 			Expect(err).NotTo(HaveOccurred())
 
-			// Verify that the InitContainer was added
+			// Verify that the InitContainer was not added
 			Expect(multinodePod.Spec.InitContainers).Should(BeNil())
+
+			// Verify that the volumes were not added
+			Expect(multinodePod.Spec.Volumes).Should(BeNil())
+
+			// Verify that the volumeMount was not added
+			Expect(container.VolumeMounts).Should(BeNil())
 		})
 		It("should return true if RAY_USE_TLS is set to 1", func() {
 			result := needToAddRayTLSGenerator(multinodePod)
