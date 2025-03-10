@@ -274,7 +274,6 @@ func requestToken(logger logr.Logger, req *http.Request) (*NimTokenResponse, err
 func attemptToPullManifest(logger logr.Logger, runtime NimRuntime, tokenResp *NimTokenResponse) (*http.Response, error) {
 	req, reqErr := http.NewRequest("GET", fmt.Sprintf(nimGetRuntimeManifestFmt, runtime.Resource, runtime.Version), nil)
 	if reqErr != nil {
-		logger.Error(reqErr, "failed to construct request")
 		return nil, reqErr
 	}
 
