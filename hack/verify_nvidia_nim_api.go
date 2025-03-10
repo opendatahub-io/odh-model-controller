@@ -67,7 +67,7 @@ func main() {
 		}
 	}
 
-	if vErr := utils.ValidateApiKey(logger, apiKey, runtimes[0]); vErr != nil {
+	if vErr := utils.ValidateApiKey(logger, apiKey, runtimes); vErr != nil {
 		panic(vErr)
 	}
 	fmt.Println("API Key validated successfully")
