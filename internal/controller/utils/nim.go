@@ -151,7 +151,7 @@ func GetNimModelData(logger logr.Logger, apiKey string, runtimes []NimRuntime) (
 	}
 
 	for _, runtime := range runtimes {
-		if model, unmarshaled, err := getModelData(logger, runtime, tokenResp); err == nil {
+		if model, unmarshaled := getModelData(logger, runtime, tokenResp); model != nil {
 			data[model.Name] = unmarshaled
 		}
 	}
@@ -284,18 +284,18 @@ func attemptToPullManifest(logger logr.Logger, runtime NimRuntime, tokenResp *Ni
 }
 
 // getModelData is used for fetching NIM model data for the given runtime
-func getModelData(logger logr.Logger, runtime NimRuntime, tokenResp *NimTokenResponse) (*NimModel, string, error) {
+func getModelData(logger logr.Logger, runtime NimRuntime, tokenResp *NimTokenResponse) (*NimModel, string) {
 	req, reqErr := http.NewRequest("GET", fmt.Sprintf(nimGetNgcModelDataFmt, runtime.Org, runtime.Team, runtime.Image), nil)
 	if reqErr != nil {
 		logger.Error(reqErr, "failed to construct request")
-		return nil, "", reqErr
+		return nil, ""
 	}
 
 	req.Header.Add("Authorization", fmt.Sprintf("Bearer %s", tokenResp.Token))
 
 	resp, respErr := handleRequest(logger, req)
 	if respErr != nil {
-		return nil, "", respErr
+		return nil, ""
 	}
 
 	if resp.StatusCode != http.StatusOK {
@@ -305,21 +305,21 @@ func getModelData(logger logr.Logger, runtime NimRuntime, tokenResp *NimTokenRes
 		} else {
 			logger.Error(sErr, "unexpected response status code")
 		}
-		return nil, "", sErr
+		return nil, ""
 	}
 
 	body, bodyErr := io.ReadAll(resp.Body)
 	if bodyErr != nil {
 		logger.Error(bodyErr, "failed to read response body")
-		return nil, "", bodyErr
+		return nil, ""
 	}
 
 	model := &NimModel{}
 	if err := json.Unmarshal(body, model); err != nil {
 		logger.Error(err, "failed to deserialize body")
-		return nil, "", err
+		return nil, ""
 	}
-	return model, string(body), nil
+	return model, string(body)
 }
 
 func handleRequest(logger logr.Logger, req *http.Request) (*http.Response, error) {
