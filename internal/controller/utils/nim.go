@@ -331,6 +331,7 @@ func handleRequest(logger logr.Logger, req *http.Request) (*http.Response, error
 		return nil, doErr
 	}
 
+	logger.V(1).Info(fmt.Sprintf("got api response %s", resp.Status))
 	if resp.StatusCode != http.StatusOK {
 		if resp.ContentLength > 0 {
 			body, err := io.ReadAll(resp.Body)
