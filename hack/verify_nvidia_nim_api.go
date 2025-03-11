@@ -16,12 +16,8 @@ limitations under the License.
 package main
 
 import (
-	"bytes"
-	"encoding/json"
 	"flag"
 	"fmt"
-	"os"
-	"strings"
 
 	"github.com/opendatahub-io/odh-model-controller/internal/controller/utils"
 	"sigs.k8s.io/controller-runtime/pkg/log/zap"
@@ -40,56 +36,32 @@ import (
 //  3. Fetch model info for all the available runtimes using the API Key to request the required NGC model
 //     registry token.
 //
-// ** add -verbose to the script name to print the runtime images and models (it's a lot of data).
+// ** add -debug for debug logs.
 func main() {
-	verbose := flag.Bool("verbose", false, "verbose")
-	logger := zap.New()
-
+	debug := flag.Bool("debug", false, "debug")
 	flag.Parse()
+
 	if len(flag.Args()) < 1 {
 		panic("Please provide the API Key as the first positional argument")
 	}
 	apiKey := flag.Arg(0)
 
+	logger := zap.New(zap.UseDevMode(*debug))
+
 	runtimes, rErr := utils.GetAvailableNimRuntimes(logger)
 	if rErr != nil {
 		panic(rErr)
 	}
-	fmt.Printf("Got %d available runtimes successfully\n", len(runtimes))
-
-	if *verbose {
-		for _, runtime := range runtimes {
-			j, jErr := json.MarshalIndent(runtime, "", "  ")
-			if jErr != nil {
-				panic(jErr)
-			}
-			fmt.Println(string(j))
-		}
-	}
+	logger.Info(fmt.Sprintf("Got %d available runtimes successfully", len(runtimes)))
 
 	if vErr := utils.ValidateApiKey(logger, apiKey, runtimes); vErr != nil {
 		panic(vErr)
 	}
-	fmt.Println("API Key validated successfully")
+	logger.Info("API Key validated successfully")
 
 	models, dErr := utils.GetNimModelData(logger, apiKey, runtimes)
 	if dErr != nil {
 		panic(dErr)
 	}
-	fmt.Printf("Got %d models info successfully\n", len(models))
-
-	if *verbose {
-		for k, v := range models {
-			var model bytes.Buffer
-			if jErr := json.Indent(&model, []byte(v), "", "  "); jErr != nil {
-				panic(jErr)
-			}
-			fmt.Println(k)
-			fmt.Println(strings.Repeat("*", len(k)))
-			if _, wErr := model.WriteTo(os.Stdout); wErr != nil {
-				panic(wErr)
-			}
-			fmt.Println()
-		}
-	}
+	logger.Info(fmt.Sprintf("Got %d models info successfully", len(models)))
 }
