@@ -1,5 +1,5 @@
 {
-  "resultTotal": 2,
+  "resultTotal": 3,
   "resultPageTotal": 2,
   "params": {
     "orderBy": [
@@ -17,7 +17,7 @@
       "description"
     ],
     "scoredSize": 1,
-    "pageSize": 1,
+    "pageSize": 2,
     "fields": [
       "weight_popular",
       "ace_name",
@@ -150,7 +150,7 @@
       ]
     },
     {
-      "totalCount": 2,
+      "totalCount": 3,
       "groupValue": "CONTAINER",
       "resources": [
         {
@@ -229,6 +229,88 @@
             {
               "key": "logo",
               "value": "https://assets.ngc.nvidia.com/products/api-catalog/images/phi-3-mini-4k-instruct.jpg"
+            }
+          ]
+        },
+        {
+          "orgName": "nim",
+          "resourceId": "nim/nvidia/nemotron-4-340b-instruct",
+          "labels": [
+            {
+              "values": [
+                "NVIDIA AI Enterprise Supported",
+                "NIM",
+                "NSPECT-0BKP-31SV",
+                "Nemotron-4-340B-Instruct",
+                "NVIDIA NIM"
+              ],
+              "key": "general"
+            },
+            {
+              "values": [
+                "signed images"
+              ],
+              "key": "system"
+            },
+            {
+              "values": [
+                "true"
+              ],
+              "key": "hasSignedTag"
+            },
+            {
+              "values": [
+                "NVIDIA"
+              ],
+              "key": "publisher"
+            },
+            {
+              "values": [
+                "nim-dev",
+                "nv-ai-enterprise"
+              ],
+              "key": "productNames"
+            }
+          ],
+          "sharedWithTeams": [
+            "nim/nvidia"
+          ],
+          "teamName": "nvidia",
+          "msgTimestamp": 1724956384091,
+          "dateModified": "2024-08-29T18:33:02.979Z",
+          "sharedWithOrgs": [],
+          "description": "NVIDIA NIM for GPU accelerated Nemotron-4-340B-Instruct inference through OpenAI compatible APIs",
+          "accessType": "LISTED",
+          "dateCreated": "2024-08-28T22:50:58.702Z",
+          "weightPopular": 3275.6,
+          "createdBy": "ump9hejl7s8kt8foag1jokg1ia",
+          "displayName": "nemotron-4-340b-instruct",
+          "name": "nemotron-4-340b-instruct",
+          "resourceType": "CONTAINER",
+          "attributes": [
+            {
+              "key": "latestTag",
+              "value": "1.1.2"
+            },
+            {
+              "key": "size",
+              "value": "6729257602"
+            },
+            {
+              "key": "hasSignedTag",
+              "value": "true"
+            },
+            {
+              "key": "oneClickDeploy",
+              "value": "false"
+            },
+            {
+              "key": "latestTagPushedDate",
+              "value": "2024-08-29T18:32:52.864Z"
+            },
+            {
+              "key": "logo",
+              "value": "https://assets.ngc.nvidia.com/products/api-catalog/images/nemotron-4-340b-instruct.jpg"
             }
           ]
         }

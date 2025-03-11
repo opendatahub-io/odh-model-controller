@@ -119,18 +119,27 @@ func GetAvailableNimRuntimes(logger logr.Logger) ([]NimRuntime, error) {
 }
 
 // ValidateApiKey is used for validating the given API key by retrieving the token and pulling the given custom runtime
-func ValidateApiKey(logger logr.Logger, apiKey string, runtime NimRuntime) error {
-	tokenResp, tokenErr := getRuntimeRegistryToken(logger, apiKey, runtime.Resource)
-	if tokenErr != nil {
-		return tokenErr
-	}
+func ValidateApiKey(logger logr.Logger, apiKey string, runtimes []NimRuntime) error {
+	for _, runtime := range runtimes {
+		tokenResp, tokenErr := getRuntimeRegistryToken(logger, apiKey, runtime.Resource)
+		if tokenErr != nil {
+			return tokenErr
+		}
 
-	manifestErr := attemptToPullManifest(logger, runtime, tokenResp)
-	if manifestErr != nil {
-		return manifestErr
-	}
+		manifestResp, manifestErr := attemptToPullManifest(logger, runtime, tokenResp)
+		if manifestErr != nil {
+			return manifestErr
+		}
 
-	return nil
+		switch manifestResp.StatusCode {
+		case http.StatusUnavailableForLegalReasons:
+			continue
+		case http.StatusOK:
+			return nil
+		}
+		break
+	}
+	return fmt.Errorf("failed to validate api key")
 }
 
 // GetNimModelData is used for fetching the model info for the given runtimes, returns configmap data
@@ -141,20 +150,15 @@ func GetNimModelData(logger logr.Logger, apiKey string, runtimes []NimRuntime) (
 		return data, tokenErr
 	}
 
-	var modelErr error
 	for _, runtime := range runtimes {
-		model, unmarshaled, err := getModelData(logger, runtime, tokenResp)
-		if err != nil {
-			modelErr = err
-			break
+		if model, unmarshaled := getModelData(logger, runtime, tokenResp); model != nil {
+			data[model.Name] = unmarshaled
 		}
-		data[model.Name] = unmarshaled
 	}
 
-	if modelErr != nil {
-		return nil, modelErr
+	if len(data) < 1 {
+		return nil, fmt.Errorf("no models found")
 	}
-
 	return data, nil
 }
 
@@ -172,11 +176,10 @@ func getNimRuntimes(logger logr.Logger, runtimes []NimRuntime, page, pageSize in
 
 	req.URL.RawQuery = query.Encode()
 
-	resp, respErr := NimHttpClient.Do(req)
+	resp, respErr := handleRequest(logger, req)
 	if respErr != nil {
 		return runtimes, respErr
 	}
-	logApiResponse(logger, req, resp)
 
 	body, bodyErr := io.ReadAll(resp.Body)
 	if bodyErr != nil {
@@ -194,22 +197,6 @@ func getNimRuntimes(logger logr.Logger, runtimes []NimRuntime, page, pageSize in
 	}
 
 	return runtimes, nil
-}
-
-func logApiResponse(logger logr.Logger, req *http.Request, resp *http.Response) {
-	logger.V(1).Info(fmt.Sprintf("sending api request %s", req.URL))
-
-	logger.V(1).Info(fmt.Sprintf("got api response %s", resp.Status))
-	if resp.StatusCode != http.StatusOK {
-		if resp.ContentLength > 0 {
-			body, err := io.ReadAll(resp.Body)
-			if err != nil {
-				logger.V(1).Error(err, "failed to parse body")
-			} else {
-				logger.V(1).Info(fmt.Sprintf("got body %s", string(body)))
-			}
-		}
-	}
 }
 
 // mapNimCatalogResponseToRuntimeList is used for parsing the ngc catalog response to a list of available runtimes
@@ -265,11 +252,10 @@ func getNgcToken(logger logr.Logger, apiKey string) (*NimTokenResponse, error) {
 
 // requestToken is used for sending a token requests and parse the response
 func requestToken(logger logr.Logger, req *http.Request) (*NimTokenResponse, error) {
-	resp, respErr := NimHttpClient.Do(req)
+	resp, respErr := handleRequest(logger, req)
 	if respErr != nil {
 		return nil, respErr
 	}
-	logApiResponse(logger, req, resp)
 
 	body, bodyErr := io.ReadAll(resp.Body)
 	if bodyErr != nil {
@@ -285,54 +271,78 @@ func requestToken(logger logr.Logger, req *http.Request) (*NimTokenResponse, err
 }
 
 // attemptToPullManifest is used for pulling a runtime for verifying access
-func attemptToPullManifest(logger logr.Logger, runtime NimRuntime, tokenResp *NimTokenResponse) error {
+func attemptToPullManifest(logger logr.Logger, runtime NimRuntime, tokenResp *NimTokenResponse) (*http.Response, error) {
 	req, reqErr := http.NewRequest("GET", fmt.Sprintf(nimGetRuntimeManifestFmt, runtime.Resource, runtime.Version), nil)
 	if reqErr != nil {
-		return reqErr
+		return nil, reqErr
 	}
 
 	req.Header.Add("Authorization", fmt.Sprintf("Bearer %s", tokenResp.Token))
 	req.Header.Add("Accept", "application/vnd.oci.image.index.v1+json")
 
-	resp, respErr := NimHttpClient.Do(req)
-	if respErr != nil {
-		return respErr
-	}
-	logApiResponse(logger, req, resp)
-
-	if resp.StatusCode != http.StatusOK {
-		return fmt.Errorf("failed to pull manifest")
-	}
-
-	return nil
+	return handleRequest(logger, req)
 }
 
 // getModelData is used for fetching NIM model data for the given runtime
-func getModelData(logger logr.Logger, runtime NimRuntime, tokenResp *NimTokenResponse) (*NimModel, string, error) {
+func getModelData(logger logr.Logger, runtime NimRuntime, tokenResp *NimTokenResponse) (*NimModel, string) {
 	req, reqErr := http.NewRequest("GET", fmt.Sprintf(nimGetNgcModelDataFmt, runtime.Org, runtime.Team, runtime.Image), nil)
 	if reqErr != nil {
-		return nil, "", reqErr
+		logger.Error(reqErr, "failed to construct request")
+		return nil, ""
 	}
 
 	req.Header.Add("Authorization", fmt.Sprintf("Bearer %s", tokenResp.Token))
 
-	resp, respErr := NimHttpClient.Do(req)
+	resp, respErr := handleRequest(logger, req)
 	if respErr != nil {
-		return nil, "", respErr
+		return nil, ""
 	}
-	logApiResponse(logger, req, resp)
+
+	if resp.StatusCode != http.StatusOK {
+		sErr := fmt.Errorf("got response %s", resp.Status)
+		if resp.StatusCode == http.StatusUnavailableForLegalReasons {
+			logger.Info("content not available for legal reasons")
+		} else {
+			logger.Error(sErr, "unexpected response status code")
+		}
+		return nil, ""
+	}
 
 	body, bodyErr := io.ReadAll(resp.Body)
 	if bodyErr != nil {
-		return nil, "", bodyErr
+		logger.Error(bodyErr, "failed to read response body")
+		return nil, ""
 	}
 
 	model := &NimModel{}
 	if err := json.Unmarshal(body, model); err != nil {
-		return nil, "", err
+		logger.Error(err, "failed to deserialize body")
+		return nil, ""
+	}
+	return model, string(body)
+}
+
+func handleRequest(logger logr.Logger, req *http.Request) (*http.Response, error) {
+	logger.V(1).Info(fmt.Sprintf("sending api request %s", req.URL))
+
+	resp, doErr := NimHttpClient.Do(req)
+	if doErr != nil {
+		logger.Error(doErr, "failed to send request")
+		return nil, doErr
 	}
 
-	return model, string(body), nil
+	logger.V(1).Info(fmt.Sprintf("got api response %s", resp.Status))
+	if resp.StatusCode != http.StatusOK {
+		if resp.ContentLength > 0 {
+			body, err := io.ReadAll(resp.Body)
+			if err != nil {
+				logger.V(1).Error(err, "failed to parse body")
+			} else {
+				logger.V(1).Info(fmt.Sprintf("got body %s", string(body)))
+			}
+		}
+	}
+	return resp, nil
 }
 
 // GetNimServingRuntimeTemplate returns the Template used by ODH for creating serving runtimes
