@@ -1,7 +1,9 @@
 # odh-model-controller
+
 // TODO(user): Add simple overview of use/purpose
 
 ## Description
+
 The controller will watch the Predictor custom resource events to
 extend the KServe modelmesh-serving controller behavior with the following
 capabilities:
@@ -14,12 +16,18 @@ It has been developed using **Golang** and
 ## Getting Started
 
 ### Prerequisites
+
 - go version v1.22.0+
 - podman version v5.2+.
 - kubectl version v1.11.3+.
 - Access to a Kubernetes v1.11.3+ cluster.
 
+## Develop/Debug using devspace
+
+[Devspace instructions](./dev_tools/README.md)
+
 ### To Deploy on the cluster
+
 **Build and push your image to the location specified by `IMG`:**
 
 ```sh
@@ -43,7 +51,7 @@ make deploy IMG=<some-registry>/odh-model-controller:tag
 ```
 
 > **NOTE**: If you encounter RBAC errors, you may need to grant yourself cluster-admin
-privileges or be logged in as admin.
+> privileges or be logged in as admin.
 
 **Create instances of your solution**
 You can apply the samples (examples) from the config/sample:
@@ -52,9 +60,10 @@ You can apply the samples (examples) from the config/sample:
 kubectl apply -k config/samples/
 ```
 
->**NOTE**: Ensure that the samples has default values to test it out.
+> **NOTE**: Ensure that the samples has default values to test it out.
 
 ### To Uninstall
+
 **Delete the instances (CRs) from the cluster:**
 
 ```sh
@@ -97,6 +106,7 @@ kubectl apply -f https://raw.githubusercontent.com/<org>/odh-model-controller/<t
 ```
 
 ## Contributing
+
 // TODO(user): Add detailed information on how you would like others to contribute to this project
 
 **NOTE:** Run `make help` for more information on all potential `make` targets
