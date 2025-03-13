@@ -37,8 +37,13 @@ import (
 //     registry token.
 //
 // ** add -debug for debug logs.
+// ** add -model to run the script for a specific model, i.e. -model codellama-70b-instruct
+//
+//	if no model is specified, validation is performed for the first model in the list and metadata scrapping for all.
+//	if the models specified doesn't exist, we panic.
 func main() {
 	debug := flag.Bool("debug", false, "debug")
+	model := flag.String("model", "", "model name")
 	flag.Parse()
 
 	if len(flag.Args()) < 1 {
@@ -54,12 +59,31 @@ func main() {
 	}
 	logger.Info(fmt.Sprintf("Got %d available runtimes successfully", len(runtimes)))
 
-	if vErr := utils.ValidateApiKey(logger, apiKey, runtimes); vErr != nil {
+	var targetRts []utils.NimRuntime
+
+	if *model == "" {
+		// no model specified, use first runtime for validation and all runtimes for metadata scrapping
+		targetRts = runtimes
+	} else {
+		// model specified, fetch it from the runtime list and only use it for validation and metadata scraping
+		for _, rt := range runtimes {
+			if rt.Image == *model {
+				targetRts = []utils.NimRuntime{rt}
+				break
+			}
+		}
+		// model specified, but not found
+		if len(targetRts) == 0 {
+			panic(fmt.Sprintf("model %s not found", *model))
+		}
+	}
+
+	if vErr := utils.ValidateApiKey(logger, apiKey, targetRts); vErr != nil {
 		panic(vErr)
 	}
 	logger.Info("API Key validated successfully")
 
-	models, dErr := utils.GetNimModelData(logger, apiKey, runtimes)
+	models, dErr := utils.GetNimModelData(logger, apiKey, targetRts)
 	if dErr != nil {
 		panic(dErr)
 	}
