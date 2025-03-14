@@ -37,13 +37,15 @@ import (
 //     registry token.
 //
 // ** add -debug for debug logs.
-// ** add -model to run the script for a specific model, i.e. -model codellama-70b-instruct
+// ** add -model to run the script for a specific model, i.e. -model codellama-70b-instruct (ignored for validate-all)
+// ** add -validate-all to run validation for all models (only validation, no metadata scraping)
 //
 //	if no model is specified, validation is performed for the first model in the list and metadata scrapping for all.
 //	if the models specified doesn't exist, we panic.
 func main() {
 	debug := flag.Bool("debug", false, "debug")
 	model := flag.String("model", "", "model name")
+	vall := flag.Bool("validate-all", false, "validate all")
 	flag.Parse()
 
 	if len(flag.Args()) < 1 {
@@ -59,33 +61,48 @@ func main() {
 	}
 	logger.Info(fmt.Sprintf("Got %d available runtimes successfully", len(runtimes)))
 
-	var targetRts []utils.NimRuntime
-
-	if *model == "" {
-		// no model specified, use first runtime for validation and all runtimes for metadata scrapping
-		targetRts = runtimes
-	} else {
-		// model specified, fetch it from the runtime list and only use it for validation and metadata scraping
+	if *vall {
+		// validate for all models, no metadata scraping
 		for _, rt := range runtimes {
-			if rt.Image == *model {
-				targetRts = []utils.NimRuntime{rt}
-				break
+			if vErr := utils.ValidateApiKey(logger, apiKey, []utils.NimRuntime{rt}); vErr != nil {
+				logger.Error(vErr, fmt.Sprintf("API Key validation failed for %s", rt.Resource))
 			}
+			logger.Info(fmt.Sprintf("API Key validated successfully for %s", rt.Resource))
 		}
-		// model specified, but not found
-		if len(targetRts) == 0 {
-			panic(fmt.Sprintf("model %s not found", *model))
+
+	} else {
+		// validate with one model, either random or as specified
+		var targetRts []utils.NimRuntime
+		var msg string
+
+		if *model == "" {
+			// no model specified, use first runtime for validation and all runtimes for metadata scrapping
+			targetRts = runtimes
+			msg = "API Key validated successfully"
+		} else {
+			// model specified, fetch it from the runtime list and only use it for validation and metadata scraping
+			for _, rt := range runtimes {
+				if rt.Image == *model {
+					targetRts = []utils.NimRuntime{rt}
+					break
+				}
+			}
+			// model specified, but not found
+			if len(targetRts) == 0 {
+				panic(fmt.Sprintf("model %s not found", *model))
+			}
+			msg = fmt.Sprintf("API Key validated successfully for %s", targetRts[0].Resource)
 		}
-	}
 
-	if vErr := utils.ValidateApiKey(logger, apiKey, targetRts); vErr != nil {
-		panic(vErr)
-	}
-	logger.Info("API Key validated successfully")
+		if vErr := utils.ValidateApiKey(logger, apiKey, targetRts); vErr != nil {
+			panic(vErr)
+		}
+		logger.Info(msg)
 
-	models, dErr := utils.GetNimModelData(logger, apiKey, targetRts)
-	if dErr != nil {
-		panic(dErr)
+		models, dErr := utils.GetNimModelData(logger, apiKey, targetRts)
+		if dErr != nil {
+			panic(dErr)
+		}
+		logger.Info(fmt.Sprintf("Got %d models info successfully", len(models)))
 	}
-	logger.Info(fmt.Sprintf("Got %d models info successfully", len(models)))
 }
