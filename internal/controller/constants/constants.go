@@ -118,4 +118,8 @@ const (
 	RayCASecretName                  = "ray-ca-tls"
 	RayTLSSecretName                 = "ray-tls"
 	RayTLSGeneratorInitContainerName = "ray-tls-generator"
+	RayTLSVolumeName                 = "ray-tls"
+	RayTLSSecretVolumeName           = "ray-tls-secret"
+	RayTLSVolumeMountPath            = "/etc/ray/tls"
+	RayTLSSecretMountPath            = "/etc/ray-secret"
 )
