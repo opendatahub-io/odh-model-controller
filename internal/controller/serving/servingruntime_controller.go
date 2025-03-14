@@ -17,11 +17,16 @@ limitations under the License.
 package serving
 
 import (
+	"bytes"
 	"context"
+	"fmt"
+	"os"
 	"reflect"
 
-	kservev1alpha1 "github.com/kserve/kserve/pkg/apis/serving/v1alpha1"
+	"github.com/go-logr/logr"
 	servingv1alpha1 "github.com/kserve/kserve/pkg/apis/serving/v1alpha1"
+	"github.com/opendatahub-io/odh-model-controller/internal/controller/constants"
+	"github.com/opendatahub-io/odh-model-controller/internal/controller/utils"
 	corev1 "k8s.io/api/core/v1"
 	k8srbacv1 "k8s.io/api/rbac/v1"
 	apierrs "k8s.io/apimachinery/pkg/api/errors"
@@ -41,14 +46,16 @@ const (
 	// PrometheusClusterRole & MonitoringSA specified within odh-manifests
 	PrometheusClusterRole = "prometheus-ns-access"
 	MonitoringSA          = "prometheus-custom"
+	rayCaCertNameInUserNS = "ca.crt"
 )
+
+var controllerNamespace string
 
 // ServingRuntimeReconciler reconciles a ServingRuntime object. Formerly
 // known as MonitoringReconciler.
 type ServingRuntimeReconciler struct {
 	client.Client
-	Scheme       *runtime.Scheme
-	MonitoringNS string
+	Scheme *runtime.Scheme
 }
 
 // +kubebuilder:rbac:groups=serving.kserve.io,resources=servingruntimes,verbs=get;list;watch;create;update
@@ -143,14 +150,17 @@ func (r *ServingRuntimeReconciler) modelMeshEnabled(_ string, labels map[string]
 }
 
 // monitoringThisNameSpace return true if this Namespace should be monitored by monitoring stack
-func (r *ServingRuntimeReconciler) monitoringThisNameSpace(ns string, labels map[string]string) bool {
-	if ns == OpenshiftMonitoringNS || ns == r.MonitoringNS {
+func (r *ServingRuntimeReconciler) monitoringThisNameSpace(ns string, labels map[string]string, monitoringNs string) bool {
+	if monitoringNs == "" {
+		return false
+	}
+	if ns == OpenshiftMonitoringNS || ns == monitoringNs {
 		return true
 	}
 	return r.modelMeshEnabled(ns, labels)
 }
 
-func (r *ServingRuntimeReconciler) reconcileRoleBinding(ctx context.Context, req ctrl.Request) error {
+func (r *ServingRuntimeReconciler) reconcileRoleBinding(ctx context.Context, req ctrl.Request, monitoringNs string) error {
 	logger := log.FromContext(ctx)
 
 	ns := &corev1.Namespace{}
@@ -159,7 +169,7 @@ func (r *ServingRuntimeReconciler) reconcileRoleBinding(ctx context.Context, req
 		return err
 	}
 
-	monitoringNS := r.monitoringThisNameSpace(req.Namespace, ns.Labels)
+	monitoringNS := r.monitoringThisNameSpace(req.Namespace, ns.Labels, monitoringNs)
 
 	if !monitoringNS {
 		logger.Info("Namespace is not modelmesh enabled, or configured for monitoring, skipping.")
@@ -175,7 +185,7 @@ func (r *ServingRuntimeReconciler) reconcileRoleBinding(ctx context.Context, req
 		if err != nil {
 			return err
 		}
-		desiredRB := buildDesiredRB(req.Namespace, r.MonitoringNS)
+		desiredRB := buildDesiredRB(req.Namespace, monitoringNs)
 		err = r.createRBIfDNE(ctx, roleBindingExists, desiredRB, actualRB)
 		if err != nil {
 			return err
@@ -184,7 +194,7 @@ func (r *ServingRuntimeReconciler) reconcileRoleBinding(ctx context.Context, req
 	}
 
 	// Get ServingRuntimes
-	servingRuntimes := &kservev1alpha1.ServingRuntimeList{}
+	servingRuntimes := &servingv1alpha1.ServingRuntimeList{}
 	listOptions := client.ListOptions{
 		Namespace: req.Namespace,
 	}
@@ -220,7 +230,7 @@ func (r *ServingRuntimeReconciler) reconcileRoleBinding(ctx context.Context, req
 	}
 
 	// The RoleBinding we expect to exist in this NS
-	desiredRB := buildDesiredRB(req.Namespace, r.MonitoringNS)
+	desiredRB := buildDesiredRB(req.Namespace, monitoringNs)
 
 	// If it does not exist create it
 	err = r.createRBIfDNE(ctx, roleBindingExists, desiredRB, actualRB)
@@ -241,15 +251,11 @@ func (r *ServingRuntimeReconciler) reconcileRoleBinding(ctx context.Context, req
 // For more details, check Reconcile and its Result here:
 // - https://pkg.go.dev/sigs.k8s.io/controller-runtime@v0.19.1/pkg/reconcile
 func (r *ServingRuntimeReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
-	_ = log.FromContext(ctx)
 	// Initialize logger format
-	logger := log.FromContext(ctx).WithValues("ResourceName", req.Name, "Namespace", req.Namespace)
-	ctx = log.IntoContext(ctx, logger)
-	if r.MonitoringNS == "" {
-		logger.Info("No monitoring namespace detected, skipping monitoring reconciliation.")
-		return ctrl.Result{}, nil
-	}
+	logger := log.Log.WithValues("ResourceName", req.Name, "Namespace", req.Namespace)
 
+	controllerNamespace = os.Getenv("POD_NAMESPACE")
+	monitoringNs := os.Getenv("MONITORING_NAMESPACE")
 	ns := &corev1.Namespace{}
 	namespacedName := types.NamespacedName{
 		Name: req.Namespace,
@@ -259,13 +265,150 @@ func (r *ServingRuntimeReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 		return ctrl.Result{}, err
 	}
 
-	logger.Info("Monitoring Controller reconciling.")
-	err = r.reconcileRoleBinding(ctx, req)
-	if err != nil {
+	if monitoringNs == "" {
+		logger.Info("No monitoring namespace detected, skipping monitoring reconciliation.")
+	} else {
+		logger.Info("Monitoring Controller reconciling.")
+		err = r.reconcileRoleBinding(ctx, req, monitoringNs)
+		if err != nil {
+			return ctrl.Result{}, err
+		}
+		logger.Info("Monitoring Controller reconciled successfully.")
+	}
+
+	var servingRuntimeList servingv1alpha1.ServingRuntimeList
+	if err := r.Client.List(ctx, &servingRuntimeList, &client.ListOptions{Namespace: req.Namespace}); err != nil {
 		return ctrl.Result{}, err
 	}
-	logger.Info("Monitoring Controller reconciled successfully.")
+	multiNodeSRExistInNS := existMultiNodeServingRuntimeInNs(servingRuntimeList)
+	logger.Info("Multi Node reconciling.")
+	if err = r.reconcileMultiNodeSR(ctx, logger, req.Name, multiNodeSRExistInNS, req.Namespace); err != nil {
+		return ctrl.Result{}, err
+	}
+	logger.Info("Multi Node reconciled successfully.")
+
 	return ctrl.Result{}, nil
+}
+
+// When multi-node servingruntime is created in a namespace, ray-ca-tls secret in controller namespace and ray-tls secret in user namespace will be created.
+func (r *ServingRuntimeReconciler) reconcileMultiNodeSR(ctx context.Context, logger logr.Logger, reqName string, multiNodeSRExistInNS bool, targetNamespace string) error {
+	// recnocile Ray Ca Cert
+	createCaCertErr := utils.CreateSelfSignedCACertificate(ctx, r.Client, constants.RayCASecretName, "", controllerNamespace)
+	if createCaCertErr != nil {
+		logger.Error(createCaCertErr, "fail to create/update ray ca cert secret", "secret", constants.RayCASecretName, "namespace", controllerNamespace)
+		return createCaCertErr
+	}
+	caCertSecret := &corev1.Secret{}
+	err := r.Client.Get(ctx, types.NamespacedName{Name: constants.RayCASecretName, Namespace: controllerNamespace}, caCertSecret)
+	if err != nil {
+		logger.Error(err, "fail to get ray ca cert secret", "secret", constants.RayCASecretName, "namespace", controllerNamespace)
+		return err
+	}
+	// reconcile a default ray tls secret
+	createServerCertErr := r.reconcileDefaultRayServerCertSecretInUserNS(ctx, logger, reqName, targetNamespace, caCertSecret, multiNodeSRExistInNS)
+	if createServerCertErr != nil {
+		return createServerCertErr
+	}
+
+	return nil
+}
+
+func (r *ServingRuntimeReconciler) reconcileDefaultRayServerCertSecretInUserNS(ctx context.Context, logger logr.Logger, reqName, targetNamespace string, caCertSecret *corev1.Secret, multiNodeSRExistInNS bool) error {
+
+	rayDefaultSecret := getDesiredRayDefaultSecret(targetNamespace, caCertSecret)
+	if targetNamespace == controllerNamespace {
+		logger.Info("ray ca tls secret modified so ray tls cert need to be updated to sync ca.crt")
+		var servingRuntimeList servingv1alpha1.ServingRuntimeList
+		if err := r.Client.List(ctx, &servingRuntimeList); err != nil {
+			return err
+		}
+		for _, sr := range servingRuntimeList.Items {
+			if isMultiNodeServingRuntime(sr.Name) {
+				rayDefaultSecret.SetNamespace(sr.Namespace)
+				if err := r.Client.Update(ctx, rayDefaultSecret); err != nil {
+					if apierrs.IsNotFound(err) {
+						return nil
+					}
+					logger.Error(err, "fail to update ray tls secret", "secret", constants.RayTLSSecretName, "namespace", targetNamespace)
+					return err
+				}
+				logger.Info(fmt.Sprintf("Secret(%s) in namespace(%s) updated successfully", rayDefaultSecret.Name, sr.Namespace))
+			}
+		}
+	}
+
+	if multiNodeSRExistInNS {
+		// it creates a ray tls secret with ca cert in the user namespace where multinode runtime created.
+		defaultCertSecret := &corev1.Secret{}
+		if err := r.Client.Get(ctx, types.NamespacedName{Name: constants.RayTLSSecretName, Namespace: targetNamespace}, defaultCertSecret); err != nil {
+			if apierrs.IsNotFound(err) {
+				if err := r.Client.Create(ctx, rayDefaultSecret); err != nil {
+					logger.Error(err, "fail to create ray tls secret", "secret", constants.RayTLSSecretName, "namespace", targetNamespace)
+					return err
+				}
+			} else {
+				logger.Error(err, "fail to get ray tls secret", "secret", constants.RayTLSSecretName, "namespace", targetNamespace)
+				return err
+			}
+		} else {
+			// If the ca secret is updated, it updates the ca cert in default ray tls secret in the user namespace
+			if !bytes.Equal(caCertSecret.Data[corev1.TLSCertKey], defaultCertSecret.Data[rayCaCertNameInUserNS]) {
+				updatedDefaultCertSecret := defaultCertSecret.DeepCopy()
+				updatedDefaultCertSecret.Data[rayCaCertNameInUserNS] = caCertSecret.Data[corev1.TLSCertKey]
+				if err := r.Client.Update(ctx, updatedDefaultCertSecret); err != nil {
+					logger.Error(err, "fail to update ray tls secret", "secret", constants.RayTLSSecretName, "namespace", targetNamespace)
+					return err
+				}
+			}
+		}
+	} else {
+		if !utils.IsRayTLSSecret(reqName) {
+			if err := r.Client.Delete(ctx, rayDefaultSecret); err != nil {
+				if apierrs.IsNotFound(err) {
+					return nil
+				}
+				logger.Error(err, "fail to delete ray tls secret", "secret", constants.RayTLSSecretName, "namespace", targetNamespace)
+				return err
+			}
+		}
+	}
+
+	return nil
+}
+
+func getDesiredRayDefaultSecret(namespace string, caSecret *corev1.Secret) *corev1.Secret {
+	return &corev1.Secret{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      constants.RayTLSSecretName,
+			Namespace: namespace,
+			Labels: map[string]string{
+				"opendatahub.io/managed":       "true",
+				"app.kubernetes.io/name":       "self-signed-ray-cert",
+				"app.kubernetes.io/component":  "odh-model-serving",
+				"app.kubernetes.io/part-of":    "kserve",
+				"app.kubernetes.io/managed-by": "odh-model-controller",
+			},
+		},
+		Data: map[string][]byte{
+			rayCaCertNameInUserNS: caSecret.Data[corev1.TLSCertKey],
+		},
+		Type: corev1.SecretTypeOpaque,
+	}
+}
+
+func existMultiNodeServingRuntimeInNs(srList servingv1alpha1.ServingRuntimeList) bool {
+	existMultiNodeServingRuntime := false
+	for _, sr := range srList.Items {
+		existMultiNodeServingRuntime = isMultiNodeServingRuntime(sr.Name)
+	}
+	return existMultiNodeServingRuntime
+}
+
+// Determine if ServingRuntime matches specific conditions
+// TO-DO upstream Kserve 0.15 will have a new API WorkerSpec
+// So for now, it will check servingRuntime name, but after we move to 0.15, it needs to check workerSpec is specified or not.(RHOAIENG-16147)
+func isMultiNodeServingRuntime(srName string) bool {
+	return srName == "vllm-multinode-runtime"
 }
 
 // SetupWithManager sets up the controller with the Manager.
@@ -273,10 +416,27 @@ func (r *ServingRuntimeReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	return ctrl.NewControllerManagedBy(mgr).
 		For(&servingv1alpha1.ServingRuntime{}).
 		Named("servingruntime").
+		Owns(&k8srbacv1.RoleBinding{}).
+		Watches(
+			&corev1.Secret{},
+			handler.EnqueueRequestsFromMapFunc(func(ctx context.Context, o client.Object) []reconcile.Request {
+				if !utils.IsRayTLSSecret(o.GetName()) {
+					return []reconcile.Request{}
+				}
+
+				return []reconcile.Request{
+					{NamespacedName: client.ObjectKey{
+						Name:      o.GetName(),
+						Namespace: o.GetNamespace(),
+					}},
+				}
+			}),
+		).
 		// Watch for changes to ModelMesh Enabled namespaces & a select few others
 		Watches(&corev1.Namespace{},
 			handler.EnqueueRequestsFromMapFunc(func(ctx context.Context, o client.Object) []reconcile.Request {
-				if !r.monitoringThisNameSpace(o.GetName(), o.GetLabels()) {
+				monitoringNs := os.Getenv("MONITORING_NAMESPACE")
+				if !r.monitoringThisNameSpace(o.GetName(), o.GetLabels(), monitoringNs) {
 					return []reconcile.Request{}
 				}
 
@@ -291,12 +451,7 @@ func (r *ServingRuntimeReconciler) SetupWithManager(mgr ctrl.Manager) error {
 		Watches(&k8srbacv1.RoleBinding{},
 			handler.EnqueueRequestsFromMapFunc(func(ctx context.Context, o client.Object) []reconcile.Request {
 				logger := log.FromContext(ctx)
-				// Only reconcile on RoleBindings that this controller creates.
-				// We avoid using owner references, as there is no logical owner
-				// of the RoleBinding this controller creates.
-				if o.GetName() != RoleBindingName {
-					return []reconcile.Request{}
-				}
+
 				_, odhManaged := o.GetLabels()["opendatahub.io/managed"]
 				if !odhManaged {
 					return []reconcile.Request{}
@@ -309,7 +464,6 @@ func (r *ServingRuntimeReconciler) SetupWithManager(mgr ctrl.Manager) error {
 				}
 
 				reconcileRequests := append([]reconcile.Request{}, reconcile.Request{NamespacedName: namespacedName})
-
 				return reconcileRequests
 			})).
 		Complete(r)
