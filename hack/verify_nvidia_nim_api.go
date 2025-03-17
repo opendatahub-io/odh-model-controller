@@ -24,6 +24,7 @@ import (
 	"strings"
 
 	"github.com/opendatahub-io/odh-model-controller/internal/controller/utils"
+	"sigs.k8s.io/controller-runtime/pkg/log/zap"
 )
 
 // Use this script for validating NVIDIA API access used by the NIM Account Controller.
@@ -42,6 +43,7 @@ import (
 // ** add -verbose to the script name to print the runtime images and models (it's a lot of data).
 func main() {
 	verbose := flag.Bool("verbose", false, "verbose")
+	logger := zap.New()
 
 	flag.Parse()
 	if len(flag.Args()) < 1 {
@@ -49,7 +51,7 @@ func main() {
 	}
 	apiKey := flag.Arg(0)
 
-	runtimes, rErr := utils.GetAvailableNimRuntimes()
+	runtimes, rErr := utils.GetAvailableNimRuntimes(logger)
 	if rErr != nil {
 		panic(rErr)
 	}
@@ -65,12 +67,12 @@ func main() {
 		}
 	}
 
-	if vErr := utils.ValidateApiKey(apiKey, runtimes[0]); vErr != nil {
+	if vErr := utils.ValidateApiKey(logger, apiKey, runtimes); vErr != nil {
 		panic(vErr)
 	}
 	fmt.Println("API Key validated successfully")
 
-	models, dErr := utils.GetNimModelData(apiKey, runtimes)
+	models, dErr := utils.GetNimModelData(logger, apiKey, runtimes)
 	if dErr != nil {
 		panic(dErr)
 	}
@@ -90,5 +92,4 @@ func main() {
 			fmt.Println()
 		}
 	}
-
 }

@@ -30,8 +30,8 @@ const (
 	KserveNetworkVisibility          = "networking.kserve.io/visibility"
 	KserveGroupAnnotation            = "serving.kserve.io/inferenceservice"
 
+	EnableAuthODHAnnotation   = "security.opendatahub.io/enable-auth"
 	LabelAuthGroup            = "security.opendatahub.io/authorization-group"
-	LabelEnableAuthODH        = "security.opendatahub.io/enable-auth"
 	LabelEnableAuth           = "enable-auth"
 	LabelEnableRoute          = "enable-route"
 	LabelEnableKserveRawRoute = "exposed"
@@ -66,6 +66,7 @@ const (
 	ModelRegistryModelVersionIdLabel     = "modelregistry.opendatahub.io/model-version-id"
 	ModelRegistryRegisteredModelIdLabel  = "modelregistry.opendatahub.io/registered-model-id"
 	ModelRegistryFinalizer               = "modelregistry.opendatahub.io/finalizer"
+	ModelRegistryServiceAnnotation       = "routing.opendatahub.io/external-address-rest"
 )
 
 const (
@@ -117,4 +118,8 @@ const (
 	RayCASecretName                  = "ray-ca-tls"
 	RayTLSSecretName                 = "ray-tls"
 	RayTLSGeneratorInitContainerName = "ray-tls-generator"
+	RayTLSVolumeName                 = "ray-tls"
+	RayTLSSecretVolumeName           = "ray-tls-secret"
+	RayTLSVolumeMountPath            = "/etc/ray/tls"
+	RayTLSSecretMountPath            = "/etc/ray-secret"
 )

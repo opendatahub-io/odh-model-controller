@@ -1,0 +1,18 @@
+apiVersion: v1
+data:
+  caikit-standalone-image: quay.io/opendatahub/caikit-nlp:fast
+  caikit-tgis-image: quay.io/opendatahub/caikit-tgis-serving:fast
+  kserve-state: managed
+  modelmeshserving-state: managed
+  nim-state: managed
+  odh-model-controller: quay.io/opendatahub/odh-model-controller:fast
+  ovms-image: quay.io/opendatahub/openvino_model_server:2024.5-release
+  tgis-image: quay.io/opendatahub/text-generation-inference:fast
+  vllm-gaudi-image: quay.io/opendatahub/vllm:fast-gaudi
+  vllm-image: quay.io/opendatahub/vllm:fast
+  vllm-rocm-image: quay.io/opendatahub/vllm:fast-rocm
+  ray-tls-generator-image: registry.redhat.io/ubi8/ubi-minimal:latest
+kind: ConfigMap
+metadata:
+  name: odh-model-controller-parameters
+  namespace: default
