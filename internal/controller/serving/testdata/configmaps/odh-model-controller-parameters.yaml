@@ -9,7 +9,7 @@ data:
   ovms-image: quay.io/opendatahub/openvino_model_server:2024.5-release
   tgis-image: quay.io/opendatahub/text-generation-inference:fast
   vllm-gaudi-image: quay.io/opendatahub/vllm:fast-gaudi
-  vllm-image: quay.io/opendatahub/vllm:fast
+  vllm-cuda-image: quay.io/opendatahub/vllm:fast
   vllm-rocm-image: quay.io/opendatahub/vllm:fast-rocm
   ray-tls-generator-image: registry.redhat.io/ubi8/ubi-minimal:latest
 kind: ConfigMap

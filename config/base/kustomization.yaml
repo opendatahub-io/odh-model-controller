@@ -78,11 +78,11 @@ replacements:
       kind: ConfigMap
       version: v1
       name: odh-model-controller-parameters
-      fieldPath: data.vllm-image
+      fieldPath: data.vllm-cuda-image
     targets:
       - select:
           kind: Template
-          name: vllm-runtime-template
+          name: vllm-cuda-runtime-template
         fieldPaths:
           - objects.0.spec.containers.0.image
       - select:
