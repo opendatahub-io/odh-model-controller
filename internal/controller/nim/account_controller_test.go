@@ -80,7 +80,7 @@ var _ = Describe("NIM Account Controller Test Cases", func() {
 		Expect(pullSecretSubject.Name).To(HavePrefix(account.Name + "-"))
 		Expect(pullSecret.OwnerReferences[0]).To(Equal(expectedOwner))
 
-		By("Verify models info")
+		By("Verify only two models (the nemotron model fetch is not stubbed)")
 		Expect(dataCmap.Data).To(HaveLen(2))
 
 		By("Cleanups")
