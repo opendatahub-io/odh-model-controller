@@ -125,7 +125,7 @@ var _ = Describe("InferenceGraph Controller", func() {
 
 		It("if auth is explicitly disabled, an anonymous AuthConfig should be created", func() {
 			inferenceGraph := buildInferenceGraph("auth-annotation-disabled")
-			inferenceGraph.Annotations[constants.LabelEnableAuthODH] = "false"
+			inferenceGraph.Annotations[constants.EnableAuthODHAnnotation] = "false"
 			createInferenceGraph(&inferenceGraph, buildInferenceGraphStatus(exampleComUrl))
 			defer func() { _ = k8sClient.Delete(ctx, &inferenceGraph) }()
 
@@ -143,7 +143,7 @@ var _ = Describe("InferenceGraph Controller", func() {
 
 		It("if auth is explicitly enabled, a user-defined AuthConfig should be created", func() {
 			inferenceGraph := buildInferenceGraph("auth-annotation-enabled")
-			inferenceGraph.Annotations[constants.LabelEnableAuthODH] = "true"
+			inferenceGraph.Annotations[constants.EnableAuthODHAnnotation] = "true"
 			createInferenceGraph(&inferenceGraph, buildInferenceGraphStatus(exampleComUrl))
 			defer func() { _ = k8sClient.Delete(ctx, &inferenceGraph) }()
 
@@ -161,7 +161,7 @@ var _ = Describe("InferenceGraph Controller", func() {
 
 		It("if auth is explicitly enabled but InferenceGraph is not ready, no AuthConfig should be created", func() {
 			inferenceGraph := buildInferenceGraph("auth-annotation-enabled-ig-not-ready")
-			inferenceGraph.Annotations[constants.LabelEnableAuthODH] = "true"
+			inferenceGraph.Annotations[constants.EnableAuthODHAnnotation] = "true"
 			createInferenceGraph(&inferenceGraph, buildInferenceGraphStatus(emptyUrl))
 			defer func() { _ = k8sClient.Delete(ctx, &inferenceGraph) }()
 
@@ -174,7 +174,7 @@ var _ = Describe("InferenceGraph Controller", func() {
 
 		It("if auth is explicitly enabled but Authorino is not configured, no AuthConfig should be created", func() {
 			inferenceGraph := buildInferenceGraph("auth-annotation-enabled-authorino-missing")
-			inferenceGraph.Annotations[constants.LabelEnableAuthODH] = "true"
+			inferenceGraph.Annotations[constants.EnableAuthODHAnnotation] = "true"
 			createInferenceGraph(&inferenceGraph, buildInferenceGraphStatus(exampleComUrl))
 			defer func() { _ = k8sClient.Delete(ctx, &inferenceGraph) }()
 
