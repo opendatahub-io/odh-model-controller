@@ -25,7 +25,7 @@ USER root
 RUN CGO_ENABLED=0 GOOS=${TARGETOS:-linux} GOARCH=${TARGETARCH:-amd64} go build -a -o manager cmd/main.go
 
 # Use distroless as minimal base image to package the manager binary
-FROM registry.access.redhat.com/ubi8/ubi-minimal:8.6
+FROM registry.access.redhat.com/ubi9/ubi-minimal:9.5
 WORKDIR /
 COPY --from=builder /workspace/manager .
 USER 65532:65532
