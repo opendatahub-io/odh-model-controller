@@ -7,7 +7,6 @@ data:
   nim-state: managed
   odh-model-controller: quay.io/opendatahub/odh-model-controller:fast
   ovms-image: quay.io/opendatahub/openvino_model_server:2024.5-release
-  tgis-image: quay.io/opendatahub/text-generation-inference:fast
   vllm-gaudi-image: quay.io/opendatahub/vllm:fast-gaudi
   vllm-cuda-image: quay.io/opendatahub/vllm:fast
   vllm-rocm-image: quay.io/opendatahub/vllm:fast-rocm
