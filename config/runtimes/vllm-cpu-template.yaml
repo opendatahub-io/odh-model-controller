@@ -10,7 +10,7 @@ metadata:
     openshift.io/provider-display-name: Red Hat, Inc.
     tags: rhods,rhoai,kserve,servingruntime
     template.openshift.io/documentation-url: https://github.com/opendatahub-io/vllm
-    template.openshift.io/long-description: This template defines resources needed to deploy vLLM ServingRuntime with KServe in Red Hat OpenShift AI (ppc64le/s390x architectures only)
+    template.openshift.io/long-description: This template defines resources needed to deploy vLLM CPU ServingRuntime with KServe in Red Hat OpenShift AI (ppc64le/s390x architectures only)
     opendatahub.io/modelServingSupport: '["single"]'
     opendatahub.io/apiProtocol: 'REST'
   name: vllm-cpu-runtime-template
