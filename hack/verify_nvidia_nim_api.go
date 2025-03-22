@@ -16,12 +16,8 @@ limitations under the License.
 package main
 
 import (
-	"bytes"
-	"encoding/json"
 	"flag"
 	"fmt"
-	"os"
-	"strings"
 
 	"github.com/opendatahub-io/odh-model-controller/internal/controller/utils"
 	"sigs.k8s.io/controller-runtime/pkg/log/zap"
@@ -40,56 +36,73 @@ import (
 //  3. Fetch model info for all the available runtimes using the API Key to request the required NGC model
 //     registry token.
 //
-// ** add -verbose to the script name to print the runtime images and models (it's a lot of data).
+// ** add -debug for debug logs.
+// ** add -model to run the script for a specific model, i.e. -model codellama-70b-instruct (ignored for validate-all)
+// ** add -validate-all to run validation for all models (only validation, no metadata scraping)
+//
+//	if no model is specified, validation is performed for the first model in the list and metadata scrapping for all.
+//	if the models specified doesn't exist, we panic.
 func main() {
-	verbose := flag.Bool("verbose", false, "verbose")
-	logger := zap.New()
-
+	debug := flag.Bool("debug", false, "debug")
+	model := flag.String("model", "", "model name")
+	vall := flag.Bool("validate-all", false, "validate all")
 	flag.Parse()
+
 	if len(flag.Args()) < 1 {
 		panic("Please provide the API Key as the first positional argument")
 	}
 	apiKey := flag.Arg(0)
 
+	logger := zap.New(zap.UseDevMode(*debug))
+
 	runtimes, rErr := utils.GetAvailableNimRuntimes(logger)
 	if rErr != nil {
 		panic(rErr)
 	}
-	fmt.Printf("Got %d available runtimes successfully\n", len(runtimes))
+	logger.Info(fmt.Sprintf("Got %d available runtimes successfully", len(runtimes)))
 
-	if *verbose {
-		for _, runtime := range runtimes {
-			j, jErr := json.MarshalIndent(runtime, "", "  ")
-			if jErr != nil {
-				panic(jErr)
+	if *vall {
+		// validate for all models, no metadata scraping
+		for _, rt := range runtimes {
+			if vErr := utils.ValidateApiKey(logger, apiKey, []utils.NimRuntime{rt}); vErr != nil {
+				logger.Error(vErr, fmt.Sprintf("API Key validation failed for %s", rt.Resource))
 			}
-			fmt.Println(string(j))
+			logger.Info(fmt.Sprintf("API Key validated successfully for %s", rt.Resource))
 		}
-	}
 
-	if vErr := utils.ValidateApiKey(logger, apiKey, runtimes); vErr != nil {
-		panic(vErr)
-	}
-	fmt.Println("API Key validated successfully")
+	} else {
+		// validate with one model, either random or as specified
+		var targetRts []utils.NimRuntime
+		var msg string
 
-	models, dErr := utils.GetNimModelData(logger, apiKey, runtimes)
-	if dErr != nil {
-		panic(dErr)
-	}
-	fmt.Printf("Got %d models info successfully\n", len(models))
-
-	if *verbose {
-		for k, v := range models {
-			var model bytes.Buffer
-			if jErr := json.Indent(&model, []byte(v), "", "  "); jErr != nil {
-				panic(jErr)
+		if *model == "" {
+			// no model specified, use first runtime for validation and all runtimes for metadata scrapping
+			targetRts = runtimes
+			msg = "API Key validated successfully"
+		} else {
+			// model specified, fetch it from the runtime list and only use it for validation and metadata scraping
+			for _, rt := range runtimes {
+				if rt.Image == *model {
+					targetRts = []utils.NimRuntime{rt}
+					break
+				}
 			}
-			fmt.Println(k)
-			fmt.Println(strings.Repeat("*", len(k)))
-			if _, wErr := model.WriteTo(os.Stdout); wErr != nil {
-				panic(wErr)
+			// model specified, but not found
+			if len(targetRts) == 0 {
+				panic(fmt.Sprintf("model %s not found", *model))
 			}
-			fmt.Println()
+			msg = fmt.Sprintf("API Key validated successfully for %s", targetRts[0].Resource)
 		}
+
+		if vErr := utils.ValidateApiKey(logger, apiKey, targetRts); vErr != nil {
+			panic(vErr)
+		}
+		logger.Info(msg)
+
+		models, dErr := utils.GetNimModelData(logger, apiKey, targetRts)
+		if dErr != nil {
+			panic(dErr)
+		}
+		logger.Info(fmt.Sprintf("Got %d models info successfully", len(models)))
 	}
 }
