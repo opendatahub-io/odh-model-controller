@@ -173,6 +173,17 @@ replacements:
       kind: ConfigMap
       version: v1
       name: odh-model-controller-parameters
+      fieldPath: data.modelregistry-state
+    targets:
+      - select:
+          kind: Deployment
+          name: odh-model-controller
+        fieldPaths:
+          - spec.template.spec.containers.[name=manager].env.[name=MODELREGISTRY_STATE].value
+  - source:
+      kind: ConfigMap
+      version: v1
+      name: odh-model-controller-parameters
       fieldPath: metadata.namespace
     targets:
       - select:

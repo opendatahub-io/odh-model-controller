@@ -106,6 +106,8 @@ spec:
             value: replace
           - name: MODELMESH_STATE
             value: replace
+          - name: MODELREGISTRY_STATE
+            value: replace
         livenessProbe:
           httpGet:
             path: /healthz
