@@ -70,9 +70,7 @@ var (
 // +kubebuilder:rbac:groups=template.openshift.io,resources=templates,verbs=get;list;watch;create;update;delete
 
 func (r *AccountReconciler) SetupWithManager(mgr ctrl.Manager, ctx context.Context) error {
-	// TODO: Copied from original main.go... Should it be FromContext?
-	logger := ctrl.Log.WithName("controllers").WithName("AccountControllerSetup")
-	log.IntoContext(ctx, logger)
+	logger := log.FromContext(ctx, "Setup", "Account Controller")
 
 	if err := mgr.GetFieldIndexer().IndexField(ctx, &v1.Account{}, apiKeySpecPath, func(obj client.Object) []string {
 		return []string{obj.(*v1.Account).Spec.APIKeySecret.Name}
