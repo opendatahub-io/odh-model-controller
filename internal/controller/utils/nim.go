@@ -63,6 +63,7 @@ type (
 					Key   string `json:"key"`
 					Value string `json:"value"`
 				} `json:"attributes"`
+				Name string `json:"name"`
 			} `json:"resources"`
 		} `json:"results"`
 	}
@@ -80,6 +81,7 @@ type (
 		Org      string
 		Team     string
 		Image    string
+		Name     string
 	}
 
 	// NimModel is a representation of NIM model info
@@ -214,6 +216,7 @@ func mapNimCatalogResponseToRuntimeList(resp *NimCatalogResponse) []NimRuntime {
 							Org:      parts[0],
 							Team:     parts[1],
 							Image:    parts[2],
+							Name:     res.Name,
 						})
 						break
 					}
