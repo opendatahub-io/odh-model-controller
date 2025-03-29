@@ -12,7 +12,7 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 )
 
-var _ = Describe("NIMCleanupRunner test cases", func() {
+var _ = Describe("NIMCleanupRunner", func() {
 
 	It("should not fail if no accounts exist", func(ctx SpecContext) {
 		By("Not creating accounts")
@@ -31,7 +31,11 @@ var _ = Describe("NIMCleanupRunner test cases", func() {
 				Name:      "my-dummy-acct-test",
 				Namespace: ns.Name,
 			},
-			Spec: v1.AccountSpec{APIKeySecret: corev1.ObjectReference{Name: "dummy-api-secret-name-acct-test"}},
+			Spec: v1.AccountSpec{
+				APIKeySecret:          corev1.ObjectReference{Name: "dummy-api-secret-name-acct-test"},
+				ValidationRefreshRate: "24h",
+				NIMConfigRefreshRate:  "24h",
+			},
 		}
 		Expect(testClient.Create(ctx, account)).To(Succeed())
 

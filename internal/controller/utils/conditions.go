@@ -31,6 +31,10 @@ const (
 	NimConditionAPIKeyValidation NimConditionType = "APIKeyValidation"
 )
 
+var NimConditions = []NimConditionType{
+	NimConditionAccountStatus, NimConditionTemplateUpdate, NimConditionSecretUpdate,
+	NimConditionConfigMapUpdate, NimConditionAPIKeyValidation}
+
 func (r NimConditionType) String() string {
 	return string(r)
 }
@@ -45,4 +49,9 @@ func MakeNimCondition(condType NimConditionType, status metav1.ConditionStatus, 
 		Reason:             reason,
 		Message:            msg,
 	}
+}
+
+// AccountFailCondition returns an AccountStatus failed condition
+func AccountFailCondition(gen int64, msg string) metav1.Condition {
+	return MakeNimCondition(NimConditionAccountStatus, metav1.ConditionFalse, gen, "AccountNotSuccessful", msg)
 }

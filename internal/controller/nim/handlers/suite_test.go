@@ -14,23 +14,24 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package nim
+package handlers
 
 import (
 	"fmt"
 	"path/filepath"
 	"runtime"
 	"testing"
-	"time"
 
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
+	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/kubernetes/scheme"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/envtest"
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
 	"sigs.k8s.io/controller-runtime/pkg/log/zap"
 
+	"github.com/opendatahub-io/odh-model-controller/internal/controller/testdata"
 	"github.com/opendatahub-io/odh-model-controller/internal/controller/utils"
 	// +kubebuilder:scaffold:imports
 )
@@ -39,11 +40,8 @@ import (
 // http://onsi.github.io/ginkgo/ to learn more about Ginkgo.
 
 var k8sClient client.Client
+var k8sClientset *kubernetes.Clientset
 var testEnv *envtest.Environment
-
-// TODO: Deduplicate
-const testTimeout = time.Second * 20
-const testInterval = time.Millisecond * 10
 
 func TestControllers(t *testing.T) {
 	RegisterFailHandler(Fail)
@@ -57,8 +55,8 @@ var _ = BeforeSuite(func() {
 	By("bootstrapping test environment")
 	testEnv = &envtest.Environment{
 		CRDDirectoryPaths: []string{
-			filepath.Join("..", "..", "..", "config", "crd", "bases"),
-			filepath.Join("..", "..", "..", "config", "crd", "external"),
+			filepath.Join("..", "..", "..", "..", "config", "crd", "bases"),
+			filepath.Join("..", "..", "..", "..", "config", "crd", "external"),
 		},
 		ErrorIfCRDPathMissing: true,
 
@@ -67,7 +65,7 @@ var _ = BeforeSuite(func() {
 		// default path defined in controller-runtime which is /usr/local/kubebuilder/.
 		// Note that you must have the required binaries setup under the bin directory to perform
 		// the tests directly. When we run make test it will be setup and used automatically.
-		BinaryAssetsDirectory: filepath.Join("..", "..", "bin", "k8s",
+		BinaryAssetsDirectory: filepath.Join("..", "..", "..", "bin", "k8s",
 			fmt.Sprintf("1.31.0-%s-%s", runtime.GOOS, runtime.GOARCH)),
 	}
 
@@ -81,8 +79,11 @@ var _ = BeforeSuite(func() {
 	Expect(err).NotTo(HaveOccurred())
 	Expect(k8sClient).NotTo(BeNil())
 
-	// test cases in this file to not require API access, blocking accidental failures by nil'ing our client.
-	utils.NimHttpClient = nil
+	k8sClientset, err = kubernetes.NewForConfig(cfg)
+	Expect(err).NotTo(HaveOccurred())
+	Expect(k8sClientset).NotTo(BeNil())
+
+	utils.NimHttpClient = &testdata.NimHttpClientMock{}
 })
 
 var _ = AfterSuite(func() {

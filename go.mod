@@ -16,7 +16,8 @@ require (
 	github.com/onsi/ginkgo v1.16.5
 	github.com/onsi/ginkgo/v2 v2.22.1
 	github.com/onsi/gomega v1.36.2
-	github.com/openshift/api v0.0.0-20240912201240-0a8800162826
+	github.com/openshift/api v0.0.0-20250102185430-d6d8306a24ec
+	github.com/openshift/client-go v0.0.0-20250102190827-c8a353937472
 	github.com/pkg/errors v0.9.1
 	github.com/prometheus-operator/prometheus-operator/pkg/apis/monitoring v0.64.1
 	github.com/stretchr/testify v1.9.0
@@ -24,10 +25,10 @@ require (
 	go.uber.org/zap v1.27.0
 	istio.io/api v1.23.0
 	istio.io/client-go v1.23.0
-	k8s.io/api v0.31.0
-	k8s.io/apimachinery v0.31.0
-	k8s.io/client-go v0.31.0
-	k8s.io/utils v0.0.0-20240821151609-f90d01438635
+	k8s.io/api v0.31.1
+	k8s.io/apimachinery v0.31.1
+	k8s.io/client-go v0.31.1
+	k8s.io/utils v0.0.0-20240921022957-49e7df575cb6
 	knative.dev/pkg v0.0.0-20240815051656-89743d9bbf7c
 	knative.dev/serving v0.42.2
 	maistra.io/api v0.0.0-20240319144440-ffa91c765143

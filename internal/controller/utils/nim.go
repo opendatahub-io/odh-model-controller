@@ -38,6 +38,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/utils/semantic"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/apiutil"
 )
@@ -111,9 +112,18 @@ const (
 )
 
 var NimHttpClient HttpClient
+var NimEqualities semantic.Equalities
 
 func init() {
 	NimHttpClient = &http.Client{Timeout: time.Second * 30}
+	NimEqualities = semantic.EqualitiesOrDie(
+		func(a, b resource.Quantity) bool {
+			return true
+		},
+		func(a, b metav1.Time) bool {
+			return a.UTC() == b.UTC()
+		},
+	)
 }
 
 // GetAvailableNimRuntimes is used for fetching a list of available NIM custom runtimes
@@ -475,7 +485,6 @@ func GetNimServingRuntimeTemplate(scheme *runtime.Scheme) (*v1alpha1.ServingRunt
 
 // CleanupResources is used for deleting the integration related resources (configmap, template, pull secret)
 func CleanupResources(ctx context.Context, account *v1.Account, kubeClient client.Client) error {
-
 	var delObjs []client.Object
 
 	if account.Status.NIMPullSecret != nil {
@@ -506,7 +515,6 @@ func CleanupResources(ctx context.Context, account *v1.Account, kubeClient clien
 	}
 
 	var deleteErrors *multierror.Error
-
 	for _, obj := range delObjs {
 		if err := kubeClient.Delete(ctx, obj); err != nil {
 			if !k8serrors.IsNotFound(err) {
@@ -515,21 +523,21 @@ func CleanupResources(ctx context.Context, account *v1.Account, kubeClient clien
 		}
 	}
 	return deleteErrors.ErrorOrNil()
-
 }
 
 // UpdateStatus is used for fetching an updating the status of the account
 func UpdateStatus(ctx context.Context, subject types.NamespacedName, status v1.AccountStatus, kubeClient client.Client) error {
-
 	account := &v1.Account{}
 	if err := kubeClient.Get(ctx, subject, account); err != nil {
 		if !k8serrors.IsNotFound(err) {
 			return err
 		}
 	} else {
-		account.Status = *status.DeepCopy()
-		if err = kubeClient.Status().Update(ctx, account); err != nil {
-			return err
+		if !NimEqualities.DeepEqual(account.Status, status) {
+			account.Status = *status.DeepCopy()
+			if err = kubeClient.Status().Update(ctx, account); err != nil {
+				return err
+			}
 		}
 	}
 	return nil
@@ -571,11 +579,15 @@ func (r *NIMCleanupRunner) Start(ctx context.Context) error {
 					"SecretNotReconciled", msg),
 			},
 		}
-		subject := types.NamespacedName{Name: account.Name, Namespace: account.Namespace}
 
-		if err := UpdateStatus(ctx, subject, cleanStatus, r.Client); err != nil {
+		if err := UpdateStatus(ctx, client.ObjectKeyFromObject(&account), cleanStatus, r.Client); err != nil {
 			r.Logger.Error(err, "failed to perform clean up on some accounts")
 		}
 	}
 	return nil
+}
+
+// ObjectKeyFromReference returns the ObjectKey given a ObjectReference
+func ObjectKeyFromReference(ref *corev1.ObjectReference) client.ObjectKey {
+	return types.NamespacedName{Name: ref.Name, Namespace: ref.Namespace}
 }

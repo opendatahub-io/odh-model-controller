@@ -13,6 +13,16 @@ type AccountSpec struct {
 	APIKeySecret corev1.ObjectReference `json:"apiKeySecret"`
 	// A reference to the ConfigMap containing the list of NIM models that are allowed to be deployed.
 	ModelListConfig *corev1.ObjectReference `json:"modelListConfig,omitempty"`
+	// Refresh Rate for validation, defaults to 24h
+	// +kubebuilder:validation:Format="duration"
+	// +kubebuilder:default:="24h"
+	// +kubebuilder:validation:Optional
+	ValidationRefreshRate string `json:"validationRefreshRate"`
+	// Refresh rate for models data, defaults to 24h
+	// +kubebuilder:validation:Format="duration"
+	// +kubebuilder:default:="24h"
+	// +kubebuilder:validation:Optional
+	NIMConfigRefreshRate string `json:"nimConfigRefreshRate"`
 }
 
 // AccountStatus defines the observed state of an Account object.
@@ -23,6 +33,12 @@ type AccountStatus struct {
 	NIMConfig *corev1.ObjectReference `json:"nimConfig,omitempty"`
 	// A reference to the Secret for pulling NIM images.
 	NIMPullSecret *corev1.ObjectReference `json:"nimPullSecret,omitempty"`
+	// The last time we validated successfully.
+	LastSuccessfulValidation *metav1.Time `json:"lastSuccessfulValidation,omitempty"`
+	// The last time we refresh the integration config successfully.
+	LastSuccessfulConfigRefresh *metav1.Time `json:"lastSuccessfulConfigRefresh,omitempty"`
+	// The last time we checked the Account, failed or successful.
+	LastAccountCheck *metav1.Time `json:"lastAccountCheck,omitempty"`
 
 	Conditions []metav1.Condition `json:"conditions,omitempty"`
 }

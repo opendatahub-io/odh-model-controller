@@ -139,6 +139,16 @@ spec:
                     type: string
                 type: object
                 x-kubernetes-map-type: atomic
+              nimConfigRefreshRate:
+                default: 24h
+                description: Refresh rate for models data, defaults to 24h
+                format: duration
+                type: string
+              validationRefreshRate:
+                default: 24h
+                description: Refresh Rate for validation, defaults to 24h
+                format: duration
+                type: string
             required:
             - apiKeySecret
             type: object
@@ -201,6 +211,18 @@ spec:
                   - type
                   type: object
                 type: array
+              lastAccountCheck:
+                description: The last time we checked the Account, failed or successful.
+                format: date-time
+                type: string
+              lastSuccessfulConfigRefresh:
+                description: The last time we refresh the integration config successfully.
+                format: date-time
+                type: string
+              lastSuccessfulValidation:
+                description: The last time we validated successfully.
+                format: date-time
+                type: string
               nimConfig:
                 description: A reference to the ConfigMap with data for NIM deployment.
                 properties:
