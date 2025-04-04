@@ -19,6 +19,7 @@ import (
 	"context"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -181,6 +182,10 @@ func getNimRuntimes(logger logr.Logger, runtimes []NimRuntime, page, pageSize in
 		return runtimes, respErr
 	}
 
+	if resp.StatusCode != http.StatusOK {
+		return runtimes, errors.New(resp.Status)
+	}
+
 	body, bodyErr := io.ReadAll(resp.Body)
 	if bodyErr != nil {
 		return runtimes, bodyErr
@@ -255,6 +260,10 @@ func requestToken(logger logr.Logger, req *http.Request) (*NimTokenResponse, err
 	resp, respErr := handleRequest(logger, req)
 	if respErr != nil {
 		return nil, respErr
+	}
+
+	if resp.StatusCode != http.StatusOK {
+		return nil, errors.New(resp.Status)
 	}
 
 	body, bodyErr := io.ReadAll(resp.Body)
