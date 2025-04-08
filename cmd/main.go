@@ -36,6 +36,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/cache"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/healthz"
+	"sigs.k8s.io/controller-runtime/pkg/log"
 	"sigs.k8s.io/controller-runtime/pkg/log/zap"
 	"sigs.k8s.io/controller-runtime/pkg/manager"
 	"sigs.k8s.io/controller-runtime/pkg/metrics/filters"
@@ -168,7 +169,7 @@ func main() {
 		os.Exit(1)
 	}
 
-	signalHandlerCtx := ctrl.SetupSignalHandler()
+	signalHandlerCtx := log.IntoContext(ctrl.SetupSignalHandler(), setupLog)
 	setupNim(mgr, signalHandlerCtx, kubeClient)
 
 	setupLog.Info("starting manager")
