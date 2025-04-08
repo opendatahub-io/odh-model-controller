@@ -174,6 +174,57 @@ var _ = Describe("NIM Account Controller Test Cases", func() {
 		Expect(k8sClient.Delete(ctx, account)).To(Succeed())
 		Expect(k8sClient.Delete(ctx, testNs)).To(Succeed())
 	})
+
+	It("Should restrict the models in the ConfigMap", func() {
+		ctx := context.TODO()
+		nameNs := "testing-nim-account-4"
+
+		By("Create testing Namespace " + nameNs)
+		testNs := &corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: nameNs}}
+		Expect(k8sClient.Create(ctx, testNs)).To(Succeed())
+
+		By("Create an Account and an API Key Secret")
+		acctSubject := types.NamespacedName{Name: nameNs, Namespace: nameNs}
+		createApiKeySecretAndAccount(acctSubject, testdata.FakeApiKey)
+
+		By("Verify successful Account")
+		account := &v1.Account{}
+		assertSuccessfulAccount(acctSubject, account).Should(Succeed())
+
+		By("Verify only two models are in the ConfigMap")
+		dataCmap := &corev1.ConfigMap{}
+		dataCmapSubject := namespacedNameFromReference(account.Status.NIMConfig)
+		Expect(k8sClient.Get(ctx, dataCmapSubject, dataCmap)).To(Succeed())
+		Expect(dataCmap.Data).To(HaveLen(2))
+
+		By("Set a model list ConfigMap")
+		cmSubject := types.NamespacedName{Name: "model-selection", Namespace: nameNs}
+		setModelListConfig(acctSubject, cmSubject)
+
+		By("Verify only one model is in the ConfigMap")
+		Eventually(func() error {
+			if err := k8sClient.Get(ctx, dataCmapSubject, dataCmap); err != nil {
+				return err
+			}
+			if len(dataCmap.Data) != 1 {
+				return fmt.Errorf("expected there is only one model in the ConfigMap, got %d", len(dataCmap.Data))
+			}
+			return nil
+		}, testTimeout, testInterval).Should(Succeed())
+
+		By("Cleanups")
+		modelSelectionConfig := &corev1.ConfigMap{}
+		Expect(k8sClient.Get(ctx, cmSubject, modelSelectionConfig)).Should(Succeed())
+
+		apiKeySecret := &corev1.Secret{}
+		apiKeySubject := namespacedNameFromReference(&account.Spec.APIKeySecret)
+		Expect(k8sClient.Get(ctx, apiKeySubject, apiKeySecret)).Should(Succeed())
+
+		Expect(k8sClient.Delete(ctx, modelSelectionConfig)).To(Succeed())
+		Expect(k8sClient.Delete(ctx, account)).To(Succeed())
+		Expect(k8sClient.Delete(ctx, apiKeySecret)).To(Succeed())
+		Expect(k8sClient.Delete(ctx, testNs)).To(Succeed())
+	})
 })
 
 func createApiKeySecretAndAccount(account types.NamespacedName, apiKey string) {
@@ -280,4 +331,40 @@ func createOwnerReference(scheme *runtime.Scheme, account *v1.Account) metav1.Ow
 
 func namespacedNameFromReference(ref *corev1.ObjectReference) types.NamespacedName {
 	return types.NamespacedName{Name: ref.Name, Namespace: ref.Namespace}
+}
+
+func setModelListConfig(accountSubject types.NamespacedName, cmSubject types.NamespacedName) {
+	modelSelectionConfig := &corev1.ConfigMap{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      cmSubject.Name,
+			Namespace: cmSubject.Namespace,
+		},
+		Data: map[string]string{
+			"models": `["phi-3-mini-4k-instruct"]`,
+		},
+	}
+	Eventually(func() error {
+		if err := k8sClient.Create(ctx, modelSelectionConfig); err != nil {
+			return err
+		}
+		if err := k8sClient.Get(ctx, cmSubject, &corev1.ConfigMap{}); err != nil {
+			return err
+		}
+		return nil
+	}, testTimeout, testInterval).Should(Succeed())
+
+	Eventually(func() error {
+		account := &v1.Account{}
+		if err := k8sClient.Get(ctx, accountSubject, account); err != nil {
+			return err
+		}
+		account.Spec.ModelListConfig = &corev1.ObjectReference{
+			Name:      cmSubject.Name,
+			Namespace: cmSubject.Namespace,
+		}
+		if err := k8sClient.Update(ctx, account); err != nil {
+			return err
+		}
+		return nil
+	}, testTimeout, testInterval).Should(Succeed())
 }

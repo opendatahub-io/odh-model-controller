@@ -20,6 +20,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"slices"
 	"strings"
 
 	templatev1 "github.com/openshift/api/template/v1"
@@ -57,7 +58,8 @@ type AccountReconciler struct {
 }
 
 const (
-	apiKeySpecPath = "spec.apiKeySecret.name"
+	apiKeySpecPath    = "spec.apiKeySecret.name"
+	modelListSpecPath = "spec.modelListConfig.name"
 )
 
 var (
@@ -70,15 +72,22 @@ var (
 // +kubebuilder:rbac:groups=template.openshift.io,resources=templates,verbs=get;list;watch;create;update;delete
 
 func (r *AccountReconciler) SetupWithManager(mgr ctrl.Manager, ctx context.Context) error {
-	// TODO: Copied from original main.go... Should it be FromContext?
-	logger := ctrl.Log.WithName("controllers").WithName("AccountControllerSetup")
-	log.IntoContext(ctx, logger)
+	logger := log.FromContext(ctx, "Setup", "Account Controller")
 
 	if err := mgr.GetFieldIndexer().IndexField(ctx, &v1.Account{}, apiKeySpecPath, func(obj client.Object) []string {
 		return []string{obj.(*v1.Account).Spec.APIKeySecret.Name}
 	}); err != nil {
-		logger.Error(err, "failed to set cache index")
-		return err
+		return fmt.Errorf("failed to set apiKey secret cache index: %w", err)
+	}
+
+	if err := mgr.GetFieldIndexer().IndexField(ctx, &v1.Account{}, modelListSpecPath, func(obj client.Object) []string {
+		var account = obj.(*v1.Account)
+		if account.Spec.ModelListConfig != nil && len(account.Spec.ModelListConfig.Name) > 0 {
+			return []string{account.Spec.ModelListConfig.Name}
+		}
+		return []string{}
+	}); err != nil {
+		return fmt.Errorf("failed to set modelList configmap cache index: %w", err)
 	}
 
 	return ctrl.NewControllerManagedBy(mgr).
@@ -92,7 +101,23 @@ func (r *AccountReconciler) SetupWithManager(mgr ctrl.Manager, ctx context.Conte
 				var requests []reconcile.Request
 				accounts := &v1.AccountList{}
 				if err := mgr.GetClient().List(ctx, accounts, client.MatchingFields{apiKeySpecPath: obj.GetName()}); err != nil {
-					logger.Error(err, "failed to fetch accounts")
+					logger.Error(err, "failed to fetch accounts from secret")
+					return requests
+				}
+				for _, item := range accounts.Items {
+					requests = append(requests, reconcile.Request{NamespacedName: types.NamespacedName{
+						Name:      item.Name,
+						Namespace: item.Namespace,
+					}})
+				}
+				return requests
+			})).
+		Watches(&corev1.ConfigMap{}, handler.EnqueueRequestsFromMapFunc(
+			func(ctx context.Context, obj client.Object) []reconcile.Request {
+				var requests []reconcile.Request
+				accounts := &v1.AccountList{}
+				if err := mgr.GetClient().List(ctx, accounts, client.MatchingFields{modelListSpecPath: obj.GetName()}); err != nil {
+					logger.Error(err, "failed to fetch accounts from configmap")
 					return requests
 				}
 				for _, item := range accounts.Items {
@@ -107,6 +132,10 @@ func (r *AccountReconciler) SetupWithManager(mgr ctrl.Manager, ctx context.Conte
 			UpdateFunc: func(e event.UpdateEvent) bool {
 				if _, isSecret := e.ObjectOld.(*corev1.Secret); isSecret {
 					return true
+				}
+				if oldConfigMap, isConfigMap := e.ObjectOld.(*corev1.ConfigMap); isConfigMap {
+					newConfigMap := e.ObjectNew.(*corev1.ConfigMap)
+					return !semantic.EqualitiesOrDie().DeepDerivative(oldConfigMap.Data, newConfigMap.Data)
 				}
 				if oldAccount, isAccount := e.ObjectOld.(*v1.Account); isAccount {
 					newAccount := e.ObjectNew.(*v1.Account)
@@ -214,6 +243,32 @@ func (r *AccountReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 	runtimesOk := "got custom runtimes"
 	logger.V(1).Info(runtimesOk)
 	meta.SetStatusCondition(&targetStatus.Conditions, makeAccountFailureCondition(account.Generation, runtimesOk))
+
+	// log the available model Ids
+	var size = len(availableRuntimes)
+	modelIds := make([]string, size)
+	for i := 0; i < size; i++ {
+		modelIds[i] = availableRuntimes[i].Name
+	}
+	logger.V(1).Info("fetched the available NIM models",
+		"model Ids", json.RawMessage(`["`+strings.Join(modelIds, `", "`)+`"]`))
+
+	// check the selected models
+	if selectedModelList, err := r.getSelectedModelList(ctx, account.Spec.ModelListConfig, account.Namespace); err != nil {
+		logger.V(1).Error(err, "failed to get the selected model list")
+		return ctrl.Result{}, err
+	} else if len(selectedModelList) > 0 {
+		logger.V(1).Info("got the selected NIM model list",
+			"model Ids", json.RawMessage(`["`+strings.Join(selectedModelList, `", "`)+`"]`))
+		// filter the available runtimes
+		var selectedRuntimes []utils.NimRuntime
+		for _, r := range availableRuntimes {
+			if slices.Contains(selectedModelList, r.Name) {
+				selectedRuntimes = append(selectedRuntimes, r)
+			}
+		}
+		availableRuntimes = selectedRuntimes
+	}
 
 	// validate api key
 	if err := utils.ValidateApiKey(logger, apiKeyStr, availableRuntimes); err != nil {
@@ -383,6 +438,52 @@ func (r *AccountReconciler) reconcileNimPullSecret(
 		return nil, err
 	}
 	return secret, nil
+}
+
+// getSelectedModelList returns a list of Ids of the selected models
+func (r *AccountReconciler) getSelectedModelList(
+	ctx context.Context, cmRef *corev1.ObjectReference,
+	namespace string) ([]string, error) {
+	logger := log.FromContext(ctx)
+	logger.V(1).Info("getting selected model list")
+
+	// if selected model list is not set
+	if cmRef == nil || len(cmRef.Name) == 0 {
+		return []string{}, nil
+	}
+
+	// get the config map that contains the selected model list
+	cmNs := cmRef.Namespace
+	if cmNs == "" {
+		cmNs = namespace
+	}
+	modelListCm := &corev1.ConfigMap{}
+	modelListCmSubject := types.NamespacedName{Name: cmRef.Name, Namespace: cmNs}
+	if err := r.Client.Get(ctx, modelListCmSubject, modelListCm); err != nil {
+		if k8serrors.IsNotFound(err) {
+			logger.Error(err, "failed to fetch the config map for getting the selected model list",
+				"config map", modelListCmSubject)
+			return []string{}, nil
+		}
+		return nil, err
+	}
+
+	// convert the selected model list to a string array
+	if modelListCm.Data != nil {
+		if models, ok := modelListCm.Data["models"]; ok {
+			var selectedModelIds []string
+			if err := json.Unmarshal([]byte(models), &selectedModelIds); err != nil {
+				logger.Error(err, "failed to unmarshal the selected mode list",
+					"model list", models)
+				return []string{}, nil
+			}
+			return selectedModelIds, nil
+		}
+	}
+
+	logger.Error(nil, "failed to get the selected model list from the data of the config map",
+		"config map", modelListCmSubject)
+	return []string{}, nil
 }
 
 // updateStatus is used for fetching an updating the status of the account
