@@ -11,6 +11,8 @@ import (
 type AccountSpec struct {
 	// A reference to the Secret containing the NGC API Key.
 	APIKeySecret corev1.ObjectReference `json:"apiKeySecret"`
+	// A reference to the ConfigMap containing the list of NIM models that are allowed to be deployed.
+	ModelListConfig *corev1.ObjectReference `json:"modelListConfig,omitempty"`
 }
 
 // AccountStatus defines the observed state of an Account object.
