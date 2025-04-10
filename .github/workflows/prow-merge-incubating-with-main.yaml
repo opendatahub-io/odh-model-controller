@@ -1,6 +1,3 @@
-# This Github workflow will check every hour for PRs with the lgtm label and will attempt to automatically merge them.
-# If the hold label is present, it will block automatic merging.
-
 name: "Prow merge incubating to main"
 on:
   workflow_dispatch:
@@ -17,6 +14,5 @@ jobs:
     steps:
       - uses: jpmcb/prow-github-actions@v1.1.3
         with:
-          jobs: "lgtm"
           github-token: "${{ secrets.GITHUB_TOKEN }}"
-          merge-method: "squash"
+          merge-method: "merge"
