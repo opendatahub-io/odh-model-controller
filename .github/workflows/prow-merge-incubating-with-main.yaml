@@ -1,0 +1,18 @@
+name: "Prow merge incubating to main"
+on:
+  workflow_dispatch:
+    inputs:
+      base_branch:
+        description: "Base branch to merge into"
+        required: true
+        default: "main"
+
+jobs:
+  auto-merge:
+    if: github.ref == 'refs/heads/incubating'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: jpmcb/prow-github-actions@v1.1.3
+        with:
+          github-token: "${{ secrets.GITHUB_TOKEN }}"
+          merge-method: "merge"
