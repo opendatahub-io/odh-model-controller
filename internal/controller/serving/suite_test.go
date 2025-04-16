@@ -168,7 +168,7 @@ var _ = BeforeSuite(func() {
 		true,
 		false,
 		"",
-	).SetupWithManager(mgr)
+	).SetupWithManager(mgr, ctrl.Log.WithName("setup"))
 	Expect(err).NotTo(HaveOccurred())
 
 	err = (&ServingRuntimeReconciler{
