@@ -73,6 +73,7 @@ const (
 	KServeCACertFileName       = "cabundle.crt"
 	KServeCACertConfigMapName  = "odh-kserve-custom-ca-bundle"
 	ODHGlobalCertConfigMapName = "odh-trusted-ca-bundle"
+	ODHClusterCACertFileName   = "ca-bundle.crt"
 	ODHCustomCACertFileName    = "odh-ca-bundle.crt"
 	KServeGatewayName          = "kserve-local-gateway"
 )
