@@ -14,3 +14,4 @@ resources:
   - vllm-rocm-template.yaml
   - vllm-gaudi-template.yaml
   - caikit-standalone-template.yaml
+  - hf-detector-template.yaml
