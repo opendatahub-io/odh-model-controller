@@ -26,6 +26,7 @@ import (
 	"github.com/hashicorp/go-multierror"
 	kservev1alpha1 "github.com/kserve/kserve/pkg/apis/serving/v1alpha1"
 	kservev1beta1 "github.com/kserve/kserve/pkg/apis/serving/v1beta1"
+	authorinov1beta2 "github.com/kuadrant/authorino/api/v1beta2"
 	routev1 "github.com/openshift/api/route/v1"
 	monitoringv1 "github.com/prometheus-operator/prometheus-operator/pkg/apis/monitoring/v1"
 	corev1 "k8s.io/api/core/v1"
@@ -228,7 +229,7 @@ func (r *InferenceServiceReconciler) Reconcile(ctx context.Context, req ctrl.Req
 }
 
 // SetupWithManager sets up the controller with the Manager.
-func (r *InferenceServiceReconciler) SetupWithManager(mgr ctrl.Manager) error {
+func (r *InferenceServiceReconciler) SetupWithManager(mgr ctrl.Manager, setupLog logr.Logger) error {
 	builder := ctrl.NewControllerManagedBy(mgr).
 		For(&kservev1beta1.InferenceService{}).
 		Owns(&kservev1alpha1.ServingRuntime{}).
@@ -294,6 +295,26 @@ func (r *InferenceServiceReconciler) SetupWithManager(mgr ctrl.Manager) error {
 					{NamespacedName: types.NamespacedName{Name: o.GetName(), Namespace: o.GetNamespace()}},
 				}
 			}))
+
+	kserveWithMeshEnabled, kserveWithMeshEnabledErr := utils.VerifyIfComponentIsEnabled(context.Background(), mgr.GetClient(), utils.KServeWithServiceMeshComponent)
+	if kserveWithMeshEnabledErr != nil {
+		setupLog.V(1).Error(kserveWithMeshEnabledErr, "could not determine if kserve have service mesh enabled")
+	}
+
+	isAuthConfigAvailable, crdErr := utils.IsCrdAvailable(mgr.GetConfig(), authorinov1beta2.GroupVersion.String(), "AuthConfig")
+	if crdErr != nil {
+		setupLog.V(1).Error(crdErr, "could not determine if AuthConfig CRD is available")
+		return crdErr
+	}
+
+	if kserveWithMeshEnabled && isAuthConfigAvailable {
+		setupLog.Info("KServe is enabled and AuthConfig CRD is available, watching AuthConfigs")
+		builder.Owns(&authorinov1beta2.AuthConfig{})
+	} else if kserveWithMeshEnabled {
+		setupLog.Info("Using KServe with Service Mesh, but AuthConfig CRD is not installed - skipping AuthConfigs watches.")
+	} else {
+		setupLog.Info("Didn't find KServe with Service Mesh.")
+	}
 
 	return builder.Complete(r)
 }
