@@ -23,6 +23,7 @@ import (
 	"os"
 	"strconv"
 
+	"github.com/go-logr/logr"
 	// Import all Kubernetes client auth plugins (e.g. Azure, GCP, OIDC, etc.)
 	// to ensure that exec-entrypoint and run can make use of them.
 	istiov1beta1 "istio.io/client-go/pkg/apis/security/v1beta1"
@@ -43,7 +44,6 @@ import (
 	metricsserver "sigs.k8s.io/controller-runtime/pkg/metrics/server"
 	"sigs.k8s.io/controller-runtime/pkg/webhook"
 
-	"github.com/go-logr/logr"
 	corecontroller "github.com/opendatahub-io/odh-model-controller/internal/controller/core"
 	"github.com/opendatahub-io/odh-model-controller/internal/controller/nim"
 	servingcontroller "github.com/opendatahub-io/odh-model-controller/internal/controller/serving"
@@ -371,7 +371,7 @@ func setupInferenceServiceReconciler(mgr ctrl.Manager, kubeClient kubernetes.Int
 		enableMRInferenceServiceReconcile,
 		getEnvAsBool("MR_SKIP_TLS_VERIFY", false),
 		cfg.BearerToken,
-	)).SetupWithManager(mgr)
+	)).SetupWithManager(mgr, setupLog)
 }
 
 func setupSecretReconciler(mgr ctrl.Manager) error {
