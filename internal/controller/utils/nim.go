@@ -426,6 +426,10 @@ func GetNimServingRuntimeTemplate(scheme *runtime.Scheme) (*v1alpha1.ServingRunt
 								MountPath: "/mnt/models/cache",
 								Name:      "nim-pvc",
 							},
+							{
+								MountPath: "/opt/nim/workspace",
+								Name:      "nim-workspace",
+							},
 						},
 					},
 				},
@@ -441,6 +445,12 @@ func GetNimServingRuntimeTemplate(scheme *runtime.Scheme) (*v1alpha1.ServingRunt
 							PersistentVolumeClaim: &corev1.PersistentVolumeClaimVolumeSource{
 								ClaimName: "nim-pvc",
 							},
+						},
+					},
+					{
+						Name: "nim-workspace",
+						VolumeSource: corev1.VolumeSource{
+							EmptyDir: &corev1.EmptyDirVolumeSource{},
 						},
 					},
 				},
