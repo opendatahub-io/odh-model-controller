@@ -453,7 +453,6 @@ func GetNimServingRuntimeTemplate(scheme *runtime.Scheme) (*v1alpha1.ServingRunt
 							EmptyDir: &corev1.EmptyDirVolumeSource{},
 						},
 					},
-				},					
 				},
 			},
 			MultiModel: &multiModel,
