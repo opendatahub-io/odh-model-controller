@@ -439,21 +439,21 @@ func GetNimServingRuntimeTemplate(scheme *runtime.Scheme) (*v1alpha1.ServingRunt
 					},
 				},
 				Volumes: []corev1.Volume{
-						{
-							Name: "nim-pvc",
-							VolumeSource: corev1.VolumeSource{
-								PersistentVolumeClaim: &corev1.PersistentVolumeClaimVolumeSource{
-									ClaimName: "nim-pvc",
-								},
+					{
+						Name: "nim-pvc",
+						VolumeSource: corev1.VolumeSource{
+							PersistentVolumeClaim: &corev1.PersistentVolumeClaimVolumeSource{
+								ClaimName: "nim-pvc",
 							},
 						},
-						{
-							Name: "nim-workspace",
-							VolumeSource: corev1.VolumeSource{
-								EmptyDir: &corev1.EmptyDirVolumeSource{},
-							},
+					},
+					{
+						Name: "nim-workspace",
+						VolumeSource: corev1.VolumeSource{
+							EmptyDir: &corev1.EmptyDirVolumeSource{},
 						},
-					},					
+					},
+				},					
 				},
 			},
 			MultiModel: &multiModel,
