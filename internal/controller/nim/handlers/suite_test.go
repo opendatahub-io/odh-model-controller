@@ -18,13 +18,14 @@ package handlers
 
 import (
 	"fmt"
-	templatev1client "github.com/openshift/client-go/template/clientset/versioned"
 	"path/filepath"
 	"runtime"
 	"testing"
 
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
+
+	templatev1client "github.com/openshift/client-go/template/clientset/versioned"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/kubernetes/scheme"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -45,8 +46,7 @@ var testEnv *envtest.Environment
 var templateClient *templatev1client.Clientset
 var k8sClient *kubernetes.Clientset
 
-
-func TestNimPullSecretHandler(t *testing.T) {
+func TestNimHandlers(t *testing.T) {
 	RegisterFailHandler(Fail)
 
 	RunSpecs(t, "NIM Pull Secret Handler test cases")

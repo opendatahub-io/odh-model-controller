@@ -88,7 +88,7 @@ func (t *TemplateHandler) Handle(ctx context.Context, account *v1.Account) Handl
 	}
 
 	successStatus := account.Status
-	updateRef := !utils.NimEqualities.DeepEqual(successStatus.RuntimeTemplate.UID, ref.UID)
+	updateRef := shouldUpdateReference(successStatus.RuntimeTemplate, ref)
 	if updateRef {
 		successStatus.RuntimeTemplate = ref
 	}

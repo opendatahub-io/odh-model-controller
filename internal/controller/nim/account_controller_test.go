@@ -59,7 +59,8 @@ var _ = Describe("NIM Account Controller", func() {
 	})
 
 	It("should add finalizer and re-queue when missing from the Account", func(ctx SpecContext) {
-		tstAccountKey := types.NamespacedName{Name: "testing-nim-controller-1", Namespace: "testing-nim-controller-1"}
+		tstName := "testing-nim-controller-1"
+		tstAccountKey := types.NamespacedName{Name: tstName, Namespace: tstName}
 
 		By("Create testing Namespace " + tstAccountKey.Namespace)
 		testNs := &corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: tstAccountKey.Namespace}}
@@ -98,8 +99,9 @@ var _ = Describe("NIM Account Controller", func() {
 	})
 
 	It("should report healthy Account when no reconciliation is required and not re-queue", func(ctx SpecContext) {
-		tstAccountKey := types.NamespacedName{Name: "testing-nim-controller-2", Namespace: "testing-nim-controller-2"}
-		tstApiKey := "dummy-api-key-testing-account-2"
+		tstName := "testing-nim-controller-2"
+		tstAccountKey := types.NamespacedName{Name: tstName, Namespace: tstName}
+		fakeApiKey := tstName
 
 		By("Create testing Namespace " + tstAccountKey.Namespace)
 		testNs := &corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: tstAccountKey.Namespace}}
@@ -113,7 +115,7 @@ var _ = Describe("NIM Account Controller", func() {
 				Labels:    map[string]string{"opendatahub.io/managed": "true"},
 			},
 			Data: map[string][]byte{
-				"api_key": []byte(tstApiKey),
+				"api_key": []byte(fakeApiKey),
 			},
 		}
 		Expect(testClient.Create(ctx, apiKeySecret)).To(Succeed())
@@ -147,7 +149,7 @@ var _ = Describe("NIM Account Controller", func() {
 		cmRef, _ := reference.GetReference(scheme.Scheme, cm)
 
 		By("Create the supporting pull Secret")
-		data, _ := handlers.GetPullSecretData(tstApiKey)
+		data, _ := handlers.GetPullSecretData(fakeApiKey)
 		pullSecret := &corev1.Secret{
 			ObjectMeta: metav1.ObjectMeta{
 				Name:      fmt.Sprintf("%s-pull", tstAccountKey.Name),
@@ -225,8 +227,9 @@ var _ = Describe("NIM Account Controller", func() {
 	})
 
 	It("should clean up supporting resources when the Account is being deleted", func(ctx SpecContext) {
-		tstAccountKey := types.NamespacedName{Name: "testing-nim-controller-3", Namespace: "testing-nim-controller-3"}
-		tstApiKey := "dummy-api-key-testing-account-3"
+		tstName := "testing-nim-controller-3"
+		tstAccountKey := types.NamespacedName{Name: tstName, Namespace: tstName}
+		fakeApiKey := tstName
 
 		By("Create testing Namespace " + tstAccountKey.Namespace)
 		testNs := &corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: tstAccountKey.Namespace}}
@@ -240,7 +243,7 @@ var _ = Describe("NIM Account Controller", func() {
 				Labels:    map[string]string{"opendatahub.io/managed": "true"},
 			},
 			Data: map[string][]byte{
-				"api_key": []byte(tstApiKey),
+				"api_key": []byte(fakeApiKey),
 			},
 		}
 		Expect(testClient.Create(ctx, apiKeySecret)).To(Succeed())
