@@ -71,6 +71,14 @@ func (c *ConfigMapHandler) Handle(ctx context.Context, account *v1.Account) Hand
 		return HandleResponse{Error: runtimesErr}
 	}
 
+	// check the selected models
+	if selectedModelList, err := utils.GetSelectedModelList(ctx, account.Spec.ModelListConfig, account.Namespace, c.Client, logger); err != nil {
+		logger.V(1).Error(err, "failed to get the selected model list")
+		return HandleResponse{Error: err}
+	} else {
+		availableRuntimes = utils.FilterAvailableNimRuntimes(availableRuntimes, selectedModelList, logger)
+	}
+
 	var applyCfg *ssacorev1.ConfigMapApplyConfiguration
 	var ref *corev1.ObjectReference
 	var err error
@@ -160,7 +168,9 @@ func (c *ConfigMapHandler) getApplyConfig(ctx context.Context, account *v1.Accou
 	}
 
 	_, mergedLabels := mergeStringMaps(commonBaseLabels, cm.Labels)
-	cmCfg.WithLabels(mergedLabels).WithData(data)
+	cmCfg.WithLabels(mergedLabels)
+	// overwrite the data completely including the keys
+	cmCfg.Data = data
 
 	return cmCfg, nil
 }

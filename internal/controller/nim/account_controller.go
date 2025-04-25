@@ -53,7 +53,8 @@ type AccountReconciler struct {
 }
 
 const (
-	apiKeySpecPath = "spec.apiKeySecret.name"
+	apiKeySpecPath    = "spec.apiKeySecret.name"
+	modelListSpecPath = "spec.modelListConfig.name"
 )
 
 // +kubebuilder:rbac:groups=nim.opendatahub.io,resources=accounts,verbs=get;list;watch;update;patch
@@ -67,8 +68,17 @@ func (r *AccountReconciler) SetupWithManager(mgr ctrl.Manager, ctx context.Conte
 	if err := mgr.GetFieldIndexer().IndexField(ctx, &v1.Account{}, apiKeySpecPath, func(obj client.Object) []string {
 		return []string{obj.(*v1.Account).Spec.APIKeySecret.Name}
 	}); err != nil {
-		logger.Error(err, "failed to set cache index")
-		return err
+		return fmt.Errorf("failed to set apiKey secret cache index: %w", err)
+	}
+
+	if err := mgr.GetFieldIndexer().IndexField(ctx, &v1.Account{}, modelListSpecPath, func(obj client.Object) []string {
+		var account = obj.(*v1.Account)
+		if account.Spec.ModelListConfig != nil && len(account.Spec.ModelListConfig.Name) > 0 {
+			return []string{account.Spec.ModelListConfig.Name}
+		}
+		return []string{}
+	}); err != nil {
+		return fmt.Errorf("failed to set modelList configmap cache index: %w", err)
 	}
 
 	return ctrl.NewControllerManagedBy(mgr).
@@ -82,7 +92,20 @@ func (r *AccountReconciler) SetupWithManager(mgr ctrl.Manager, ctx context.Conte
 				var requests []reconcile.Request
 				accounts := &v1.AccountList{}
 				if err := mgr.GetClient().List(ctx, accounts, client.MatchingFields{apiKeySpecPath: obj.GetName()}); err != nil {
-					logger.Error(err, "failed to fetch accounts")
+					logger.Error(err, "failed to fetch accounts from secret")
+					return requests
+				}
+				for _, item := range accounts.Items {
+					requests = append(requests, reconcile.Request{NamespacedName: client.ObjectKeyFromObject(&item)})
+				}
+				return requests
+			})).
+		Watches(&corev1.ConfigMap{}, handler.EnqueueRequestsFromMapFunc(
+			func(ctx context.Context, obj client.Object) []reconcile.Request {
+				var requests []reconcile.Request
+				accounts := &v1.AccountList{}
+				if err := mgr.GetClient().List(ctx, accounts, client.MatchingFields{modelListSpecPath: obj.GetName()}); err != nil {
+					logger.Error(err, "failed to fetch accounts from configmap")
 					return requests
 				}
 				for _, item := range accounts.Items {

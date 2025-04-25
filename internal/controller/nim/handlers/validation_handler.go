@@ -97,6 +97,14 @@ func (v *ValidationHandler) Handle(ctx context.Context, account *v1.Account) Han
 
 		logger.V(1).Info("got available runtimes")
 
+		// check the selected models
+		if selectedModelList, err := utils.GetSelectedModelList(ctx, account.Spec.ModelListConfig, account.Namespace, v.Client, logger); err != nil {
+			logger.V(1).Error(err, "failed to get the selected model list")
+			return HandleResponse{Error: err}
+		} else {
+			availableRuntimes = utils.FilterAvailableNimRuntimes(availableRuntimes, selectedModelList, logger)
+		}
+
 		apiKeyStr, kmSErr := v.KeyManager.APIKeyString(ctx, account)
 		if kmSErr != nil {
 			if k8serrors.IsNotFound(kmSErr) {
