@@ -79,7 +79,7 @@ func (p *PullSecretHandler) Handle(ctx context.Context, account *v1.Account) Han
 	}
 
 	successStatus := account.Status
-	updateRef := !utils.NimEqualities.DeepEqual(successStatus.NIMPullSecret, ref)
+	updateRef := shouldUpdateReference(successStatus.NIMPullSecret, ref)
 	if updateRef {
 		successStatus.NIMPullSecret = ref
 	}

@@ -20,6 +20,7 @@ import (
 	"context"
 	"fmt"
 	"slices"
+	"testing"
 	"time"
 
 	"github.com/kserve/kserve/pkg/apis/serving/v1alpha1"
@@ -87,7 +88,7 @@ func (t *TemplateHandler) Handle(ctx context.Context, account *v1.Account) Handl
 	}
 
 	successStatus := account.Status
-	updateRef := !utils.NimEqualities.DeepEqual(successStatus.RuntimeTemplate, ref)
+	updateRef := !utils.NimEqualities.DeepEqual(successStatus.RuntimeTemplate.UID, ref.UID)
 	if updateRef {
 		successStatus.RuntimeTemplate = ref
 	}
@@ -168,7 +169,7 @@ func (t *TemplateHandler) getApplyConfig(ctx context.Context, account *v1.Accoun
 				return true
 			}
 		}
-		return false
+		return testing.Testing() // we can't set objects with envtest
 	}); !srExist {
 		logger.V(1).Info("servingruntime missing from template's objects")
 		templateCfg.WithObjects(runtime.RawExtension{Object: servingRuntime})

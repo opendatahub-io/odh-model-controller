@@ -38,7 +38,7 @@ var _ = Describe("NIM Template Handler", func() {
 	//
 	// BeforeEach(func() {
 	//	templateHandler = &TemplateHandler{
-	//		Client: k8sClient,
+	//		Client: testClient,
 	//		Scheme: scheme.Scheme,
 	//	}
 	// })
@@ -49,7 +49,7 @@ var _ = Describe("NIM Template Handler", func() {
 
 			By("Create testing Namespace " + tstAccountKey.Namespace)
 			testNs := &corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: tstAccountKey.Namespace}}
-			Expect(k8sClient.Create(ctx, testNs)).To(Succeed())
+			Expect(testClient.Create(ctx, testNs)).To(Succeed())
 
 			By("Create an Account without setting a pull Template reference")
 			acct := &v1.Account{
@@ -64,14 +64,14 @@ var _ = Describe("NIM Template Handler", func() {
 					NIMConfigRefreshRate:  "24h",
 				},
 			}
-			Expect(k8sClient.Create(ctx, acct)).To(Succeed())
+			Expect(testClient.Create(ctx, acct)).To(Succeed())
 
 			By("Checking if should reconcile and expect true")
 			// Expect(templateHandler.ShouldReconcile(ctx, acct)).To(BeTrue())
 
 			By("Cleanups")
-			Expect(k8sClient.Delete(ctx, acct)).To(Succeed())
-			Expect(k8sClient.Delete(ctx, testNs)).To(Succeed())
+			Expect(testClient.Delete(ctx, acct)).To(Succeed())
+			Expect(testClient.Delete(ctx, testNs)).To(Succeed())
 		})
 
 		for idx, cases := range []map[string][]metav1.Condition{
@@ -86,7 +86,7 @@ var _ = Describe("NIM Template Handler", func() {
 
 					By("Create testing Namespace " + tstAccountKey.Namespace)
 					testNs := &corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: tstAccountKey.Namespace}}
-					Expect(k8sClient.Create(ctx, testNs)).To(Succeed())
+					Expect(testClient.Create(ctx, testNs)).To(Succeed())
 
 					By("Create an Account")
 					acct := &v1.Account{
@@ -101,21 +101,21 @@ var _ = Describe("NIM Template Handler", func() {
 							NIMConfigRefreshRate:  "24h",
 						},
 					}
-					Expect(k8sClient.Create(ctx, acct)).To(Succeed())
+					Expect(testClient.Create(ctx, acct)).To(Succeed())
 
 					By("Update the Account Status")
 					acct.Status = v1.AccountStatus{
 						RuntimeTemplate: &corev1.ObjectReference{Name: "does-not-matter", Namespace: "for-this-test-case"},
 						Conditions:      conds,
 					}
-					Expect(k8sClient.Status().Update(ctx, acct)).To(Succeed())
+					Expect(testClient.Status().Update(ctx, acct)).To(Succeed())
 
 					By("Checking if should reconcile and expect true")
 					// Expect(templateHandler.ShouldReconcile(ctx, acct)).To(BeTrue())
 
 					By("Cleanups")
-					Expect(k8sClient.Delete(ctx, acct)).To(Succeed())
-					Expect(k8sClient.Delete(ctx, testNs)).To(Succeed())
+					Expect(testClient.Delete(ctx, acct)).To(Succeed())
+					Expect(testClient.Delete(ctx, testNs)).To(Succeed())
 				})
 			}
 		}
@@ -125,7 +125,7 @@ var _ = Describe("NIM Template Handler", func() {
 
 			By("Create testing Namespace " + tstAccountKey.Namespace)
 			testNs := &corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: tstAccountKey.Namespace}}
-			Expect(k8sClient.Create(ctx, testNs)).To(Succeed())
+			Expect(testClient.Create(ctx, testNs)).To(Succeed())
 
 			By("Create an Account")
 			acct := &v1.Account{
@@ -140,21 +140,21 @@ var _ = Describe("NIM Template Handler", func() {
 					NIMConfigRefreshRate:  "24h",
 				},
 			}
-			Expect(k8sClient.Create(ctx, acct)).To(Succeed())
+			Expect(testClient.Create(ctx, acct)).To(Succeed())
 
 			By("Update the Account Status with a successful status condition, without creating the actual Template")
 			acct.Status = v1.AccountStatus{
 				RuntimeTemplate: &corev1.ObjectReference{Name: "does-not-matter", Namespace: "for-this-test-case"},
 				Conditions:      []metav1.Condition{utils.MakeNimCondition(utils.NimConditionTemplateUpdate, metav1.ConditionTrue, 1, "TemplateSuccessful", "we're good")},
 			}
-			Expect(k8sClient.Status().Update(ctx, acct)).To(Succeed())
+			Expect(testClient.Status().Update(ctx, acct)).To(Succeed())
 
 			By("Checking if should reconcile and expect true")
 			// Expect(templateHandler.ShouldReconcile(ctx, acct)).To(BeTrue())
 
 			By("Cleanups")
-			Expect(k8sClient.Delete(ctx, acct)).To(Succeed())
-			Expect(k8sClient.Delete(ctx, testNs)).To(Succeed())
+			Expect(testClient.Delete(ctx, acct)).To(Succeed())
+			Expect(testClient.Delete(ctx, testNs)).To(Succeed())
 		})
 
 		It("should return true if the ServingRuntime is missing from the existing Template's objects", func(ctx SpecContext) {
@@ -162,7 +162,7 @@ var _ = Describe("NIM Template Handler", func() {
 
 			By("Create testing Namespace " + tstAccountKey.Namespace)
 			testNs := &corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: tstAccountKey.Namespace}}
-			Expect(k8sClient.Create(ctx, testNs)).To(Succeed())
+			Expect(testClient.Create(ctx, testNs)).To(Succeed())
 
 			By("Create an Account")
 			acct := &v1.Account{
@@ -177,7 +177,7 @@ var _ = Describe("NIM Template Handler", func() {
 					NIMConfigRefreshRate:  "24h",
 				},
 			}
-			Expect(k8sClient.Create(ctx, acct)).To(Succeed())
+			Expect(testClient.Create(ctx, acct)).To(Succeed())
 
 			By("Create the supporting Template without a ServingRuntime and expect reconciliation")
 			template := &templatev1.Template{
@@ -188,7 +188,7 @@ var _ = Describe("NIM Template Handler", func() {
 				// no objects required for this specific test case
 				Objects: []runtime.RawExtension{},
 			}
-			Expect(k8sClient.Create(ctx, template)).To(Succeed())
+			Expect(testClient.Create(ctx, template)).To(Succeed())
 			templateRef, _ := reference.GetReference(scheme.Scheme, template)
 
 			By("Update the Account Status with a reference to the Template")
@@ -198,15 +198,15 @@ var _ = Describe("NIM Template Handler", func() {
 					utils.MakeNimCondition(utils.NimConditionTemplateUpdate, metav1.ConditionTrue, 1, "TemplateSuccessful", "we're good"),
 				},
 			}
-			Expect(k8sClient.Status().Update(ctx, acct)).To(Succeed())
+			Expect(testClient.Status().Update(ctx, acct)).To(Succeed())
 
 			By("Checking if should reconcile and expect true")
 			// Expect(templateHandler.ShouldReconcile(ctx, acct)).To(BeTrue())
 
 			By("Cleanups")
-			Expect(k8sClient.Delete(ctx, template)).To(Succeed())
-			Expect(k8sClient.Delete(ctx, acct)).To(Succeed())
-			Expect(k8sClient.Delete(ctx, testNs)).To(Succeed())
+			Expect(testClient.Delete(ctx, template)).To(Succeed())
+			Expect(testClient.Delete(ctx, acct)).To(Succeed())
+			Expect(testClient.Delete(ctx, testNs)).To(Succeed())
 		})
 	})
 

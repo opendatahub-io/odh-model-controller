@@ -18,6 +18,7 @@ package handlers
 
 import (
 	"fmt"
+	templatev1client "github.com/openshift/client-go/template/clientset/versioned"
 	"path/filepath"
 	"runtime"
 	"testing"
@@ -39,14 +40,16 @@ import (
 // These tests use Ginkgo (BDD-style Go testing framework). Refer to
 // http://onsi.github.io/ginkgo/ to learn more about Ginkgo.
 
-var k8sClient client.Client
-var k8sClientset *kubernetes.Clientset
+var testClient client.Client
 var testEnv *envtest.Environment
+var templateClient *templatev1client.Clientset
+var k8sClient *kubernetes.Clientset
 
-func TestControllers(t *testing.T) {
+
+func TestNimPullSecretHandler(t *testing.T) {
 	RegisterFailHandler(Fail)
 
-	RunSpecs(t, "Controller & Webhook Suite")
+	RunSpecs(t, "NIM Pull Secret Handler test cases")
 }
 
 var _ = BeforeSuite(func() {
@@ -75,14 +78,19 @@ var _ = BeforeSuite(func() {
 
 	utils.RegisterSchemes(scheme.Scheme)
 
-	k8sClient, err = client.New(cfg, client.Options{Scheme: scheme.Scheme})
+	testClient, err = client.New(cfg, client.Options{Scheme: scheme.Scheme})
+	Expect(err).NotTo(HaveOccurred())
+	Expect(testClient).NotTo(BeNil())
+
+	templateClient, err = templatev1client.NewForConfig(cfg)
+	Expect(err).NotTo(HaveOccurred())
+	Expect(templateClient).NotTo(BeNil())
+
+	k8sClient, err = kubernetes.NewForConfig(cfg)
 	Expect(err).NotTo(HaveOccurred())
 	Expect(k8sClient).NotTo(BeNil())
 
-	k8sClientset, err = kubernetes.NewForConfig(cfg)
-	Expect(err).NotTo(HaveOccurred())
-	Expect(k8sClientset).NotTo(BeNil())
-
+	// mocking our client
 	utils.NimHttpClient = &testdata.NimHttpClientMock{}
 })
 

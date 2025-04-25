@@ -25,6 +25,8 @@ import (
 
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
+	templatev1client "github.com/openshift/client-go/template/clientset/versioned"
+	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/kubernetes/scheme"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/envtest"
@@ -38,8 +40,10 @@ import (
 // These tests use Ginkgo (BDD-style Go testing framework). Refer to
 // http://onsi.github.io/ginkgo/ to learn more about Ginkgo.
 
-var k8sClient client.Client
+var testClient client.Client
 var testEnv *envtest.Environment
+var templateClient *templatev1client.Clientset
+var k8sClient *kubernetes.Clientset
 
 // TODO: Deduplicate
 const testTimeout = time.Second * 20
@@ -77,11 +81,19 @@ var _ = BeforeSuite(func() {
 
 	utils.RegisterSchemes(scheme.Scheme)
 
-	k8sClient, err = client.New(cfg, client.Options{Scheme: scheme.Scheme})
+	testClient, err = client.New(cfg, client.Options{Scheme: scheme.Scheme})
+	Expect(err).NotTo(HaveOccurred())
+	Expect(testClient).NotTo(BeNil())
+
+	templateClient, err = templatev1client.NewForConfig(cfg)
+	Expect(err).NotTo(HaveOccurred())
+	Expect(templateClient).NotTo(BeNil())
+
+	k8sClient, err = kubernetes.NewForConfig(cfg)
 	Expect(err).NotTo(HaveOccurred())
 	Expect(k8sClient).NotTo(BeNil())
 
-	// test cases in this file to not require API access, blocking accidental failures by nil'ing our client.
+	// test cases in this file do not require API access, blocking accidental failures by nil'ing our client.
 	utils.NimHttpClient = nil
 })
 

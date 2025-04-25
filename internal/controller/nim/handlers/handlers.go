@@ -18,6 +18,7 @@ package handlers
 
 import (
 	"context"
+	corev1 "k8s.io/api/core/v1"
 	"time"
 
 	"k8s.io/apimachinery/pkg/api/meta"
@@ -98,4 +99,9 @@ func mergeStringMaps(baseMap, existing map[string]string) (bool, map[string]stri
 		}
 	}
 	return changed, merged
+}
+
+// shouldUpdateReference will true if an update to the object reference is required
+func shouldUpdateReference(origRef, newRef *corev1.ObjectReference) bool {
+	return origRef == nil || newRef == nil || !utils.NimEqualities.DeepEqual(origRef.UID, origRef.UID)
 }
