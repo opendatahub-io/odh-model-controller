@@ -71,7 +71,7 @@ var _ = Describe("NIM Pull Secret Handler", func() {
 		resp := pullSecretHandler.Handle(ctx, acct)
 
 		By("Verify the response - expect an error")
-		Expect(resp.Error.Error()).To(Equal("secrets \"im-not-here\" not found"))
+		Expect(resp.Error.Error()).To(ContainSubstring("secrets \"im-not-here\" not found"))
 		Expect(resp.Requeue).To(BeFalse())
 		Expect(resp.Continue).To(BeFalse())
 

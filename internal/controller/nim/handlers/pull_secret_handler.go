@@ -104,7 +104,7 @@ func (p *PullSecretHandler) Handle(ctx context.Context, account *v1.Account) Han
 func (p *PullSecretHandler) getApplyConfig(ctx context.Context, account *v1.Account) (*ssacorev1.SecretApplyConfiguration, error) {
 	logger := log.FromContext(ctx)
 
-	apiKeyStr, kmErr := p.KeyManager.APIKeyString(ctx, account)
+	apiKeyStr, kmErr := p.KeyManager.GetAPIKey(ctx, account)
 	if kmErr != nil {
 		return nil, kmErr
 	}

@@ -44,7 +44,7 @@ type ValidationHandler struct {
 func (v *ValidationHandler) Handle(ctx context.Context, account *v1.Account) HandleResponse {
 	logger := log.FromContext(ctx)
 
-	apiKeySecret, kmErr := v.KeyManager.APIKeySecret(ctx, account)
+	apiKeySecret, kmErr := v.KeyManager.GetAPIKeySecret(ctx, account)
 	if kmErr != nil {
 		if k8serrors.IsNotFound(kmErr) {
 			return HandleResponse{} // don't requeue if the api key secret is not found
@@ -105,7 +105,7 @@ func (v *ValidationHandler) Handle(ctx context.Context, account *v1.Account) Han
 			availableRuntimes = utils.FilterAvailableNimRuntimes(availableRuntimes, selectedModelList, logger)
 		}
 
-		apiKeyStr, kmSErr := v.KeyManager.APIKeyString(ctx, account)
+		apiKeyStr, kmSErr := v.KeyManager.GetAPIKey(ctx, account)
 		if kmSErr != nil {
 			if k8serrors.IsNotFound(kmSErr) {
 				return HandleResponse{} // don't requeue if the api key secret is not found
@@ -153,7 +153,7 @@ func (v *ValidationHandler) Handle(ctx context.Context, account *v1.Account) Han
 func (v *ValidationHandler) shouldReconcile(ctx context.Context, account *v1.Account) bool {
 	logger := log.FromContext(ctx)
 
-	apiKeySecret, kmErr := v.KeyManager.APIKeySecret(ctx, account)
+	apiKeySecret, kmErr := v.KeyManager.GetAPIKeySecret(ctx, account)
 	if kmErr != nil {
 		return false
 	}

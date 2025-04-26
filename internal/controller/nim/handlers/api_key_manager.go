@@ -18,10 +18,12 @@ package handlers
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strings"
 	"sync"
 
+	"github.com/hashicorp/go-multierror"
 	corev1 "k8s.io/api/core/v1"
 	k8serrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/types"
@@ -32,24 +34,63 @@ import (
 	"github.com/opendatahub-io/odh-model-controller/internal/controller/utils"
 )
 
+// APIKeyManager is used for maintaining a lazy singleton for the api key
 type APIKeyManager struct {
-	Client       client.Client
-	apiKeyStr    string
-	apiKeySecret *corev1.Secret
+	Client            client.Client
+	_apiKeyStr        string
+	_apiKeyStrOnce    sync.Once
+	_apiKeySecret     *corev1.Secret
+	_apiKeySecretOnce sync.Once
+	_errs             *multierror.Error
 }
 
-func (a *APIKeyManager) APIKeyString(ctx context.Context, account *v1.Account) (string, error) {
-	err := a.loadApiKey(ctx, account)()
-	return a.apiKeyStr, err
+// GetAPIKey will return the api key string
+func (a *APIKeyManager) GetAPIKey(ctx context.Context, account *v1.Account) (string, error) {
+	a._apiKeySecretOnce.Do(a.loadSecret(ctx, account))
+	if a._errs.ErrorOrNil() == nil {
+		a._apiKeyStrOnce.Do(a.loadKey(ctx, account))
+	}
+	return a._apiKeyStr, a._errs.ErrorOrNil()
 }
 
-func (a *APIKeyManager) APIKeySecret(ctx context.Context, account *v1.Account) (*corev1.Secret, error) {
-	err := a.loadApiKey(ctx, account)()
-	return a.apiKeySecret, err
+// GetAPIKeySecret will return the api key Secret object
+func (a *APIKeyManager) GetAPIKeySecret(ctx context.Context, account *v1.Account) (*corev1.Secret, error) {
+	a._apiKeySecretOnce.Do(a.loadSecret(ctx, account))
+	return a._apiKeySecret, a._errs.ErrorOrNil()
 }
 
-func (a *APIKeyManager) loadApiKey(ctx context.Context, account *v1.Account) func() error {
-	return sync.OnceValue(func() error {
+func (a *APIKeyManager) loadKey(ctx context.Context, account *v1.Account) func() {
+	return func() {
+		if a._apiKeySecret == nil {
+			a._errs = multierror.Append(a._errs, errors.New("api key secret not fetched yet"))
+			return
+		}
+		logger := log.FromContext(ctx)
+
+		// extract api key from secret
+		apiKeyBytes, foundKey := a._apiKeySecret.Data["api_key"]
+		if !foundKey {
+			msg := "failed to find api key data in secret"
+			a._errs = multierror.Append(a._errs, fmt.Errorf("secret %+v has no api_key data", a._apiKeySecret.Name))
+
+			logger.Info(fmt.Sprintf("%s, cleaning up", msg))
+			if cleanErr := utils.CleanupResources(ctx, account, a.Client); cleanErr != nil {
+				a._errs = multierror.Append(a._errs, cleanErr)
+			}
+
+			failedStatus := makeCleanStatusForAccountFailure(account, msg)
+			if updateErr := utils.UpdateStatus(ctx, client.ObjectKeyFromObject(account), failedStatus, a.Client); updateErr != nil {
+				a._errs = multierror.Append(a._errs, updateErr)
+			}
+		} else {
+			a._apiKeyStr = strings.TrimSpace(string(apiKeyBytes))
+			logger.V(1).Info("got api key")
+		}
+	}
+}
+
+func (a *APIKeyManager) loadSecret(ctx context.Context, account *v1.Account) func() {
+	return func() {
 		logger := log.FromContext(ctx)
 
 		// fetch api secret
@@ -63,45 +104,24 @@ func (a *APIKeyManager) loadApiKey(ctx context.Context, account *v1.Account) fun
 			var msg string
 			if k8serrors.IsNotFound(err) {
 				msg = "api key secret not found"
-				logger.Info(msg)
 			} else {
 				msg = "failed to fetch api key secret"
+				a._errs = multierror.Append(a._errs, err)
 			}
 
 			logger.Info(fmt.Sprintf("%s, cleaning up", msg))
 			if cleanErr := utils.CleanupResources(ctx, account, a.Client); cleanErr != nil {
-				return cleanErr
+				a._errs = multierror.Append(a._errs, cleanErr)
 			}
 
 			failedStatus := makeCleanStatusForAccountFailure(account, msg)
 			if updateErr := utils.UpdateStatus(ctx, client.ObjectKeyFromObject(account), failedStatus, a.Client); updateErr != nil {
-				return updateErr
+				a._errs = multierror.Append(a._errs, updateErr)
 			}
-
-			return err
+			a._errs = multierror.Append(a._errs, err)
+		} else {
+			a._apiKeySecret = apiKeySecret
+			logger.V(1).Info("got api key secret")
 		}
-
-		a.apiKeySecret = apiKeySecret
-
-		// extract api key from secret
-		apiKeyBytes, foundKey := apiKeySecret.Data["api_key"]
-		if !foundKey {
-			msg := "failed to find api key data in secret"
-			logger.Info(fmt.Sprintf("%s, cleaning up", msg))
-			if cleanErr := utils.CleanupResources(ctx, account, a.Client); cleanErr != nil {
-				return cleanErr
-			}
-
-			failedStatus := makeCleanStatusForAccountFailure(account, msg)
-			if updateErr := utils.UpdateStatus(ctx, client.ObjectKeyFromObject(account), failedStatus, a.Client); updateErr != nil {
-				return updateErr
-			}
-
-			return fmt.Errorf("secret %+v has no api_key data", apiKeySecretSubject)
-		}
-
-		a.apiKeyStr = strings.TrimSpace(string(apiKeyBytes))
-		logger.V(1).Info("got api key")
-		return nil
-	})
+	}
 }

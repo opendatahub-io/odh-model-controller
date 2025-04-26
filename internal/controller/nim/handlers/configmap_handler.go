@@ -126,7 +126,7 @@ func (c *ConfigMapHandler) Handle(ctx context.Context, account *v1.Account) Hand
 func (c *ConfigMapHandler) getApplyConfig(ctx context.Context, account *v1.Account, availableRuntimes []utils.NimRuntime) (*ssacorev1.ConfigMapApplyConfiguration, error) {
 	logger := log.FromContext(ctx)
 
-	apiKeyStr, kmErr := c.KeyManager.APIKeyString(ctx, account)
+	apiKeyStr, kmErr := c.KeyManager.GetAPIKey(ctx, account)
 	if kmErr != nil {
 		return nil, kmErr
 	}

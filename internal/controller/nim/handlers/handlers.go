@@ -43,14 +43,13 @@ type HandleResponse struct {
 
 // NimHandler is a contract for NIM handlers
 type NimHandler interface {
-	// Handle reconciles for the handler leveraging re-queueing when required, will return true if a status updated was
-	// performed to the Accounts
+	// Handle reconciles and returns a response indicating the next reconciliation steps
 	Handle(ctx context.Context, account *v1.Account) HandleResponse
 }
 
 var commonBaseLabels = map[string]string{"opendatahub.io/managed": "true"}
 
-// createOwnerReferenceCfg is a utility functions for creating Account owner reference apply-config.
+// createOwnerReferenceCfg is a utility functions for creating Account owner reference apply-config
 func createOwnerReferenceCfg(account *v1.Account, scheme *runtime.Scheme) *ssametav1.OwnerReferenceApplyConfiguration {
 	gvk, _ := apiutil.GVKForObject(account, scheme)
 	return ssametav1.OwnerReference().
