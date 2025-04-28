@@ -536,4 +536,80 @@ var _ = Describe("NIM Validation Handler", func() {
 		Expect(testClient.Delete(ctx, account)).To(Succeed())
 		Expect(testClient.Delete(ctx, testNs)).To(Succeed())
 	})
+
+	It("should stop reconciliation if the api key is not validated against the selected model", func(ctx SpecContext) {
+		tstName := "testing-nim-validation-handler-9"
+		tstAccountKey := types.NamespacedName{Name: tstName, Namespace: tstName}
+
+		By("Create testing Namespace " + tstAccountKey.Namespace)
+		testNs := &corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: tstAccountKey.Namespace}}
+		Expect(testClient.Create(ctx, testNs)).To(Succeed())
+
+		By("Create an API Key Secret")
+		apiKeySecret := &corev1.Secret{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      tstAccountKey.Name + "-api-key",
+				Namespace: tstAccountKey.Namespace,
+				Labels:    map[string]string{"opendatahub.io/managed": "true"},
+			},
+			Data: map[string][]byte{
+				"api_key": []byte(testdata.FakeApiKey),
+			},
+		}
+		Expect(testClient.Create(ctx, apiKeySecret)).To(Succeed())
+		apiKeySecretRef, refErr := reference.GetReference(testClient.Scheme(), apiKeySecret)
+		Expect(refErr).NotTo(HaveOccurred())
+
+		By("Set a model list ConfigMap")
+		modelSelectionConfig := &corev1.ConfigMap{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      tstAccountKey.Name + "-model-selection",
+				Namespace: tstAccountKey.Namespace,
+			},
+			Data: map[string]string{
+				"models": `["llama-3.1-8b-instruct"]`,
+			},
+		}
+		Expect(testClient.Create(ctx, modelSelectionConfig)).To(Succeed())
+		modelSelectionConfigRef, refErr := reference.GetReference(testClient.Scheme(), modelSelectionConfig)
+		Expect(refErr).NotTo(HaveOccurred())
+
+		By("Create an Account referencing the API Key Secret and model list ConfigMap without a validation status")
+		acct := &v1.Account{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      tstAccountKey.Name,
+				Namespace: tstAccountKey.Namespace,
+			},
+			Spec: v1.AccountSpec{
+				APIKeySecret:          *apiKeySecretRef,
+				ModelListConfig:       modelSelectionConfigRef,
+				ValidationRefreshRate: "24h",
+				NIMConfigRefreshRate:  "24h",
+			},
+		}
+		Expect(testClient.Create(ctx, acct)).To(Succeed())
+
+		By("Run the handler")
+		resp := validationHandler.Handle(ctx, acct)
+
+		By("Verify the response - expect to continue")
+		Expect(resp.Error).ToNot(HaveOccurred())
+		Expect(resp.Requeue).To(BeFalse())
+		Expect(resp.Continue).To(BeFalse())
+
+		By("Verify Account status update")
+		account := &v1.Account{}
+		Expect(testClient.Get(ctx, client.ObjectKeyFromObject(acct), account)).To(Succeed())
+		// report failed status
+		Expect(meta.IsStatusConditionTrue(account.Status.Conditions, utils.NimConditionAPIKeyValidation.String())).To(BeFalse())
+		Expect(meta.IsStatusConditionTrue(account.Status.Conditions, utils.NimConditionAccountStatus.String())).To(BeFalse())
+		// time account check for failures
+		Expect(account.Status.LastAccountCheck).NotTo(BeNil())
+
+		By("Cleanups")
+		Expect(testClient.Delete(ctx, apiKeySecret)).To(Succeed())
+		Expect(testClient.Delete(ctx, modelSelectionConfig)).To(Succeed())
+		Expect(testClient.Delete(ctx, account)).To(Succeed())
+		Expect(testClient.Delete(ctx, testNs)).To(Succeed())
+	})
 })

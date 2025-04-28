@@ -699,4 +699,220 @@ var _ = Describe("NIM ConfigMap Handler", func() {
 		Expect(testClient.Delete(ctx, account)).To(Succeed())
 		Expect(testClient.Delete(ctx, testNs)).To(Succeed())
 	})
+
+	It("should create a configmap with the data of the selected model if the selected model is specified", func(ctx SpecContext) {
+		tstName := "testing-nim-configmap-handler-10"
+		tstAccountKey := types.NamespacedName{Name: tstName, Namespace: tstName}
+
+		By("Create testing Namespace " + tstAccountKey.Namespace)
+		testNs := &corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: tstAccountKey.Namespace}}
+		Expect(testClient.Create(ctx, testNs)).To(Succeed())
+
+		By("Create an API Key Secret")
+		apiKeySecret := &corev1.Secret{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      tstAccountKey.Name + "-api-key",
+				Namespace: tstAccountKey.Namespace,
+				Labels:    map[string]string{"opendatahub.io/managed": "true"},
+			},
+			Data: map[string][]byte{
+				"api_key": []byte(testdata.FakeApiKey),
+			},
+		}
+		Expect(testClient.Create(ctx, apiKeySecret)).To(Succeed())
+		apiKeySecretRef, refErr := reference.GetReference(testClient.Scheme(), apiKeySecret)
+		Expect(refErr).NotTo(HaveOccurred())
+
+		By("Set a model list ConfigMap")
+		modelSelectionConfig := &corev1.ConfigMap{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      tstAccountKey.Name + "-model-selection",
+				Namespace: tstAccountKey.Namespace,
+			},
+			Data: map[string]string{
+				"models": `["phi-3-mini-4k-instruct"]`,
+			},
+		}
+		Expect(testClient.Create(ctx, modelSelectionConfig)).To(Succeed())
+		modelSelectionConfigRef, refErr := reference.GetReference(testClient.Scheme(), modelSelectionConfig)
+		Expect(refErr).NotTo(HaveOccurred())
+
+		By("Create an Account without referencing the configmap")
+		acct := &v1.Account{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      tstAccountKey.Name,
+				Namespace: tstAccountKey.Namespace,
+			},
+			Spec: v1.AccountSpec{
+				APIKeySecret:          *apiKeySecretRef,
+				ModelListConfig:       modelSelectionConfigRef,
+				ValidationRefreshRate: "24h",
+				NIMConfigRefreshRate:  "24h",
+			},
+		}
+		Expect(testClient.Create(ctx, acct)).To(Succeed())
+
+		By("Update the Account with a successful validation status")
+		acct.Status = v1.AccountStatus{Conditions: []metav1.Condition{
+			utils.MakeNimCondition(utils.NimConditionAPIKeyValidation, metav1.ConditionTrue, acct.Generation, "ApiKeyValidated", "api key validated successfully")}}
+		Expect(testClient.Status().Update(ctx, acct)).To(Succeed())
+
+		By("Run the handler")
+		resp := cmHandler.Handle(ctx, acct)
+
+		By("Verify the response - expect a requeue")
+		Expect(resp.Error).ToNot(HaveOccurred())
+		Expect(resp.Requeue).To(BeTrue())
+		Expect(resp.Continue).To(BeFalse())
+
+		By("Verify Account status")
+		account := &v1.Account{}
+		Expect(testClient.Get(ctx, client.ObjectKeyFromObject(acct), account)).To(Succeed())
+		// verify configmap to be created
+		Expect(account.Status.LastSuccessfulConfigRefresh).NotTo(BeNil())
+		Expect(account.Status.NIMConfig).NotTo(BeNil())
+
+		By("Verify the ConfigMap")
+		cm, cmErr := k8sClient.CoreV1().ConfigMaps(account.Status.NIMConfig.Namespace).
+			Get(ctx, account.Status.NIMConfig.Name, metav1.GetOptions{})
+		Expect(cmErr).NotTo(HaveOccurred())
+		Expect(cm).NotTo(BeNil())
+		Expect(cm.Data).Should(HaveLen(1))
+		_, ok := cm.Data["phi-3-mini-4k-instruct"]
+		Expect(ok).Should(BeTrue())
+
+		By("Cleanups")
+		Expect(testClient.Delete(ctx, apiKeySecret)).To(Succeed())
+		Expect(testClient.Delete(ctx, modelSelectionConfig)).To(Succeed())
+		Expect(testClient.Delete(ctx, cm)).To(Succeed())
+		Expect(testClient.Delete(ctx, account)).To(Succeed())
+		Expect(testClient.Delete(ctx, testNs)).To(Succeed())
+	})
+
+	It("should update the configmap if the selected model is updated", func(ctx SpecContext) {
+		tstName := "testing-nim-configmap-handler-11"
+		tstAccountKey := types.NamespacedName{Name: tstName, Namespace: tstName}
+
+		By("Create testing Namespace " + tstAccountKey.Namespace)
+		testNs := &corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: tstAccountKey.Namespace}}
+		Expect(testClient.Create(ctx, testNs)).To(Succeed())
+
+		By("Create an API Key Secret")
+		apiKeySecret := &corev1.Secret{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      tstAccountKey.Name + "-api-key",
+				Namespace: tstAccountKey.Namespace,
+				Labels:    map[string]string{"opendatahub.io/managed": "true"},
+			},
+			Data: map[string][]byte{
+				"api_key": []byte(testdata.FakeApiKey),
+			},
+		}
+		Expect(testClient.Create(ctx, apiKeySecret)).To(Succeed())
+		apiKeySecretRef, refErr := reference.GetReference(testClient.Scheme(), apiKeySecret)
+		Expect(refErr).NotTo(HaveOccurred())
+
+		By("Create an Account without referencing the configmap")
+		acct := &v1.Account{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      tstAccountKey.Name,
+				Namespace: tstAccountKey.Namespace,
+			},
+			Spec: v1.AccountSpec{
+				APIKeySecret:          *apiKeySecretRef,
+				ValidationRefreshRate: "24h",
+				NIMConfigRefreshRate:  "24h",
+			},
+		}
+		Expect(testClient.Create(ctx, acct)).To(Succeed())
+
+		By("Update the Account with a successful validation status")
+		acct.Status = v1.AccountStatus{Conditions: []metav1.Condition{
+			utils.MakeNimCondition(utils.NimConditionAPIKeyValidation, metav1.ConditionTrue, acct.Generation, "ApiKeyValidated", "api key validated successfully")}}
+		Expect(testClient.Status().Update(ctx, acct)).To(Succeed())
+
+		By("Run the handler")
+		resp := cmHandler.Handle(ctx, acct)
+
+		By("Verify the response - expect a requeue")
+		Expect(resp.Error).ToNot(HaveOccurred())
+		Expect(resp.Requeue).To(BeTrue())
+		Expect(resp.Continue).To(BeFalse())
+
+		By("Verify Account status")
+		account := &v1.Account{}
+		Expect(testClient.Get(ctx, client.ObjectKeyFromObject(acct), account)).To(Succeed())
+		// verify configmap to be created
+		Expect(account.Status.LastSuccessfulConfigRefresh).NotTo(BeNil())
+		Expect(account.Status.NIMConfig).NotTo(BeNil())
+
+		By("Verify the ConfigMap")
+		cm, cmErr := k8sClient.CoreV1().ConfigMaps(account.Status.NIMConfig.Namespace).
+			Get(ctx, account.Status.NIMConfig.Name, metav1.GetOptions{})
+		Expect(cmErr).NotTo(HaveOccurred())
+		Expect(cm).NotTo(BeNil())
+		Expect(cm.Data).Should(HaveLen(2))
+
+		By("Set a model list ConfigMap")
+		modelSelectionConfig := &corev1.ConfigMap{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      tstAccountKey.Name + "-model-selection",
+				Namespace: tstAccountKey.Namespace,
+			},
+			Data: map[string]string{
+				"models": `["phi-3-mini-4k-instruct"]`,
+			},
+		}
+		Expect(testClient.Create(ctx, modelSelectionConfig)).To(Succeed())
+		modelSelectionConfigRef, refErr := reference.GetReference(testClient.Scheme(), modelSelectionConfig)
+		Expect(refErr).NotTo(HaveOccurred())
+
+		By("Update the Account with model selection ConfigMap")
+		Eventually(func() error {
+			account := &v1.Account{}
+			if err := testClient.Get(ctx, client.ObjectKeyFromObject(acct), account); err != nil {
+				return err
+			}
+			account.Spec.ModelListConfig = modelSelectionConfigRef
+			if err := testClient.Update(ctx, account); err != nil {
+				return err
+			}
+			return nil
+		}, testTimeout, testInterval).Should(Succeed())
+
+		By("Get the updated Account")
+		Expect(testClient.Get(ctx, client.ObjectKeyFromObject(acct), account)).To(Succeed())
+		account.Status.LastSuccessfulValidation = &metav1.Time{Time: time.Now()}
+
+		By("Run the handler again")
+		resp1 := cmHandler.Handle(ctx, account)
+
+		By("Verify the response again - expect a requeue")
+		Expect(resp1.Error).ToNot(HaveOccurred())
+		Expect(resp1.Requeue).To(BeTrue())
+		Expect(resp1.Continue).To(BeFalse())
+
+		By("Verify Account status again")
+		account1 := &v1.Account{}
+		Expect(testClient.Get(ctx, client.ObjectKeyFromObject(acct), account1)).To(Succeed())
+		// verify configmap to be created
+		Expect(account1.Status.LastSuccessfulConfigRefresh).NotTo(BeNil())
+		Expect(account1.Status.NIMConfig).NotTo(BeNil())
+
+		By("Verify the ConfigMap again")
+		cm1, cmErr1 := k8sClient.CoreV1().ConfigMaps(account.Status.NIMConfig.Namespace).
+			Get(ctx, account.Status.NIMConfig.Name, metav1.GetOptions{})
+		Expect(cmErr1).NotTo(HaveOccurred())
+		Expect(cm1).NotTo(BeNil())
+		Expect(cm1.Data).Should(HaveLen(1))
+		_, ok := cm1.Data["phi-3-mini-4k-instruct"]
+		Expect(ok).Should(BeTrue())
+
+		By("Cleanups")
+		Expect(testClient.Delete(ctx, apiKeySecret)).To(Succeed())
+		Expect(testClient.Delete(ctx, modelSelectionConfig)).To(Succeed())
+		Expect(testClient.Delete(ctx, cm1)).To(Succeed())
+		Expect(testClient.Delete(ctx, account1)).To(Succeed())
+		Expect(testClient.Delete(ctx, testNs)).To(Succeed())
+	})
 })

@@ -21,6 +21,7 @@ import (
 	"path/filepath"
 	"runtime"
 	"testing"
+	"time"
 
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
@@ -45,6 +46,9 @@ var testClient client.Client
 var testEnv *envtest.Environment
 var templateClient *templatev1client.Clientset
 var k8sClient *kubernetes.Clientset
+
+const testTimeout = time.Second * 20
+const testInterval = time.Millisecond * 10
 
 func TestNimHandlers(t *testing.T) {
 	RegisterFailHandler(Fail)
