@@ -22,7 +22,6 @@ import (
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	v1 "github.com/opendatahub-io/odh-model-controller/api/nim/v1"
-	"github.com/opendatahub-io/odh-model-controller/internal/controller/constants"
 	"github.com/opendatahub-io/odh-model-controller/internal/controller/utils"
 	templatev1 "github.com/openshift/api/template/v1"
 	corev1 "k8s.io/api/core/v1"
@@ -64,9 +63,8 @@ var _ = Describe("NIM Template Handler", func() {
 		By("Create an Account without a Template reference")
 		acct := &v1.Account{
 			ObjectMeta: metav1.ObjectMeta{
-				Name:       tstAccountKey.Name,
-				Namespace:  tstAccountKey.Namespace,
-				Finalizers: []string{constants.NimCleanupFinalizer},
+				Name:      tstAccountKey.Name,
+				Namespace: tstAccountKey.Namespace,
 			},
 			Spec: v1.AccountSpec{
 				APIKeySecret:          corev1.ObjectReference{Name: "im-not-required", Namespace: "for-this-test"},
@@ -107,9 +105,8 @@ var _ = Describe("NIM Template Handler", func() {
 		By("Create an Account without a Template reference")
 		acct := &v1.Account{
 			ObjectMeta: metav1.ObjectMeta{
-				Name:       tstAccountKey.Name,
-				Namespace:  tstAccountKey.Namespace,
-				Finalizers: []string{constants.NimCleanupFinalizer},
+				Name:      tstAccountKey.Name,
+				Namespace: tstAccountKey.Namespace,
 			},
 			Spec: v1.AccountSpec{
 				APIKeySecret:          corev1.ObjectReference{Name: "im-not-required", Namespace: "for-this-test"},
@@ -165,9 +162,8 @@ var _ = Describe("NIM Template Handler", func() {
 		By("Create an Account")
 		acct := &v1.Account{
 			ObjectMeta: metav1.ObjectMeta{
-				Name:       tstAccountKey.Name,
-				Namespace:  tstAccountKey.Namespace,
-				Finalizers: []string{constants.NimCleanupFinalizer},
+				Name:      tstAccountKey.Name,
+				Namespace: tstAccountKey.Namespace,
 			},
 			Spec: v1.AccountSpec{
 				APIKeySecret:          corev1.ObjectReference{Name: "im-not-required", Namespace: "for-this-test"},
@@ -231,9 +227,8 @@ var _ = Describe("NIM Template Handler", func() {
 		By("Create an Account")
 		acct := &v1.Account{
 			ObjectMeta: metav1.ObjectMeta{
-				Name:       tstAccountKey.Name,
-				Namespace:  tstAccountKey.Namespace,
-				Finalizers: []string{constants.NimCleanupFinalizer},
+				Name:      tstAccountKey.Name,
+				Namespace: tstAccountKey.Namespace,
 			},
 			Spec: v1.AccountSpec{
 				APIKeySecret:          corev1.ObjectReference{Name: "im-not-required", Namespace: "for-this-test"},
@@ -301,9 +296,8 @@ var _ = Describe("NIM Template Handler", func() {
 		By("Create an Account")
 		acct := &v1.Account{
 			ObjectMeta: metav1.ObjectMeta{
-				Name:       tstAccountKey.Name,
-				Namespace:  tstAccountKey.Namespace,
-				Finalizers: []string{constants.NimCleanupFinalizer},
+				Name:      tstAccountKey.Name,
+				Namespace: tstAccountKey.Namespace,
 			},
 			Spec: v1.AccountSpec{
 				APIKeySecret:          corev1.ObjectReference{Name: "im-not-required", Namespace: "for-this-test"},
