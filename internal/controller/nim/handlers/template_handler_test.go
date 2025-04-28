@@ -189,7 +189,7 @@ var _ = Describe("NIM Template Handler", func() {
 		templateRef, trErr := reference.GetReference(testClient.Scheme(), template)
 		Expect(trErr).NotTo(HaveOccurred())
 
-		By("Update the Account status to reference the Template, set conditionå to fail")
+		By("Update the Account status to reference the Template, set conditions to fail")
 		acct.Status.RuntimeTemplate = templateRef
 		acct.Status.Conditions = []metav1.Condition{
 			utils.MakeNimCondition(utils.NimConditionTemplateUpdate, metav1.ConditionFalse, acct.Generation, "TemplateFailed", "a made up reason"),
@@ -352,6 +352,61 @@ var _ = Describe("NIM Template Handler", func() {
 		By("Cleanups")
 		Expect(testClient.Delete(ctx, tempUpdate)).To(Succeed())
 		Expect(testClient.Delete(ctx, acct)).To(Succeed())
+		Expect(testClient.Delete(ctx, testNs)).To(Succeed())
+	})
+
+	It("should reconcile if the template was deleted and requeue", func(ctx SpecContext) {
+		tstName := "testing-nim-template-handler-6"
+		tstAccountKey := types.NamespacedName{Name: tstName, Namespace: tstName}
+
+		By("Create testing Namespace " + tstAccountKey.Namespace)
+		testNs := &corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: tstAccountKey.Namespace}}
+		Expect(testClient.Create(ctx, testNs)).To(Succeed())
+
+		By("Create an Account")
+		acct := &v1.Account{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      tstAccountKey.Name,
+				Namespace: tstAccountKey.Namespace,
+			},
+			Spec: v1.AccountSpec{
+				APIKeySecret:          corev1.ObjectReference{Name: "im-not-required", Namespace: "for-this-test"},
+				ValidationRefreshRate: "24h",
+				NIMConfigRefreshRate:  "24h",
+			},
+		}
+		Expect(testClient.Create(ctx, acct)).To(Succeed())
+
+		By("Update the Account status to reference a non existing template")
+		acct.Status.RuntimeTemplate = &corev1.ObjectReference{Name: "im-not-here-template", Namespace: "this-isn't-happening"}
+		acct.Status.Conditions = []metav1.Condition{
+			utils.MakeNimCondition(utils.NimConditionTemplateUpdate, metav1.ConditionTrue, acct.Generation, "TemplateUpdated", "runtime template reconciled successfully"),
+		}
+		Expect(testClient.Status().Update(ctx, acct)).To(Succeed())
+
+		By("Run the handler")
+		resp := templateHandler.Handle(ctx, acct)
+
+		By("Verify the response - expect a requeue")
+		Expect(resp.Error).ToNot(HaveOccurred())
+		Expect(resp.Requeue).To(BeTrue())
+		Expect(resp.Continue).To(BeFalse())
+
+		By("Verify Account status update")
+		account := &v1.Account{}
+		Expect(testClient.Get(ctx, client.ObjectKeyFromObject(acct), account)).To(Succeed())
+		// verify reference
+		Expect(account.Status.RuntimeTemplate).NotTo(BeNil())
+
+		By("Verify the Template")
+		template, tempErr := templateClient.TemplateV1().Templates(account.Status.RuntimeTemplate.Namespace).
+			Get(ctx, account.Status.RuntimeTemplate.Name, metav1.GetOptions{})
+		Expect(tempErr).NotTo(HaveOccurred())
+		Expect(template).NotTo(BeNil())
+
+		By("Cleanups")
+		Expect(testClient.Delete(ctx, template)).To(Succeed())
+		Expect(testClient.Delete(ctx, account)).To(Succeed())
 		Expect(testClient.Delete(ctx, testNs)).To(Succeed())
 	})
 })

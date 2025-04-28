@@ -102,5 +102,5 @@ func mergeStringMaps(baseMap, existing map[string]string) (bool, map[string]stri
 
 // shouldUpdateReference will true if an update to the object reference is required
 func shouldUpdateReference(origRef, newRef *corev1.ObjectReference) bool {
-	return origRef == nil || newRef == nil || !utils.NimEqualities.DeepEqual(origRef.UID, origRef.UID)
+	return origRef == nil || newRef == nil || !utils.NimEqualities.DeepEqual(origRef.UID, newRef.UID)
 }

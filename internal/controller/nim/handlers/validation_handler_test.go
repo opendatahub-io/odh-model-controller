@@ -433,4 +433,107 @@ var _ = Describe("NIM Validation Handler", func() {
 		Expect(testClient.Delete(ctx, account)).To(Succeed())
 		Expect(testClient.Delete(ctx, testNs)).To(Succeed())
 	})
+
+	It("should report error if failed to get the api key", func(ctx SpecContext) {
+		tstName := "testing-nim-validation-handler-7"
+		tstAccountKey := types.NamespacedName{Name: tstName, Namespace: tstName}
+
+		By("Create testing Namespace " + tstAccountKey.Namespace)
+		testNs := &corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: tstAccountKey.Namespace}}
+		Expect(testClient.Create(ctx, testNs)).To(Succeed())
+
+		By("Create an API Key Secret with the wrong data")
+		apiKeySecret := &corev1.Secret{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      tstAccountKey.Name + "-api-key",
+				Namespace: tstAccountKey.Namespace,
+				Labels:    map[string]string{"opendatahub.io/managed": "true"},
+			},
+			Data: map[string][]byte{
+				"not_the_correct_key": []byte("the-value-dont-matter"),
+			},
+		}
+		Expect(testClient.Create(ctx, apiKeySecret)).To(Succeed())
+		apiKeySecretRef, refErr := reference.GetReference(testClient.Scheme(), apiKeySecret)
+		Expect(refErr).NotTo(HaveOccurred())
+
+		By("Create an Account referencing a the faulty API Key Secret")
+		acct := &v1.Account{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      tstAccountKey.Name,
+				Namespace: tstAccountKey.Namespace,
+			},
+			Spec: v1.AccountSpec{
+				APIKeySecret:          *apiKeySecretRef,
+				ValidationRefreshRate: "24h",
+				NIMConfigRefreshRate:  "24h",
+			},
+		}
+		Expect(testClient.Create(ctx, acct)).To(Succeed())
+
+		By("Run the handler")
+		resp := validationHandler.Handle(ctx, acct)
+
+		By("Verify the response - expect to continue")
+		Expect(resp.Error.Error()).To(ContainSubstring("secret testing-nim-validation-handler-7-api-key has no api_key data"))
+		Expect(resp.Requeue).To(BeFalse())
+		Expect(resp.Continue).To(BeFalse())
+
+		By("Verify Account status update")
+		account := &v1.Account{}
+		Expect(testClient.Get(ctx, client.ObjectKeyFromObject(acct), account)).To(Succeed())
+		// report failed status
+		Expect(meta.IsStatusConditionTrue(account.Status.Conditions, utils.NimConditionAPIKeyValidation.String())).To(BeFalse())
+		Expect(meta.IsStatusConditionTrue(account.Status.Conditions, utils.NimConditionAccountStatus.String())).To(BeFalse())
+		// time account check for failures
+		Expect(account.Status.LastAccountCheck).NotTo(BeNil())
+
+		By("Cleanups")
+		Expect(testClient.Delete(ctx, account)).To(Succeed())
+		Expect(testClient.Delete(ctx, testNs)).To(Succeed())
+	})
+
+	It("should stop reconciliation of api key secret not found", func(ctx SpecContext) {
+		tstName := "testing-nim-validation-handler-8"
+		tstAccountKey := types.NamespacedName{Name: tstName, Namespace: tstName}
+
+		By("Create testing Namespace " + tstAccountKey.Namespace)
+		testNs := &corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: tstAccountKey.Namespace}}
+		Expect(testClient.Create(ctx, testNs)).To(Succeed())
+
+		By("Create an Account referencing a non existing Secret")
+		acct := &v1.Account{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      tstAccountKey.Name,
+				Namespace: tstAccountKey.Namespace,
+			},
+			Spec: v1.AccountSpec{
+				APIKeySecret:          corev1.ObjectReference{Name: "im-not-here-val", Namespace: "this-is-not-happening"},
+				ValidationRefreshRate: "24h",
+				NIMConfigRefreshRate:  "24h",
+			},
+		}
+		Expect(testClient.Create(ctx, acct)).To(Succeed())
+
+		By("Run the handler")
+		resp := validationHandler.Handle(ctx, acct)
+
+		By("Verify the response - expect to continue")
+		Expect(resp.Error).NotTo(HaveOccurred())
+		Expect(resp.Requeue).To(BeFalse())
+		Expect(resp.Continue).To(BeFalse())
+
+		By("Verify Account status update")
+		account := &v1.Account{}
+		Expect(testClient.Get(ctx, client.ObjectKeyFromObject(acct), account)).To(Succeed())
+		// report failed status
+		Expect(meta.IsStatusConditionTrue(account.Status.Conditions, utils.NimConditionAPIKeyValidation.String())).To(BeFalse())
+		Expect(meta.IsStatusConditionTrue(account.Status.Conditions, utils.NimConditionAccountStatus.String())).To(BeFalse())
+		// time account check for failures
+		Expect(account.Status.LastAccountCheck).NotTo(BeNil())
+
+		By("Cleanups")
+		Expect(testClient.Delete(ctx, account)).To(Succeed())
+		Expect(testClient.Delete(ctx, testNs)).To(Succeed())
+	})
 })
