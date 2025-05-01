@@ -14,7 +14,7 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package nim
+package handlers
 
 import (
 	"fmt"
@@ -25,6 +25,7 @@ import (
 
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
+
 	templatev1client "github.com/openshift/client-go/template/clientset/versioned"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/kubernetes/scheme"
@@ -33,6 +34,7 @@ import (
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
 	"sigs.k8s.io/controller-runtime/pkg/log/zap"
 
+	"github.com/opendatahub-io/odh-model-controller/internal/controller/testdata"
 	"github.com/opendatahub-io/odh-model-controller/internal/controller/utils"
 	// +kubebuilder:scaffold:imports
 )
@@ -45,14 +47,13 @@ var testEnv *envtest.Environment
 var templateClient *templatev1client.Clientset
 var k8sClient *kubernetes.Clientset
 
-// TODO: Deduplicate
 const testTimeout = time.Second * 20
 const testInterval = time.Millisecond * 10
 
-func TestControllers(t *testing.T) {
+func TestNimHandlers(t *testing.T) {
 	RegisterFailHandler(Fail)
 
-	RunSpecs(t, "Controller & Webhook Suite")
+	RunSpecs(t, "NIM Pull Secret Handler test cases")
 }
 
 var _ = BeforeSuite(func() {
@@ -61,8 +62,8 @@ var _ = BeforeSuite(func() {
 	By("bootstrapping test environment")
 	testEnv = &envtest.Environment{
 		CRDDirectoryPaths: []string{
-			filepath.Join("..", "..", "..", "config", "crd", "bases"),
-			filepath.Join("..", "..", "..", "config", "crd", "external"),
+			filepath.Join("..", "..", "..", "..", "config", "crd", "bases"),
+			filepath.Join("..", "..", "..", "..", "config", "crd", "external"),
 		},
 		ErrorIfCRDPathMissing: true,
 
@@ -71,7 +72,7 @@ var _ = BeforeSuite(func() {
 		// default path defined in controller-runtime which is /usr/local/kubebuilder/.
 		// Note that you must have the required binaries setup under the bin directory to perform
 		// the tests directly. When we run make test it will be setup and used automatically.
-		BinaryAssetsDirectory: filepath.Join("..", "..", "bin", "k8s",
+		BinaryAssetsDirectory: filepath.Join("..", "..", "..", "bin", "k8s",
 			fmt.Sprintf("1.31.0-%s-%s", runtime.GOOS, runtime.GOARCH)),
 	}
 
@@ -93,8 +94,8 @@ var _ = BeforeSuite(func() {
 	Expect(err).NotTo(HaveOccurred())
 	Expect(k8sClient).NotTo(BeNil())
 
-	// test cases in this file do not require API access, blocking accidental failures by nil'ing our client.
-	utils.NimHttpClient = nil
+	// mocking our client
+	utils.NimHttpClient = &testdata.NimHttpClientMock{}
 })
 
 var _ = AfterSuite(func() {
