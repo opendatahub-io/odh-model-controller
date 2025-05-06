@@ -41,7 +41,8 @@ so it can correctly show the metrics deployed in your current namespace for the 
 There are two parameters that needs to be updated to reflect it:
 
 - **NAMESPACE**: the target namespace where the model will be deployed.
-- **MODEL_NAME**: the model name as defined in your InferenceService, note, it is a regex, so just the starting string of your model name would be enough.
+- **MODEL_NAME**: the model name as defined in your InferenceService, note that, it will also be used to filter the pod name
+  in the Grafana dashboard, which is a filter using regex.
 
 To correctly override it, we will use a helper called `envsubst`, it is available through the `gettext` GNU package.
 
@@ -49,6 +50,8 @@ We will use the `envsubst` command to replace the variables in the JSON string w
 [inputs.env](inputs.env) file, example:
 
 ```bash
+# the following command reads the environment variables from the inputs.env file and exports them to the current shell
+# so it can be used by the envsubst command
 export $(cat config/grafana/nvidia/inputs.env | xargs)
 envsubst '${NAMESPACE} ${MODEL_NAME}' < grafana/nvidia/nvidia-vllm-dashboard.yaml > /tmp/nvidia-vllm-dashboard-replaced.yaml
 ```
@@ -59,7 +62,9 @@ NAMESPACE=granite
 MODEL_NAME=granite318b
 ```
 
-The part that needs most attention is:
+These values will be replaced by its placeholders in the [dashboard](grafana/nvidia/nvidia-vllm-dashboard.yaml), in the end of
+the generated file, pay attention to this section, where the `namespace` and `model_name` inputs are defined:
+
 ```json
        {
             "current": {
