@@ -215,12 +215,19 @@ golangci-lint: $(GOLANGCI_LINT) ## Download golangci-lint locally if necessary.
 $(GOLANGCI_LINT): $(LOCALBIN)
 	$(call go-install-tool,$(GOLANGCI_LINT),github.com/golangci/golangci-lint/cmd/golangci-lint,$(GOLANGCI_LINT_VERSION))
 
-# go-install-tool will 'go install' any package with custom target and name of binary, if it doesn't exist
-# $1 - target path with name of binary
-# $2 - package url which can be installed
-# $3 - specific version of package
+# Macro `go-install-tool` installs a specific version of a Go package and ensures that
+# invoking the binary at the given path uses that version.
+#
+# Usage:
+#   $(call go-install-tool,<binary-path>,<pkg-url>,<version>)
+#
+# Arguments:
+#   $1 — binary-path: full path (including binary name) where the tool will be placed
+#   $2 — pkg-url: Go binary path (e.g. github.com/user/tool/cmd/binary)
+#   $3 — version: exact module version (e.g. v1.2.3)
 define go-install-tool
-@[ -f "$(1)-$(3)" ] || { \
+@rm -f $(1); \
+[ -f "$(1)-$(3)" ] || { \
 set -e; \
 package=$(2)@$(3) ;\
 echo "Downloading $${package}" ;\
