@@ -27,7 +27,7 @@ COPY internal/ internal/
 USER root
 RUN CGO_ENABLED=1 GOOS=${TARGETOS} GOARCH=${TARGETARCH} GOEXPERIMENT=strictfipsruntime go build -tags strictfipsruntime -a -o manager cmd/main.go
 
-FROM registry.access.redhat.com/ubi9/ubi-minimal@sha256:a50731d3397a4ee28583f1699842183d4d24fadcc565c4688487af9ee4e13a44 AS runtime
+FROM registry.access.redhat.com/ubi9/ubi-minimal@sha256:21ed5a01130d3a77eb4a26a80de70a4433860255b394e95dc2c26817de1da061 AS runtime
 
 ARG USER=2000
 
