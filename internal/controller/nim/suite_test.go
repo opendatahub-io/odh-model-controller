@@ -17,37 +17,55 @@ limitations under the License.
 package nim
 
 import (
+	"context"
 	"fmt"
 	"path/filepath"
 	"runtime"
 	"testing"
 	"time"
 
+	kservev1alpha1 "github.com/kserve/kserve/pkg/apis/serving/v1alpha1"
+	kservev1beta1 "github.com/kserve/kserve/pkg/apis/serving/v1beta1"
+	authorinov1beta2 "github.com/kuadrant/authorino/api/v1beta2"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
-	templatev1client "github.com/openshift/client-go/template/clientset/versioned"
+	routev1 "github.com/openshift/api/route/v1"
+	monitoringv1 "github.com/prometheus-operator/prometheus-operator/pkg/apis/monitoring/v1"
+	istioclientv1beta1 "istio.io/client-go/pkg/apis/networking/v1beta1"
+	istiov1beta1 "istio.io/client-go/pkg/apis/security/v1beta1"
+	corev1 "k8s.io/api/core/v1"
+	k8srbacv1 "k8s.io/api/rbac/v1"
 	"k8s.io/client-go/kubernetes"
+	ctrl "sigs.k8s.io/controller-runtime"
+	"sigs.k8s.io/controller-runtime/pkg/cache"
+	metricsserver "sigs.k8s.io/controller-runtime/pkg/metrics/server"
+
+	k8sLabels "k8s.io/apimachinery/pkg/labels"
 	"k8s.io/client-go/kubernetes/scheme"
+	"k8s.io/client-go/rest"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/envtest"
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
 	"sigs.k8s.io/controller-runtime/pkg/log/zap"
 
 	"github.com/opendatahub-io/odh-model-controller/internal/controller/utils"
+	testutils "github.com/opendatahub-io/odh-model-controller/test/utils"
 	// +kubebuilder:scaffold:imports
 )
 
 // These tests use Ginkgo (BDD-style Go testing framework). Refer to
 // http://onsi.github.io/ginkgo/ to learn more about Ginkgo.
 
-var testClient client.Client
+var cfg *rest.Config
+var k8sClient client.Client
 var testEnv *envtest.Environment
-var templateClient *templatev1client.Clientset
-var k8sClient *kubernetes.Clientset
+var ctx context.Context
+var cancel context.CancelFunc
 
 // TODO: Deduplicate
 const testTimeout = time.Second * 20
 const testInterval = time.Millisecond * 10
+const WorkingNamespace = "default"
 
 func TestControllers(t *testing.T) {
 	RegisterFailHandler(Fail)
@@ -57,6 +75,8 @@ func TestControllers(t *testing.T) {
 
 var _ = BeforeSuite(func() {
 	logf.SetLogger(zap.New(zap.WriteTo(GinkgoWriter), zap.UseDevMode(true)))
+
+	ctx, cancel = context.WithCancel(context.TODO())
 
 	By("bootstrapping test environment")
 	testEnv = &envtest.Environment{
@@ -75,29 +95,82 @@ var _ = BeforeSuite(func() {
 			fmt.Sprintf("1.31.0-%s-%s", runtime.GOOS, runtime.GOARCH)),
 	}
 
-	cfg, err := testEnv.Start()
+	var err error
+	// cfg is defined in this file globally.
+	cfg, err = testEnv.Start()
 	Expect(err).NotTo(HaveOccurred())
 	Expect(cfg).NotTo(BeNil())
 
 	utils.RegisterSchemes(scheme.Scheme)
 
-	testClient, err = client.New(cfg, client.Options{Scheme: scheme.Scheme})
-	Expect(err).NotTo(HaveOccurred())
-	Expect(testClient).NotTo(BeNil())
-
-	templateClient, err = templatev1client.NewForConfig(cfg)
-	Expect(err).NotTo(HaveOccurred())
-	Expect(templateClient).NotTo(BeNil())
-
-	k8sClient, err = kubernetes.NewForConfig(cfg)
+	k8sClient, err = client.New(cfg, client.Options{Scheme: scheme.Scheme})
 	Expect(err).NotTo(HaveOccurred())
 	Expect(k8sClient).NotTo(BeNil())
 
-	// test cases in this file do not require API access, blocking accidental failures by nil'ing our client.
-	utils.NimHttpClient = nil
+	mgr, err := ctrl.NewManager(cfg, ctrl.Options{
+		Scheme: scheme.Scheme,
+		Client: client.Options{
+			Cache: &client.CacheOptions{
+				DisableFor: []client.Object{&istiov1beta1.AuthorizationPolicy{}},
+			},
+		},
+		Cache: cache.Options{
+			ByObject: map[client.Object]cache.ByObject{
+				&corev1.Secret{}: {
+					Label: k8sLabels.SelectorFromSet(k8sLabels.Set{
+						"opendatahub.io/managed": "true",
+					}),
+				},
+			},
+		},
+		Metrics: metricsserver.Options{BindAddress: "0"},
+	})
+	Expect(err).NotTo(HaveOccurred())
+
+	kubeClient, kubeClientErr := kubernetes.NewForConfig(cfg)
+	Expect(kubeClientErr).NotTo(HaveOccurred())
+
+	err = (&AccountReconciler{
+		Client:  mgr.GetClient(),
+		Scheme:  mgr.GetScheme(),
+		KClient: kubeClient,
+	}).SetupWithManager(mgr, ctrl.SetupSignalHandler())
+	Expect(err).NotTo(HaveOccurred())
+
+	go func() {
+		defer GinkgoRecover()
+		err = mgr.Start(ctx)
+		Expect(err).NotTo(HaveOccurred(), "failed to start manager")
+	}()
 })
 
 var _ = AfterSuite(func() {
 	By("tearing down the test environment")
-	Expect(testEnv.Stop()).NotTo(HaveOccurred())
+	cancel()
+	err := testEnv.Stop()
+	Expect(err).NotTo(HaveOccurred())
+})
+
+// Cleanup resources to not contaminate between tests
+var _ = AfterEach(func() {
+	cleanUp := func(namespace string, cli client.Client) {
+		inNamespace := client.InNamespace(namespace)
+		_, meshNamespace := utils.GetIstioControlPlaneName(ctx, cli)
+		istioNamespace := client.InNamespace(meshNamespace)
+		Expect(cli.DeleteAllOf(context.TODO(), &kservev1alpha1.ServingRuntime{}, inNamespace)).ToNot(HaveOccurred())
+		Expect(cli.DeleteAllOf(context.TODO(), &kservev1beta1.InferenceService{}, inNamespace)).ToNot(HaveOccurred())
+		Expect(cli.DeleteAllOf(context.TODO(), &routev1.Route{}, inNamespace)).ToNot(HaveOccurred())
+		Expect(cli.DeleteAllOf(context.TODO(), &monitoringv1.ServiceMonitor{}, inNamespace)).ToNot(HaveOccurred())
+		Expect(cli.DeleteAllOf(context.TODO(), &k8srbacv1.RoleBinding{}, inNamespace)).ToNot(HaveOccurred())
+		Expect(cli.DeleteAllOf(context.TODO(), &corev1.Secret{}, inNamespace)).ToNot(HaveOccurred())
+		Expect(cli.DeleteAllOf(context.TODO(), &authorinov1beta2.AuthConfig{}, inNamespace)).ToNot(HaveOccurred())
+		Expect(cli.DeleteAllOf(context.TODO(), &corev1.ConfigMap{}, inNamespace)).ToNot(HaveOccurred())
+		Expect(cli.DeleteAllOf(context.TODO(), &corev1.Service{}, inNamespace)).ToNot(HaveOccurred())
+		Expect(cli.DeleteAllOf(context.TODO(), &istioclientv1beta1.Gateway{}, istioNamespace)).ToNot(HaveOccurred())
+	}
+	cleanUp(WorkingNamespace, k8sClient)
+	for _, ns := range testutils.Namespaces.All() {
+		cleanUp(ns, k8sClient)
+	}
+	testutils.Namespaces.Clear()
 })

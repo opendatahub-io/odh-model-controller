@@ -15,8 +15,6 @@ limitations under the License.
 
 package constants
 
-import "time"
-
 type KServeDeploymentMode string
 
 const (
@@ -75,7 +73,6 @@ const (
 	KServeCACertFileName       = "cabundle.crt"
 	KServeCACertConfigMapName  = "odh-kserve-custom-ca-bundle"
 	ODHGlobalCertConfigMapName = "odh-trusted-ca-bundle"
-	ODHClusterCACertFileName   = "ca-bundle.crt"
 	ODHCustomCACertFileName    = "odh-ca-bundle.crt"
 	KServeGatewayName          = "kserve-local-gateway"
 )
@@ -112,12 +109,7 @@ const (
 
 // NIM
 const (
-	NimApplyConfigFieldManager   = "nim-account-controller"
-	NimValidationRefreshRate     = time.Hour * 24
-	NimConfigRefreshRate         = time.Hour * 24
-	NimCleanupFinalizer          = "runtimes.opendatahub.io/nim-cleanup-finalizer"
-	NimForceValidationAnnotation = "runtimes.opendatahub.io/nim-force-validation"
-	NimSkipValidationAnnotation  = "runtimes.opendatahub.io/nim-skip-validation"
+	NimApplyConfigFieldManager = "nim-account-controller"
 )
 
 // Ray

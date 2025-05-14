@@ -54,6 +54,7 @@ type ConfigMapReconciler struct {
 // reconcileConfigMap watch odh global ca cert and it will create/update/delete kserve custom cert configmap
 func (r *ConfigMapReconciler) reconcileConfigMap(configmap *corev1.ConfigMap, ctx context.Context, log logr.Logger) error {
 
+	var odhCustomCertData string
 	// If kserve custom cert configmap changed, rollback it
 	if configmap.Name == kserveCustomCACertConfigMapName {
 		odhCustomCertConfigMap := &corev1.ConfigMap{}
@@ -63,17 +64,10 @@ func (r *ConfigMapReconciler) reconcileConfigMap(configmap *corev1.ConfigMap, ct
 		}
 		configmap = odhCustomCertConfigMap
 	}
-
-	// Include all custom CA bundle certificates in the kserve custom cert configmap.
-	certData := strings.TrimSpace(configmap.Data[constants.ODHCustomCACertFileName])
-
-	// If there are any custom CA bundle certificates present, include the cluster-wide CA bundle certificates as well.
-	if certData != "" {
-		certData = certData + "\n\n" + strings.TrimSpace(configmap.Data[constants.ODHClusterCACertFileName])
-	}
+	odhCustomCertData = strings.TrimSpace(configmap.Data[constants.ODHCustomCACertFileName])
 
 	// Create Desired resource
-	configData := map[string]string{kserveCustomCACertFileName: certData}
+	configData := map[string]string{kserveCustomCACertFileName: odhCustomCertData}
 	desiredResource := getDesiredCaCertConfigMapForKServe(kserveCustomCACertConfigMapName, configmap.Namespace, configData)
 
 	// Get Existing resource

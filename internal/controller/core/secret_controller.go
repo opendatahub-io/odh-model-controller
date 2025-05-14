@@ -20,7 +20,6 @@ import (
 	"context"
 	"encoding/json"
 	"reflect"
-	"strings"
 
 	"github.com/go-logr/logr"
 
@@ -115,7 +114,7 @@ func (r *SecretReconciler) reconcileSecret(secret *corev1.Secret,
 	odhCustomCertData := ""
 	odhGlobalCertConfigMap := &corev1.ConfigMap{}
 	err = r.Get(ctx, types.NamespacedName{
-		Name:      constants.ODHGlobalCertConfigMapName,
+		Name:      constants.KServeCACertConfigMapName,
 		Namespace: secret.Namespace,
 	}, odhGlobalCertConfigMap)
 
@@ -126,8 +125,7 @@ func (r *SecretReconciler) reconcileSecret(secret *corev1.Secret,
 			return err
 		}
 	} else {
-		// Only add custom certificates.
-		odhCustomCertData = strings.TrimSpace(odhGlobalCertConfigMap.Data[constants.ODHCustomCACertFileName])
+		odhCustomCertData = odhGlobalCertConfigMap.Data[constants.KServeCACertFileName]
 	}
 
 	// Generate desire Storage Config Secret
