@@ -124,6 +124,18 @@ func (in *AccountStatus) DeepCopyInto(out *AccountStatus) {
 		*out = new(corev1.ObjectReference)
 		**out = **in
 	}
+	if in.LastSuccessfulValidation != nil {
+		in, out := &in.LastSuccessfulValidation, &out.LastSuccessfulValidation
+		*out = (*in).DeepCopy()
+	}
+	if in.LastSuccessfulConfigRefresh != nil {
+		in, out := &in.LastSuccessfulConfigRefresh, &out.LastSuccessfulConfigRefresh
+		*out = (*in).DeepCopy()
+	}
+	if in.LastAccountCheck != nil {
+		in, out := &in.LastAccountCheck, &out.LastAccountCheck
+		*out = (*in).DeepCopy()
+	}
 	if in.Conditions != nil {
 		in, out := &in.Conditions, &out.Conditions
 		*out = make([]metav1.Condition, len(*in))

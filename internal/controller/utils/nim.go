@@ -23,6 +23,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"slices"
 	"strings"
 	"time"
 
@@ -38,6 +39,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/utils/semantic"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/apiutil"
 )
@@ -111,9 +113,18 @@ const (
 )
 
 var NimHttpClient HttpClient
+var NimEqualities semantic.Equalities
 
 func init() {
 	NimHttpClient = &http.Client{Timeout: time.Second * 30}
+	NimEqualities = semantic.EqualitiesOrDie(
+		func(a, b resource.Quantity) bool {
+			return true
+		},
+		func(a, b metav1.Time) bool {
+			return a.UTC() == b.UTC()
+		},
+	)
 }
 
 // GetAvailableNimRuntimes is used for fetching a list of available NIM custom runtimes
@@ -426,6 +437,10 @@ func GetNimServingRuntimeTemplate(scheme *runtime.Scheme) (*v1alpha1.ServingRunt
 								MountPath: "/mnt/models/cache",
 								Name:      "nim-pvc",
 							},
+							{
+								MountPath: "/opt/nim/workspace",
+								Name:      "nim-workspace",
+							},
 						},
 					},
 				},
@@ -441,6 +456,12 @@ func GetNimServingRuntimeTemplate(scheme *runtime.Scheme) (*v1alpha1.ServingRunt
 							PersistentVolumeClaim: &corev1.PersistentVolumeClaimVolumeSource{
 								ClaimName: "nim-pvc",
 							},
+						},
+					},
+					{
+						Name: "nim-workspace",
+						VolumeSource: corev1.VolumeSource{
+							EmptyDir: &corev1.EmptyDirVolumeSource{},
 						},
 					},
 				},
@@ -465,7 +486,6 @@ func GetNimServingRuntimeTemplate(scheme *runtime.Scheme) (*v1alpha1.ServingRunt
 
 // CleanupResources is used for deleting the integration related resources (configmap, template, pull secret)
 func CleanupResources(ctx context.Context, account *v1.Account, kubeClient client.Client) error {
-
 	var delObjs []client.Object
 
 	if account.Status.NIMPullSecret != nil {
@@ -496,7 +516,6 @@ func CleanupResources(ctx context.Context, account *v1.Account, kubeClient clien
 	}
 
 	var deleteErrors *multierror.Error
-
 	for _, obj := range delObjs {
 		if err := kubeClient.Delete(ctx, obj); err != nil {
 			if !k8serrors.IsNotFound(err) {
@@ -505,21 +524,21 @@ func CleanupResources(ctx context.Context, account *v1.Account, kubeClient clien
 		}
 	}
 	return deleteErrors.ErrorOrNil()
-
 }
 
 // UpdateStatus is used for fetching an updating the status of the account
 func UpdateStatus(ctx context.Context, subject types.NamespacedName, status v1.AccountStatus, kubeClient client.Client) error {
-
 	account := &v1.Account{}
 	if err := kubeClient.Get(ctx, subject, account); err != nil {
 		if !k8serrors.IsNotFound(err) {
 			return err
 		}
 	} else {
-		account.Status = *status.DeepCopy()
-		if err = kubeClient.Status().Update(ctx, account); err != nil {
-			return err
+		if !NimEqualities.DeepEqual(account.Status, status) {
+			account.Status = *status.DeepCopy()
+			if err = kubeClient.Status().Update(ctx, account); err != nil {
+				return err
+			}
 		}
 	}
 	return nil
@@ -561,11 +580,89 @@ func (r *NIMCleanupRunner) Start(ctx context.Context) error {
 					"SecretNotReconciled", msg),
 			},
 		}
-		subject := types.NamespacedName{Name: account.Name, Namespace: account.Namespace}
 
-		if err := UpdateStatus(ctx, subject, cleanStatus, r.Client); err != nil {
+		if err := UpdateStatus(ctx, client.ObjectKeyFromObject(&account), cleanStatus, r.Client); err != nil {
 			r.Logger.Error(err, "failed to perform clean up on some accounts")
 		}
 	}
 	return nil
+}
+
+// ObjectKeyFromReference returns the ObjectKey given a ObjectReference
+func ObjectKeyFromReference(ref *corev1.ObjectReference) client.ObjectKey {
+	return types.NamespacedName{Name: ref.Name, Namespace: ref.Namespace}
+}
+
+// FilterAvailableNimRuntimes is used for filtering a list of available NIM custom runtimes by a list of model Ids
+func FilterAvailableNimRuntimes(availableRuntimes []NimRuntime, selectedModelList []string,
+	logger logr.Logger) []NimRuntime {
+	// log the available model Ids
+	var size = len(availableRuntimes)
+	modelIds := make([]string, size)
+	for i := 0; i < size; i++ {
+		modelIds[i] = availableRuntimes[i].Name
+	}
+	logger.V(1).Info("fetched the available NIM models",
+		"model Ids", json.RawMessage(`["`+strings.Join(modelIds, `", "`)+`"]`))
+
+	// check the selected models
+	if len(selectedModelList) > 0 {
+		logger.V(1).Info("got the selected NIM model list",
+			"model Ids", json.RawMessage(`["`+strings.Join(selectedModelList, `", "`)+`"]`))
+		// filter the available runtimes
+		var selectedRuntimes []NimRuntime
+		for _, r := range availableRuntimes {
+			if slices.Contains(selectedModelList, r.Name) {
+				selectedRuntimes = append(selectedRuntimes, r)
+			}
+		}
+		return selectedRuntimes
+	}
+
+	return availableRuntimes
+}
+
+// GetSelectedModelList returns a list of Ids of the selected models
+func GetSelectedModelList(
+	ctx context.Context, cmRef *corev1.ObjectReference,
+	namespace string, kubeClient client.Client, logger logr.Logger) ([]string, error) {
+	logger.V(1).Info("getting selected model list")
+
+	// if selected model list is not set
+	if cmRef == nil || len(cmRef.Name) == 0 {
+		return []string{}, nil
+	}
+
+	// get the config map that contains the selected model list
+	cmNs := cmRef.Namespace
+	if cmNs == "" {
+		cmNs = namespace
+	}
+	modelListCm := &corev1.ConfigMap{}
+	modelListCmSubject := types.NamespacedName{Name: cmRef.Name, Namespace: cmNs}
+	if err := kubeClient.Get(ctx, modelListCmSubject, modelListCm); err != nil {
+		if k8serrors.IsNotFound(err) {
+			logger.Error(err, "failed to fetch the config map for getting the selected model list",
+				"config map", modelListCmSubject)
+			return []string{}, nil
+		}
+		return nil, err
+	}
+
+	// convert the selected model list to a string array
+	if modelListCm.Data != nil {
+		if models, ok := modelListCm.Data["models"]; ok {
+			var selectedModelIds []string
+			if err := json.Unmarshal([]byte(models), &selectedModelIds); err != nil {
+				logger.Error(err, "failed to unmarshal the selected mode list",
+					"model list", models)
+				return []string{}, nil
+			}
+			return selectedModelIds, nil
+		}
+	}
+
+	logger.Error(nil, "failed to get the selected model list from the data of the config map",
+		"config map", modelListCmSubject)
+	return []string{}, nil
 }

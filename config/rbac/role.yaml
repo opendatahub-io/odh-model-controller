@@ -158,10 +158,10 @@ rules:
   - nim.opendatahub.io
   resources:
   - accounts
-  - accounts/status
   verbs:
   - get
   - list
+  - patch
   - update
   - watch
 - apiGroups:
@@ -170,6 +170,15 @@ rules:
   - accounts/finalizers
   verbs:
   - update
+- apiGroups:
+  - nim.opendatahub.io
+  resources:
+  - accounts/status
+  verbs:
+  - get
+  - list
+  - update
+  - watch
 - apiGroups:
   - rbac.authorization.k8s.io
   resources:
@@ -288,5 +297,6 @@ rules:
   - delete
   - get
   - list
+  - patch
   - update
   - watch
