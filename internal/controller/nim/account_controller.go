@@ -18,43 +18,38 @@ package nim
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"slices"
-	"strings"
+	"time"
 
 	templatev1 "github.com/openshift/api/template/v1"
+	templatev1client "github.com/openshift/client-go/template/clientset/versioned"
 	corev1 "k8s.io/api/core/v1"
 	k8serrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
-	ssacorev1 "k8s.io/client-go/applyconfigurations/core/v1"
-	ssametav1 "k8s.io/client-go/applyconfigurations/meta/v1"
 	"k8s.io/client-go/kubernetes"
-	"k8s.io/client-go/tools/reference"
-	"k8s.io/utils/semantic"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
-	"sigs.k8s.io/controller-runtime/pkg/client/apiutil"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
-	"sigs.k8s.io/controller-runtime/pkg/event"
 	"sigs.k8s.io/controller-runtime/pkg/handler"
 	"sigs.k8s.io/controller-runtime/pkg/log"
-	"sigs.k8s.io/controller-runtime/pkg/predicate"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	v1 "github.com/opendatahub-io/odh-model-controller/api/nim/v1"
 	"github.com/opendatahub-io/odh-model-controller/internal/controller/constants"
+	"github.com/opendatahub-io/odh-model-controller/internal/controller/nim/handlers"
 	"github.com/opendatahub-io/odh-model-controller/internal/controller/utils"
 )
 
-// AccountReconciler reconciles a Account object
+// AccountReconciler reconciles an Account object
 type AccountReconciler struct {
 	client.Client
-	Scheme  *runtime.Scheme
-	KClient kubernetes.Interface
+	Scheme         *runtime.Scheme
+	KClient        *kubernetes.Clientset
+	TemplateClient *templatev1client.Clientset
 }
 
 const (
@@ -62,14 +57,10 @@ const (
 	modelListSpecPath = "spec.modelListConfig.name"
 )
 
-var (
-	labels = map[string]string{"opendatahub.io/managed": "true"}
-)
-
-// +kubebuilder:rbac:groups=nim.opendatahub.io,resources=accounts,verbs=get;list;watch;update
+// +kubebuilder:rbac:groups=nim.opendatahub.io,resources=accounts,verbs=get;list;watch;update;patch
 // +kubebuilder:rbac:groups=nim.opendatahub.io,resources=accounts/status,verbs=get;list;watch;update
 // +kubebuilder:rbac:groups=nim.opendatahub.io,resources=accounts/finalizers,verbs=update
-// +kubebuilder:rbac:groups=template.openshift.io,resources=templates,verbs=get;list;watch;create;update;delete
+// +kubebuilder:rbac:groups=template.openshift.io,resources=templates,verbs=get;list;watch;create;update;delete;patch
 
 func (r *AccountReconciler) SetupWithManager(mgr ctrl.Manager, ctx context.Context) error {
 	logger := log.FromContext(ctx, "Setup", "Account Controller")
@@ -105,10 +96,7 @@ func (r *AccountReconciler) SetupWithManager(mgr ctrl.Manager, ctx context.Conte
 					return requests
 				}
 				for _, item := range accounts.Items {
-					requests = append(requests, reconcile.Request{NamespacedName: types.NamespacedName{
-						Name:      item.Name,
-						Namespace: item.Namespace,
-					}})
+					requests = append(requests, reconcile.Request{NamespacedName: client.ObjectKeyFromObject(&item)})
 				}
 				return requests
 			})).
@@ -121,41 +109,15 @@ func (r *AccountReconciler) SetupWithManager(mgr ctrl.Manager, ctx context.Conte
 					return requests
 				}
 				for _, item := range accounts.Items {
-					requests = append(requests, reconcile.Request{NamespacedName: types.NamespacedName{
-						Name:      item.Name,
-						Namespace: item.Namespace,
-					}})
+					requests = append(requests, reconcile.Request{NamespacedName: client.ObjectKeyFromObject(&item)})
 				}
 				return requests
 			})).
-		WithEventFilter(predicate.Funcs{
-			UpdateFunc: func(e event.UpdateEvent) bool {
-				if _, isSecret := e.ObjectOld.(*corev1.Secret); isSecret {
-					return true
-				}
-				if oldConfigMap, isConfigMap := e.ObjectOld.(*corev1.ConfigMap); isConfigMap {
-					newConfigMap := e.ObjectNew.(*corev1.ConfigMap)
-					return !semantic.EqualitiesOrDie().DeepDerivative(oldConfigMap.Data, newConfigMap.Data)
-				}
-				if oldAccount, isAccount := e.ObjectOld.(*v1.Account); isAccount {
-					newAccount := e.ObjectNew.(*v1.Account)
-					return !semantic.EqualitiesOrDie().DeepEqual(oldAccount.Spec, newAccount.Spec)
-				}
-				return false
-			},
-		}).
 		Complete(r)
 }
 
 // Reconcile is part of the main kubernetes reconciliation loop which aims to
 // move the current state of the cluster closer to the desired state.
-// TODO(user): Modify the Reconcile function to compare the state specified by
-// the Account object against the actual cluster state, and then
-// perform operations to make the cluster state reflect the state specified by
-// the user.
-//
-// For more details, check Reconcile and its Result here:
-// - https://pkg.go.dev/sigs.k8s.io/controller-runtime@v0.19.1/pkg/reconcile
 func (r *AccountReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
 	logger := log.FromContext(ctx).WithValues("Account", req.Name, "namespace", req.Namespace)
 	ctx = log.IntoContext(ctx, logger)
@@ -164,471 +126,104 @@ func (r *AccountReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 	if err := r.Client.Get(ctx, req.NamespacedName, account); err != nil {
 		if k8serrors.IsNotFound(err) {
 			logger.V(1).Info("account deleted")
-		} else {
-			logger.V(1).Error(err, "failed to fetch object")
 		}
 		return ctrl.Result{}, client.IgnoreNotFound(err)
 	}
 
-	if !account.DeletionTimestamp.IsZero() {
-		logger.V(1).Info("account being deleted")
-		return ctrl.Result{}, nil
-	}
-
-	logger.V(1).Info("account active")
-
-	initialMsg := "not reconciled yet"
-	targetStatus := &v1.AccountStatus{
-		Conditions: []metav1.Condition{
-			// initial unknown status
-			makeAccountUnknownCondition(account.Generation, initialMsg),
-			makeApiKeyUnknownCondition(account.Generation, initialMsg),
-			makeConfigMapUnknownCondition(account.Generation, initialMsg),
-			makeTemplateUnknownCondition(account.Generation, initialMsg),
-			makePullSecretUnknownCondition(account.Generation, initialMsg),
-		},
-	}
-
-	defer func() {
-		r.updateStatus(ctx, req.NamespacedName, *targetStatus)
-	}()
-
-	// fetch api secret
-	secretNs := account.Spec.APIKeySecret.Namespace
-	if secretNs == "" {
-		secretNs = account.Namespace
-	}
-	apiKeySecret := &corev1.Secret{}
-	apiKeySecretSubject := types.NamespacedName{Name: account.Spec.APIKeySecret.Name, Namespace: secretNs}
-	if err := r.Client.Get(ctx, apiKeySecretSubject, apiKeySecret); err != nil {
-		var msg string
-		if k8serrors.IsNotFound(err) {
-			msg = "api key secret not found"
-			logger.Info(msg)
-		} else {
-			msg = "failed to fetch api key secret"
-			logger.V(1).Error(err, "failed to fetch api key secret")
-		}
-		meta.SetStatusCondition(&targetStatus.Conditions, makeAccountFailureCondition(account.Generation, msg))
-		r.cleanupResources(ctx, account)
-		return ctrl.Result{}, client.IgnoreNotFound(err)
-	}
-	foundApiKeySec := "found api key secret"
-	logger.V(1).Info(foundApiKeySec)
-	meta.SetStatusCondition(&targetStatus.Conditions, makeAccountFailureCondition(account.Generation, foundApiKeySec))
-
-	apiKeyBytes, foundKey := apiKeySecret.Data["api_key"]
-	if !foundKey {
-		err := fmt.Errorf("secret %+v has no api_key data", apiKeySecretSubject)
-		msg := "failed to find api key data in secret"
-		logger.V(1).Error(err, msg)
-		meta.SetStatusCondition(&targetStatus.Conditions, makeAccountFailureCondition(account.Generation, msg))
-		r.cleanupResources(ctx, account)
-		return ctrl.Result{}, err
-	}
-	apiKeyStr := strings.TrimSpace(string(apiKeyBytes))
-	gotApiKey := "got api key"
-	logger.V(1).Info(gotApiKey)
-	meta.SetStatusCondition(&targetStatus.Conditions, makeAccountFailureCondition(account.Generation, gotApiKey))
-
-	// fetch available runtimes
-	availableRuntimes, runtimesErr := utils.GetAvailableNimRuntimes(logger)
-	if runtimesErr != nil {
-		msg := "failed to fetch NIM available custom runtimes"
-		logger.V(1).Error(runtimesErr, msg)
-		meta.SetStatusCondition(&targetStatus.Conditions, makeAccountFailureCondition(account.Generation, msg))
-		r.cleanupResources(ctx, account)
-		return ctrl.Result{}, runtimesErr
-	}
-	runtimesOk := "got custom runtimes"
-	logger.V(1).Info(runtimesOk)
-	meta.SetStatusCondition(&targetStatus.Conditions, makeAccountFailureCondition(account.Generation, runtimesOk))
-
-	// log the available model Ids
-	var size = len(availableRuntimes)
-	modelIds := make([]string, size)
-	for i := 0; i < size; i++ {
-		modelIds[i] = availableRuntimes[i].Name
-	}
-	logger.V(1).Info("fetched the available NIM models",
-		"model Ids", json.RawMessage(`["`+strings.Join(modelIds, `", "`)+`"]`))
-
-	// check the selected models
-	if selectedModelList, err := r.getSelectedModelList(ctx, account.Spec.ModelListConfig, account.Namespace); err != nil {
-		logger.V(1).Error(err, "failed to get the selected model list")
-		return ctrl.Result{}, err
-	} else if len(selectedModelList) > 0 {
-		logger.V(1).Info("got the selected NIM model list",
-			"model Ids", json.RawMessage(`["`+strings.Join(selectedModelList, `", "`)+`"]`))
-		// filter the available runtimes
-		var selectedRuntimes []utils.NimRuntime
-		for _, r := range availableRuntimes {
-			if slices.Contains(selectedModelList, r.Name) {
-				selectedRuntimes = append(selectedRuntimes, r)
+	if account.DeletionTimestamp.IsZero() {
+		if controllerutil.AddFinalizer(account, constants.NimCleanupFinalizer) {
+			if fErr := r.Client.Update(ctx, account); fErr != nil {
+				if k8serrors.IsNotFound(fErr) {
+					logger.V(1).Info("account removed before the finalizer was added")
+				}
+				return ctrl.Result{}, client.IgnoreNotFound(fErr)
 			}
+			logger.V(1).Info("added finalizer to account")
+			return ctrl.Result{Requeue: true}, nil
 		}
-		availableRuntimes = selectedRuntimes
-	}
-
-	// validate api key
-	if err := utils.ValidateApiKey(logger, apiKeyStr, availableRuntimes); err != nil {
-		msg := "api key failed validation"
-		logger.Error(err, msg)
-		meta.SetStatusCondition(&targetStatus.Conditions, makeAccountFailureCondition(account.Generation, msg))
-		meta.SetStatusCondition(&targetStatus.Conditions, makeApiKeyFailureCondition(account.Generation, msg))
-		r.cleanupResources(ctx, account)
+	} else {
+		if controllerutil.ContainsFinalizer(account, constants.NimCleanupFinalizer) {
+			logger.Info("account being deleted, cleaning up")
+			if cleanErr := utils.CleanupResources(ctx, account, r.Client); cleanErr != nil {
+				return ctrl.Result{}, cleanErr
+			}
+			// https://github.com/kubernetes/kubernetes/issues/124347
+			// _ = controllerutil.RemoveFinalizer(account, constants.NimCleanupFinalizer)
+			// if fErr := r.Client.Update(ctx, account); fErr != nil {
+			//	if k8serrors.IsNotFound(fErr) {
+			//		logger.V(1).Info("account removed before the finalizer was removed, probably patched manually")
+			//	} else {
+			//		logger.Error(fErr, "failed to remove account finalizer")
+			//	}
+			//	return ctrl.Result{}, client.IgnoreNotFound(fErr)
+			// } patching as a workaround:
+			idx := slices.Index(account.Finalizers, constants.NimCleanupFinalizer)
+			patch := fmt.Sprintf("[{\"op\": \"remove\", \"path\": \"/metadata/finalizers/%d\"}]", idx)
+			if pErr := r.Patch(ctx, account, client.RawPatch(types.JSONPatchType, []byte(patch))); pErr != nil {
+				if k8serrors.IsNotFound(pErr) {
+					logger.V(1).Info("account removed before the finalizer was removed, probably patched manually")
+				}
+				return ctrl.Result{}, client.IgnoreNotFound(pErr)
+			}
+			logger.V(1).Info("removed finalizer from account")
+		}
 		return ctrl.Result{}, nil
 	}
-	apiKeyOk := "api key validated successfully"
-	logger.V(1).Info(apiKeyOk)
-	meta.SetStatusCondition(&targetStatus.Conditions, makeAccountFailureCondition(account.Generation, apiKeyOk))
-	meta.SetStatusCondition(&targetStatus.Conditions, makeApiKeySuccessfulCondition(account.Generation, apiKeyOk))
 
-	ownerRefCfg := r.createOwnerReferenceCfg(account)
+	logger.Info("starting account reconciliation")
 
-	// reconcile data configmap
-	if cm, err := r.reconcileNimConfig(ctx, ownerRefCfg, account.Namespace, apiKeyStr, availableRuntimes); err != nil {
-		msg := "nim configmap reconcile failed"
-		logger.V(1).Error(err, msg)
-		meta.SetStatusCondition(&targetStatus.Conditions, makeAccountFailureCondition(account.Generation, msg))
-		meta.SetStatusCondition(&targetStatus.Conditions, makeConfigMapFailureCondition(account.Generation, msg))
-		return ctrl.Result{}, err
-	} else {
-		ref, refErr := reference.GetReference(r.Scheme, cm)
-		if refErr != nil {
-			return ctrl.Result{}, refErr
-		}
-		targetStatus.NIMConfig = ref
+	keyManager := &handlers.APIKeyManager{Client: r.Client}
+
+	validationHandler := &handlers.ValidationHandler{Client: r.Client, KeyManager: keyManager}
+	if response := validationHandler.Handle(ctx, account); response.Error != nil {
+		return ctrl.Result{}, response.Error
+	} else if response.Requeue {
+		return ctrl.Result{Requeue: true}, nil
+	} else if !response.Continue {
+		return ctrl.Result{}, nil
 	}
-	dataCmOk := "data config map reconciled successfully"
-	logger.V(1).Info(dataCmOk)
-	meta.SetStatusCondition(&targetStatus.Conditions, makeAccountFailureCondition(account.Generation, dataCmOk))
-	meta.SetStatusCondition(&targetStatus.Conditions, makeConfigMapSuccessfulCondition(account.Generation, dataCmOk))
+	logger.Info("api key validation not required")
 
-	// reconcile template
-	if template, err := r.reconcileRuntimeTemplate(ctx, account); err != nil {
-		msg := "runtime template reconcile failed"
-		logger.V(1).Error(err, msg)
-		meta.SetStatusCondition(&targetStatus.Conditions, makeAccountFailureCondition(account.Generation, msg))
-		meta.SetStatusCondition(&targetStatus.Conditions, makeTemplateFailureCondition(account.Generation, msg))
-		return ctrl.Result{}, err
-	} else {
-		ref, refErr := reference.GetReference(r.Scheme, template)
-		if refErr != nil {
-			return ctrl.Result{}, refErr
-		}
-		targetStatus.RuntimeTemplate = ref
+	configMapHandler := &handlers.ConfigMapHandler{Client: r.Client, Scheme: r.Scheme, KubeClient: r.KClient, KeyManager: keyManager}
+	if response := configMapHandler.Handle(ctx, account); response.Error != nil {
+		return ctrl.Result{}, response.Error
+	} else if response.Requeue {
+		return ctrl.Result{Requeue: true}, nil
+	} else if !response.Continue {
+		return ctrl.Result{}, nil
 	}
-	templateOk := "runtime template reconciled successfully"
-	logger.V(1).Info(templateOk)
-	meta.SetStatusCondition(&targetStatus.Conditions, makeAccountFailureCondition(account.Generation, templateOk))
-	meta.SetStatusCondition(&targetStatus.Conditions, makeTemplateSuccessfulCondition(account.Generation, templateOk))
+	logger.Info("config refresh not required")
 
-	// reconcile pull secret
-	if pullSecret, err := r.reconcileNimPullSecret(ctx, ownerRefCfg, account.Namespace, apiKeyStr); err != nil {
-		msg := "pull secret reconcile failed"
-		logger.V(1).Error(err, msg)
-		meta.SetStatusCondition(&targetStatus.Conditions, makeAccountFailureCondition(account.Generation, msg))
-		meta.SetStatusCondition(&targetStatus.Conditions, makePullSecretFailureCondition(account.Generation, msg))
-		return ctrl.Result{}, err
-	} else {
-		ref, refErr := reference.GetReference(r.Scheme, pullSecret)
-		if refErr != nil {
-			return ctrl.Result{}, refErr
-		}
-		targetStatus.NIMPullSecret = ref
+	templateHandler := &handlers.TemplateHandler{Scheme: r.Scheme, Client: r.Client, TemplateClient: r.TemplateClient}
+	if response := templateHandler.Handle(ctx, account); response.Error != nil {
+		return ctrl.Result{}, response.Error
+	} else if response.Requeue {
+		return ctrl.Result{Requeue: true}, nil
+	} else if !response.Continue {
+		return ctrl.Result{}, nil
 	}
-	pullSecOk := "pull secret reconciled successfully"
-	logger.V(1).Info(pullSecOk)
-	meta.SetStatusCondition(&targetStatus.Conditions, makeAccountSuccessfulCondition(account.Generation, "reconciled successfully"))
-	meta.SetStatusCondition(&targetStatus.Conditions, makePullSecretSuccessfulCondition(account.Generation, pullSecOk))
+	logger.Info("template reconciliation not required")
 
+	pullSecretHandler := &handlers.PullSecretHandler{Client: r.Client, Scheme: r.Scheme, KubeClient: r.KClient, KeyManager: keyManager}
+	if response := pullSecretHandler.Handle(ctx, account); response.Error != nil {
+		return ctrl.Result{}, response.Error
+	} else if response.Requeue {
+		return ctrl.Result{Requeue: true}, nil
+	} else if !response.Continue {
+		return ctrl.Result{}, nil
+	}
+	logger.Info("pull secret reconciliation not required")
+
+	healthyMsg := "the account is healthy"
+
+	accountSuccess := account.Status
+	accountSuccess.LastAccountCheck = &metav1.Time{Time: time.Now()}
+	meta.SetStatusCondition(&accountSuccess.Conditions,
+		utils.MakeNimCondition(utils.NimConditionAccountStatus, metav1.ConditionTrue, account.Generation, "AccountSuccessful", healthyMsg))
+	if updateErr := utils.UpdateStatus(ctx, client.ObjectKeyFromObject(account), accountSuccess, r.Client); updateErr != nil {
+		return ctrl.Result{}, updateErr
+	}
+
+	logger.Info(healthyMsg)
 	return ctrl.Result{}, nil
-}
-
-// reconcileNimConfig is used for reconciling the configmap encapsulating the model data used for constructing inference services
-func (r *AccountReconciler) reconcileNimConfig(
-	ctx context.Context, ownerCfg *ssametav1.OwnerReferenceApplyConfiguration,
-	namespace, apiKey string, runtimes []utils.NimRuntime,
-) (*corev1.ConfigMap, error) {
-	data, dErr := utils.GetNimModelData(log.FromContext(ctx), apiKey, runtimes)
-	if dErr != nil {
-		return nil, dErr
-	}
-
-	cmCfg := ssacorev1.ConfigMap(fmt.Sprintf("%s-cm", *ownerCfg.Name), namespace).
-		WithData(data).
-		WithOwnerReferences(ownerCfg).
-		WithLabels(labels)
-
-	cm, err := r.KClient.CoreV1().ConfigMaps(namespace).
-		Apply(ctx, cmCfg, metav1.ApplyOptions{FieldManager: constants.NimApplyConfigFieldManager, Force: true})
-	if err != nil {
-		return nil, err
-	}
-
-	return cm, nil
-}
-
-// reconcileRuntimeTemplate is used for reconciling the template encapsulating the serving runtime
-func (r *AccountReconciler) reconcileRuntimeTemplate(ctx context.Context, account *v1.Account) (*templatev1.Template, error) {
-	template := &templatev1.Template{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:      fmt.Sprintf("%s-template", account.Name),
-			Namespace: account.Namespace,
-		},
-	}
-
-	if _, err := controllerutil.CreateOrUpdate(ctx, r.Client, template, func() error {
-		if err := controllerutil.SetControllerReference(account, template, r.Scheme); err != nil {
-			return err
-		}
-
-		template.Annotations = map[string]string{
-			"opendatahub.io/apiProtocol":         "REST",
-			"opendatahub.io/modelServingSupport": "[\"single\"]",
-		}
-
-		template.Labels = labels
-
-		sr, srErr := utils.GetNimServingRuntimeTemplate(r.Scheme)
-		if srErr != nil {
-			return srErr
-		}
-
-		template.Objects = []runtime.RawExtension{
-			{Object: sr},
-		}
-		return nil
-	}); err != nil {
-		return nil, err
-	}
-
-	return template, nil
-}
-
-// reconcileNimPullSecret is used to reconcile the pull secret for pulling the custom runtime images
-func (r *AccountReconciler) reconcileNimPullSecret(
-	ctx context.Context, ownerCfg *ssametav1.OwnerReferenceApplyConfiguration, namespace, apiKey string,
-) (*corev1.Secret, error) {
-	creds := map[string]map[string]map[string]string{
-		"auths": {
-			"nvcr.io": {
-				"username": "$oauthtoken",
-				"password": apiKey,
-			},
-		},
-	}
-
-	credsJson, marshErr := json.Marshal(creds)
-	if marshErr != nil {
-		return nil, marshErr
-	}
-
-	secretCfg := ssacorev1.
-		Secret(fmt.Sprintf("%s-pull", *ownerCfg.Name), namespace).
-		WithData(map[string][]byte{corev1.DockerConfigJsonKey: credsJson}).
-		WithType(corev1.SecretTypeDockerConfigJson).
-		WithOwnerReferences(ownerCfg).
-		WithLabels(labels)
-
-	secret, err := r.KClient.CoreV1().Secrets(namespace).
-		Apply(ctx, secretCfg, metav1.ApplyOptions{FieldManager: constants.NimApplyConfigFieldManager, Force: true})
-	if err != nil {
-		return nil, err
-	}
-	return secret, nil
-}
-
-// getSelectedModelList returns a list of Ids of the selected models
-func (r *AccountReconciler) getSelectedModelList(
-	ctx context.Context, cmRef *corev1.ObjectReference,
-	namespace string) ([]string, error) {
-	logger := log.FromContext(ctx)
-	logger.V(1).Info("getting selected model list")
-
-	// if selected model list is not set
-	if cmRef == nil || len(cmRef.Name) == 0 {
-		return []string{}, nil
-	}
-
-	// get the config map that contains the selected model list
-	cmNs := cmRef.Namespace
-	if cmNs == "" {
-		cmNs = namespace
-	}
-	modelListCm := &corev1.ConfigMap{}
-	modelListCmSubject := types.NamespacedName{Name: cmRef.Name, Namespace: cmNs}
-	if err := r.Client.Get(ctx, modelListCmSubject, modelListCm); err != nil {
-		if k8serrors.IsNotFound(err) {
-			logger.Error(err, "failed to fetch the config map for getting the selected model list",
-				"config map", modelListCmSubject)
-			return []string{}, nil
-		}
-		return nil, err
-	}
-
-	// convert the selected model list to a string array
-	if modelListCm.Data != nil {
-		if models, ok := modelListCm.Data["models"]; ok {
-			var selectedModelIds []string
-			if err := json.Unmarshal([]byte(models), &selectedModelIds); err != nil {
-				logger.Error(err, "failed to unmarshal the selected mode list",
-					"model list", models)
-				return []string{}, nil
-			}
-			return selectedModelIds, nil
-		}
-	}
-
-	logger.Error(nil, "failed to get the selected model list from the data of the config map",
-		"config map", modelListCmSubject)
-	return []string{}, nil
-}
-
-// updateStatus is used for fetching an updating the status of the account
-func (r *AccountReconciler) updateStatus(ctx context.Context, subject types.NamespacedName, status v1.AccountStatus) {
-	logger := log.FromContext(ctx)
-	logger.V(1).Info("updating status")
-
-	account := &v1.Account{}
-	if err := r.Client.Get(ctx, subject, account); err != nil {
-		if !k8serrors.IsNotFound(err) {
-			logger.Error(err, "failed to fetch account for status update")
-		}
-	} else {
-		account.Status = *status.DeepCopy()
-		if err = r.Client.Status().Update(ctx, account); err != nil {
-			logger.Error(err, "failed to update account status")
-		}
-	}
-}
-
-// createOwnerReferenceCfg is used to create an owner reference config to use with server side apply
-func (r *AccountReconciler) createOwnerReferenceCfg(account *v1.Account) *ssametav1.OwnerReferenceApplyConfiguration {
-	// we fetch the gvk instead of getting the kind and apiversion from the object, because of an alleged envtest bug
-	// stripping down all objects typemeta. This is the PR comment discussing this:
-	// https://github.com/opendatahub-io/odh-model-controller/pull/289#discussion_r1833811970
-	gvk, _ := apiutil.GVKForObject(account, r.Scheme)
-	return ssametav1.OwnerReference().
-		WithKind(gvk.Kind).
-		WithName(account.Name).
-		WithAPIVersion(gvk.GroupVersion().String()).
-		WithUID(account.GetUID()).
-		WithBlockOwnerDeletion(true).
-		WithController(true)
-}
-
-// cleanupResources is used for deleting the integration related resources (configmap, template, pull secret)
-func (r *AccountReconciler) cleanupResources(ctx context.Context, account *v1.Account) {
-	logger := log.FromContext(ctx)
-	logger.V(1).Info("cleaning up")
-
-	var delObjs []client.Object
-
-	if account.Status.NIMPullSecret != nil {
-		delObjs = append(delObjs, &corev1.Secret{
-			ObjectMeta: metav1.ObjectMeta{
-				Name:      account.Status.NIMPullSecret.Name,
-				Namespace: account.Status.NIMPullSecret.Namespace,
-			},
-		})
-	}
-
-	if account.Status.NIMConfig != nil {
-		delObjs = append(delObjs, &corev1.ConfigMap{
-			ObjectMeta: metav1.ObjectMeta{
-				Name:      account.Status.NIMConfig.Name,
-				Namespace: account.Status.NIMConfig.Namespace,
-			},
-		})
-	}
-
-	if account.Status.RuntimeTemplate != nil {
-		delObjs = append(delObjs, &templatev1.Template{
-			ObjectMeta: metav1.ObjectMeta{
-				Name:      account.Status.RuntimeTemplate.Name,
-				Namespace: account.Status.RuntimeTemplate.Namespace,
-			},
-		})
-	}
-
-	for _, obj := range delObjs {
-		if err := r.Client.Delete(ctx, obj); err != nil {
-			if !k8serrors.IsNotFound(err) {
-				logger.Error(err, fmt.Sprintf("failed to delete %s", obj.GetObjectKind()))
-			}
-		}
-	}
-
-}
-
-// ACCOUNT CONDITIONS
-
-func makeAccountFailureCondition(gen int64, msg string) metav1.Condition {
-	return utils.MakeNimCondition(utils.NimConditionAccountStatus, metav1.ConditionFalse, gen, "AccountNotSuccessful", msg)
-}
-
-func makeAccountSuccessfulCondition(gen int64, msg string) metav1.Condition {
-	return utils.MakeNimCondition(utils.NimConditionAccountStatus, metav1.ConditionTrue, gen, "AccountSuccessful", msg)
-}
-
-func makeAccountUnknownCondition(gen int64, msg string) metav1.Condition {
-	return utils.MakeNimCondition(utils.NimConditionAccountStatus, metav1.ConditionUnknown, gen, "AccountNotReconciled", msg)
-}
-
-// API KEY VALIDATION CONDITIONS
-
-func makeApiKeyFailureCondition(gen int64, msg string) metav1.Condition {
-	return utils.MakeNimCondition(utils.NimConditionAPIKeyValidation, metav1.ConditionFalse, gen, "ApiKeyNotValidated", msg)
-}
-
-func makeApiKeySuccessfulCondition(gen int64, msg string) metav1.Condition {
-	return utils.MakeNimCondition(utils.NimConditionAPIKeyValidation, metav1.ConditionTrue, gen, "ApiKeyValidated", msg)
-}
-
-func makeApiKeyUnknownCondition(gen int64, msg string) metav1.Condition {
-	return utils.MakeNimCondition(utils.NimConditionAPIKeyValidation, metav1.ConditionUnknown, gen, "ApiKeyNotReconciled", msg)
-}
-
-// CONFIGMAP CONDITIONS
-
-func makeConfigMapFailureCondition(gen int64, msg string) metav1.Condition {
-	return utils.MakeNimCondition(utils.NimConditionConfigMapUpdate, metav1.ConditionFalse, gen, "ConfigMapNotUpdated", msg)
-}
-
-func makeConfigMapSuccessfulCondition(gen int64, msg string) metav1.Condition {
-	return utils.MakeNimCondition(utils.NimConditionConfigMapUpdate, metav1.ConditionTrue, gen, "ConfigMapUpdated", msg)
-}
-
-func makeConfigMapUnknownCondition(gen int64, msg string) metav1.Condition {
-	return utils.MakeNimCondition(utils.NimConditionConfigMapUpdate, metav1.ConditionUnknown, gen, "ConfigMapNotReconciled", msg)
-}
-
-// TEMPLATE CONDITIONS
-
-func makeTemplateFailureCondition(gen int64, msg string) metav1.Condition {
-	return utils.MakeNimCondition(utils.NimConditionTemplateUpdate, metav1.ConditionFalse, gen, "TemplateNotUpdated", msg)
-}
-
-func makeTemplateSuccessfulCondition(gen int64, msg string) metav1.Condition {
-	return utils.MakeNimCondition(utils.NimConditionTemplateUpdate, metav1.ConditionTrue, gen, "TemplateUpdated", msg)
-}
-
-func makeTemplateUnknownCondition(gen int64, msg string) metav1.Condition {
-	return utils.MakeNimCondition(utils.NimConditionTemplateUpdate, metav1.ConditionUnknown, gen, "TemplateNotReconciled", msg)
-}
-
-// PULL SECRET CONDITIONS
-
-func makePullSecretFailureCondition(gen int64, msg string) metav1.Condition {
-	return utils.MakeNimCondition(utils.NimConditionSecretUpdate, metav1.ConditionFalse, gen, "SecretNotUpdated", msg)
-}
-
-func makePullSecretSuccessfulCondition(gen int64, msg string) metav1.Condition {
-	return utils.MakeNimCondition(utils.NimConditionSecretUpdate, metav1.ConditionTrue, gen, "SecretUpdated", msg)
-}
-
-func makePullSecretUnknownCondition(gen int64, msg string) metav1.Condition {
-	return utils.MakeNimCondition(utils.NimConditionSecretUpdate, metav1.ConditionUnknown, gen, "SecretNotReconciled", msg)
 }
