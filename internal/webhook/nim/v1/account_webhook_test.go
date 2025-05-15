@@ -48,8 +48,6 @@ var _ = Describe("NIM Account validator webhook", func() {
 						Name:      secretName,
 						Namespace: nimNamespace.Name,
 					},
-					ValidationRefreshRate: "24h",
-					NIMConfigRefreshRate:  "24h",
 				},
 			}
 			Expect(k8sClient.Create(ctx, account)).To(Succeed())
