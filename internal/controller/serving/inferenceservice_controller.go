@@ -24,6 +24,7 @@ import (
 
 	"github.com/go-logr/logr"
 	"github.com/hashicorp/go-multierror"
+	kedaapi "github.com/kedacore/keda/v2/apis/keda/v1alpha1"
 	kservev1alpha1 "github.com/kserve/kserve/pkg/apis/serving/v1alpha1"
 	kservev1beta1 "github.com/kserve/kserve/pkg/apis/serving/v1beta1"
 	authorinov1beta2 "github.com/kuadrant/authorino/api/v1beta2"
@@ -37,6 +38,7 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/kubernetes"
 	ctrl "sigs.k8s.io/controller-runtime"
+	ctrlbuilder "sigs.k8s.io/controller-runtime/pkg/builder"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 	"sigs.k8s.io/controller-runtime/pkg/handler"
@@ -235,14 +237,16 @@ func (r *InferenceServiceReconciler) SetupWithManager(mgr ctrl.Manager, setupLog
 		Owns(&kservev1alpha1.ServingRuntime{}).
 		Owns(&corev1.Namespace{}).
 		Owns(&routev1.Route{}).
-		Owns(&corev1.ServiceAccount{}).
+		Owns(&corev1.ServiceAccount{}, ctrlbuilder.MatchEveryOwner).
 		Owns(&corev1.Service{}).
 		Owns(&corev1.ConfigMap{}).
-		Owns(&corev1.Secret{}).
+		Owns(&corev1.Secret{}, ctrlbuilder.MatchEveryOwner).
 		Owns(&authv1.ClusterRoleBinding{}).
 		Owns(&networkingv1.NetworkPolicy{}).
 		Owns(&monitoringv1.ServiceMonitor{}).
 		Owns(&monitoringv1.PodMonitor{}).
+		Owns(&authv1.Role{}, ctrlbuilder.MatchEveryOwner, ctrlbuilder.WithPredicates(reconcilers.KedaLabelPredicate)).
+		Owns(&authv1.RoleBinding{}, ctrlbuilder.MatchEveryOwner, ctrlbuilder.WithPredicates(reconcilers.KedaLabelPredicate)).
 		Named("inferenceservice").
 		Watches(&kservev1alpha1.ServingRuntime{},
 			handler.EnqueueRequestsFromMapFunc(func(ctx context.Context, o client.Object) []reconcile.Request {
@@ -305,6 +309,18 @@ func (r *InferenceServiceReconciler) SetupWithManager(mgr ctrl.Manager, setupLog
 	if crdErr != nil {
 		setupLog.V(1).Error(crdErr, "could not determine if AuthConfig CRD is available")
 		return crdErr
+	}
+
+	isKedaTriggerAuthenticationAvailable, err := utils.IsCrdAvailable(mgr.GetConfig(), kedaapi.GroupVersion.String(), "TriggerAuthentication")
+	if err != nil {
+		setupLog.V(1).Error(err, "could not determine if TriggerAuthentication CRD is available")
+		return err
+	}
+	if isKedaTriggerAuthenticationAvailable {
+		builder.Owns(&kedaapi.TriggerAuthentication{},
+			ctrlbuilder.MatchEveryOwner,
+			ctrlbuilder.WithPredicates(reconcilers.KedaLabelPredicate),
+		)
 	}
 
 	if kserveWithMeshEnabled && isAuthConfigAvailable {

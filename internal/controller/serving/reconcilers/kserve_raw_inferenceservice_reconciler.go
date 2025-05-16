@@ -39,6 +39,7 @@ func NewKServeRawInferenceServiceReconciler(client client.Client) *KserveRawInfe
 		NewKServeRawMetricsServiceReconciler(client),
 		NewKServeRawMetricsServiceMonitorReconciler(client),
 		NewKserveMetricsDashboardReconciler(client),
+		NewKServeKEDAReconciler(client),
 	}
 
 	return &KserveRawInferenceServiceReconciler{

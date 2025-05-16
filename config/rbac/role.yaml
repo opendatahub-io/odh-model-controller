@@ -183,6 +183,7 @@ rules:
   - rbac.authorization.k8s.io
   resources:
   - clusterrolebindings
+  - roles
   - rolebindings
   verbs:
   - create
@@ -300,3 +301,24 @@ rules:
   - patch
   - update
   - watch
+- apiGroups:
+    - keda.sh
+  resources:
+    - triggerauthentications
+  verbs:
+    - create
+    - delete
+    - get
+    - list
+    - patch
+    - update
+    - watch
+- apiGroups:
+    - metrics.k8s.io
+  resources:
+    - pods
+    - nodes
+  verbs:
+    - get
+    - list
+    - watch

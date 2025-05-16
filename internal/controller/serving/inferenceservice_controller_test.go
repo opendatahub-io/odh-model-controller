@@ -24,6 +24,7 @@ import (
 	"strings"
 	"time"
 
+	kedaapi "github.com/kedacore/keda/v2/apis/keda/v1alpha1"
 	kservev1alpha1 "github.com/kserve/kserve/pkg/apis/serving/v1alpha1"
 	kservev1beta1 "github.com/kserve/kserve/pkg/apis/serving/v1beta1"
 	authorinov1beta2 "github.com/kuadrant/authorino/api/v1beta2"
@@ -31,6 +32,7 @@ import (
 	. "github.com/onsi/gomega"
 	. "github.com/onsi/gomega/gstruct"
 	gomegatypes "github.com/onsi/gomega/types"
+	"github.com/opendatahub-io/odh-model-controller/internal/controller/serving/reconcilers"
 	routev1 "github.com/openshift/api/route/v1"
 	monitoringv1 "github.com/prometheus-operator/prometheus-operator/pkg/apis/monitoring/v1"
 	istioclientv1beta1 "istio.io/client-go/pkg/apis/networking/v1beta1"
@@ -39,12 +41,15 @@ import (
 	v1 "k8s.io/api/networking/v1"
 	rbacv1 "k8s.io/api/rbac/v1"
 	k8sErrors "k8s.io/apimachinery/pkg/api/errors"
+	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/intstr"
+	"k8s.io/apiserver/pkg/storage/names"
 	"k8s.io/client-go/dynamic"
+	"k8s.io/utils/ptr"
 	"knative.dev/pkg/apis"
 	duckv1 "knative.dev/pkg/apis/duck/v1"
 	maistrav1 "maistra.io/api/core/v1"
@@ -1286,6 +1291,567 @@ var _ = Describe("InferenceService Controller", func() {
 						return errors.New("crb deletion not detected")
 					}
 				}, timeout, interval).ShouldNot(HaveOccurred())
+			})
+		})
+	})
+
+	Describe("KServe KEDA Reconciler", func() {
+		var (
+			testNs         string
+			kedaReconciler *reconcilers.KserveKEDAReconciler
+			ctx            context.Context
+		)
+
+		// makeKedaTestISVC creates an InferenceService for KEDA tests.
+		makeKedaTestISVC := func(namespace, name string, enableKedaMetrics bool) *kservev1beta1.InferenceService {
+			isvc := &kservev1beta1.InferenceService{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      name,
+					Namespace: namespace,
+					Annotations: map[string]string{
+						"serving.kserve.io/deploymentMode": "RawDeployment",
+					},
+				},
+				Spec: kservev1beta1.InferenceServiceSpec{
+					Predictor: kservev1beta1.PredictorSpec{
+						// Model field is required for KServe, even if not directly used by KEDA logic
+						Model: &kservev1beta1.ModelSpec{
+							ModelFormat: kservev1beta1.ModelFormat{Name: "onnx"},
+							Runtime:     ptr.To("kserve-ovms"),
+							PredictorExtensionSpec: kservev1beta1.PredictorExtensionSpec{
+								StorageURI: ptr.To("s3://modelmesh-example-models/onnx/mnist-8"),
+							},
+						},
+					},
+				},
+			}
+			if enableKedaMetrics {
+				isvc.Spec.Predictor.MinReplicas = ptr.To[int32](1)
+				isvc.Spec.Predictor.MaxReplicas = 5
+				isvc.Spec.Predictor.AutoScaling = &kservev1beta1.AutoScalingSpec{
+					Metrics: []kservev1beta1.MetricsSpec{
+						{
+							Type: kservev1beta1.ExternalMetricSourceType,
+							External: &kservev1beta1.ExternalMetricSource{
+								Metric: kservev1beta1.ExternalMetrics{
+									Backend:       kservev1beta1.PrometheusBackend,
+									ServerAddress: "https://thanos-querier.openshift-monitoring.svc.cluster.local:9092",
+									Query:         `sum(rate(http_requests_total{namespace="kserve-keda-prometheus", service="sample-app-service"}[1m]))`,
+								},
+								Target: kservev1beta1.MetricTarget{
+									Type:  kservev1beta1.AverageValueMetricType,
+									Value: ptr.To(resource.MustParse("2")),
+								},
+							},
+						},
+					},
+				}
+			} else {
+				// To disable KEDA metrics, we can remove AutoScaling
+				// This makes hasPrometheusExternalAutoscalingMetric return false
+				isvc.Spec.Predictor.AutoScaling = nil
+			}
+			return isvc
+		}
+
+		// createTestKedaSA creates a ServiceAccount for KEDA tests.
+		createTestKedaSA := func(currentCtx context.Context, namespace string, isvcOwner *kservev1beta1.InferenceService, otherOwner *metav1.OwnerReference) *corev1.ServiceAccount {
+			sa := &corev1.ServiceAccount{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      reconcilers.KEDAPrometheusAuthResourceName,
+					Namespace: namespace,
+				},
+			}
+			if isvcOwner != nil {
+				sa.OwnerReferences = append(sa.OwnerReferences, reconcilers.AsOwnerRef(isvcOwner))
+			}
+			if otherOwner != nil {
+				sa.OwnerReferences = append(sa.OwnerReferences, *otherOwner)
+			}
+			Expect(k8sClient.Create(currentCtx, sa)).Should(Succeed())
+			Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(sa), sa)).Should(Succeed())
+			return sa
+		}
+
+		// createTestKedaSecret creates a Secret for KEDA tests.
+		createTestKedaSecret := func(currentCtx context.Context, namespace string, isvcOwner *kservev1beta1.InferenceService, otherOwner *metav1.OwnerReference) *corev1.Secret {
+			secret := &corev1.Secret{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      reconcilers.KEDAPrometheusAuthTriggerSecretName,
+					Namespace: namespace,
+					Annotations: map[string]string{
+						corev1.ServiceAccountNameKey: reconcilers.KEDAPrometheusAuthResourceName,
+					},
+				},
+				Type: corev1.SecretTypeServiceAccountToken,
+			}
+			if isvcOwner != nil {
+				secret.OwnerReferences = append(secret.OwnerReferences, reconcilers.AsOwnerRef(isvcOwner))
+			}
+			if otherOwner != nil {
+				secret.OwnerReferences = append(secret.OwnerReferences, *otherOwner)
+			}
+			Expect(k8sClient.Create(currentCtx, secret)).Should(Succeed())
+			Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(secret), secret)).Should(Succeed())
+			return secret
+		}
+
+		// createTestKedaRole creates a Role for KEDA tests.
+		createTestKedaRole := func(currentCtx context.Context, namespace string, isvcOwner *kservev1beta1.InferenceService, otherOwner *metav1.OwnerReference) *rbacv1.Role {
+			role := &rbacv1.Role{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      reconcilers.KEDAPrometheusAuthMetricsReaderRoleName,
+					Namespace: namespace,
+				},
+				Rules: []rbacv1.PolicyRule{{APIGroups: []string{""}, Resources: []string{"pods"}, Verbs: []string{"get"}}}, // Simplified rule
+			}
+			if isvcOwner != nil {
+				role.OwnerReferences = append(role.OwnerReferences, reconcilers.AsOwnerRef(isvcOwner))
+			}
+			if otherOwner != nil {
+				role.OwnerReferences = append(role.OwnerReferences, *otherOwner)
+			}
+			Expect(k8sClient.Create(currentCtx, role)).Should(Succeed())
+			Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(role), role)).Should(Succeed())
+			return role
+		}
+
+		// createTestKedaRoleBinding creates a RoleBinding for KEDA tests.
+		createTestKedaRoleBinding := func(currentCtx context.Context, namespace string, isvcOwner *kservev1beta1.InferenceService, otherOwner *metav1.OwnerReference) *rbacv1.RoleBinding {
+			rb := &rbacv1.RoleBinding{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      reconcilers.KEDAPrometheusAuthMetricsReaderRoleBindingName,
+					Namespace: namespace,
+				},
+				Subjects: []rbacv1.Subject{{Kind: rbacv1.ServiceAccountKind, Name: reconcilers.KEDAPrometheusAuthResourceName, Namespace: namespace}},
+				RoleRef:  rbacv1.RoleRef{Kind: "Role", Name: reconcilers.KEDAPrometheusAuthMetricsReaderRoleName, APIGroup: rbacv1.GroupName},
+			}
+			if isvcOwner != nil {
+				rb.OwnerReferences = append(rb.OwnerReferences, reconcilers.AsOwnerRef(isvcOwner))
+			}
+			if otherOwner != nil {
+				rb.OwnerReferences = append(rb.OwnerReferences, *otherOwner)
+			}
+			Expect(k8sClient.Create(currentCtx, rb)).Should(Succeed())
+			Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(rb), rb)).Should(Succeed())
+			return rb
+		}
+
+		// createTestKedaTA creates a TriggerAuthentication for KEDA tests.
+		createTestKedaTA := func(currentCtx context.Context, namespace string, isvcOwner *kservev1beta1.InferenceService, otherOwner *metav1.OwnerReference) *kedaapi.TriggerAuthentication {
+			ta := &kedaapi.TriggerAuthentication{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      reconcilers.KEDAPrometheusAuthTriggerAuthName,
+					Namespace: namespace,
+				},
+				Spec: kedaapi.TriggerAuthenticationSpec{
+					SecretTargetRef: []kedaapi.AuthSecretTargetRef{
+						{Parameter: "bearerToken", Name: reconcilers.KEDAPrometheusAuthTriggerSecretName, Key: "token"},
+					},
+				},
+			}
+			if isvcOwner != nil {
+				ta.OwnerReferences = append(ta.OwnerReferences, reconcilers.AsOwnerRef(isvcOwner))
+			}
+			if otherOwner != nil {
+				ta.OwnerReferences = append(ta.OwnerReferences, *otherOwner)
+			}
+			Expect(k8sClient.Create(currentCtx, ta)).Should(Succeed())
+			Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(ta), ta)).Should(Succeed())
+			return ta
+		}
+
+		// hasOwnerReferenceByUID checks if an object has an owner reference with the given UID.
+		hasOwnerReferenceByUID := func(obj client.Object, ownerUID types.UID) bool {
+			if ownerUID == "" {
+				panic("Expected ownerUID to be non-empty")
+			}
+			if obj == nil {
+				panic("Expected non-nil obj, got nil")
+			}
+			for _, ref := range obj.GetOwnerReferences() {
+				if ref.UID == ownerUID {
+					return true
+				}
+			}
+			return false
+		}
+
+		// getAllKedaTestResources fetches all KEDA resources by their known names.
+		getAllKedaTestResources := func(currentCtx context.Context, namespace string) map[string]client.Object {
+			resources := make(map[string]client.Object)
+			sa := &corev1.ServiceAccount{}
+			if err := k8sClient.Get(currentCtx, types.NamespacedName{Name: reconcilers.KEDAPrometheusAuthServiceAccountName, Namespace: namespace}, sa); err == nil {
+				resources["ServiceAccount"] = sa
+			}
+			secret := &corev1.Secret{}
+			if err := k8sClient.Get(currentCtx, types.NamespacedName{Name: reconcilers.KEDAPrometheusAuthTriggerSecretName, Namespace: namespace}, secret); err == nil {
+				resources["Secret"] = secret
+			}
+			role := &rbacv1.Role{}
+			if err := k8sClient.Get(currentCtx, types.NamespacedName{Name: reconcilers.KEDAPrometheusAuthMetricsReaderRoleName, Namespace: namespace}, role); err == nil {
+				resources["Role"] = role
+			}
+			rb := &rbacv1.RoleBinding{}
+			if err := k8sClient.Get(currentCtx, types.NamespacedName{Name: reconcilers.KEDAPrometheusAuthMetricsReaderRoleBindingName, Namespace: namespace}, rb); err == nil {
+				resources["RoleBinding"] = rb
+			}
+			ta := &kedaapi.TriggerAuthentication{}
+			if err := k8sClient.Get(currentCtx, types.NamespacedName{Name: reconcilers.KEDAPrometheusAuthTriggerAuthName, Namespace: namespace}, ta); err == nil {
+				resources["TriggerAuthentication"] = ta
+			}
+			return resources
+		}
+
+		BeforeEach(func() {
+			ctx = context.Background()
+			testNamespace := testutils.Namespaces.Create(ctx, k8sClient)
+			testNs = testNamespace.Name
+			// Note: Add KEDA API to scheme if not already done in main test setup for the suite
+			// For example, in `suite_test.go`:
+			// Expect(kedaapi.AddToScheme(scheme.Scheme)).To(Succeed())
+			kedaReconciler = reconcilers.NewKServeKEDAReconciler(k8sClient)
+		})
+
+		Context("when InferenceServices are configured to scale on KEDA metrics", func() {
+			var isvc *kservev1beta1.InferenceService
+			var isvc2 *kservev1beta1.InferenceService
+
+			const fake = "fake" // for the love of the linter :)
+
+			BeforeEach(func() {
+				isvc = makeKedaTestISVC(testNs, names.SimpleNameGenerator.GenerateName("keda-isvc"), true)
+				Expect(k8sClient.Create(ctx, isvc)).Should(Succeed())
+				Expect(k8sClient.Get(ctx, types.NamespacedName{Name: isvc.Name, Namespace: isvc.Namespace}, isvc)).Should(Succeed())
+
+				isvc2 = makeKedaTestISVC(testNs, names.SimpleNameGenerator.GenerateName("keda-isvc-2"), true)
+				Expect(k8sClient.Create(ctx, isvc2)).Should(Succeed())
+				Expect(k8sClient.Get(ctx, types.NamespacedName{Name: isvc2.Name, Namespace: isvc2.Namespace}, isvc2)).Should(Succeed())
+
+				// Safety checks
+				Expect(isvc.Spec.Predictor.AutoScaling).ToNot(BeNil())
+				Expect(isvc2.Spec.Predictor.AutoScaling).ToNot(BeNil())
+				Expect(isvc.ObjectMeta.UID).ToNot(BeEmpty())
+				Expect(isvc2.ObjectMeta.UID).ToNot(BeEmpty())
+
+				err := kedaReconciler.Reconcile(ctx, GinkgoLogr, isvc)
+				Expect(err).NotTo(HaveOccurred())
+				err = kedaReconciler.Reconcile(ctx, GinkgoLogr, isvc2)
+				Expect(err).NotTo(HaveOccurred())
+			})
+
+			It("Must have owner reference to InferenceService", func() {
+				for kind, obj := range getAllKedaTestResources(ctx, testNs) {
+					Expect(obj).To(Not(BeNil()), fmt.Sprintf("Obj: %#v", obj))
+					Expect(hasOwnerReferenceByUID(obj, isvc.UID)).To(BeTrue(), fmt.Sprintf(`
+%s should be owned by ISVC
+obj: %#v
+isvc: %#v
+`, kind, obj, isvc))
+					Expect(hasOwnerReferenceByUID(obj, isvc2.UID)).To(BeTrue(), fmt.Sprintf(`
+%s should be owned by ISVC
+obj: %#v
+isvc: %#v
+`, kind, obj, isvc2))
+				}
+			})
+
+			It("Must remove owner reference from deleted InferenceService", func() {
+				Expect(k8sClient.Delete(ctx, isvc2)).Should(Succeed())
+				Expect(kedaReconciler.Delete(ctx, GinkgoLogr, isvc2)).To(Succeed())
+
+				for kind, obj := range getAllKedaTestResources(ctx, testNs) {
+					Expect(obj).To(Not(BeNil()), fmt.Sprintf("Obj: %#v", obj))
+					Expect(hasOwnerReferenceByUID(obj, isvc.UID)).To(BeTrue(), fmt.Sprintf(`
+%s should be owned by ISVC
+obj: %#v
+isvc: %#v
+`, kind, obj, isvc))
+					Expect(hasOwnerReferenceByUID(obj, isvc2.UID)).To(BeFalse(), fmt.Sprintf(`
+%s should not be owned by ISVC
+obj: %#v
+isvc: %#v
+`, kind, obj, isvc2))
+				}
+			})
+
+			It("Must update managed role when it diverges", func() {
+				role := &rbacv1.Role{}
+				Expect(k8sClient.Get(ctx, types.NamespacedName{Namespace: isvc.Namespace, Name: reconcilers.KEDAPrometheusAuthMetricsReaderRoleName}, role)).Should(Succeed())
+				role.Rules[0].Resources = []string{fake}
+				Expect(k8sClient.Update(ctx, role)).To(Succeed())
+
+				Expect(kedaReconciler.Reconcile(ctx, GinkgoLogr, isvc)).To(Succeed())
+
+				Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(role), role)).Should(Succeed())
+
+				Expect(role.Rules[0].Resources[0]).ToNot(Equal(fake))
+			})
+
+			It("Must update managed service account when it diverges", func() {
+				sa := &corev1.ServiceAccount{}
+				Expect(k8sClient.Get(ctx, types.NamespacedName{Namespace: isvc.Namespace, Name: reconcilers.KEDAPrometheusAuthMetricsReaderRoleName}, sa)).Should(Succeed())
+				sa.Labels[reconcilers.KEDAResourcesLabelKey] = fake
+				Expect(k8sClient.Update(ctx, sa)).To(Succeed())
+
+				Expect(kedaReconciler.Reconcile(ctx, GinkgoLogr, isvc)).To(Succeed())
+
+				Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(sa), sa)).Should(Succeed())
+
+				Expect(sa.Labels[reconcilers.KEDAResourcesLabelKey]).To(Equal(reconcilers.KEDAResourcesLabelValue))
+			})
+
+			It("Must update managed role binding when it diverges", func() {
+				rb := &rbacv1.RoleBinding{}
+				Expect(k8sClient.Get(ctx, types.NamespacedName{Namespace: isvc.Namespace, Name: reconcilers.KEDAPrometheusAuthMetricsReaderRoleBindingName}, rb)).Should(Succeed())
+				rb.Subjects[0].Kind = "User"
+				rb.Subjects[0].Name = fake
+				Expect(k8sClient.Update(ctx, rb)).To(Succeed())
+
+				Expect(kedaReconciler.Reconcile(ctx, GinkgoLogr, isvc)).To(Succeed())
+
+				Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(rb), rb)).Should(Succeed())
+
+				Expect(rb.Subjects[0].Kind).ToNot(Equal("User"))
+				Expect(rb.Subjects[0].Name).ToNot(Equal(fake))
+			})
+
+			It("Must update managed secret when it diverges", func() {
+				secret := &corev1.Secret{}
+				Expect(k8sClient.Get(ctx, types.NamespacedName{Namespace: isvc.Namespace, Name: reconcilers.KEDAPrometheusAuthTriggerSecretName}, secret)).Should(Succeed())
+				secret.Labels[reconcilers.KEDAResourcesLabelKey] = fake
+				Expect(k8sClient.Update(ctx, secret)).To(Succeed())
+
+				Expect(kedaReconciler.Reconcile(ctx, GinkgoLogr, isvc)).To(Succeed())
+
+				Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(secret), secret)).Should(Succeed())
+
+				Expect(secret.Labels[reconcilers.KEDAResourcesLabelKey]).To(Equal(reconcilers.KEDAResourcesLabelValue))
+			})
+
+			It("Must update managed trigger authentication when it diverges", func() {
+				ta := &kedaapi.TriggerAuthentication{}
+				Expect(k8sClient.Get(ctx, types.NamespacedName{Namespace: isvc.Namespace, Name: reconcilers.KEDAPrometheusAuthTriggerAuthName}, ta)).Should(Succeed())
+				ta.Spec.SecretTargetRef = []kedaapi.AuthSecretTargetRef{}
+				Expect(k8sClient.Update(ctx, ta)).To(Succeed())
+
+				Expect(kedaReconciler.Reconcile(ctx, GinkgoLogr, isvc)).To(Succeed())
+
+				Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(ta), ta)).Should(Succeed())
+
+				Expect(ta.Spec.SecretTargetRef).To(HaveLen(2))
+			})
+
+			AfterEach(func() {
+				Expect(k8sClient.Delete(ctx, isvc)).Should(Succeed())
+
+				Expect(kedaReconciler.Delete(ctx, GinkgoLogr, isvc)).To(Succeed())
+				Expect(kedaReconciler.Cleanup(ctx, GinkgoLogr, testNs)).To(Succeed())
+
+				Expect(getAllKedaTestResources(ctx, testNs)).To(BeEmpty())
+			})
+		})
+
+		Context("when an InferenceService no longer requires KEDA metrics", func() {
+			var isvc *kservev1beta1.InferenceService
+
+			BeforeEach(func() {
+				// Create ISVC initially requiring KEDA
+				isvc = makeKedaTestISVC(testNs, names.SimpleNameGenerator.GenerateName("keda-isvc"), true)
+				Expect(k8sClient.Create(ctx, isvc)).Should(Succeed())
+				Expect(k8sClient.Get(ctx, types.NamespacedName{Name: isvc.Name, Namespace: isvc.Namespace}, isvc)).Should(Succeed())
+
+				err := kedaReconciler.Reconcile(ctx, GinkgoLogr, isvc)
+				Expect(err).NotTo(HaveOccurred())
+
+				// Verify initial ownership
+				for kind, obj := range getAllKedaTestResources(ctx, testNs) {
+					Expect(obj).To(Not(BeNil()), fmt.Sprintf("Obj: %#v", obj))
+					Expect(hasOwnerReferenceByUID(obj, isvc.UID)).To(BeTrue(), fmt.Sprintf(`
+%s should initially be owned by ISVC
+obj: %#v
+isvc: %#v
+`, kind, obj, isvc))
+				}
+
+				// Update ISVC to no longer require KEDA
+				// Fetch the latest version first
+				latestIsvc := &kservev1beta1.InferenceService{}
+				Expect(k8sClient.Get(ctx, types.NamespacedName{Name: isvc.Name, Namespace: isvc.Namespace}, latestIsvc)).Should(Succeed())
+
+				updatedIsvc := makeKedaTestISVC(testNs, isvc.Name, false)
+				latestIsvc.Spec = updatedIsvc.Spec // Only update spec
+				Expect(k8sClient.Update(ctx, latestIsvc)).Should(Succeed())
+				isvc = latestIsvc // Use the updated ISVC for the Reconcile call
+			})
+
+			It("should remove the ISVC owner reference from all KEDA resources", func() {
+				err := kedaReconciler.Reconcile(ctx, GinkgoLogr, isvc)
+				Expect(err).NotTo(HaveOccurred())
+
+				// Verify owner reference is removed
+				for kind, obj := range getAllKedaTestResources(ctx, testNs) {
+					// Refetch the object to get its latest state
+					currentObj := obj.DeepCopyObject().(client.Object)
+					Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(currentObj), currentObj)).Should(Succeed())
+					Expect(hasOwnerReferenceByUID(currentObj, isvc.UID)).To(BeFalse(), fmt.Sprintf("ISVC owner reference should be removed from %s", kind))
+				}
+			})
+		})
+
+		Context("when an ISVC no longer requires KEDA and resources have other owners", func() {
+			var isvc1 *kservev1beta1.InferenceService
+			var otherOwnerRef *metav1.OwnerReference
+
+			BeforeEach(func() {
+				isvc1 = makeKedaTestISVC(testNs, "isvc1-keda", true)
+				Expect(k8sClient.Create(ctx, isvc1)).Should(Succeed())
+
+				// Create a second InferenceService so that the resources are not deleted.
+				isvc2 := makeKedaTestISVC(testNs, "isvc2-keda", true)
+				Expect(k8sClient.Create(ctx, isvc2)).Should(Succeed())
+
+				// Dummy "other" owner
+				otherOwnerRef = &metav1.OwnerReference{
+					APIVersion: "v1",
+					Kind:       "Pod", // Arbitrary kind for testing
+					Name:       "other-owner-pod",
+					UID:        "other-owner-uid",
+				}
+
+				// Create KEDA resources owned by ISVC1 and otherOwner
+				_ = createTestKedaSA(ctx, testNs, isvc1, otherOwnerRef)
+				_ = createTestKedaSecret(ctx, testNs, isvc1, otherOwnerRef)
+				_ = createTestKedaRole(ctx, testNs, isvc1, otherOwnerRef)
+				_ = createTestKedaRoleBinding(ctx, testNs, isvc1, otherOwnerRef)
+				_ = createTestKedaTA(ctx, testNs, isvc1, otherOwnerRef)
+
+				// Update ISVC1 to no longer require KEDA
+				latestIsvc1 := &kservev1beta1.InferenceService{}
+				Expect(k8sClient.Get(ctx, types.NamespacedName{Name: isvc1.Name, Namespace: isvc1.Namespace}, latestIsvc1)).Should(Succeed())
+				updatedIsvc1 := makeKedaTestISVC(testNs, "isvc1-keda", false)
+				latestIsvc1.Spec = updatedIsvc1.Spec
+				Expect(k8sClient.Update(ctx, latestIsvc1)).Should(Succeed())
+				isvc1 = latestIsvc1
+			})
+
+			It("should remove only the specific ISVC's owner reference, preserving others", func() {
+				err := kedaReconciler.Reconcile(ctx, GinkgoLogr, isvc1)
+				Expect(err).NotTo(HaveOccurred())
+
+				sa := &corev1.ServiceAccount{}
+				Expect(k8sClient.Get(ctx, types.NamespacedName{Name: reconcilers.KEDAPrometheusAuthResourceName, Namespace: testNs}, sa)).Should(Succeed())
+				Expect(hasOwnerReferenceByUID(sa, isvc1.UID)).To(BeFalse(), "ISVC1 owner ref should be removed from SA")
+				Expect(hasOwnerReferenceByUID(sa, otherOwnerRef.UID)).To(BeTrue(), "Other owner ref should be preserved on SA")
+
+				secret := &corev1.Secret{}
+				Expect(k8sClient.Get(ctx, types.NamespacedName{Name: reconcilers.KEDAPrometheusAuthTriggerSecretName, Namespace: testNs}, secret)).Should(Succeed())
+				Expect(hasOwnerReferenceByUID(secret, isvc1.UID)).To(BeFalse(), "ISVC1 owner ref should be removed from Secret")
+				Expect(hasOwnerReferenceByUID(secret, otherOwnerRef.UID)).To(BeTrue(), "Other owner ref should be preserved on Secret")
+
+				ta := &kedaapi.TriggerAuthentication{}
+				Expect(k8sClient.Get(ctx, types.NamespacedName{Name: reconcilers.KEDAPrometheusAuthTriggerAuthName, Namespace: testNs}, ta)).Should(Succeed())
+				Expect(hasOwnerReferenceByUID(ta, isvc1.UID)).To(BeFalse(), "ISVC1 owner ref should be removed from TriggerAuthentication")
+				Expect(hasOwnerReferenceByUID(ta, otherOwnerRef.UID)).To(BeTrue(), "Other owner ref should be preserved on TriggerAuthentication")
+
+				role := &rbacv1.Role{}
+				Expect(k8sClient.Get(ctx, types.NamespacedName{Name: reconcilers.KEDAPrometheusAuthMetricsReaderRoleName, Namespace: testNs}, role)).Should(Succeed())
+				Expect(hasOwnerReferenceByUID(ta, isvc1.UID)).To(BeFalse(), "ISVC1 owner ref should be removed from Role")
+				Expect(hasOwnerReferenceByUID(ta, otherOwnerRef.UID)).To(BeTrue(), "Other owner ref should be preserved on Role")
+
+				roleBinding := &rbacv1.RoleBinding{}
+				Expect(k8sClient.Get(ctx, types.NamespacedName{Name: reconcilers.KEDAPrometheusAuthMetricsReaderRoleBindingName, Namespace: testNs}, roleBinding)).Should(Succeed())
+				Expect(hasOwnerReferenceByUID(ta, isvc1.UID)).To(BeFalse(), "ISVC1 owner ref should be removed from RoleBinding")
+				Expect(hasOwnerReferenceByUID(ta, otherOwnerRef.UID)).To(BeTrue(), "Other owner ref should be preserved on RoleBinding")
+			})
+		})
+
+		Context("when KEDA resources do not exist and autoscaling is not configured", func() {
+			var isvc *kservev1beta1.InferenceService
+
+			BeforeEach(func() {
+				isvc = makeKedaTestISVC(testNs, "isvc-no-keda-res", false)
+				Expect(k8sClient.Create(ctx, isvc)).Should(Succeed())
+			})
+
+			It("should complete without error (no-op)", func() {
+				err := kedaReconciler.Reconcile(ctx, GinkgoLogr, isvc)
+				Expect(err).NotTo(HaveOccurred())
+
+				sa := &corev1.ServiceAccount{}
+				err = k8sClient.Get(ctx, types.NamespacedName{Name: reconcilers.KEDAPrometheusAuthResourceName, Namespace: testNs}, sa)
+				Expect(err).To(HaveOccurred())
+				Expect(k8sErrors.IsNotFound(err)).To(BeTrue())
+
+				secret := &corev1.Secret{}
+				err = k8sClient.Get(ctx, types.NamespacedName{Name: reconcilers.KEDAPrometheusAuthResourceName, Namespace: testNs}, secret)
+				Expect(err).To(HaveOccurred())
+				Expect(k8sErrors.IsNotFound(err)).To(BeTrue())
+
+				ta := &kedaapi.TriggerAuthentication{}
+				err = k8sClient.Get(ctx, types.NamespacedName{Name: reconcilers.KEDAPrometheusAuthResourceName, Namespace: testNs}, ta)
+				Expect(err).To(HaveOccurred())
+				Expect(k8sErrors.IsNotFound(err)).To(BeTrue())
+
+				role := &rbacv1.Role{}
+				err = k8sClient.Get(ctx, types.NamespacedName{Name: reconcilers.KEDAPrometheusAuthResourceName, Namespace: testNs}, role)
+				Expect(err).To(HaveOccurred())
+				Expect(k8sErrors.IsNotFound(err)).To(BeTrue())
+
+				roleBinding := &rbacv1.RoleBinding{}
+				err = k8sClient.Get(ctx, types.NamespacedName{Name: reconcilers.KEDAPrometheusAuthResourceName, Namespace: testNs}, roleBinding)
+				Expect(err).To(HaveOccurred())
+				Expect(k8sErrors.IsNotFound(err)).To(BeTrue())
+			})
+		})
+
+		Context("when KEDA resource does not have the target ISVC as an owner and autoscaling is not configured", func() {
+			var isvc *kservev1beta1.InferenceService
+			var sa *corev1.ServiceAccount
+
+			BeforeEach(func() {
+				isvc = makeKedaTestISVC(testNs, "isvc-not-owner", false)
+				Expect(k8sClient.Create(ctx, isvc)).Should(Succeed())
+
+				// Create a second InferenceService so that the resources are not deleted.
+				isvc2 := makeKedaTestISVC(testNs, "isvc2-keda", true)
+				Expect(k8sClient.Create(ctx, isvc2)).Should(Succeed())
+
+				// Create SA but not owned by this ISVC
+				sa = createTestKedaSA(ctx, testNs, nil, nil) // No owners
+			})
+
+			It("should complete without error and not modify the resource's owners", func() {
+				originalSAOwnerRefs := sa.GetOwnerReferences()
+				err := kedaReconciler.Reconcile(ctx, GinkgoLogr, isvc)
+				Expect(err).NotTo(HaveOccurred())
+
+				updatedSA := &corev1.ServiceAccount{ObjectMeta: metav1.ObjectMeta{Name: reconcilers.KEDAPrometheusAuthServiceAccountName, Namespace: testNs}}
+				Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(sa), updatedSA)).Should(Succeed())
+				Expect(updatedSA.GetOwnerReferences()).To(Equal(originalSAOwnerRefs)) // Should be unchanged
+			})
+		})
+
+		Context("when ISVC does require KEDA resources", func() {
+			var isvc *kservev1beta1.InferenceService
+			var sa *corev1.ServiceAccount
+
+			BeforeEach(func() {
+				isvc = makeKedaTestISVC(testNs, "isvc-not-owner", false)
+				Expect(k8sClient.Create(ctx, isvc)).Should(Succeed())
+
+				// Create SA
+				sa = createTestKedaSA(ctx, testNs, nil, nil) // No owners
+			})
+
+			It("should cleanup resources", func() {
+				err := kedaReconciler.Reconcile(ctx, GinkgoLogr, isvc)
+				Expect(err).NotTo(HaveOccurred())
+
+				updatedSA := &corev1.ServiceAccount{ObjectMeta: metav1.ObjectMeta{Name: reconcilers.KEDAPrometheusAuthServiceAccountName, Namespace: testNs}}
+				err = k8sClient.Get(ctx, client.ObjectKeyFromObject(sa), updatedSA)
+				Expect(err).Should(HaveOccurred())
+				Expect(k8sErrors.IsNotFound(err)).Should(BeTrue())
 			})
 		})
 	})
