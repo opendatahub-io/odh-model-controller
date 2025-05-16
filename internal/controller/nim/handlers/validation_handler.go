@@ -79,9 +79,9 @@ func (v *ValidationHandler) Handle(ctx context.Context, account *v1.Account) Han
 		}
 
 		// fetch available runtimes
-		availableRuntimes, runtimesErr := utils.GetAvailableNimRuntimes(logger)
+		availableRuntimes, runtimesErr := getRuntimes(ctx, v.Client, account)
 		if runtimesErr != nil {
-			msg := "failed to fetch NIM available runtimes"
+			msg := "failed to fetch NIM runtimes"
 
 			failedStatus := account.Status
 			failedStatus.LastAccountCheck = &metav1.Time{Time: time.Now()}
@@ -94,16 +94,7 @@ func (v *ValidationHandler) Handle(ctx context.Context, account *v1.Account) Han
 			}
 			return HandleResponse{Error: runtimesErr}
 		}
-
-		logger.V(1).Info("got available runtimes")
-
-		// check the selected models
-		if selectedModelList, err := utils.GetSelectedModelList(ctx, account.Spec.ModelListConfig, account.Namespace, v.Client, logger); err != nil {
-			logger.V(1).Error(err, "failed to get the selected model list")
-			return HandleResponse{Error: err}
-		} else {
-			availableRuntimes = utils.FilterAvailableNimRuntimes(availableRuntimes, selectedModelList, logger)
-		}
+		logger.V(1).Info("got NIM runtimes")
 
 		apiKeyStr, kmSErr := v.KeyManager.GetAPIKey(ctx, account)
 		if kmSErr != nil {
