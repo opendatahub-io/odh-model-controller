@@ -17,354 +17,329 @@ limitations under the License.
 package nim
 
 import (
-	"context"
-	"errors"
 	"fmt"
+	"time"
 
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
+
+	"github.com/kserve/kserve/pkg/apis/serving/v1alpha1"
 	templatev1 "github.com/openshift/api/template/v1"
 	corev1 "k8s.io/api/core/v1"
 	k8serrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/apimachinery/pkg/runtime/serializer"
 	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/client-go/kubernetes/scheme"
 	"k8s.io/client-go/tools/reference"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/apiutil"
+	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	v1 "github.com/opendatahub-io/odh-model-controller/api/nim/v1"
-	"github.com/opendatahub-io/odh-model-controller/internal/controller/testdata"
+	"github.com/opendatahub-io/odh-model-controller/internal/controller/constants"
+	"github.com/opendatahub-io/odh-model-controller/internal/controller/nim/handlers"
 	"github.com/opendatahub-io/odh-model-controller/internal/controller/utils"
 )
 
-var _ = Describe("NIM Account Controller Test Cases", func() {
+// NOTE: We only test scenarios of that do not require reconciliation of the supporting resources or status updates here.
+// Reconciliation-related scenarios are being tested in the handlers package.
+var _ = Describe("NIM Account Controller", func() {
+	var accountReconciler *AccountReconciler
 
-	// mock nvidia nim api client
-	utils.NimHttpClient = &testdata.NimHttpClientMock{}
-
-	It("Should reconcile resources for an Account with a valid API key", func() {
-		ctx := context.TODO()
-		nameNs := "testing-nim-account-1"
-
-		By("Create testing Namespace " + nameNs)
-		testNs := &corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: nameNs}}
-		Expect(k8sClient.Create(ctx, testNs)).To(Succeed())
-
-		By("Create an Account and an API Key Secret")
-		acctSubject := types.NamespacedName{Name: nameNs, Namespace: nameNs}
-		createApiKeySecretAndAccount(acctSubject, testdata.FakeApiKey)
-
-		By("Verify successful Account")
-		account := &v1.Account{}
-		assertSuccessfulAccount(acctSubject, account).Should(Succeed())
-
-		By("Verify resources created")
-		expectedOwner := createOwnerReference(k8sClient.Scheme(), account)
-
-		dataCmap := &corev1.ConfigMap{}
-		dataCmapSubject := namespacedNameFromReference(account.Status.NIMConfig)
-		Expect(k8sClient.Get(ctx, dataCmapSubject, dataCmap)).To(Succeed())
-		Expect(dataCmapSubject.Name).To(HavePrefix(account.Name + "-"))
-		Expect(dataCmap.OwnerReferences[0]).To(Equal(expectedOwner))
-
-		runtimeTemplate := &templatev1.Template{}
-		runtimeTemplateSubject := namespacedNameFromReference(account.Status.RuntimeTemplate)
-		Expect(k8sClient.Get(ctx, runtimeTemplateSubject, runtimeTemplate)).To(Succeed())
-		Expect(runtimeTemplateSubject.Name).To(HavePrefix(account.Name + "-"))
-		Expect(runtimeTemplate.OwnerReferences[0]).To(Equal(expectedOwner))
-
-		pullSecret := &corev1.Secret{}
-		pullSecretSubject := namespacedNameFromReference(account.Status.NIMPullSecret)
-		Expect(k8sClient.Get(ctx, pullSecretSubject, pullSecret)).To(Succeed())
-		Expect(pullSecretSubject.Name).To(HavePrefix(account.Name + "-"))
-		Expect(pullSecret.OwnerReferences[0]).To(Equal(expectedOwner))
-
-		By("Verify only two models (the nemotron model fetch is not stubbed)")
-		Expect(dataCmap.Data).To(HaveLen(2))
-
-		By("Cleanups")
-		apiKeySecret := &corev1.Secret{}
-		apiKeySubject := namespacedNameFromReference(&account.Spec.APIKeySecret)
-		Expect(k8sClient.Get(ctx, apiKeySubject, apiKeySecret)).Should(Succeed())
-
-		Expect(k8sClient.Delete(ctx, account)).To(Succeed())
-		Expect(k8sClient.Delete(ctx, apiKeySecret)).To(Succeed())
-
-		// we delete the following because K8S GC is not working in envtest
-		Expect(k8sClient.Delete(ctx, dataCmap)).To(Succeed())
-		Expect(k8sClient.Delete(ctx, runtimeTemplate)).To(Succeed())
-		Expect(k8sClient.Delete(ctx, pullSecret)).To(Succeed())
-
-		Expect(k8sClient.Delete(ctx, testNs)).To(Succeed())
+	BeforeEach(func() {
+		accountReconciler = &AccountReconciler{
+			Client:         testClient,
+			Scheme:         scheme.Scheme,
+			KClient:        k8sClient,
+			TemplateClient: templateClient,
+		}
 	})
 
-	It("Should not reconcile resources for an account with an invalid API key", func() {
-		nameNs := "testing-nim-account-2"
+	It("should add finalizer and re-queue when missing from the Account", func(ctx SpecContext) {
+		tstName := "testing-nim-controller-1"
+		tstAccountKey := types.NamespacedName{Name: tstName, Namespace: tstName}
 
-		By("Create testing Namespace " + nameNs)
-		testNs := &corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: nameNs}}
-		Expect(k8sClient.Create(ctx, testNs)).To(Succeed())
+		By("Create testing Namespace " + tstAccountKey.Namespace)
+		testNs := &corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: tstAccountKey.Namespace}}
+		Expect(testClient.Create(ctx, testNs)).To(Succeed())
 
-		By("Create an Account and a wrong API Key Secret")
-		acctSubject := types.NamespacedName{Name: nameNs, Namespace: nameNs}
-		createApiKeySecretAndAccount(acctSubject, "not-a-valid-key-should-fail")
+		By("Create an Account")
+		acct := &v1.Account{
+			// not including a finalizer, expecting the controller to add it and re-queue
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      tstAccountKey.Name,
+				Namespace: tstAccountKey.Namespace,
+			},
+			Spec: v1.AccountSpec{
+				APIKeySecret:          corev1.ObjectReference{Name: "not-required", Namespace: "for-this-test-case"},
+				ValidationRefreshRate: "24h",
+				NIMConfigRefreshRate:  "24h",
+			},
+		}
+		Expect(testClient.Create(ctx, acct)).To(Succeed())
 
-		By("Verify failed Account")
-		account := &v1.Account{}
-		assertFailedAccount(acctSubject, account).Should(Succeed())
+		By("Reconciling")
+		result, err := accountReconciler.Reconcile(ctx, reconcile.Request{NamespacedName: tstAccountKey})
+
+		By("Verify successful result and re-queueing")
+		Expect(err).NotTo(HaveOccurred())
+		Expect(result.Requeue).To(BeTrue())
+
+		By("Verify the finalizer was added to the Account")
+		uAccount := &v1.Account{}
+		Expect(testClient.Get(ctx, tstAccountKey, uAccount)).To(Succeed())
+		Expect(uAccount.Finalizers).To(ContainElement(constants.NimCleanupFinalizer))
 
 		By("Cleanups")
-		apiKeySecret := &corev1.Secret{}
-		apiKeySubject := namespacedNameFromReference(&account.Spec.APIKeySecret)
-		Expect(k8sClient.Get(ctx, apiKeySubject, apiKeySecret)).Should(Succeed())
-
-		Expect(k8sClient.Delete(ctx, apiKeySecret)).Should(Succeed())
-		Expect(k8sClient.Delete(ctx, account)).Should(Succeed())
-		Expect(k8sClient.Delete(ctx, testNs)).To(Succeed())
+		Expect(testClient.Delete(ctx, uAccount)).To(Succeed())
+		Expect(testClient.Delete(ctx, testNs)).To(Succeed())
 	})
 
-	It("Should remove all resources if the API key Secret was deleted", func() {
-		ctx := context.TODO()
-		nameNs := "testing-nim-account-3"
+	It("should report healthy Account when no reconciliation is required and not re-queue", func(ctx SpecContext) {
+		tstName := "testing-nim-controller-2"
+		tstAccountKey := types.NamespacedName{Name: tstName, Namespace: tstName}
+		fakeApiKey := tstName
 
-		By("Create testing Namespace " + nameNs)
-		testNs := &corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: nameNs}}
-		Expect(k8sClient.Create(ctx, testNs)).To(Succeed())
+		By("Create testing Namespace " + tstAccountKey.Namespace)
+		testNs := &corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: tstAccountKey.Namespace}}
+		Expect(testClient.Create(ctx, testNs)).To(Succeed())
 
-		By("Create an Account and an API Key Secret")
-		acctSubject := types.NamespacedName{Name: nameNs, Namespace: nameNs}
-		createApiKeySecretAndAccount(acctSubject, testdata.FakeApiKey)
+		By("Create an API Key Secret")
+		apiKeySecret := &corev1.Secret{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      tstAccountKey.Name + "-api-key",
+				Namespace: tstAccountKey.Namespace,
+				Labels:    map[string]string{"opendatahub.io/managed": "true"},
+			},
+			Data: map[string][]byte{
+				"api_key": []byte(fakeApiKey),
+			},
+		}
+		Expect(testClient.Create(ctx, apiKeySecret)).To(Succeed())
 
-		By("Verify successful Account")
-		account := &v1.Account{}
-		assertSuccessfulAccount(acctSubject, account).Should(Succeed())
+		By("Create an Account")
+		apiKeyRef, _ := reference.GetReference(testClient.Scheme(), apiKeySecret)
+		acct := &v1.Account{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:       tstAccountKey.Name,
+				Namespace:  tstAccountKey.Namespace,
+				Finalizers: []string{constants.NimCleanupFinalizer},
+			},
+			Spec: v1.AccountSpec{
+				APIKeySecret:          *apiKeyRef,
+				ValidationRefreshRate: "24h",
+				NIMConfigRefreshRate:  "24h",
+			},
+		}
+		Expect(testClient.Create(ctx, acct)).To(Succeed())
 
-		By("Verify resources created")
-		dataCmapSubject := namespacedNameFromReference(account.Status.NIMConfig)
-		Expect(k8sClient.Get(ctx, dataCmapSubject, &corev1.ConfigMap{})).To(Succeed())
+		By("Create the supporting ConfigMap")
+		cm := &corev1.ConfigMap{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      fmt.Sprintf("%s-cm", tstAccountKey.Name),
+				Namespace: tstAccountKey.Namespace,
+				Labels:    map[string]string{"opendatahub.io/managed": "true"},
+			},
+			// no data required for this specific test case, we're stubbing the last refresh date to avoid reconciliation
+		}
+		Expect(testClient.Create(ctx, cm)).To(Succeed())
+		cmRef, _ := reference.GetReference(scheme.Scheme, cm)
 
-		runtimeTemplateSubject := namespacedNameFromReference(account.Status.RuntimeTemplate)
-		Expect(k8sClient.Get(ctx, runtimeTemplateSubject, &templatev1.Template{})).To(Succeed())
+		By("Create the supporting pull Secret")
+		data, _ := handlers.GetPullSecretData(fakeApiKey)
+		pullSecret := &corev1.Secret{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      fmt.Sprintf("%s-pull", tstAccountKey.Name),
+				Namespace: tstAccountKey.Namespace,
+				Labels:    map[string]string{"opendatahub.io/managed": "true"},
+			},
+			// reconciliation is determined based on the secret's data, we use the expected data to avoid reconciliation
+			Data: data,
+		}
+		Expect(testClient.Create(ctx, pullSecret)).To(Succeed())
+		pullSecretRef, _ := reference.GetReference(scheme.Scheme, pullSecret)
 
-		pullSecretSubject := namespacedNameFromReference(account.Status.NIMPullSecret)
-		Expect(k8sClient.Get(ctx, pullSecretSubject, &corev1.Secret{})).To(Succeed())
+		By("Create the supporting Template")
+		object, _ := utils.GetNimServingRuntimeTemplate(scheme.Scheme)
+		gvk, _ := apiutil.GVKForObject(object, scheme.Scheme)
+		object.SetGroupVersionKind(gvk)
 
-		By("Delete API key Secret")
-		apiKeySecret := &corev1.Secret{}
-		apiKeySubject := namespacedNameFromReference(&account.Spec.APIKeySecret)
-		Expect(k8sClient.Get(ctx, apiKeySubject, apiKeySecret)).Should(Succeed())
-		Expect(k8sClient.Delete(ctx, apiKeySecret)).To(Succeed())
+		encoder := serializer.NewCodecFactory(scheme.Scheme).LegacyCodec(v1alpha1.SchemeGroupVersion)
+		objByte, _ := runtime.Encode(encoder, object)
 
-		By("Verify resources deleted")
+		template := &templatev1.Template{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:        fmt.Sprintf("%s-template", tstAccountKey.Name),
+				Namespace:   tstAccountKey.Namespace,
+				Labels:      map[string]string{"opendatahub.io/managed": "true"},
+				Annotations: map[string]string{"opendatahub.io/apiProtocol": "REST", "opendatahub.io/modelServingSupport": "[\"single\"]"},
+			},
+			// initially we attempted to use the same Object as expected and avoid reconciliation, but it turns out that
+			// envtest is ignoring both Object and Raw, to overcome this, in the template handler, we used testing.Testing()
+			Objects: []runtime.RawExtension{{Object: object, Raw: objByte}},
+		}
+		Expect(testClient.Create(ctx, template)).To(Succeed())
+		templateRef, _ := reference.GetReference(scheme.Scheme, template)
+
+		By("Update Account with successful status")
+		acct.Status = v1.AccountStatus{
+			RuntimeTemplate:             templateRef,
+			NIMConfig:                   cmRef,
+			NIMPullSecret:               pullSecretRef,
+			LastSuccessfulValidation:    &metav1.Time{Time: time.Now()},
+			LastSuccessfulConfigRefresh: &metav1.Time{Time: time.Now()},
+			LastAccountCheck:            nil, // this should get updated when the reconciliation ends
+			Conditions: []metav1.Condition{
+				// setting only the account status to false, expecting the controller to change it to true because no reconciliation is required
+				utils.MakeNimCondition(utils.NimConditionAccountStatus, metav1.ConditionFalse, 1, "AccountNotSuccessful", "Account Not Successful"),
+				// other conditions are set to successful
+				utils.MakeNimCondition(utils.NimConditionAPIKeyValidation, metav1.ConditionTrue, 1, "ApiKeyValidated", "api key validated successfully"),
+				utils.MakeNimCondition(utils.NimConditionSecretUpdate, metav1.ConditionTrue, 1, "SecretUpdated", "pull secret reconciled successfully"),
+				utils.MakeNimCondition(utils.NimConditionTemplateUpdate, metav1.ConditionTrue, 1, "TemplateUpdated", "runtime template reconciled successfully"),
+				utils.MakeNimCondition(utils.NimConditionConfigMapUpdate, metav1.ConditionTrue, 1, "ConfigMapUpdated", "nim config reconciled successfully"),
+			},
+		}
+		Expect(testClient.Status().Update(ctx, acct)).To(Succeed())
+
+		By("Reconciling")
+		result, err := accountReconciler.Reconcile(ctx, reconcile.Request{NamespacedName: tstAccountKey})
+
+		By("Verify successful result no re-queueing required")
+		Expect(err).NotTo(HaveOccurred())
+		Expect(result.Requeue).To(BeFalse())
+
+		By("Verify the Account health and status updates")
+		uAccount := &v1.Account{}
+		Expect(testClient.Get(ctx, tstAccountKey, uAccount)).To(Succeed())
+		Expect(uAccount.Status.LastAccountCheck).NotTo(BeNil())
+		Expect(meta.IsStatusConditionTrue(uAccount.Status.Conditions, utils.NimConditionAccountStatus.String())).To(BeTrue())
+
+		By("Cleanups")
+		Expect(testClient.Delete(ctx, template)).To(Succeed())
+		Expect(testClient.Delete(ctx, pullSecret)).To(Succeed())
+		Expect(testClient.Delete(ctx, cm)).To(Succeed())
+		Expect(testClient.Delete(ctx, uAccount)).To(Succeed())
+		Expect(testClient.Delete(ctx, apiKeySecret)).To(Succeed())
+		Expect(testClient.Delete(ctx, testNs)).To(Succeed())
+	})
+
+	It("should clean up supporting resources when the Account is being deleted", func(ctx SpecContext) {
+		tstName := "testing-nim-controller-3"
+		tstAccountKey := types.NamespacedName{Name: tstName, Namespace: tstName}
+		fakeApiKey := tstName
+
+		By("Create testing Namespace " + tstAccountKey.Namespace)
+		testNs := &corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: tstAccountKey.Namespace}}
+		Expect(testClient.Create(ctx, testNs)).To(Succeed())
+
+		By("Create an API Key Secret")
+		apiKeySecret := &corev1.Secret{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      tstAccountKey.Name + "-api-key",
+				Namespace: tstAccountKey.Namespace,
+				Labels:    map[string]string{"opendatahub.io/managed": "true"},
+			},
+			Data: map[string][]byte{
+				"api_key": []byte(fakeApiKey),
+			},
+		}
+		Expect(testClient.Create(ctx, apiKeySecret)).To(Succeed())
+
+		By("Create an Account")
+		apiKeyRef, _ := reference.GetReference(testClient.Scheme(), apiKeySecret)
+		acct := &v1.Account{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:       tstAccountKey.Name,
+				Namespace:  tstAccountKey.Namespace,
+				Finalizers: []string{constants.NimCleanupFinalizer},
+			},
+			Spec: v1.AccountSpec{
+				APIKeySecret:          *apiKeyRef,
+				ValidationRefreshRate: "24h",
+				NIMConfigRefreshRate:  "24h",
+			},
+		}
+		Expect(testClient.Create(ctx, acct)).To(Succeed())
+
+		By("Create the supporting ConfigMap")
+		cm := &corev1.ConfigMap{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      fmt.Sprintf("%s-cm", tstAccountKey.Name),
+				Namespace: tstAccountKey.Namespace,
+			},
+			// no data required for this specific test case
+		}
+		Expect(testClient.Create(ctx, cm)).To(Succeed())
+		cmRef, _ := reference.GetReference(scheme.Scheme, cm)
+
+		By("Create the supporting pull Secret")
+		pullSecret := &corev1.Secret{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      fmt.Sprintf("%s-pull", tstAccountKey.Name),
+				Namespace: tstAccountKey.Namespace,
+			},
+			// no data required for this specific test case
+		}
+		Expect(testClient.Create(ctx, pullSecret)).To(Succeed())
+		pullSecretRef, _ := reference.GetReference(scheme.Scheme, pullSecret)
+
+		By("Create the supporting Template")
+		template := &templatev1.Template{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      fmt.Sprintf("%s-template", tstAccountKey.Name),
+				Namespace: tstAccountKey.Namespace,
+			},
+			// no objects required for this specific test case
+			Objects: []runtime.RawExtension{},
+		}
+		Expect(testClient.Create(ctx, template)).To(Succeed())
+		templateRef, _ := reference.GetReference(scheme.Scheme, template)
+
+		By("Update Account with successful status")
+		acct.Status = v1.AccountStatus{
+			RuntimeTemplate: templateRef,
+			NIMConfig:       cmRef,
+			NIMPullSecret:   pullSecretRef,
+			// timestamps and conditions are not required for this test case
+			LastSuccessfulValidation:    nil,
+			LastSuccessfulConfigRefresh: nil,
+			LastAccountCheck:            nil,
+			Conditions:                  []metav1.Condition{},
+		}
+		Expect(testClient.Status().Update(ctx, acct)).To(Succeed())
+
+		By("Deleting the Account")
+		Expect(testClient.Delete(ctx, acct)).To(Succeed())
+
+		By("Reconciling")
+		result, err := accountReconciler.Reconcile(ctx, reconcile.Request{NamespacedName: tstAccountKey})
+
+		By("Verify successful result no re-queueing required")
+		Expect(err).NotTo(HaveOccurred())
+		Expect(result.Requeue).To(BeFalse())
+
+		By("Verify the Account and the supporting resources were removed")
 		Eventually(func() error {
-			if err := k8sClient.Get(ctx, dataCmapSubject, &corev1.ConfigMap{}); !k8serrors.IsNotFound(err) {
+			if err := testClient.Get(ctx, client.ObjectKeyFromObject(cm), &corev1.ConfigMap{}); !k8serrors.IsNotFound(err) {
 				return fmt.Errorf("expected configmap to be deleted")
 			}
-			if err := k8sClient.Get(ctx, runtimeTemplateSubject, &templatev1.Template{}); !k8serrors.IsNotFound(err) {
+			if err := testClient.Get(ctx, client.ObjectKeyFromObject(template), &templatev1.Template{}); !k8serrors.IsNotFound(err) {
 				return fmt.Errorf("expected template to be deleted")
 			}
-			if err := k8sClient.Get(ctx, pullSecretSubject, &corev1.Secret{}); !k8serrors.IsNotFound(err) {
+			if err := testClient.Get(ctx, client.ObjectKeyFromObject(pullSecret), &corev1.Secret{}); !k8serrors.IsNotFound(err) {
 				return fmt.Errorf("expected pull secret to be deleted")
 			}
-			return nil
-		}, testTimeout, testInterval).Should(Succeed())
-
-		By("Cleanups")
-		Expect(k8sClient.Delete(ctx, account)).To(Succeed())
-		Expect(k8sClient.Delete(ctx, testNs)).To(Succeed())
-	})
-
-	It("Should restrict the models in the ConfigMap", func() {
-		ctx := context.TODO()
-		nameNs := "testing-nim-account-4"
-
-		By("Create testing Namespace " + nameNs)
-		testNs := &corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: nameNs}}
-		Expect(k8sClient.Create(ctx, testNs)).To(Succeed())
-
-		By("Create an Account and an API Key Secret")
-		acctSubject := types.NamespacedName{Name: nameNs, Namespace: nameNs}
-		createApiKeySecretAndAccount(acctSubject, testdata.FakeApiKey)
-
-		By("Verify successful Account")
-		account := &v1.Account{}
-		assertSuccessfulAccount(acctSubject, account).Should(Succeed())
-
-		By("Verify only two models are in the ConfigMap")
-		dataCmap := &corev1.ConfigMap{}
-		dataCmapSubject := namespacedNameFromReference(account.Status.NIMConfig)
-		Expect(k8sClient.Get(ctx, dataCmapSubject, dataCmap)).To(Succeed())
-		Expect(dataCmap.Data).To(HaveLen(2))
-
-		By("Set a model list ConfigMap")
-		cmSubject := types.NamespacedName{Name: "model-selection", Namespace: nameNs}
-		setModelListConfig(acctSubject, cmSubject)
-
-		By("Verify only one model is in the ConfigMap")
-		Eventually(func() error {
-			if err := k8sClient.Get(ctx, dataCmapSubject, dataCmap); err != nil {
-				return err
-			}
-			if len(dataCmap.Data) != 1 {
-				return fmt.Errorf("expected there is only one model in the ConfigMap, got %d", len(dataCmap.Data))
+			if err := testClient.Get(ctx, tstAccountKey, &v1.Account{}); !k8serrors.IsNotFound(err) {
+				return fmt.Errorf("expected account to be deleted")
 			}
 			return nil
 		}, testTimeout, testInterval).Should(Succeed())
 
 		By("Cleanups")
-		modelSelectionConfig := &corev1.ConfigMap{}
-		Expect(k8sClient.Get(ctx, cmSubject, modelSelectionConfig)).Should(Succeed())
-
-		apiKeySecret := &corev1.Secret{}
-		apiKeySubject := namespacedNameFromReference(&account.Spec.APIKeySecret)
-		Expect(k8sClient.Get(ctx, apiKeySubject, apiKeySecret)).Should(Succeed())
-
-		Expect(k8sClient.Delete(ctx, modelSelectionConfig)).To(Succeed())
-		Expect(k8sClient.Delete(ctx, account)).To(Succeed())
-		Expect(k8sClient.Delete(ctx, apiKeySecret)).To(Succeed())
-		Expect(k8sClient.Delete(ctx, testNs)).To(Succeed())
+		Expect(testClient.Delete(ctx, apiKeySecret)).To(Succeed())
+		Expect(testClient.Delete(ctx, testNs)).To(Succeed())
 	})
 })
-
-func createApiKeySecretAndAccount(account types.NamespacedName, apiKey string) {
-	apiKeySecret := &corev1.Secret{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:      account.Name + "-api-key",
-			Namespace: account.Namespace,
-			Labels:    map[string]string{"opendatahub.io/managed": "true"},
-		},
-		Data: map[string][]byte{
-			"api_key": []byte(apiKey),
-		},
-	}
-	Expect(k8sClient.Create(ctx, apiKeySecret)).To(Succeed())
-
-	apiKeyRef, _ := reference.GetReference(k8sClient.Scheme(), apiKeySecret)
-	acct := &v1.Account{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:      account.Name,
-			Namespace: account.Namespace,
-		},
-		Spec: v1.AccountSpec{
-			APIKeySecret: *apiKeyRef,
-		},
-	}
-	Expect(k8sClient.Create(ctx, acct)).To(Succeed())
-}
-
-func assertSuccessfulAccount(acctSubject types.NamespacedName, account *v1.Account) AsyncAssertion {
-	return Eventually(func() error {
-		if err := k8sClient.Get(ctx, acctSubject, account); err != nil {
-			return err
-		}
-
-		for _, cond := range []utils.NimConditionType{
-			utils.NimConditionAccountStatus,
-			utils.NimConditionAPIKeyValidation,
-			utils.NimConditionConfigMapUpdate,
-			utils.NimConditionTemplateUpdate,
-			utils.NimConditionSecretUpdate,
-		} {
-			current := cond.String()
-			if !meta.IsStatusConditionTrue(account.Status.Conditions, current) {
-				return errors.New("successful account status not updated yet for " + current)
-			}
-		}
-		return nil
-	}, testTimeout, testInterval)
-}
-
-func assertFailedAccount(acctSubject types.NamespacedName, account *v1.Account) AsyncAssertion {
-	return Eventually(func() error {
-		if err := k8sClient.Get(ctx, acctSubject, account); err != nil {
-			return err
-		}
-
-		for _, cond := range []utils.NimConditionType{
-			utils.NimConditionAccountStatus,
-			utils.NimConditionAPIKeyValidation,
-		} {
-			current := cond.String()
-			if !meta.IsStatusConditionFalse(account.Status.Conditions, current) {
-				return errors.New("failed account status not updated yet for " + current)
-			}
-		}
-
-		for _, cond := range []utils.NimConditionType{
-			utils.NimConditionConfigMapUpdate,
-			utils.NimConditionTemplateUpdate,
-			utils.NimConditionSecretUpdate,
-		} {
-			current := cond.String()
-			if !meta.IsStatusConditionPresentAndEqual(account.Status.Conditions, current, metav1.ConditionUnknown) {
-				return errors.New("unknown account status not updated yet for " + current)
-			}
-		}
-
-		for _, ref := range []*corev1.ObjectReference{
-			account.Status.NIMPullSecret,
-			account.Status.RuntimeTemplate,
-			account.Status.NIMConfig,
-		} {
-			if ref != nil {
-				return fmt.Errorf("found referenced object named %s of kind %s", ref.Name, ref.Kind)
-			}
-		}
-		return nil
-	}, testTimeout, testInterval)
-}
-
-func createOwnerReference(scheme *runtime.Scheme, account *v1.Account) metav1.OwnerReference {
-	// check func createOwnerReferenceCfg for info about the gvk usage.
-	gvk, _ := apiutil.GVKForObject(account, scheme)
-	pTrue := true
-	return metav1.OwnerReference{
-		Kind:               gvk.Kind,
-		Name:               account.Name,
-		APIVersion:         gvk.GroupVersion().String(),
-		UID:                account.GetUID(),
-		BlockOwnerDeletion: &pTrue,
-		Controller:         &pTrue,
-	}
-}
-
-func namespacedNameFromReference(ref *corev1.ObjectReference) types.NamespacedName {
-	return types.NamespacedName{Name: ref.Name, Namespace: ref.Namespace}
-}
-
-func setModelListConfig(accountSubject types.NamespacedName, cmSubject types.NamespacedName) {
-	modelSelectionConfig := &corev1.ConfigMap{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:      cmSubject.Name,
-			Namespace: cmSubject.Namespace,
-		},
-		Data: map[string]string{
-			"models": `["phi-3-mini-4k-instruct"]`,
-		},
-	}
-	Eventually(func() error {
-		if err := k8sClient.Create(ctx, modelSelectionConfig); err != nil {
-			return err
-		}
-		if err := k8sClient.Get(ctx, cmSubject, &corev1.ConfigMap{}); err != nil {
-			return err
-		}
-		return nil
-	}, testTimeout, testInterval).Should(Succeed())
-
-	Eventually(func() error {
-		account := &v1.Account{}
-		if err := k8sClient.Get(ctx, accountSubject, account); err != nil {
-			return err
-		}
-		account.Spec.ModelListConfig = &corev1.ObjectReference{
-			Name:      cmSubject.Name,
-			Namespace: cmSubject.Namespace,
-		}
-		if err := k8sClient.Update(ctx, account); err != nil {
-			return err
-		}
-		return nil
-	}, testTimeout, testInterval).Should(Succeed())
-}

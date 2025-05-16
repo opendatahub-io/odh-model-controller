@@ -58,8 +58,15 @@ var _ = Describe("KServe Custom CA Cert ConfigMap Controller", func() {
 			Expect(err).NotTo(HaveOccurred())
 			Expect(k8sClient.Create(ctx, odhtrustedcacertConfigMap)).Should(Succeed())
 
-			_, err = waitForConfigMap(k8sClient, WorkingNamespace, constants.KServeCACertConfigMapName, 30, 1*time.Second)
+			kserveCACertConfigmap, err := waitForConfigMap(k8sClient, WorkingNamespace, constants.KServeCACertConfigMapName, 30, 1*time.Second)
 			Expect(err).NotTo(HaveOccurred())
+			expectedKserveCACertConfigmap := &corev1.ConfigMap{}
+			err = convertToStructuredResource(odhKserveCustomCABundleConfigMapPath, expectedKserveCACertConfigmap)
+			Expect(err).NotTo(HaveOccurred())
+			// Trim out the last \n in the file
+			expectedKserveCACertConfigmap.Data["cabundle.crt"] = strings.TrimSpace(expectedKserveCACertConfigmap.Data["cabundle.crt"])
+
+			Expect(compareConfigMap(kserveCACertConfigmap, expectedKserveCACertConfigmap)).Should((BeTrue()))
 		})
 	})
 

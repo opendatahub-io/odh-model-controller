@@ -15,3 +15,4 @@ resources:
   - vllm-gaudi-template.yaml
   - vllm-cpu-template.yaml
   - caikit-standalone-template.yaml
+  - hf-detector-template.yaml

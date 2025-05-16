@@ -142,15 +142,15 @@ var _ = Describe("Secret Controller (StorageConfig controller)", func() {
 		})
 	})
 
-	Context("when a configmap 'odh-kserve-custom-ca-bundle' exists or updates", func() {
+	Context("when a configmap 'odh-trusted-ca-bundle' exists or updates", func() {
 		It("should add/update certificate keys into storage-config secret", func() {
 			dataconnectionStringSecret := &corev1.Secret{}
 
-			By("creating odh-kserve-custom-ca-bundle configmap")
-			odhKserveCustomCABundleConfigmap := &corev1.ConfigMap{}
-			err := convertToStructuredResource(odhKserveCustomCABundleConfigMapPath, odhKserveCustomCABundleConfigmap)
+			By("creating odh-trusted-ca-bundle configmap")
+			odhtrustedcacertConfigMap := &corev1.ConfigMap{}
+			err := convertToStructuredResource(odhtrustedcabundleConfigMapPath, odhtrustedcacertConfigMap)
 			Expect(err).NotTo(HaveOccurred())
-			Expect(k8sClient.Create(ctx, odhKserveCustomCABundleConfigmap)).Should(Succeed())
+			Expect(k8sClient.Create(ctx, odhtrustedcacertConfigMap)).Should(Succeed())
 
 			By("creating dataconnection secret")
 			err = convertToStructuredResource(dataconnectionStringPath, dataconnectionStringSecret)
@@ -166,11 +166,11 @@ var _ = Describe("Secret Controller (StorageConfig controller)", func() {
 			Expect(err).NotTo(HaveOccurred())
 			Expect(compareSecrets(storageconfigSecret, expectedStorageConfigSecret)).Should((BeTrue()))
 
-			By("updating odh-kserve-custom-ca-bundle configmap")
-			updatedOdhKserveCustomCABundleConfigmap := &corev1.ConfigMap{}
-			err = convertToStructuredResource(kserveCustomCACustomBundleConfigMapUpdatedPath, updatedOdhKserveCustomCABundleConfigmap)
+			By("updating odh-trusted-ca-bundle configmap")
+			updatedOdhtrustedcacertConfigMap := &corev1.ConfigMap{}
+			err = convertToStructuredResource(odhtrustedcabundleConfigMapUpdatedPath, updatedOdhtrustedcacertConfigMap)
 			Expect(err).NotTo(HaveOccurred())
-			Expect(k8sClient.Update(ctx, updatedOdhKserveCustomCABundleConfigmap)).Should(Succeed())
+			Expect(k8sClient.Update(ctx, updatedOdhtrustedcacertConfigMap)).Should(Succeed())
 
 			// Delete existing storage-config secret
 			// This will be done by kserve_customcacert_controller but for this test, it needs to be delete manully to update the storage-config
@@ -187,7 +187,7 @@ var _ = Describe("Secret Controller (StorageConfig controller)", func() {
 		})
 	})
 
-	Context("when a configmap odh-kserve-custom-ca-bundle does not exists", func() {
+	Context("when a configmap 'odh-trusted-ca-bundle' does not exist", func() {
 		It("should not return error", func() {
 			dataconnectionStringSecret := &corev1.Secret{}
 
