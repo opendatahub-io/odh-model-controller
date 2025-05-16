@@ -10,7 +10,7 @@ else
 GOBIN=$(shell go env GOBIN)
 endif
 
-KSERVE_MANIFESTS_REVISION = cb755147a7f1aa38bfd812ea85cf0c6beac3be9c
+KSERVE_MANIFESTS_REVISION = 3a1dc463c63c03bb2e8d63ac9d2c3167f25d1e68
 
 # CONTAINER_TOOL defines the container tool to be used for building images.
 # Be aware that the target commands are only tested with Docker which is
@@ -46,8 +46,8 @@ help: ## Display this help.
 
 ##@ Development
 
-.PHONY: update-manifests
-update-manifests:
+.PHONY: manifests-update
+manifests-update:
 	wget -O - https://raw.githubusercontent.com/kserve/kserve/$(KSERVE_MANIFESTS_REVISION)/config/crd/full/serving.kserve.io_inferencegraphs.yaml \
 		| tail -n +2 > config/crd/external/serving.kserve.io_inferencegraphs.yaml
 	wget -O - https://raw.githubusercontent.com/kserve/kserve/$(KSERVE_MANIFESTS_REVISION)/config/crd/full/serving.kserve.io_inferenceservices.yaml \
@@ -55,8 +55,8 @@ update-manifests:
 	wget -O - https://raw.githubusercontent.com/kserve/kserve/$(KSERVE_MANIFESTS_REVISION)/config/crd/full/serving.kserve.io_servingruntimes.yaml \
 		| tail -n +2 > config/crd/external/serving.kserve.io_servingruntimes.yaml
 
-.PHONY: update-manifests manifests
-manifests: controller-gen ## Generate WebhookConfiguration, ClusterRole and CustomResourceDefinition objects.
+.PHONY: manifests
+manifests: manifests-update controller-gen ## Generate WebhookConfiguration, ClusterRole and CustomResourceDefinition objects.
 	# Any customization needed, apply to a patch in the kustomize.yaml file on webhooks
 	$(CONTROLLER_GEN) rbac:roleName=odh-model-controller-role,headerFile="hack/manifests_boilerplate.yaml.txt" crd webhook paths="./..." output:crd:artifacts:config=config/crd/bases
 
