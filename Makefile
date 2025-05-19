@@ -10,6 +10,10 @@ else
 GOBIN=$(shell go env GOBIN)
 endif
 
+KSERVE_MANIFESTS_REVISION ?= 3a1dc463c63c03bb2e8d63ac9d2c3167f25d1e68
+# Define the file to store the last used KServe revision
+KSERVE_REVISION_FILE = config/crd/external/.kserve_manifests_revision
+
 # CONTAINER_TOOL defines the container tool to be used for building images.
 # Be aware that the target commands are only tested with Docker which is
 # scaffolded by default. However, you might want to replace it to use other
@@ -44,8 +48,34 @@ help: ## Display this help.
 
 ##@ Development
 
+# This .PHONY target ensures KServe CRD manifests are downloaded if the KSERVE_MANIFESTS_REVISION variable
+# has changed compared to the version stored in KSERVE_REVISION_FILE, or if the file doesn't exist.
+.PHONY: manifests-update
+manifests-update:
+	@echo "Checking KServe manifest revision..."
+	@mkdir -p $$(dirname $(KSERVE_REVISION_FILE))
+	@current_stored_revision=""; \
+	if [ -f "$(KSERVE_REVISION_FILE)" ]; then \
+		current_stored_revision="$$(cat $(KSERVE_REVISION_FILE) 2>/dev/null)"; \
+	fi; \
+	if [ "$$current_stored_revision" != "$(KSERVE_MANIFESTS_REVISION)" ]; then \
+		echo "KSERVE_MANIFESTS_REVISION ($(KSERVE_MANIFESTS_REVISION)) differs from stored ('$$current_stored_revision') or no stored revision found."; \
+		echo "Updating KServe manifests..."; \
+		mkdir -p $$(dirname config/crd/external/serving.kserve.io_inferencegraphs.yaml); \
+		wget -O - https://raw.githubusercontent.com/kserve/kserve/$(KSERVE_MANIFESTS_REVISION)/config/crd/full/serving.kserve.io_inferencegraphs.yaml \
+			| tail -n +2 > config/crd/external/serving.kserve.io_inferencegraphs.yaml; \
+		wget -O - https://raw.githubusercontent.com/kserve/kserve/$(KSERVE_MANIFESTS_REVISION)/config/crd/full/serving.kserve.io_inferenceservices.yaml \
+			| tail -n +2 > config/crd/external/serving.kserve.io_inferenceservices.yaml; \
+		wget -O - https://raw.githubusercontent.com/kserve/kserve/$(KSERVE_MANIFESTS_REVISION)/config/crd/full/serving.kserve.io_servingruntimes.yaml \
+			| tail -n +2 > config/crd/external/serving.kserve.io_servingruntimes.yaml; \
+		echo "$(KSERVE_MANIFESTS_REVISION)" > "$(KSERVE_REVISION_FILE)"; \
+		echo "KServe manifests updated to revision $(KSERVE_MANIFESTS_REVISION) and revision stored in $(KSERVE_REVISION_FILE)."; \
+	else \
+		echo "KServe manifests for revision $(KSERVE_MANIFESTS_REVISION) are already up-to-date (based on $(KSERVE_REVISION_FILE))."; \
+	fi
+
 .PHONY: manifests
-manifests: controller-gen ## Generate WebhookConfiguration, ClusterRole and CustomResourceDefinition objects.
+manifests: manifests-update controller-gen ## Generate WebhookConfiguration, ClusterRole and CustomResourceDefinition objects.
 	# Any customization needed, apply to a patch in the kustomize.yaml file on webhooks
 	$(CONTROLLER_GEN) rbac:roleName=odh-model-controller-role,headerFile="hack/manifests_boilerplate.yaml.txt" crd webhook paths="./..." output:crd:artifacts:config=config/crd/bases
 
