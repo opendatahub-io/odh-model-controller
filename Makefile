@@ -10,8 +10,6 @@ else
 GOBIN=$(shell go env GOBIN)
 endif
 
-KSERVE_MANIFESTS_REVISION = 3a1dc463c63c03bb2e8d63ac9d2c3167f25d1e68
-
 # CONTAINER_TOOL defines the container tool to be used for building images.
 # Be aware that the target commands are only tested with Docker which is
 # scaffolded by default. However, you might want to replace it to use other
@@ -46,17 +44,8 @@ help: ## Display this help.
 
 ##@ Development
 
-.PHONY: manifests-update
-manifests-update:
-	wget -O - https://raw.githubusercontent.com/kserve/kserve/$(KSERVE_MANIFESTS_REVISION)/config/crd/full/serving.kserve.io_inferencegraphs.yaml \
-		| tail -n +2 > config/crd/external/serving.kserve.io_inferencegraphs.yaml
-	wget -O - https://raw.githubusercontent.com/kserve/kserve/$(KSERVE_MANIFESTS_REVISION)/config/crd/full/serving.kserve.io_inferenceservices.yaml \
-		| tail -n +2 > config/crd/external/serving.kserve.io_inferenceservices.yaml
-	wget -O - https://raw.githubusercontent.com/kserve/kserve/$(KSERVE_MANIFESTS_REVISION)/config/crd/full/serving.kserve.io_servingruntimes.yaml \
-		| tail -n +2 > config/crd/external/serving.kserve.io_servingruntimes.yaml
-
 .PHONY: manifests
-manifests: manifests-update controller-gen ## Generate WebhookConfiguration, ClusterRole and CustomResourceDefinition objects.
+manifests: controller-gen ## Generate WebhookConfiguration, ClusterRole and CustomResourceDefinition objects.
 	# Any customization needed, apply to a patch in the kustomize.yaml file on webhooks
 	$(CONTROLLER_GEN) rbac:roleName=odh-model-controller-role,headerFile="hack/manifests_boilerplate.yaml.txt" crd webhook paths="./..." output:crd:artifacts:config=config/crd/bases
 
@@ -92,8 +81,7 @@ vet: ## Run go vet against code.
 .PHONY: test
 test: manifests generate fmt vet envtest ## Run tests.
 	KUBEBUILDER_ASSETS="$(shell $(ENVTEST) use $(ENVTEST_K8S_VERSION) --bin-dir $(LOCALBIN) -p path)" POD_NAMESPACE=default \
-		MESH_NAMESPACE=istio-system CONTROL_PLANE_NAME=istio-system go test -count=1 $$(go list ./... | grep -v /e2e) \
-		-coverprofile cover.out -coverpkg=./...
+		MESH_NAMESPACE=istio-system CONTROL_PLANE_NAME=istio-system go test $$(go list ./... | grep -v /e2e) -coverprofile cover.out
 
 # TODO(user): To use a different cluster than Kind for e2e tests, modify the setup under 'tests/e2e'.
 # The default setup assumes Kind is pre-installed and builds/loads the Manager Docker image locally.
