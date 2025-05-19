@@ -1,5 +1,6 @@
 approvers:
   - andresllh
+  - bartoszmajsak
   - brettmthompson
   - danielezonca
   - hdefazio
@@ -7,6 +8,7 @@ approvers:
   - Jooho
   - mholder6
   - mwaykole
+  - pierDipi
   - RH-steve-grubb
   - rpancham
   - rnetser
@@ -16,12 +18,14 @@ approvers:
   - VedantMahabaleshwarkar
 reviewers:
   - andresllh
+  - bartoszmajsak
   - brettmthompson
   - hdefazio
   - israel-hdez
   - Jooho
   - mholder6
   - mwaykole
+  - pierDipi
   - rnetser
   - spolti
   - terrytangyuan
