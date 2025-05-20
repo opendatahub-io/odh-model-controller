@@ -15,18 +15,30 @@ spec:
   scope: Namespaced
   versions:
   - additionalPrinterColumns:
-    - description: Template for ServingRuntime
-      jsonPath: .status.runtimeTemplate.name
-      name: Template
+    - description: Status of the Account
+      jsonPath: .status.conditions[?(@.type=="AccountStatus")].status
+      name: Account Status
       type: string
-    - description: ConfigMap of NIM data
-      jsonPath: .status.nimConfig.name
-      name: ConfigMap
+    - description: Last account check, failed or successful
+      jsonPath: .status.lastAccountCheck
+      name: Account Check
+      type: date
+    - description: Validation refresh rate
+      jsonPath: .spec.validationRefreshRate
+      name: Validation Rate
       type: string
-    - description: Secret for pulling NIM images
-      jsonPath: .status.nimPullSecret.name
-      name: Secret
+    - description: Last successful validation
+      jsonPath: .status.lastSuccessfulValidation
+      name: Last Successful Validation
+      type: date
+    - description: Config refresh rate
+      jsonPath: .spec.nimConfigRefreshRate
+      name: Config Rate
       type: string
+    - description: Last successful config refresh
+      jsonPath: .status.lastSuccessfulConfigRefresh
+      name: Last Successful Config
+      type: date
     name: v1
     schema:
       openAPIV3Schema:
