@@ -12,9 +12,9 @@ metadata:
   creationTimestamp: null
   labels:
     appstudio.openshift.io/application: odh-release
-    appstudio.openshift.io/component: odh-model-controller-odh-poc
+    appstudio.openshift.io/component: odh-model-controller
     pipelines.appstudio.openshift.io/type: build
-  name: odh-model-controller-odh-poc-on-push
+  name: odh-model-controller-on-push
   namespace: open-data-hub-tenant
 spec:
   params:
@@ -23,7 +23,7 @@ spec:
   - name: revision
     value: '{{revision}}'
   - name: output-image
-    value: quay.io/redhat-user-workloads/open-data-hub-tenant/odh-model-controller-odh-poc:{{revision}}
+    value: quay.io/redhat-user-workloads/open-data-hub-tenant/odh-model-controller:v2.x.1
   - name: dockerfile
     value: Containerfile
   - name: path-context
@@ -592,7 +592,7 @@ spec:
     - name: netrc
       optional: true
   taskRunTemplate:
-    serviceAccountName: build-pipeline-odh-model-controller-odh-poc
+    serviceAccountName: build-pipeline-odh-model-controller
   workspaces:
   - name: git-auth
     secret:
