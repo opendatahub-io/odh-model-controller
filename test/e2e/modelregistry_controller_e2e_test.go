@@ -233,7 +233,7 @@ var _ = Describe("ModelRegistry controller e2e", func() {
 			envName := WorkingNamespace
 			_, _, err := modelRegistryClient.ModelRegistryServiceAPI.CreateServingEnvironment(ctx).
 				ServingEnvironmentCreate(openapi.ServingEnvironmentCreate{
-					Name: &envName,
+					Name: envName,
 				}).Execute()
 			Expect(err).ToNot(HaveOccurred())
 
