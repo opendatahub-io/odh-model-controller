@@ -45,6 +45,7 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/intstr"
 	"k8s.io/client-go/dynamic"
+	"k8s.io/utils/ptr"
 	"knative.dev/pkg/apis"
 	duckv1 "knative.dev/pkg/apis/duck/v1"
 	maistrav1 "maistra.io/api/core/v1"
@@ -132,6 +133,7 @@ var _ = Describe("InferenceService Controller", func() {
 					return err
 				}, timeout, interval).Should(Succeed())
 			})
+
 			It("With a new Kserve InferenceService, serving cert annotation should be added to the runtime Service object.", func() {
 				// We need to stub the cluster state and indicate where is istio namespace (reusing authConfig test data)
 				if dsciErr := createDSCI(DSCIWithoutAuthorization); dsciErr != nil && !k8sErrors.IsAlreadyExists(dsciErr) {
@@ -1080,37 +1082,7 @@ var _ = Describe("InferenceService Controller", func() {
 				inferenceService.Labels[constants.KserveNetworkVisibility] = constants.LabelEnableKserveRawRoute
 				// The service is manually created before the isvc otherwise the unit test risks running into a race condition
 				// where the reconcile loop finishes before the service is created, leading to no route being created.
-				isvcService := &corev1.Service{
-					ObjectMeta: metav1.ObjectMeta{
-						Name:      KserveOvmsInferenceServiceName + "-predictor",
-						Namespace: inferenceService.Namespace,
-						Annotations: map[string]string{
-							"openshift.io/display-name":        KserveOvmsInferenceServiceName,
-							"serving.kserve.io/deploymentMode": "RawDeployment",
-						},
-						Labels: map[string]string{
-							"app":                                "isvc." + KserveOvmsInferenceServiceName + "-predictor",
-							"component":                          "predictor",
-							"serving.kserve.io/inferenceservice": KserveOvmsInferenceServiceName,
-						},
-					},
-					Spec: corev1.ServiceSpec{
-						ClusterIP:  "None",
-						IPFamilies: []corev1.IPFamily{"IPv4"},
-						Ports: []corev1.ServicePort{
-							{
-								Name:       "http",
-								Protocol:   corev1.ProtocolTCP,
-								Port:       8888,
-								TargetPort: intstr.FromString("http"),
-							},
-						},
-						ClusterIPs: []string{"None"},
-						Selector: map[string]string{
-							"app": "isvc." + KserveOvmsInferenceServiceName + "-predictor",
-						},
-					},
-				}
+				isvcService := getDefaultService(inferenceService.Namespace)
 				if err := k8sClient.Create(ctx, isvcService); err != nil && !k8sErrors.IsAlreadyExists(err) {
 					Expect(err).NotTo(HaveOccurred())
 				}
@@ -1131,6 +1103,77 @@ var _ = Describe("InferenceService Controller", func() {
 					return k8sClient.Get(ctx, key, route)
 				}, timeout, interval).ShouldNot(HaveOccurred())
 			})
+
+			It("it should not delete the route that is not owned by the isvc - manual created routes should not be deleted", func() {
+				inferenceService := createInferenceService(testNs, KserveOvmsInferenceServiceName, KserveInferenceServicePath1)
+				// The service is manually created before the isvc otherwise the unit test risks running into a race condition
+				// where the reconcile loop finishes before the service is created, leading to no route being created.
+				isvcService := getDefaultService(inferenceService.Namespace)
+				if err := k8sClient.Create(ctx, isvcService); err != nil && !k8sErrors.IsAlreadyExists(err) {
+					Expect(err).NotTo(HaveOccurred())
+				}
+
+				service := &corev1.Service{}
+				Eventually(func() error {
+					key := types.NamespacedName{Name: isvcService.Name, Namespace: isvcService.Namespace}
+					return k8sClient.Get(ctx, key, service)
+				}, timeout, interval).Should(Succeed())
+
+				_ = createServingRuntime(testNs, KserveServingRuntimePath1)
+				if err := k8sClient.Create(ctx, inferenceService); err != nil && !k8sErrors.IsAlreadyExists(err) {
+					Expect(err).NotTo(HaveOccurred())
+				}
+
+				// create a route with the same name than the isvc
+				userRoute := &routev1.Route{
+					ObjectMeta: metav1.ObjectMeta{
+						Name:      inferenceService.Name,
+						Namespace: inferenceService.Namespace,
+					},
+					Spec: routev1.RouteSpec{
+						To: routev1.RouteTargetReference{
+							Kind:   "Service",
+							Name:   isvcService.Name,
+							Weight: ptr.To(int32(100)),
+						},
+						Port: &routev1.RoutePort{
+							TargetPort: isvcService.Spec.Ports[0].TargetPort,
+						},
+						WildcardPolicy: routev1.WildcardPolicyNone,
+					},
+					Status: routev1.RouteStatus{
+						Ingress: []routev1.RouteIngress{},
+					},
+				}
+				Expect(k8sClient.Create(ctx, userRoute)).Should(Succeed())
+
+				// check if the route was created
+				route := &routev1.Route{}
+				Eventually(func() bool {
+					key := types.NamespacedName{Name: inferenceService.Name, Namespace: inferenceService.Namespace}
+					_ = k8sClient.Get(ctx, key, route)
+					return route.Name == inferenceService.Name
+				}, timeout, interval).Should(BeTrue())
+
+				// delete isvc
+				Expect(k8sClient.Delete(ctx, inferenceService)).Should(Succeed())
+
+				// make sure isvc is gone
+				Eventually(func() bool {
+					key := types.NamespacedName{Name: inferenceService.Name, Namespace: inferenceService.Namespace}
+					err := k8sClient.Get(ctx, key, &kservev1beta1.InferenceService{})
+					return k8sErrors.IsNotFound(err)
+				}, timeout, interval).Should(BeTrue())
+
+				// route should remain
+				route2 := &routev1.Route{}
+				Eventually(func() bool {
+					key := types.NamespacedName{Name: inferenceService.Name, Namespace: inferenceService.Namespace}
+					_ = k8sClient.Get(ctx, key, route2)
+					return route.Name == inferenceService.Name && route.Spec.To.Name == fmt.Sprintf("%s-predictor", inferenceService.Name)
+				}, timeout, interval).Should(BeTrue())
+			})
+
 			It("it should create a metrics service and servicemonitor auth", func() {
 				_ = createServingRuntime(testNs, KserveServingRuntimePath1)
 				inferenceService := createInferenceService(testNs, KserveOvmsInferenceServiceName, KserveInferenceServicePath1)
@@ -1541,4 +1584,38 @@ func deleteAuthorizationPolicy(authPolicyFile string) error {
 	_, meshNamespace := utils.GetIstioControlPlaneName(ctx, k8sClient)
 	err = dynamicClient.Resource(gvr).Namespace(meshNamespace).Delete(context.TODO(), obj.GetName(), metav1.DeleteOptions{})
 	return client.IgnoreNotFound(err)
+}
+
+func getDefaultService(isvcNamespace string) *corev1.Service {
+	return &corev1.Service{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      KserveOvmsInferenceServiceName + "-predictor",
+			Namespace: isvcNamespace,
+			Annotations: map[string]string{
+				"openshift.io/display-name":        KserveOvmsInferenceServiceName,
+				"serving.kserve.io/deploymentMode": "RawDeployment",
+			},
+			Labels: map[string]string{
+				"app":                                "isvc." + KserveOvmsInferenceServiceName + "-predictor",
+				"component":                          "predictor",
+				"serving.kserve.io/inferenceservice": KserveOvmsInferenceServiceName,
+			},
+		},
+		Spec: corev1.ServiceSpec{
+			ClusterIP:  "None",
+			IPFamilies: []corev1.IPFamily{"IPv4"},
+			Ports: []corev1.ServicePort{
+				{
+					Name:       "http",
+					Protocol:   corev1.ProtocolTCP,
+					Port:       8888,
+					TargetPort: intstr.FromString("http"),
+				},
+			},
+			ClusterIPs: []string{"None"},
+			Selector: map[string]string{
+				"app": "isvc." + KserveOvmsInferenceServiceName + "-predictor",
+			},
+		},
+	}
 }
