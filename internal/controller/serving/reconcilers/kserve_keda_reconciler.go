@@ -29,7 +29,6 @@ import (
 	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/util/retry"
-	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/predicate"
 
@@ -173,7 +172,7 @@ func (k *KserveKEDAReconciler) reconcileTriggerAuthentication(ctx context.Contex
 		return fmt.Errorf("failed to get TriggerAuthentication %s: %w", key.String(), err)
 	}
 
-	expected.OwnerReferences = upsertOwnerReference(AsOwnerRef(isvc), curr)
+	expected.OwnerReferences = upsertOwnerReference(AsIsvcOwnerRef(isvc), curr)
 	expected.ResourceVersion = curr.ResourceVersion
 
 	if equality.Semantic.DeepDerivative(expected.Spec, curr.Spec) &&
@@ -205,7 +204,7 @@ func (k *KserveKEDAReconciler) expectedTriggerAuthentication(isvc *kservev1beta1
 		ObjectMeta: metav1.ObjectMeta{
 			Name:            KEDAPrometheusAuthTriggerAuthName,
 			Namespace:       isvc.Namespace,
-			OwnerReferences: []metav1.OwnerReference{AsOwnerRef(isvc)},
+			OwnerReferences: []metav1.OwnerReference{AsIsvcOwnerRef(isvc)},
 			Labels:          getKedaLabels(),
 			Annotations:     isvc.Annotations,
 		},
@@ -240,7 +239,7 @@ func (k *KserveKEDAReconciler) reconcileServiceAccount(ctx context.Context, log 
 		return fmt.Errorf("failed to get ServiceAccount %s: %w", key.String(), err)
 	}
 
-	expected.OwnerReferences = upsertOwnerReference(AsOwnerRef(isvc), curr)
+	expected.OwnerReferences = upsertOwnerReference(AsIsvcOwnerRef(isvc), curr)
 	expected.ResourceVersion = curr.ResourceVersion
 
 	if equality.Semantic.DeepDerivative(expected.Labels, curr.Labels) &&
@@ -271,7 +270,7 @@ func (k *KserveKEDAReconciler) expectedServiceAccount(isvc *kservev1beta1.Infere
 		ObjectMeta: metav1.ObjectMeta{
 			Name:            KEDAPrometheusAuthServiceAccountName,
 			Namespace:       isvc.Namespace,
-			OwnerReferences: []metav1.OwnerReference{AsOwnerRef(isvc)},
+			OwnerReferences: []metav1.OwnerReference{AsIsvcOwnerRef(isvc)},
 			Labels:          getKedaLabels(),
 		},
 		// ServiceAccount Spec is mostly empty; Secrets and ImagePullSecrets are managed via sub-resources or user additions.
@@ -292,7 +291,7 @@ func (k *KserveKEDAReconciler) reconcileSecret(ctx context.Context, log logr.Log
 		return fmt.Errorf("failed to get Secret %s: %w", key.String(), err)
 	}
 
-	expected.OwnerReferences = upsertOwnerReference(AsOwnerRef(isvc), curr)
+	expected.OwnerReferences = upsertOwnerReference(AsIsvcOwnerRef(isvc), curr)
 	expected.ResourceVersion = curr.ResourceVersion
 
 	if expected.Type == curr.Type &&
@@ -328,7 +327,7 @@ func (k *KserveKEDAReconciler) expectedSecret(isvc *kservev1beta1.InferenceServi
 		ObjectMeta: metav1.ObjectMeta{
 			Name:            KEDAPrometheusAuthTriggerSecretName,
 			Namespace:       isvc.Namespace,
-			OwnerReferences: []metav1.OwnerReference{AsOwnerRef(isvc)},
+			OwnerReferences: []metav1.OwnerReference{AsIsvcOwnerRef(isvc)},
 			Labels:          getKedaLabels(),
 			Annotations: map[string]string{
 				corev1.ServiceAccountNameKey: KEDAPrometheusAuthServiceAccountName,
@@ -353,7 +352,7 @@ func (k *KserveKEDAReconciler) reconcileRole(ctx context.Context, log logr.Logge
 		return fmt.Errorf("failed to get Role %s: %w", key.String(), err)
 	}
 
-	expected.OwnerReferences = upsertOwnerReference(AsOwnerRef(isvc), curr)
+	expected.OwnerReferences = upsertOwnerReference(AsIsvcOwnerRef(isvc), curr)
 	expected.ResourceVersion = curr.ResourceVersion
 
 	if equality.Semantic.DeepDerivative(expected.Rules, curr.Rules) &&
@@ -385,7 +384,7 @@ func (k *KserveKEDAReconciler) expectedRole(isvc *kservev1beta1.InferenceService
 		ObjectMeta: metav1.ObjectMeta{
 			Name:            KEDAPrometheusAuthMetricsReaderRoleName,
 			Namespace:       isvc.Namespace,
-			OwnerReferences: []metav1.OwnerReference{AsOwnerRef(isvc)},
+			OwnerReferences: []metav1.OwnerReference{AsIsvcOwnerRef(isvc)},
 			Labels:          getKedaLabels(),
 			Annotations:     isvc.Annotations,
 		},
@@ -418,7 +417,7 @@ func (k *KserveKEDAReconciler) reconcileRoleBinding(ctx context.Context, log log
 		return fmt.Errorf("failed to get RoleBinding %s: %w", key.String(), err)
 	}
 
-	expected.OwnerReferences = upsertOwnerReference(AsOwnerRef(isvc), curr)
+	expected.OwnerReferences = upsertOwnerReference(AsIsvcOwnerRef(isvc), curr)
 	expected.ResourceVersion = curr.ResourceVersion
 
 	if equality.Semantic.DeepDerivative(expected.Subjects, curr.Subjects) &&
@@ -451,7 +450,7 @@ func (k *KserveKEDAReconciler) expectedRoleBinding(isvc *kservev1beta1.Inference
 		ObjectMeta: metav1.ObjectMeta{
 			Name:            KEDAPrometheusAuthMetricsReaderRoleBindingName,
 			Namespace:       isvc.Namespace,
-			OwnerReferences: []metav1.OwnerReference{AsOwnerRef(isvc)},
+			OwnerReferences: []metav1.OwnerReference{AsIsvcOwnerRef(isvc)},
 			Labels:          getKedaLabels(),
 			Annotations:     isvc.Annotations,
 		},
@@ -473,7 +472,7 @@ func (k *KserveKEDAReconciler) expectedRoleBinding(isvc *kservev1beta1.Inference
 // removeOwnerReference attempts to remove the ISVC's owner reference from all KEDA-related resources.
 // It collects errors and returns a summary error if any occurred.
 func (k *KserveKEDAReconciler) removeOwnerReference(ctx context.Context, log logr.Logger, isvc *kservev1beta1.InferenceService) error {
-	ownerRefToRemove := AsOwnerRef(isvc)
+	ownerRefToRemove := AsIsvcOwnerRef(isvc)
 	var encounteredErrors []error
 
 	resourceCleanups := k.resourcesToCleanup()
@@ -542,15 +541,6 @@ func (k *KserveKEDAReconciler) removeOwnerReferenceFromObject(
 		"resourceKind", obj.GetObjectKind(), "resourceName", obj.GetName(), "namespace", obj.GetNamespace())
 
 	return nil
-}
-
-func AsOwnerRef(isvc *kservev1beta1.InferenceService) metav1.OwnerReference {
-	or := *metav1.NewControllerRef(isvc, kservev1beta1.SchemeGroupVersion.WithKind("InferenceService"))
-	// Setting Controller to false makes this a non-controlling owner reference.
-	// The owned object will be garbage collected when the ISVC is deleted,
-	// but the ISVC doesn't "control" its lifecycle in other controller-runtime senses.
-	or.Controller = ptr.To(false)
-	return or
 }
 
 func hasPrometheusExternalAutoscalingMetric(isvc *kservev1beta1.InferenceService) bool {

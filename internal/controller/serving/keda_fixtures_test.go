@@ -102,7 +102,7 @@ func createTestKedaSA(ctx context.Context, k8sClient client.Client, namespace st
 		},
 	}
 	if isvcOwner != nil {
-		sa.OwnerReferences = append(sa.OwnerReferences, reconcilers.AsOwnerRef(isvcOwner))
+		sa.OwnerReferences = append(sa.OwnerReferences, reconcilers.AsIsvcOwnerRef(isvcOwner))
 	}
 	if otherOwner != nil {
 		sa.OwnerReferences = append(sa.OwnerReferences, *otherOwner)
@@ -124,7 +124,7 @@ func createTestKedaSecret(ctx context.Context, k8sClient client.Client, namespac
 		Type: corev1.SecretTypeServiceAccountToken,
 	}
 	if isvcOwner != nil {
-		secret.OwnerReferences = append(secret.OwnerReferences, reconcilers.AsOwnerRef(isvcOwner))
+		secret.OwnerReferences = append(secret.OwnerReferences, reconcilers.AsIsvcOwnerRef(isvcOwner))
 	}
 	if otherOwner != nil {
 		secret.OwnerReferences = append(secret.OwnerReferences, *otherOwner)
@@ -143,7 +143,7 @@ func createTestKedaRole(ctx context.Context, k8sClient client.Client, namespace 
 		Rules: []rbacv1.PolicyRule{{APIGroups: []string{""}, Resources: []string{"pods"}, Verbs: []string{"get"}}}, // Simplified rule
 	}
 	if isvcOwner != nil {
-		role.OwnerReferences = append(role.OwnerReferences, reconcilers.AsOwnerRef(isvcOwner))
+		role.OwnerReferences = append(role.OwnerReferences, reconcilers.AsIsvcOwnerRef(isvcOwner))
 	}
 	if otherOwner != nil {
 		role.OwnerReferences = append(role.OwnerReferences, *otherOwner)
@@ -163,7 +163,7 @@ func createTestKedaRoleBinding(ctx context.Context, k8sClient client.Client, nam
 		RoleRef:  rbacv1.RoleRef{Kind: "Role", Name: reconcilers.KEDAPrometheusAuthMetricsReaderRoleName, APIGroup: rbacv1.GroupName},
 	}
 	if isvcOwner != nil {
-		rb.OwnerReferences = append(rb.OwnerReferences, reconcilers.AsOwnerRef(isvcOwner))
+		rb.OwnerReferences = append(rb.OwnerReferences, reconcilers.AsIsvcOwnerRef(isvcOwner))
 	}
 	if otherOwner != nil {
 		rb.OwnerReferences = append(rb.OwnerReferences, *otherOwner)
@@ -186,7 +186,7 @@ func createTestKedaTA(ctx context.Context, k8sClient client.Client, namespace st
 		},
 	}
 	if isvcOwner != nil {
-		ta.OwnerReferences = append(ta.OwnerReferences, reconcilers.AsOwnerRef(isvcOwner))
+		ta.OwnerReferences = append(ta.OwnerReferences, reconcilers.AsIsvcOwnerRef(isvcOwner))
 	}
 	if otherOwner != nil {
 		ta.OwnerReferences = append(ta.OwnerReferences, *otherOwner)
