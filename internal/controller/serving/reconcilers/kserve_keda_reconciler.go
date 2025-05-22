@@ -51,21 +51,9 @@ const (
 	KEDAResourcesLabelValue = "keda-reconciler"
 )
 
-var (
-	KedaLabelPredicate predicate.Predicate
-)
-
-func init() {
-	p, err := predicate.LabelSelectorPredicate(metav1.LabelSelector{
-		MatchLabels: map[string]string{
-			KEDAResourcesLabelKey: KEDAResourcesLabelValue,
-		},
-	})
-	if err != nil {
-		panic("failed to create label selector predicate: " + err.Error())
-	}
-	KedaLabelPredicate = p
-}
+var KedaLabelPredicate = predicate.NewPredicateFuncs(func(o client.Object) bool {
+	return o.GetLabels()[KEDAResourcesLabelKey] == KEDAResourcesLabelValue
+})
 
 var _ SubResourceReconciler = (*KserveKEDAReconciler)(nil)
 
@@ -128,7 +116,7 @@ func (k *KserveKEDAReconciler) Reconcile(ctx context.Context, log logr.Logger, i
 func (k *KserveKEDAReconciler) Delete(ctx context.Context, log logr.Logger, isvc *kservev1beta1.InferenceService) error {
 
 	log = log.WithName("KserveKEDAReconciler")
-	log.V(2).Info("KserveKEDAReconciler.Delete called, removing owner reference.")
+	log.V(2).Info("KserveKEDAReconciler.Delete called")
 
 	if err := k.removeOwnerReference(ctx, log, isvc); err != nil {
 		return fmt.Errorf("failed to remove owner reference from KEDA resources: %w", err)
@@ -137,6 +125,8 @@ func (k *KserveKEDAReconciler) Delete(ctx context.Context, log logr.Logger, isvc
 }
 
 func (k *KserveKEDAReconciler) Cleanup(ctx context.Context, log logr.Logger, isvcNs string) error {
+	log = log.WithName("KserveKEDAReconciler")
+	log.V(2).Info("KserveKEDAReconciler.Cleanup called.", "namespace", isvcNs)
 	return k.cleanupNamespace(ctx, log, isvcNs)
 }
 
@@ -155,9 +145,7 @@ func (k *KserveKEDAReconciler) maybeCleanupNamespace(ctx context.Context, log lo
 }
 
 func (k *KserveKEDAReconciler) cleanupNamespace(ctx context.Context, log logr.Logger, namespace string) error {
-	log = log.WithName("KserveKEDAReconciler")
-	log.V(2).Info("KserveKEDAReconciler.Cleanup called.", "Namespace", namespace)
-
+	log.Info("Cleaning up KEDA resources in namespace", "namespace", namespace)
 	var encounteredErrors []error
 	for _, r := range k.resourcesToCleanup() {
 		r.SetNamespace(namespace)
@@ -180,8 +168,7 @@ func (k *KserveKEDAReconciler) reconcileTriggerAuthentication(ctx context.Contex
 	err := k.client.Get(ctx, key, curr)
 	if err != nil {
 		if errors.IsNotFound(err) {
-			log.Info("Creating TriggerAuthentication")
-			return k.createTriggerAuthentication(ctx, isvc)
+			return k.createTriggerAuthentication(ctx, log, isvc)
 		}
 		return fmt.Errorf("failed to get TriggerAuthentication %s: %w", key.String(), err)
 	}
@@ -193,18 +180,19 @@ func (k *KserveKEDAReconciler) reconcileTriggerAuthentication(ctx context.Contex
 		equality.Semantic.DeepDerivative(expected.Labels, curr.Labels) &&
 		equality.Semantic.DeepDerivative(expected.Annotations, curr.Annotations) &&
 		equality.Semantic.DeepDerivative(expected.OwnerReferences, curr.OwnerReferences) {
-		log.V(1).Info("TriggerAuthentication is up-to-date")
+		log.V(2).Info("TriggerAuthentication is up-to-date", "namespace", key.Namespace, "name", key.Name)
 		return nil
 	}
 
-	log.Info("Updating TriggerAuthentication")
+	log.Info("Updating TriggerAuthentication", "namespace", key.Namespace, "name", key.Name)
 	if err := k.client.Update(ctx, expected); err != nil {
 		return fmt.Errorf("failed to update TriggerAuthentication %s: %w", key.String(), err)
 	}
 	return nil
 }
 
-func (k *KserveKEDAReconciler) createTriggerAuthentication(ctx context.Context, isvc *kservev1beta1.InferenceService) error {
+func (k *KserveKEDAReconciler) createTriggerAuthentication(ctx context.Context, log logr.Logger, isvc *kservev1beta1.InferenceService) error {
+	log.Info("Creating TriggerAuthentication", "name", KEDAPrometheusAuthTriggerAuthName)
 	ta := k.expectedTriggerAuthentication(isvc)
 	if err := k.client.Create(ctx, ta); err != nil && !errors.IsAlreadyExists(err) {
 		return fmt.Errorf("failed to create TriggerAuthentication %s/%s: %w", ta.Namespace, ta.Name, err)
@@ -218,7 +206,7 @@ func (k *KserveKEDAReconciler) expectedTriggerAuthentication(isvc *kservev1beta1
 			Name:            KEDAPrometheusAuthTriggerAuthName,
 			Namespace:       isvc.Namespace,
 			OwnerReferences: []metav1.OwnerReference{AsOwnerRef(isvc)},
-			Labels:          getKedaLabels(isvc.Labels),
+			Labels:          getKedaLabels(),
 			Annotations:     isvc.Annotations,
 		},
 		Spec: kedaapi.TriggerAuthenticationSpec{
@@ -247,8 +235,7 @@ func (k *KserveKEDAReconciler) reconcileServiceAccount(ctx context.Context, log 
 	err := k.client.Get(ctx, key, curr)
 	if err != nil {
 		if errors.IsNotFound(err) {
-			log.Info("Creating ServiceAccount")
-			return k.createServiceAccount(ctx, isvc)
+			return k.createServiceAccount(ctx, log, isvc)
 		}
 		return fmt.Errorf("failed to get ServiceAccount %s: %w", key.String(), err)
 	}
@@ -259,18 +246,19 @@ func (k *KserveKEDAReconciler) reconcileServiceAccount(ctx context.Context, log 
 	if equality.Semantic.DeepDerivative(expected.Labels, curr.Labels) &&
 		equality.Semantic.DeepDerivative(expected.Annotations, curr.Annotations) &&
 		equality.Semantic.DeepDerivative(expected.OwnerReferences, curr.OwnerReferences) {
-		log.V(1).Info("ServiceAccount is up-to-date")
+		log.V(2).Info("ServiceAccount is up-to-date", "namespace", expected.Namespace, "name", expected.Name)
 		return nil
 	}
 
-	log.Info("Updating ServiceAccount")
+	log.Info("Updating ServiceAccount", "namespace", key.Namespace, "name", key.Name)
 	if err := k.client.Update(ctx, expected); err != nil {
 		return fmt.Errorf("failed to update ServiceAccount %s: %w", key.String(), err)
 	}
 	return nil
 }
 
-func (k *KserveKEDAReconciler) createServiceAccount(ctx context.Context, isvc *kservev1beta1.InferenceService) error {
+func (k *KserveKEDAReconciler) createServiceAccount(ctx context.Context, log logr.Logger, isvc *kservev1beta1.InferenceService) error {
+	log.Info("Creating ServiceAccount", "name", KEDAPrometheusAuthServiceAccountName)
 	sa := k.expectedServiceAccount(isvc)
 	if err := k.client.Create(ctx, sa); err != nil && !errors.IsAlreadyExists(err) {
 		return fmt.Errorf("failed to create ServiceAccount %s/%s: %w", sa.Namespace, sa.Name, err)
@@ -281,11 +269,10 @@ func (k *KserveKEDAReconciler) createServiceAccount(ctx context.Context, isvc *k
 func (k *KserveKEDAReconciler) expectedServiceAccount(isvc *kservev1beta1.InferenceService) *corev1.ServiceAccount {
 	return &corev1.ServiceAccount{
 		ObjectMeta: metav1.ObjectMeta{
-			Name:            KEDAPrometheusAuthResourceName,
+			Name:            KEDAPrometheusAuthServiceAccountName,
 			Namespace:       isvc.Namespace,
 			OwnerReferences: []metav1.OwnerReference{AsOwnerRef(isvc)},
-			Labels:          getKedaLabels(isvc.Labels),
-			Annotations:     isvc.Annotations,
+			Labels:          getKedaLabels(),
 		},
 		// ServiceAccount Spec is mostly empty; Secrets and ImagePullSecrets are managed via sub-resources or user additions.
 	}
@@ -300,8 +287,7 @@ func (k *KserveKEDAReconciler) reconcileSecret(ctx context.Context, log logr.Log
 	err := k.client.Get(ctx, key, curr)
 	if err != nil {
 		if errors.IsNotFound(err) {
-			log.Info("Creating Secret", "namespace", key.Namespace, "name", key.Name)
-			return k.createSecret(ctx, isvc)
+			return k.createSecret(ctx, log, isvc)
 		}
 		return fmt.Errorf("failed to get Secret %s: %w", key.String(), err)
 	}
@@ -313,7 +299,7 @@ func (k *KserveKEDAReconciler) reconcileSecret(ctx context.Context, log logr.Log
 		equality.Semantic.DeepDerivative(expected.Annotations, curr.Annotations) &&
 		equality.Semantic.DeepDerivative(expected.Labels, curr.Labels) &&
 		equality.Semantic.DeepDerivative(expected.OwnerReferences, curr.OwnerReferences) {
-		log.V(1).Info("Secret is up-to-date", "namespace", key.Namespace, "name", key.Name)
+		log.V(2).Info("Secret is up-to-date", "namespace", key.Namespace, "name", key.Name)
 		return nil
 	}
 
@@ -327,7 +313,8 @@ func (k *KserveKEDAReconciler) reconcileSecret(ctx context.Context, log logr.Log
 	return nil
 }
 
-func (k *KserveKEDAReconciler) createSecret(ctx context.Context, isvc *kservev1beta1.InferenceService) error {
+func (k *KserveKEDAReconciler) createSecret(ctx context.Context, log logr.Logger, isvc *kservev1beta1.InferenceService) error {
+	log.Info("Creating Secret", "name", KEDAPrometheusAuthTriggerSecretName)
 	secret := k.expectedSecret(isvc)
 	if err := k.client.Create(ctx, secret); err != nil && !errors.IsAlreadyExists(err) {
 		return fmt.Errorf("failed to create Secret %s/%s: %w", secret.Namespace, secret.Name, err)
@@ -336,22 +323,16 @@ func (k *KserveKEDAReconciler) createSecret(ctx context.Context, isvc *kservev1b
 }
 
 func (k *KserveKEDAReconciler) expectedSecret(isvc *kservev1beta1.InferenceService) *corev1.Secret {
-	secretAnnotations := make(map[string]string)
-	if isvc.Annotations != nil {
-		for k, v := range isvc.Annotations {
-			secretAnnotations[k] = v
-		}
-	}
-	// This annotation links the secret to the service account, enabling token population.
-	secretAnnotations[corev1.ServiceAccountNameKey] = KEDAPrometheusAuthResourceName
 
 	return &corev1.Secret{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:            KEDAPrometheusAuthTriggerSecretName,
 			Namespace:       isvc.Namespace,
 			OwnerReferences: []metav1.OwnerReference{AsOwnerRef(isvc)},
-			Labels:          getKedaLabels(isvc.Labels),
-			Annotations:     secretAnnotations,
+			Labels:          getKedaLabels(),
+			Annotations: map[string]string{
+				corev1.ServiceAccountNameKey: KEDAPrometheusAuthServiceAccountName,
+			},
 		},
 		Type: corev1.SecretTypeServiceAccountToken,
 		// Data field is populated by the Kubernetes controller for service account tokens.
@@ -367,8 +348,7 @@ func (k *KserveKEDAReconciler) reconcileRole(ctx context.Context, log logr.Logge
 	err := k.client.Get(ctx, key, curr)
 	if err != nil {
 		if errors.IsNotFound(err) {
-			log.Info("Creating Role", "namespace", key.Namespace, "name", key.Name)
-			return k.createRole(ctx, isvc)
+			return k.createRole(ctx, log, isvc)
 		}
 		return fmt.Errorf("failed to get Role %s: %w", key.String(), err)
 	}
@@ -380,7 +360,7 @@ func (k *KserveKEDAReconciler) reconcileRole(ctx context.Context, log logr.Logge
 		equality.Semantic.DeepDerivative(expected.Labels, curr.Labels) &&
 		equality.Semantic.DeepDerivative(expected.Annotations, curr.Annotations) &&
 		equality.Semantic.DeepDerivative(expected.OwnerReferences, curr.OwnerReferences) {
-		log.V(1).Info("Role is up-to-date", "namespace", key.Namespace, "name", key.Name)
+		log.V(2).Info("Role is up-to-date", "namespace", key.Namespace, "name", key.Name)
 		return nil
 	}
 
@@ -391,7 +371,8 @@ func (k *KserveKEDAReconciler) reconcileRole(ctx context.Context, log logr.Logge
 	return nil
 }
 
-func (k *KserveKEDAReconciler) createRole(ctx context.Context, isvc *kservev1beta1.InferenceService) error {
+func (k *KserveKEDAReconciler) createRole(ctx context.Context, log logr.Logger, isvc *kservev1beta1.InferenceService) error {
+	log.Info("Creating Role", "name", KEDAPrometheusAuthMetricsReaderRoleName)
 	role := k.expectedRole(isvc)
 	if err := k.client.Create(ctx, role); err != nil && !errors.IsAlreadyExists(err) {
 		return fmt.Errorf("failed to create Role %s/%s: %w", role.Namespace, role.Name, err)
@@ -405,7 +386,7 @@ func (k *KserveKEDAReconciler) expectedRole(isvc *kservev1beta1.InferenceService
 			Name:            KEDAPrometheusAuthMetricsReaderRoleName,
 			Namespace:       isvc.Namespace,
 			OwnerReferences: []metav1.OwnerReference{AsOwnerRef(isvc)},
-			Labels:          getKedaLabels(isvc.Labels),
+			Labels:          getKedaLabels(),
 			Annotations:     isvc.Annotations,
 		},
 		Rules: []rbacv1.PolicyRule{
@@ -432,8 +413,7 @@ func (k *KserveKEDAReconciler) reconcileRoleBinding(ctx context.Context, log log
 	err := k.client.Get(ctx, key, curr)
 	if err != nil {
 		if errors.IsNotFound(err) {
-			log.Info("Creating RoleBinding", "namespace", key.Namespace, "name", key.Name)
-			return k.createRoleBinding(ctx, isvc)
+			return k.createRoleBinding(ctx, log, isvc)
 		}
 		return fmt.Errorf("failed to get RoleBinding %s: %w", key.String(), err)
 	}
@@ -446,18 +426,19 @@ func (k *KserveKEDAReconciler) reconcileRoleBinding(ctx context.Context, log log
 		equality.Semantic.DeepDerivative(expected.Labels, curr.Labels) &&
 		equality.Semantic.DeepDerivative(expected.Annotations, curr.Annotations) &&
 		equality.Semantic.DeepDerivative(expected.OwnerReferences, curr.OwnerReferences) {
-		log.V(1).Info("RoleBinding is up-to-date")
+		log.V(2).Info("RoleBinding is up-to-date", "namespace", key.Namespace, "name", key.Name)
 		return nil
 	}
 
-	log.Info("Updating RoleBinding")
+	log.Info("Updating RoleBinding", "namespace", key.Namespace, "name", key.Name)
 	if err := k.client.Update(ctx, expected); err != nil {
 		return fmt.Errorf("failed to update RoleBinding %s: %w", key.String(), err)
 	}
 	return nil
 }
 
-func (k *KserveKEDAReconciler) createRoleBinding(ctx context.Context, isvc *kservev1beta1.InferenceService) error {
+func (k *KserveKEDAReconciler) createRoleBinding(ctx context.Context, log logr.Logger, isvc *kservev1beta1.InferenceService) error {
+	log.Info("Creating RoleBinding", "name", KEDAPrometheusAuthMetricsReaderRoleBindingName)
 	rb := k.expectedRoleBinding(isvc)
 	if err := k.client.Create(ctx, rb); err != nil && !errors.IsAlreadyExists(err) {
 		return fmt.Errorf("failed to create RoleBinding %s/%s: %w", rb.Namespace, rb.Name, err)
@@ -471,7 +452,7 @@ func (k *KserveKEDAReconciler) expectedRoleBinding(isvc *kservev1beta1.Inference
 			Name:            KEDAPrometheusAuthMetricsReaderRoleBindingName,
 			Namespace:       isvc.Namespace,
 			OwnerReferences: []metav1.OwnerReference{AsOwnerRef(isvc)},
-			Labels:          getKedaLabels(isvc.Labels),
+			Labels:          getKedaLabels(),
 			Annotations:     isvc.Annotations,
 		},
 		Subjects: []rbacv1.Subject{
@@ -573,7 +554,6 @@ func AsOwnerRef(isvc *kservev1beta1.InferenceService) metav1.OwnerReference {
 }
 
 func hasPrometheusExternalAutoscalingMetric(isvc *kservev1beta1.InferenceService) bool {
-
 	log.V(1).Info("hasPrometheusExternalAutoscalingMetric", "autoscaling", isvc.Spec.Predictor.AutoScaling)
 	if isvc.Spec.Predictor.AutoScaling == nil {
 		return false
@@ -605,13 +585,10 @@ func upsertOwnerReference(expected metav1.OwnerReference, obj client.Object) []m
 	return newReferences
 }
 
-func getKedaLabels(isvcLabels map[string]string) map[string]string {
-	labels := make(map[string]string, len(isvcLabels))
-	for k, v := range isvcLabels {
-		labels[k] = v
+func getKedaLabels() map[string]string {
+	return map[string]string{
+		KEDAResourcesLabelKey: KEDAResourcesLabelValue,
 	}
-	labels[KEDAResourcesLabelKey] = KEDAResourcesLabelValue
-	return labels
 }
 
 func retryOnConflicts(f func() error) error {
