@@ -1301,12 +1301,7 @@ var _ = Describe("InferenceService Controller", func() {
 		)
 
 		BeforeEach(func() {
-			ctx = context.Background()
-			testNamespace := testutils.Namespaces.Create(ctx, k8sClient)
-			testNs = testNamespace.Name
-			// Note: Add KEDA API to scheme if not already done in main test setup for the suite
-			// For example, in `suite_test.go`:
-			// Expect(kedaapi.AddToScheme(scheme.Scheme)).To(Succeed())
+			testNs = testutils.Namespaces.Create(ctx, k8sClient).Name
 			kedaReconciler = reconcilers.NewKServeKEDAReconciler(k8sClient)
 		})
 
