@@ -19,7 +19,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: instant-merge
-        if: ${{ github.event.sender.login == 'red-hat-konflux[bot]' && ( contains(github.event.pull_request.title, 'Update caikit-nlp-') || contains(github.event.pull_request.title, 'Update vllm-cuda-') || contains(github.event.pull_request.title, 'Update vllm-rocm-') || contains(github.event.pull_request.title, 'Update vllm-gaudi-') || contains(github.event.pull_request.title, 'Update vllm-cpu-') ) }}
+        if: ${{ github.event.sender.login == 'red-hat-konflux[bot]' && ( contains(github.event.pull_request.title, 'Update caikit-nlp-') || contains(github.event.pull_request.title, 'Update vllm-cuda-') || contains(github.event.pull_request.title, 'Update vllm-rocm-') || contains(github.event.pull_request.title, 'Update vllm-gaudi-') || contains(github.event.pull_request.title, 'Update vllm-cpu-') || contains(github.event.pull_request.title, 'update fms-guardrails-') ) }}
         env:
           GITHUB_TOKEN: ${{ github.token }}
         run: |
