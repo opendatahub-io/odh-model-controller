@@ -61,7 +61,7 @@ func (r *KserveRouteReconciler) Reconcile(ctx context.Context, log logr.Logger, 
 	log.V(1).Info("Reconciling Generic Route for Kserve InferenceService")
 
 	// Create Desired resource
-	desiredResource, err := r.createDesiredResource(isvc)
+	desiredResource, err := r.createDesiredResource(ctx, isvc)
 	if err != nil {
 		return err
 	}
@@ -90,8 +90,12 @@ func (r *KserveRouteReconciler) Cleanup(_ context.Context, _ logr.Logger, _ stri
 	return nil
 }
 
-func (r *KserveRouteReconciler) createDesiredResource(isvc *kservev1beta1.InferenceService) (*v1.Route, error) {
-	ingressConfig, err := kservev1beta1.NewIngressConfig(r.kClient)
+func (r *KserveRouteReconciler) createDesiredResource(ctx context.Context, isvc *kservev1beta1.InferenceService) (*v1.Route, error) {
+	isvcConfigMap, err := kservev1beta1.GetInferenceServiceConfigMap(ctx, r.kClient)
+	if err != nil {
+		return nil, err
+	}
+	ingressConfig, err := kservev1beta1.NewIngressConfig(isvcConfigMap)
 	if err != nil {
 		return nil, err
 	}
