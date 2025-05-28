@@ -46,9 +46,12 @@ type AccountStatus struct {
 // +kubebuilder:object:root=true
 // +kubebuilder:subresource:status
 //
-// +kubebuilder:printcolumn:name="Template",type="string",JSONPath=".status.runtimeTemplate.name",description="Template for ServingRuntime"
-// +kubebuilder:printcolumn:name="ConfigMap",type="string",JSONPath=".status.nimConfig.name",description="ConfigMap of NIM data"
-// +kubebuilder:printcolumn:name="Secret",type="string",JSONPath=".status.nimPullSecret.name",description="Secret for pulling NIM images"
+// +kubebuilder:printcolumn:name="Account Status",type="string",JSONPath=".status.conditions[?(@.type==\"AccountStatus\")].status",description="Status of the Account"
+// +kubebuilder:printcolumn:name="Account Check",type="date",JSONPath=".status.lastAccountCheck",description="Last account check, failed or successful"
+// +kubebuilder:printcolumn:name="Validation Rate",type="string",JSONPath=".spec.validationRefreshRate",description="Validation refresh rate"
+// +kubebuilder:printcolumn:name="Last Successful Validation",type="date",JSONPath=".status.lastSuccessfulValidation",description="Last successful validation"
+// +kubebuilder:printcolumn:name="Config Rate",type="string",JSONPath=".spec.nimConfigRefreshRate",description="Config refresh rate"
+// +kubebuilder:printcolumn:name="Last Successful Config",type="date",JSONPath=".status.lastSuccessfulConfigRefresh",description="Last successful config refresh"
 
 // Account is used for adopting a NIM Account for Open Data Hub.
 type Account struct {
