@@ -10,6 +10,10 @@ else
 GOBIN=$(shell go env GOBIN)
 endif
 
+KSERVE_MANIFESTS_REVISION ?= 3a1dc463c63c03bb2e8d63ac9d2c3167f25d1e68
+# Define the file to store the last used KServe revision
+KSERVE_REVISION_FILE = config/crd/external/.kserve_manifests_revision
+
 # CONTAINER_TOOL defines the container tool to be used for building images.
 # Be aware that the target commands are only tested with Docker which is
 # scaffolded by default. However, you might want to replace it to use other
@@ -44,8 +48,34 @@ help: ## Display this help.
 
 ##@ Development
 
+# This .PHONY target ensures KServe CRD manifests are downloaded if the KSERVE_MANIFESTS_REVISION variable
+# has changed compared to the version stored in KSERVE_REVISION_FILE, or if the file doesn't exist.
+.PHONY: manifests-update
+manifests-update:
+	@echo "Checking KServe manifest revision..."
+	@mkdir -p $$(dirname $(KSERVE_REVISION_FILE))
+	@current_stored_revision=""; \
+	if [ -f "$(KSERVE_REVISION_FILE)" ]; then \
+		current_stored_revision="$$(cat $(KSERVE_REVISION_FILE) 2>/dev/null)"; \
+	fi; \
+	if [ "$$current_stored_revision" != "$(KSERVE_MANIFESTS_REVISION)" ]; then \
+		echo "KSERVE_MANIFESTS_REVISION ($(KSERVE_MANIFESTS_REVISION)) differs from stored ('$$current_stored_revision') or no stored revision found."; \
+		echo "Updating KServe manifests..."; \
+		mkdir -p $$(dirname config/crd/external/serving.kserve.io_inferencegraphs.yaml); \
+		wget -O - https://raw.githubusercontent.com/kserve/kserve/$(KSERVE_MANIFESTS_REVISION)/config/crd/full/serving.kserve.io_inferencegraphs.yaml \
+			| tail -n +2 > config/crd/external/serving.kserve.io_inferencegraphs.yaml; \
+		wget -O - https://raw.githubusercontent.com/kserve/kserve/$(KSERVE_MANIFESTS_REVISION)/config/crd/full/serving.kserve.io_inferenceservices.yaml \
+			| tail -n +2 > config/crd/external/serving.kserve.io_inferenceservices.yaml; \
+		wget -O - https://raw.githubusercontent.com/kserve/kserve/$(KSERVE_MANIFESTS_REVISION)/config/crd/full/serving.kserve.io_servingruntimes.yaml \
+			| tail -n +2 > config/crd/external/serving.kserve.io_servingruntimes.yaml; \
+		echo "$(KSERVE_MANIFESTS_REVISION)" > "$(KSERVE_REVISION_FILE)"; \
+		echo "KServe manifests updated to revision $(KSERVE_MANIFESTS_REVISION) and revision stored in $(KSERVE_REVISION_FILE)."; \
+	else \
+		echo "KServe manifests for revision $(KSERVE_MANIFESTS_REVISION) are already up-to-date (based on $(KSERVE_REVISION_FILE))."; \
+	fi
+
 .PHONY: manifests
-manifests: controller-gen ## Generate WebhookConfiguration, ClusterRole and CustomResourceDefinition objects.
+manifests: manifests-update controller-gen ## Generate WebhookConfiguration, ClusterRole and CustomResourceDefinition objects.
 	# Any customization needed, apply to a patch in the kustomize.yaml file on webhooks
 	$(CONTROLLER_GEN) rbac:roleName=odh-model-controller-role,headerFile="hack/manifests_boilerplate.yaml.txt" crd webhook paths="./..." output:crd:artifacts:config=config/crd/bases
 
@@ -81,7 +111,8 @@ vet: ## Run go vet against code.
 .PHONY: test
 test: manifests generate fmt vet envtest ## Run tests.
 	KUBEBUILDER_ASSETS="$(shell $(ENVTEST) use $(ENVTEST_K8S_VERSION) --bin-dir $(LOCALBIN) -p path)" POD_NAMESPACE=default \
-		MESH_NAMESPACE=istio-system CONTROL_PLANE_NAME=istio-system go test $$(go list ./... | grep -v /e2e) -coverprofile cover.out
+		MESH_NAMESPACE=istio-system CONTROL_PLANE_NAME=istio-system go test $$(go list ./... | grep -v /e2e) \
+		-coverprofile cover.out -coverpkg=./...
 
 # TODO(user): To use a different cluster than Kind for e2e tests, modify the setup under 'tests/e2e'.
 # The default setup assumes Kind is pre-installed and builds/loads the Manager Docker image locally.
@@ -215,12 +246,19 @@ golangci-lint: $(GOLANGCI_LINT) ## Download golangci-lint locally if necessary.
 $(GOLANGCI_LINT): $(LOCALBIN)
 	$(call go-install-tool,$(GOLANGCI_LINT),github.com/golangci/golangci-lint/cmd/golangci-lint,$(GOLANGCI_LINT_VERSION))
 
-# go-install-tool will 'go install' any package with custom target and name of binary, if it doesn't exist
-# $1 - target path with name of binary
-# $2 - package url which can be installed
-# $3 - specific version of package
+# Macro `go-install-tool` installs a specific version of a Go package and ensures that
+# invoking the binary at the given path uses that version.
+#
+# Usage:
+#   $(call go-install-tool,<binary-path>,<pkg-url>,<version>)
+#
+# Arguments:
+#   $1 — binary-path: full path (including binary name) where the tool will be placed
+#   $2 — pkg-url: Go binary path (e.g. github.com/user/tool/cmd/binary)
+#   $3 — version: exact module version (e.g. v1.2.3)
 define go-install-tool
-@[ -f "$(1)-$(3)" ] || { \
+@rm -f $(1); \
+[ -f "$(1)-$(3)" ] || { \
 set -e; \
 package=$(2)@$(3) ;\
 echo "Downloading $${package}" ;\

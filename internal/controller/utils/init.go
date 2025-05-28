@@ -1,6 +1,7 @@
 package utils
 
 import (
+	kedaapi "github.com/kedacore/keda/v2/apis/keda/v1alpha1"
 	kservev1alpha1 "github.com/kserve/kserve/pkg/apis/serving/v1alpha1"
 	kservev1beta1 "github.com/kserve/kserve/pkg/apis/serving/v1beta1"
 	authorinov1beta2 "github.com/kuadrant/authorino/api/v1beta2"
@@ -41,6 +42,7 @@ func RegisterSchemes(s *runtime.Scheme) {
 	utilruntime.Must(istioclientv1beta1.SchemeBuilder.AddToScheme(s))
 	utilruntime.Must(nimv1.SchemeBuilder.AddToScheme(s))
 	utilruntime.Must(templatev1.AddToScheme(s))
+	utilruntime.Must(kedaapi.AddToScheme(s))
 
 	// The following are related to Service Mesh, uncomment this and other
 	// similar blocks to use with Service Mesh
