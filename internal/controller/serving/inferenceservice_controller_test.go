@@ -138,6 +138,44 @@ var _ = Describe("InferenceService Controller", func() {
 				}, timeout, interval).Should(Succeed())
 			})
 
+			It("Should create a Route with timeout", func() {
+				By("Creating an inference service with a timeout value defined in the component spec")
+				_, meshNamespace := utils.GetIstioControlPlaneName(ctx, k8sClient)
+				inferenceService := &kservev1beta1.InferenceService{}
+				err := testutils.ConvertToStructuredResource(KserveInferenceServicePath2, inferenceService)
+				Expect(err).NotTo(HaveOccurred())
+				inferenceService.SetNamespace(testNs)
+				Expect(k8sClient.Create(ctx, inferenceService)).Should(Succeed())
+				// Update inference service status with url to create the route
+				deployedInferenceService := &kservev1beta1.InferenceService{}
+				err = k8sClient.Get(ctx, types.NamespacedName{Name: inferenceService.Name, Namespace: inferenceService.Namespace}, deployedInferenceService)
+				Expect(err).NotTo(HaveOccurred())
+				url, err := apis.ParseURL("https://example-onnx-mnist-timeout-default.test.com")
+				Expect(err).NotTo(HaveOccurred())
+				deployedInferenceService.Status.URL = url
+				err = k8sClient.Status().Update(ctx, deployedInferenceService)
+				Expect(err).NotTo(HaveOccurred())
+
+				// Checking that the controller has created the Route with the haproxy.router.openshift.io/timeout annotation added
+				Eventually(func() error {
+					return checkRouteTimeout(types.NamespacedName{Name: getKServeRouteName(inferenceService), Namespace: meshNamespace}, "45")
+				}, timeout, interval).Should(Succeed())
+
+				By("By updating an existing inference service with the haproxy.router.openshift.io/timeout annotation")
+				updatedInferenceService := &kservev1beta1.InferenceService{}
+				err = k8sClient.Get(ctx, types.NamespacedName{Name: inferenceService.Name, Namespace: inferenceService.Namespace}, updatedInferenceService)
+				Expect(err).NotTo(HaveOccurred())
+				updatedInferenceService.Annotations = make(map[string]string)
+				updatedInferenceService.Annotations[constants.RouteTimeoutAnnotationKey] = "90"
+				err = k8sClient.Update(ctx, updatedInferenceService)
+				Expect(err).NotTo(HaveOccurred())
+
+				// Checking that the controller has created the Route with the updated haproxy.router.openshift.io/timeout annotation added
+				Eventually(func() error {
+					return checkRouteTimeout(types.NamespacedName{Name: getKServeRouteName(inferenceService), Namespace: meshNamespace}, "90")
+				}, timeout, interval).Should(Succeed())
+			})
+
 			It("With a new Kserve InferenceService, serving cert annotation should be added to the runtime Service object.", func() {
 				// We need to stub the cluster state and indicate where is istio namespace (reusing authConfig test data)
 				if dsciErr := createDSCI(DSCIWithoutAuthorization); dsciErr != nil && !k8sErrors.IsAlreadyExists(dsciErr) {
@@ -485,6 +523,32 @@ var _ = Describe("InferenceService Controller", func() {
 				Expect(err).NotTo(HaveOccurred())
 
 				Expect(comparators.GetMMRouteComparator()(route, expectedRoute)).Should(BeTrue())
+			})
+
+			It("Should create a Route with timeout to expose the traffic externally", func() {
+				By("Creating an inference service with a timeout value defined in the component spec")
+				inferenceService := &kservev1beta1.InferenceService{}
+				err := testutils.ConvertToStructuredResource(InferenceService2, inferenceService)
+				Expect(err).NotTo(HaveOccurred())
+				Expect(k8sClient.Create(ctx, inferenceService)).Should(Succeed())
+
+				// Checking that the controller has created the Route with the haproxy.router.openshift.io/timeout annotation added
+				Eventually(func() error {
+					return checkRouteTimeout(types.NamespacedName{Name: inferenceService.Name, Namespace: inferenceService.Namespace}, "45")
+				}, timeout, interval).Should(Succeed())
+
+				By("Updating an existing inference service with the haproxy.router.openshift.io/timeout annotation")
+				deployedInferenceService := &kservev1beta1.InferenceService{}
+				err = k8sClient.Get(ctx, types.NamespacedName{Name: inferenceService.Name, Namespace: inferenceService.Namespace}, deployedInferenceService)
+				Expect(err).NotTo(HaveOccurred())
+				deployedInferenceService.Annotations[constants.RouteTimeoutAnnotationKey] = "90"
+				err = k8sClient.Update(ctx, deployedInferenceService)
+				Expect(err).NotTo(HaveOccurred())
+
+				// Checking that the controller has created the Route with the updated haproxy.router.openshift.io/timeout annotation added
+				Eventually(func() error {
+					return checkRouteTimeout(types.NamespacedName{Name: inferenceService.Name, Namespace: inferenceService.Namespace}, "90")
+				}, timeout, interval).Should(Succeed())
 			})
 		})
 	})
@@ -1106,6 +1170,45 @@ var _ = Describe("InferenceService Controller", func() {
 					key := types.NamespacedName{Name: inferenceService.Name, Namespace: inferenceService.Namespace}
 					return k8sClient.Get(ctx, key, route)
 				}, timeout, interval).ShouldNot(HaveOccurred())
+			})
+			It("Should create a route with timeout if isvc has the label to expose route", func() {
+				By("Creating an inference service with a timeout value defined in the component spec")
+				inferenceService := createInferenceService(testNs, KserveOvmsInferenceServiceName, KserveInferenceServicePath2)
+				inferenceService.Labels = map[string]string{}
+				inferenceService.Labels[constants.KserveNetworkVisibility] = constants.LabelEnableKserveRawRoute
+				// The service is manually created before the isvc otherwise the unit test risks running into a race condition
+				// where the reconcile loop finishes before the service is created, leading to no route being created.
+				isvcService := getDefaultService(inferenceService.Namespace)
+				if err := k8sClient.Create(ctx, isvcService); err != nil && !k8sErrors.IsAlreadyExists(err) {
+					Expect(err).NotTo(HaveOccurred())
+				}
+				service := &corev1.Service{}
+				Eventually(func() error {
+					key := types.NamespacedName{Name: isvcService.Name, Namespace: isvcService.Namespace}
+					return k8sClient.Get(ctx, key, service)
+				}, timeout, interval).Should(Succeed())
+				_ = createServingRuntime(testNs, KserveServingRuntimePath1)
+				if err := k8sClient.Create(ctx, inferenceService); err != nil && !k8sErrors.IsAlreadyExists(err) {
+					Expect(err).NotTo(HaveOccurred())
+				}
+
+				// Checking that the controller has created the Route with the haproxy.router.openshift.io/timeout annotation added
+				Eventually(func() error {
+					return checkRouteTimeout(types.NamespacedName{Name: inferenceService.Name, Namespace: inferenceService.Namespace}, "45")
+				}, timeout, interval).Should(Succeed())
+
+				By("Updating an existing inference service with the haproxy.router.openshift.io/timeout annotation")
+				deployedInferenceService := &kservev1beta1.InferenceService{}
+				err := k8sClient.Get(ctx, types.NamespacedName{Name: inferenceService.Name, Namespace: inferenceService.Namespace}, deployedInferenceService)
+				Expect(err).NotTo(HaveOccurred())
+				deployedInferenceService.Annotations[constants.RouteTimeoutAnnotationKey] = "90"
+				err = k8sClient.Update(ctx, deployedInferenceService)
+				Expect(err).NotTo(HaveOccurred())
+
+				// Checking that the controller has created the Route with the updated haproxy.router.openshift.io/timeout annotation added
+				Eventually(func() error {
+					return checkRouteTimeout(types.NamespacedName{Name: inferenceService.Name, Namespace: inferenceService.Namespace}, "90")
+				}, timeout, interval).Should(Succeed())
 			})
 
 			It("it should not delete the route that is not owned by the isvc - manual created routes should not be deleted", func() {
@@ -1954,4 +2057,26 @@ func getDefaultService(isvcNamespace string) *corev1.Service {
 			},
 		},
 	}
+}
+
+func checkRouteTimeout(key types.NamespacedName, expectedValue string) error {
+	route := &routev1.Route{}
+	err := k8sClient.Get(ctx, key, route)
+	if err != nil {
+		return err
+	}
+	val, found := route.Annotations[constants.RouteTimeoutAnnotationKey]
+	if !found {
+		return fmt.Errorf("%s annotation not present on route %s", constants.RouteTimeoutAnnotationKey, route.Name)
+	}
+	if val != expectedValue {
+		return fmt.Errorf(
+			"%s annotation on route %s has value %s, but expecting %s",
+			constants.RouteTimeoutAnnotationKey,
+			route.Name,
+			val,
+			expectedValue,
+		)
+	}
+	return nil
 }

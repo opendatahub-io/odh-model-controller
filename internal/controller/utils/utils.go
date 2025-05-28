@@ -7,6 +7,7 @@ import (
 	"os"
 	"reflect"
 	"sort"
+	"strconv"
 	"strings"
 
 	"github.com/go-logr/logr"
@@ -14,6 +15,7 @@ import (
 	kservev1beta1 "github.com/kserve/kserve/pkg/apis/serving/v1beta1"
 	"github.com/kuadrant/authorino/pkg/log"
 	operatorv1 "github.com/openshift/api/operator/v1"
+	v1 "github.com/openshift/api/route/v1"
 	"github.com/pkg/errors"
 	v1beta12 "istio.io/api/security/v1beta1"
 	"istio.io/client-go/pkg/apis/security/v1beta1"
@@ -435,4 +437,29 @@ func SubstituteVariablesInQueries(data string, namespace string, name string) st
 
 func IsRayTLSSecret(name string) bool {
 	return name == constants.RayCASecretName || name == constants.RayTLSSecretName
+}
+
+// SetOpenshiftRouteTimeoutForIsvc sets the timeout value for openshift routes created for inference services
+func SetOpenshiftRouteTimeoutForIsvc(route *v1.Route, isvc *kservev1beta1.InferenceService) {
+	// Allow for end users to override the default functionality by adding the route timeout annotation to the inference service.
+	if _, ok := isvc.Annotations[constants.RouteTimeoutAnnotationKey]; ok {
+		if route.Annotations == nil {
+			route.Annotations = make(map[string]string)
+		}
+		route.Annotations[constants.RouteTimeoutAnnotationKey] = isvc.Annotations[constants.RouteTimeoutAnnotationKey]
+		return
+	}
+
+	// By default openshift route timeout will be set to the timeout value of the target service's respective component, if any.
+	if isvc.Spec.Transformer != nil && isvc.Spec.Transformer.TimeoutSeconds != nil {
+		if route.Annotations == nil {
+			route.Annotations = make(map[string]string)
+		}
+		route.Annotations[constants.RouteTimeoutAnnotationKey] = strconv.Itoa(int(*isvc.Spec.Transformer.TimeoutSeconds))
+	} else if isvc.Spec.Predictor.TimeoutSeconds != nil {
+		if route.Annotations == nil {
+			route.Annotations = make(map[string]string)
+		}
+		route.Annotations[constants.RouteTimeoutAnnotationKey] = strconv.Itoa(int(*isvc.Spec.Predictor.TimeoutSeconds))
+	}
 }

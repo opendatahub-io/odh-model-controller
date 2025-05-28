@@ -162,6 +162,10 @@ func (r *KserveRouteReconciler) createDesiredResource(ctx context.Context, isvc 
 				WildcardPolicy: v1.WildcardPolicyNone,
 			},
 		}
+
+		// Set route timeout
+		utils2.SetOpenshiftRouteTimeoutForIsvc(route, isvc)
+
 		return route, nil
 	}
 	return nil, nil
