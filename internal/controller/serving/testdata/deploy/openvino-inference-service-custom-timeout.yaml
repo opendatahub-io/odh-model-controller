@@ -14,7 +14,7 @@
 apiVersion: serving.kserve.io/v1beta1
 kind: InferenceService
 metadata:
-  name: example-onnx-mnist-timeout
+  name: example-onnx-mnist-custom-timeout
   namespace: default
   annotations:
     serving.kserve.io/deploymentMode: ModelMesh
@@ -28,3 +28,7 @@ spec:
       storage:
         key: testkey
         path: /testpath/test
+  transformer:
+    timeout: 45
+  explainer: 
+    timeout: 45

@@ -132,3 +132,6 @@ const (
 	RayTLSVolumeMountPath            = "/etc/ray/tls"
 	RayTLSSecretMountPath            = "/etc/ray-secret"
 )
+
+// Default timeout value for Openshift routes
+const DefaultOpenshiftRouteTimeout int64 = 30
