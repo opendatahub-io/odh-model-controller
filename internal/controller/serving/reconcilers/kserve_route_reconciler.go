@@ -22,7 +22,6 @@ import (
 	"github.com/go-logr/logr"
 	kservev1beta1 "github.com/kserve/kserve/pkg/apis/serving/v1beta1"
 	"github.com/kserve/kserve/pkg/constants"
-	"github.com/kserve/kserve/pkg/utils"
 	v1 "github.com/openshift/api/route/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
@@ -122,9 +121,6 @@ func (r *KserveRouteReconciler) createDesiredResource(ctx context.Context, isvc 
 		if ingressConfig.PathTemplate != "" {
 			serviceHost = ingressConfig.IngressDomain
 		}
-		annotations := utils.Filter(isvc.Annotations, func(key string) bool {
-			return !utils.Includes(constants.ServiceAnnotationDisallowedList, key)
-		})
 
 		urlScheme := ingressConfig.UrlScheme
 		var targetPort intstr.IntOrString
@@ -143,10 +139,9 @@ func (r *KserveRouteReconciler) createDesiredResource(ctx context.Context, isvc 
 
 		route := &v1.Route{
 			ObjectMeta: metav1.ObjectMeta{
-				Name:        getKServeRouteName(isvc),
-				Namespace:   meshNamespace,
-				Annotations: annotations,
-				Labels:      isvc.Labels,
+				Name:      getKServeRouteName(isvc),
+				Namespace: meshNamespace,
+				Labels:    isvc.Labels,
 			},
 			Spec: v1.RouteSpec{
 				Host: serviceHost,
