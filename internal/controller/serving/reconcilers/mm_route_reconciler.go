@@ -36,6 +36,7 @@ import (
 	"github.com/opendatahub-io/odh-model-controller/internal/controller/constants"
 	"github.com/opendatahub-io/odh-model-controller/internal/controller/processors"
 	"github.com/opendatahub-io/odh-model-controller/internal/controller/resources"
+	"github.com/opendatahub-io/odh-model-controller/internal/controller/utils"
 )
 
 const (
@@ -128,6 +129,9 @@ func (r *ModelMeshRouteReconciler) createDesiredResource(ctx context.Context, lo
 			Ingress: []v1.RouteIngress{},
 		},
 	}
+
+	// Set route timeout
+	utils.SetOpenshiftRouteTimeoutForIsvc(desiredRoute, isvc)
 
 	if enableAuth {
 		desiredRoute.Spec.Port = &v1.RoutePort{
