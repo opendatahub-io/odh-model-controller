@@ -10,6 +10,7 @@ metadata:
     description: 'OpenVino Model Serving Definition'
     opendatahub.io/modelServingSupport: '["multi"]'
     opendatahub.io/apiProtocol: 'REST'
+    opendatahub.io/runtime-version: 'v2025.1'
 objects:
   - apiVersion: serving.kserve.io/v1alpha1
     kind: ServingRuntime
