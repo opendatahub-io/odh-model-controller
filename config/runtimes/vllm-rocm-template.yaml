@@ -13,7 +13,6 @@ metadata:
     template.openshift.io/long-description: This template defines resources needed to deploy vLLM AMD GPU ServingRuntime with KServe in Red Hat OpenShift AI
     opendatahub.io/modelServingSupport: '["single"]'
     opendatahub.io/apiProtocol: 'REST'
-    opendatahub.io/runtime-version: 'v0.8.4.3'
   name: vllm-rocm-runtime-template
 objects:
   - apiVersion: serving.kserve.io/v1alpha1
@@ -23,6 +22,7 @@ objects:
       annotations:
         openshift.io/display-name: vLLM AMD GPU ServingRuntime for KServe
         opendatahub.io/recommended-accelerators: '["amd.com/gpu"]'
+        opendatahub.io/runtime-version: 'v0.8.4.3'
       labels:
         opendatahub.io/dashboard: 'true'
     spec:

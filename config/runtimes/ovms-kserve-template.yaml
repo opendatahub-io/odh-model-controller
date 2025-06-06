@@ -10,7 +10,6 @@ metadata:
     description: 'OpenVino Model Serving Definition'
     opendatahub.io/modelServingSupport: '["single"]'
     opendatahub.io/apiProtocol: 'REST'
-    opendatahub.io/runtime-version: 'v2025.1'
 objects:
   - apiVersion: serving.kserve.io/v1alpha1
     kind: ServingRuntime
@@ -18,6 +17,7 @@ objects:
       annotations:
         openshift.io/display-name: OpenVINO Model Server
         opendatahub.io/recommended-accelerators: '["nvidia.com/gpu"]'
+        opendatahub.io/runtime-version: 'v2025.1'
       name: kserve-ovms
       labels:
         opendatahub.io/dashboard: 'true'
