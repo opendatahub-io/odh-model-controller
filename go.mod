@@ -11,9 +11,7 @@ require (
 	github.com/kedacore/keda/v2 v2.16.1
 	github.com/kserve/kserve v0.15.0
 	github.com/kuadrant/authorino v0.20.0
-	// TODO: Update to the latest version of the model-registry once the new version is released
-	// the current version is pointing to the commit hash https://github.com/kubeflow/model-registry/commit/bdcbb032a58e22c5615ea6af2720a1b1dadab897
-	github.com/kubeflow/model-registry v0.0.0-20250521083438-bdcbb032a58e
+	github.com/kubeflow/model-registry v0.2.19
 	github.com/onsi/ginkgo v1.16.5
 	github.com/onsi/ginkgo/v2 v2.23.4
 	github.com/onsi/gomega v1.37.0
