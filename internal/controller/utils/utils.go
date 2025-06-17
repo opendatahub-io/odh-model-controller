@@ -14,6 +14,7 @@ import (
 	kservev1beta1 "github.com/kserve/kserve/pkg/apis/serving/v1beta1"
 	"github.com/kuadrant/authorino/pkg/log"
 	operatorv1 "github.com/openshift/api/operator/v1"
+	v1 "github.com/openshift/api/route/v1"
 	"github.com/pkg/errors"
 	v1beta12 "istio.io/api/security/v1beta1"
 	"istio.io/client-go/pkg/apis/security/v1beta1"
@@ -435,4 +436,45 @@ func SubstituteVariablesInQueries(data string, namespace string, name string) st
 
 func IsRayTLSSecret(name string) bool {
 	return name == constants.RayCASecretName || name == constants.RayTLSSecretName
+}
+
+// SetOpenshiftRouteTimeoutForIsvc sets the timeout value for Openshift routes created for inference services.
+func SetOpenshiftRouteTimeoutForIsvc(route *v1.Route, isvc *kservev1beta1.InferenceService) {
+	// The timeout annotation will always be added to Openshift routes created for inference services.
+	if route.Annotations == nil {
+		route.Annotations = make(map[string]string)
+	}
+
+	// Allow for end users to override the default functionality by manually setting the annotation on the inference service.
+	if _, ok := isvc.Annotations[constants.RouteTimeoutAnnotationKey]; ok {
+		if route.Annotations == nil {
+			route.Annotations = make(map[string]string)
+		}
+		route.Annotations[constants.RouteTimeoutAnnotationKey] = isvc.Annotations[constants.RouteTimeoutAnnotationKey]
+		return
+	}
+
+	// By default the timeout will be set to the sum of all component timeouts.
+	var timeout int64 = 0
+	if isvc.Spec.Predictor.TimeoutSeconds != nil {
+		timeout += *isvc.Spec.Predictor.TimeoutSeconds
+	} else {
+		timeout += constants.DefaultOpenshiftRouteTimeout
+	}
+	if isvc.Spec.Transformer != nil {
+		if isvc.Spec.Transformer.TimeoutSeconds != nil {
+			timeout += *isvc.Spec.Transformer.TimeoutSeconds
+		} else {
+			timeout += constants.DefaultOpenshiftRouteTimeout
+		}
+	}
+	if isvc.Spec.Explainer != nil {
+		if isvc.Spec.Explainer.TimeoutSeconds != nil {
+			timeout += *isvc.Spec.Explainer.TimeoutSeconds
+		} else {
+			timeout += constants.DefaultOpenshiftRouteTimeout
+		}
+	}
+
+	route.Annotations[constants.RouteTimeoutAnnotationKey] = fmt.Sprintf("%ds", timeout)
 }

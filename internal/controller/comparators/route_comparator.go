@@ -31,7 +31,8 @@ func GetMMRouteComparator() ResourceComparator {
 			reflect.DeepEqual(deployedRoute.Spec.WildcardPolicy, requestedRoute.Spec.WildcardPolicy) &&
 			reflect.DeepEqual(deployedRoute.Spec.Path, requestedRoute.Spec.Path) &&
 			reflect.DeepEqual(deployedRoute.Spec.TLS, requestedRoute.Spec.TLS) &&
-			reflect.DeepEqual(deployedRoute.Labels, requestedRoute.Labels)
+			reflect.DeepEqual(deployedRoute.Labels, requestedRoute.Labels) &&
+			reflect.DeepEqual(deployedRoute.Annotations, requestedRoute.Annotations)
 	}
 }
 
@@ -44,6 +45,7 @@ func GetKServeRouteComparator() ResourceComparator {
 			reflect.DeepEqual(deployedRoute.Spec.Port, requestedRoute.Spec.Port) &&
 			reflect.DeepEqual(deployedRoute.Spec.TLS, requestedRoute.Spec.TLS) &&
 			reflect.DeepEqual(deployedRoute.Spec.WildcardPolicy, requestedRoute.Spec.WildcardPolicy) &&
-			reflect.DeepEqual(deployedRoute.ObjectMeta.Labels, requestedRoute.ObjectMeta.Labels)
+			reflect.DeepEqual(deployedRoute.ObjectMeta.Labels, requestedRoute.ObjectMeta.Labels) &&
+			reflect.DeepEqual(deployedRoute.ObjectMeta.Annotations, requestedRoute.ObjectMeta.Annotations)
 	}
 }

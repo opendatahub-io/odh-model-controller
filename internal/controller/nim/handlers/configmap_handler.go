@@ -55,9 +55,9 @@ func (c *ConfigMapHandler) Handle(ctx context.Context, account *v1.Account) Hand
 	}
 
 	// fetch available runtimes
-	availableRuntimes, runtimesErr := utils.GetAvailableNimRuntimes(logger)
+	availableRuntimes, runtimesErr := getRuntimes(ctx, c.Client, account)
 	if runtimesErr != nil {
-		msg := "failed to fetch NIM available custom runtimes"
+		msg := "failed to fetch NIM runtimes"
 
 		failedStatus := account.Status
 		failedStatus.LastAccountCheck = &metav1.Time{Time: time.Now()}
@@ -70,14 +70,7 @@ func (c *ConfigMapHandler) Handle(ctx context.Context, account *v1.Account) Hand
 		}
 		return HandleResponse{Error: runtimesErr}
 	}
-
-	// check the selected models
-	if selectedModelList, err := utils.GetSelectedModelList(ctx, account.Spec.ModelListConfig, account.Namespace, c.Client, logger); err != nil {
-		logger.V(1).Error(err, "failed to get the selected model list")
-		return HandleResponse{Error: err}
-	} else {
-		availableRuntimes = utils.FilterAvailableNimRuntimes(availableRuntimes, selectedModelList, logger)
-	}
+	logger.V(1).Info("got NIM runtimes")
 
 	var applyCfg *ssacorev1.ConfigMapApplyConfiguration
 	var ref *corev1.ObjectReference
