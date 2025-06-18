@@ -18,6 +18,8 @@ metadata:
   namespace: default
   labels:
     inferenceservice-name: "example-onnx-mnist"
+  annotations:
+    haproxy.router.openshift.io/timeout: "30s"
 spec:
   path: /v2/models/example-onnx-mnist
   to:

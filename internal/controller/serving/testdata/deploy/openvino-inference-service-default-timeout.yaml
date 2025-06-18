@@ -11,24 +11,23 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-kind: Route
-apiVersion: route.openshift.io/v1
+apiVersion: serving.kserve.io/v1beta1
+kind: InferenceService
 metadata:
-  name: example-onnx-mnist-no-runtime
+  name: example-onnx-mnist-default-timeout
   namespace: default
-  labels:
-    inferenceservice-name: "example-onnx-mnist-no-runtime"
   annotations:
-    haproxy.router.openshift.io/timeout: "30s"
+    serving.kserve.io/deploymentMode: ModelMesh
 spec:
-  path: /v2/models/example-onnx-mnist-no-runtime
-  to:
-    kind: Service
-    name: modelmesh-serving
-    weight: 100
-  port:
-    targetPort: 8443
-  tls:
-    termination: reencrypt
-    insecureEdgeTerminationPolicy: Redirect
-  wildcardPolicy: None
+  predictor:
+    model:
+      modelFormat:
+        name: onnx
+      runtime: ovms-1.x
+      storage:
+        key: testkey
+        path: /testpath/test
+  transformer:
+    minReplicas: 1
+  explainer: 
+    minReplicas: 1
