@@ -34,6 +34,7 @@ import (
 	"github.com/opendatahub-io/odh-model-controller/internal/controller/constants"
 	"github.com/opendatahub-io/odh-model-controller/internal/controller/processors"
 	"github.com/opendatahub-io/odh-model-controller/internal/controller/resources"
+	"github.com/opendatahub-io/odh-model-controller/internal/controller/utils"
 )
 
 var _ SubResourceReconciler = (*KserveRawRouteReconciler)(nil)
@@ -158,6 +159,9 @@ func (r *KserveRawRouteReconciler) createDesiredResource(ctx context.Context, lo
 			Ingress: []v1.RouteIngress{},
 		},
 	}
+
+	// Set route timeout
+	utils.SetOpenshiftRouteTimeoutForIsvc(desiredRoute, isvc)
 
 	if enableAuth {
 		desiredRoute.Spec.TLS = &v1.TLSConfig{

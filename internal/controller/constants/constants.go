@@ -95,7 +95,8 @@ const (
 
 // openshift
 const (
-	ServingCertAnnotationKey = "service.beta.openshift.io/serving-cert-secret-name"
+	ServingCertAnnotationKey  = "service.beta.openshift.io/serving-cert-secret-name"
+	RouteTimeoutAnnotationKey = "haproxy.router.openshift.io/timeout"
 )
 
 // Events
@@ -131,3 +132,6 @@ const (
 	RayTLSVolumeMountPath            = "/etc/ray/tls"
 	RayTLSSecretMountPath            = "/etc/ray-secret"
 )
+
+// Default timeout value for Openshift routes
+const DefaultOpenshiftRouteTimeout int64 = 30
