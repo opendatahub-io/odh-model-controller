@@ -24,6 +24,7 @@ import (
 	"strings"
 	"time"
 
+	kedaapi "github.com/kedacore/keda/v2/apis/keda/v1alpha1"
 	kservev1alpha1 "github.com/kserve/kserve/pkg/apis/serving/v1alpha1"
 	kservev1beta1 "github.com/kserve/kserve/pkg/apis/serving/v1beta1"
 	authorinov1beta2 "github.com/kuadrant/authorino/api/v1beta2"
@@ -31,6 +32,7 @@ import (
 	. "github.com/onsi/gomega"
 	. "github.com/onsi/gomega/gstruct"
 	gomegatypes "github.com/onsi/gomega/types"
+	"github.com/opendatahub-io/odh-model-controller/internal/controller/serving/reconcilers"
 	routev1 "github.com/openshift/api/route/v1"
 	monitoringv1 "github.com/prometheus-operator/prometheus-operator/pkg/apis/monitoring/v1"
 	istioclientv1beta1 "istio.io/client-go/pkg/apis/networking/v1beta1"
@@ -44,7 +46,9 @@ import (
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/intstr"
+	"k8s.io/apiserver/pkg/storage/names"
 	"k8s.io/client-go/dynamic"
+	"k8s.io/utils/ptr"
 	"knative.dev/pkg/apis"
 	duckv1 "knative.dev/pkg/apis/duck/v1"
 	maistrav1 "maistra.io/api/core/v1"
@@ -53,6 +57,7 @@ import (
 	"github.com/opendatahub-io/odh-model-controller/internal/controller/comparators"
 	"github.com/opendatahub-io/odh-model-controller/internal/controller/constants"
 	"github.com/opendatahub-io/odh-model-controller/internal/controller/utils"
+	. "github.com/opendatahub-io/odh-model-controller/test/matchers"
 	testutils "github.com/opendatahub-io/odh-model-controller/test/utils"
 )
 
@@ -132,6 +137,69 @@ var _ = Describe("InferenceService Controller", func() {
 					return err
 				}, timeout, interval).Should(Succeed())
 			})
+
+			It("Should create a Route with custom timeout", func() {
+				By("Creating an inference service with a timeout value defined in the component spec")
+				_, meshNamespace := utils.GetIstioControlPlaneName(ctx, k8sClient)
+				inferenceService := &kservev1beta1.InferenceService{}
+				err := testutils.ConvertToStructuredResource(KserveInferenceServicePath2, inferenceService)
+				Expect(err).NotTo(HaveOccurred())
+				inferenceService.SetNamespace(testNs)
+				Expect(k8sClient.Create(ctx, inferenceService)).Should(Succeed())
+				// Update inference service status with url to create the route
+				deployedInferenceService := &kservev1beta1.InferenceService{}
+				err = k8sClient.Get(ctx, types.NamespacedName{Name: inferenceService.Name, Namespace: inferenceService.Namespace}, deployedInferenceService)
+				Expect(err).NotTo(HaveOccurred())
+				url, err := apis.ParseURL("https://example-onnx-mnist-timeout-default.test.com")
+				Expect(err).NotTo(HaveOccurred())
+				deployedInferenceService.Status.URL = url
+				err = k8sClient.Status().Update(ctx, deployedInferenceService)
+				Expect(err).NotTo(HaveOccurred())
+
+				// Checking that the controller has created the Route with the haproxy.router.openshift.io/timeout annotation added
+				Eventually(func() error {
+					return checkRouteTimeout(types.NamespacedName{Name: getKServeRouteName(inferenceService), Namespace: meshNamespace}, "135s")
+				}, timeout, interval).Should(Succeed())
+
+				By("By updating an existing inference service with the haproxy.router.openshift.io/timeout annotation")
+				updatedInferenceService := &kservev1beta1.InferenceService{}
+				err = k8sClient.Get(ctx, types.NamespacedName{Name: inferenceService.Name, Namespace: inferenceService.Namespace}, updatedInferenceService)
+				Expect(err).NotTo(HaveOccurred())
+				updatedInferenceService.Annotations = make(map[string]string)
+				updatedInferenceService.Annotations[constants.RouteTimeoutAnnotationKey] = "1m"
+				err = k8sClient.Update(ctx, updatedInferenceService)
+				Expect(err).NotTo(HaveOccurred())
+
+				// Checking that the controller has created the Route with the updated haproxy.router.openshift.io/timeout annotation added
+				Eventually(func() error {
+					return checkRouteTimeout(types.NamespacedName{Name: getKServeRouteName(inferenceService), Namespace: meshNamespace}, "1m")
+				}, timeout, interval).Should(Succeed())
+			})
+
+			It("Should create a Route with default timeout", func() {
+				By("Creating an inference service with no timeout value defined in the component spec")
+				_, meshNamespace := utils.GetIstioControlPlaneName(ctx, k8sClient)
+				inferenceService := &kservev1beta1.InferenceService{}
+				err := testutils.ConvertToStructuredResource(KserveInferenceServicePath3, inferenceService)
+				Expect(err).NotTo(HaveOccurred())
+				inferenceService.SetNamespace(testNs)
+				Expect(k8sClient.Create(ctx, inferenceService)).Should(Succeed())
+				// Update inference service status with url to create the route
+				deployedInferenceService := &kservev1beta1.InferenceService{}
+				err = k8sClient.Get(ctx, types.NamespacedName{Name: inferenceService.Name, Namespace: inferenceService.Namespace}, deployedInferenceService)
+				Expect(err).NotTo(HaveOccurred())
+				url, err := apis.ParseURL("https://example-onnx-mnist-timeout-default.test.com")
+				Expect(err).NotTo(HaveOccurred())
+				deployedInferenceService.Status.URL = url
+				err = k8sClient.Status().Update(ctx, deployedInferenceService)
+				Expect(err).NotTo(HaveOccurred())
+
+				// Checking that the controller has created the Route with the haproxy.router.openshift.io/timeout annotation added
+				Eventually(func() error {
+					return checkRouteTimeout(types.NamespacedName{Name: getKServeRouteName(inferenceService), Namespace: meshNamespace}, "90s")
+				}, timeout, interval).Should(Succeed())
+			})
+
 			It("With a new Kserve InferenceService, serving cert annotation should be added to the runtime Service object.", func() {
 				// We need to stub the cluster state and indicate where is istio namespace (reusing authConfig test data)
 				if dsciErr := createDSCI(DSCIWithoutAuthorization); dsciErr != nil && !k8sErrors.IsAlreadyExists(dsciErr) {
@@ -479,6 +547,45 @@ var _ = Describe("InferenceService Controller", func() {
 				Expect(err).NotTo(HaveOccurred())
 
 				Expect(comparators.GetMMRouteComparator()(route, expectedRoute)).Should(BeTrue())
+			})
+
+			It("Should create a Route with custom timeout to expose the traffic externally", func() {
+				By("Creating an inference service with a timeout value defined in the component spec")
+				inferenceService := &kservev1beta1.InferenceService{}
+				err := testutils.ConvertToStructuredResource(InferenceService2, inferenceService)
+				Expect(err).NotTo(HaveOccurred())
+				Expect(k8sClient.Create(ctx, inferenceService)).Should(Succeed())
+
+				// Checking that the controller has created the Route with the haproxy.router.openshift.io/timeout annotation added
+				Eventually(func() error {
+					return checkRouteTimeout(types.NamespacedName{Name: inferenceService.Name, Namespace: inferenceService.Namespace}, "135s")
+				}, timeout, interval).Should(Succeed())
+
+				By("Updating an existing inference service with the haproxy.router.openshift.io/timeout annotation")
+				deployedInferenceService := &kservev1beta1.InferenceService{}
+				err = k8sClient.Get(ctx, types.NamespacedName{Name: inferenceService.Name, Namespace: inferenceService.Namespace}, deployedInferenceService)
+				Expect(err).NotTo(HaveOccurred())
+				deployedInferenceService.Annotations[constants.RouteTimeoutAnnotationKey] = "1m"
+				err = k8sClient.Update(ctx, deployedInferenceService)
+				Expect(err).NotTo(HaveOccurred())
+
+				// Checking that the controller has created the Route with the updated haproxy.router.openshift.io/timeout annotation added
+				Eventually(func() error {
+					return checkRouteTimeout(types.NamespacedName{Name: inferenceService.Name, Namespace: inferenceService.Namespace}, "1m")
+				}, timeout, interval).Should(Succeed())
+			})
+
+			It("Should create a Route with default timeout to expose the traffic externally", func() {
+				By("Creating an inference service with no timeout value defined in the component spec")
+				inferenceService := &kservev1beta1.InferenceService{}
+				err := testutils.ConvertToStructuredResource(InferenceService3, inferenceService)
+				Expect(err).NotTo(HaveOccurred())
+				Expect(k8sClient.Create(ctx, inferenceService)).Should(Succeed())
+
+				// Checking that the controller has created the Route with the haproxy.router.openshift.io/timeout annotation added
+				Eventually(func() error {
+					return checkRouteTimeout(types.NamespacedName{Name: inferenceService.Name, Namespace: inferenceService.Namespace}, "90s")
+				}, timeout, interval).Should(Succeed())
 			})
 		})
 	})
@@ -1080,37 +1187,7 @@ var _ = Describe("InferenceService Controller", func() {
 				inferenceService.Labels[constants.KserveNetworkVisibility] = constants.LabelEnableKserveRawRoute
 				// The service is manually created before the isvc otherwise the unit test risks running into a race condition
 				// where the reconcile loop finishes before the service is created, leading to no route being created.
-				isvcService := &corev1.Service{
-					ObjectMeta: metav1.ObjectMeta{
-						Name:      KserveOvmsInferenceServiceName + "-predictor",
-						Namespace: inferenceService.Namespace,
-						Annotations: map[string]string{
-							"openshift.io/display-name":        KserveOvmsInferenceServiceName,
-							"serving.kserve.io/deploymentMode": "RawDeployment",
-						},
-						Labels: map[string]string{
-							"app":                                "isvc." + KserveOvmsInferenceServiceName + "-predictor",
-							"component":                          "predictor",
-							"serving.kserve.io/inferenceservice": KserveOvmsInferenceServiceName,
-						},
-					},
-					Spec: corev1.ServiceSpec{
-						ClusterIP:  "None",
-						IPFamilies: []corev1.IPFamily{"IPv4"},
-						Ports: []corev1.ServicePort{
-							{
-								Name:       "http",
-								Protocol:   corev1.ProtocolTCP,
-								Port:       8888,
-								TargetPort: intstr.FromString("http"),
-							},
-						},
-						ClusterIPs: []string{"None"},
-						Selector: map[string]string{
-							"app": "isvc." + KserveOvmsInferenceServiceName + "-predictor",
-						},
-					},
-				}
+				isvcService := getDefaultService(inferenceService.Namespace)
 				if err := k8sClient.Create(ctx, isvcService); err != nil && !k8sErrors.IsAlreadyExists(err) {
 					Expect(err).NotTo(HaveOccurred())
 				}
@@ -1131,6 +1208,142 @@ var _ = Describe("InferenceService Controller", func() {
 					return k8sClient.Get(ctx, key, route)
 				}, timeout, interval).ShouldNot(HaveOccurred())
 			})
+			It("Should create a route with custom timeout if isvc has the label to expose route", func() {
+				By("Creating an inference service with a timeout value defined in the component spec")
+				inferenceService := createInferenceService(testNs, KserveOvmsInferenceServiceName, KserveInferenceServicePath2)
+				inferenceService.Labels = map[string]string{}
+				inferenceService.Labels[constants.KserveNetworkVisibility] = constants.LabelEnableKserveRawRoute
+				// The service is manually created before the isvc otherwise the unit test risks running into a race condition
+				// where the reconcile loop finishes before the service is created, leading to no route being created.
+				isvcService := getDefaultService(inferenceService.Namespace)
+				if err := k8sClient.Create(ctx, isvcService); err != nil && !k8sErrors.IsAlreadyExists(err) {
+					Expect(err).NotTo(HaveOccurred())
+				}
+				service := &corev1.Service{}
+				Eventually(func() error {
+					key := types.NamespacedName{Name: isvcService.Name, Namespace: isvcService.Namespace}
+					return k8sClient.Get(ctx, key, service)
+				}, timeout, interval).Should(Succeed())
+				_ = createServingRuntime(testNs, KserveServingRuntimePath1)
+				if err := k8sClient.Create(ctx, inferenceService); err != nil && !k8sErrors.IsAlreadyExists(err) {
+					Expect(err).NotTo(HaveOccurred())
+				}
+
+				// Checking that the controller has created the Route with the haproxy.router.openshift.io/timeout annotation added
+				Eventually(func() error {
+					return checkRouteTimeout(types.NamespacedName{Name: inferenceService.Name, Namespace: inferenceService.Namespace}, "135s")
+				}, timeout, interval).Should(Succeed())
+
+				By("Updating an existing inference service with the haproxy.router.openshift.io/timeout annotation")
+				deployedInferenceService := &kservev1beta1.InferenceService{}
+				err := k8sClient.Get(ctx, types.NamespacedName{Name: inferenceService.Name, Namespace: inferenceService.Namespace}, deployedInferenceService)
+				Expect(err).NotTo(HaveOccurred())
+				deployedInferenceService.Annotations[constants.RouteTimeoutAnnotationKey] = "1m"
+				err = k8sClient.Update(ctx, deployedInferenceService)
+				Expect(err).NotTo(HaveOccurred())
+
+				// Checking that the controller has created the Route with the updated haproxy.router.openshift.io/timeout annotation added
+				Eventually(func() error {
+					return checkRouteTimeout(types.NamespacedName{Name: inferenceService.Name, Namespace: inferenceService.Namespace}, "1m")
+				}, timeout, interval).Should(Succeed())
+			})
+			It("Should create a route with default timeout if isvc has the label to expose route", func() {
+				By("Creating an inference service with no timeout value defined in the component spec")
+				inferenceService := createInferenceService(testNs, KserveOvmsInferenceServiceName, KserveInferenceServicePath3)
+				inferenceService.Labels = map[string]string{}
+				inferenceService.Labels[constants.KserveNetworkVisibility] = constants.LabelEnableKserveRawRoute
+				// The service is manually created before the isvc otherwise the unit test risks running into a race condition
+				// where the reconcile loop finishes before the service is created, leading to no route being created.
+				isvcService := getDefaultService(inferenceService.Namespace)
+				if err := k8sClient.Create(ctx, isvcService); err != nil && !k8sErrors.IsAlreadyExists(err) {
+					Expect(err).NotTo(HaveOccurred())
+				}
+				service := &corev1.Service{}
+				Eventually(func() error {
+					key := types.NamespacedName{Name: isvcService.Name, Namespace: isvcService.Namespace}
+					return k8sClient.Get(ctx, key, service)
+				}, timeout, interval).Should(Succeed())
+				_ = createServingRuntime(testNs, KserveServingRuntimePath1)
+				if err := k8sClient.Create(ctx, inferenceService); err != nil && !k8sErrors.IsAlreadyExists(err) {
+					Expect(err).NotTo(HaveOccurred())
+				}
+
+				// Checking that the controller has created the Route with the haproxy.router.openshift.io/timeout annotation added
+				Eventually(func() error {
+					return checkRouteTimeout(types.NamespacedName{Name: inferenceService.Name, Namespace: inferenceService.Namespace}, "90s")
+				}, timeout, interval).Should(Succeed())
+			})
+
+			It("it should not delete the route that is not owned by the isvc - manual created routes should not be deleted", func() {
+				inferenceService := createInferenceService(testNs, KserveOvmsInferenceServiceName, KserveInferenceServicePath1)
+				// The service is manually created before the isvc otherwise the unit test risks running into a race condition
+				// where the reconcile loop finishes before the service is created, leading to no route being created.
+				isvcService := getDefaultService(inferenceService.Namespace)
+				if err := k8sClient.Create(ctx, isvcService); err != nil && !k8sErrors.IsAlreadyExists(err) {
+					Expect(err).NotTo(HaveOccurred())
+				}
+
+				service := &corev1.Service{}
+				Eventually(func() error {
+					key := types.NamespacedName{Name: isvcService.Name, Namespace: isvcService.Namespace}
+					return k8sClient.Get(ctx, key, service)
+				}, timeout, interval).Should(Succeed())
+
+				_ = createServingRuntime(testNs, KserveServingRuntimePath1)
+				if err := k8sClient.Create(ctx, inferenceService); err != nil && !k8sErrors.IsAlreadyExists(err) {
+					Expect(err).NotTo(HaveOccurred())
+				}
+
+				// create a route with the same name than the isvc
+				userRoute := &routev1.Route{
+					ObjectMeta: metav1.ObjectMeta{
+						Name:      inferenceService.Name,
+						Namespace: inferenceService.Namespace,
+					},
+					Spec: routev1.RouteSpec{
+						To: routev1.RouteTargetReference{
+							Kind:   "Service",
+							Name:   isvcService.Name,
+							Weight: ptr.To(int32(100)),
+						},
+						Port: &routev1.RoutePort{
+							TargetPort: isvcService.Spec.Ports[0].TargetPort,
+						},
+						WildcardPolicy: routev1.WildcardPolicyNone,
+					},
+					Status: routev1.RouteStatus{
+						Ingress: []routev1.RouteIngress{},
+					},
+				}
+				Expect(k8sClient.Create(ctx, userRoute)).Should(Succeed())
+
+				// check if the route was created
+				route := &routev1.Route{}
+				Eventually(func() bool {
+					key := types.NamespacedName{Name: inferenceService.Name, Namespace: inferenceService.Namespace}
+					_ = k8sClient.Get(ctx, key, route)
+					return route.Name == inferenceService.Name
+				}, timeout, interval).Should(BeTrue())
+
+				// delete isvc
+				Expect(k8sClient.Delete(ctx, inferenceService)).Should(Succeed())
+
+				// make sure isvc is gone
+				Eventually(func() bool {
+					key := types.NamespacedName{Name: inferenceService.Name, Namespace: inferenceService.Namespace}
+					err := k8sClient.Get(ctx, key, &kservev1beta1.InferenceService{})
+					return k8sErrors.IsNotFound(err)
+				}, timeout, interval).Should(BeTrue())
+
+				// route should remain
+				route2 := &routev1.Route{}
+				Eventually(func() bool {
+					key := types.NamespacedName{Name: inferenceService.Name, Namespace: inferenceService.Namespace}
+					_ = k8sClient.Get(ctx, key, route2)
+					return route.Name == inferenceService.Name && route.Spec.To.Name == fmt.Sprintf("%s-predictor", inferenceService.Name)
+				}, timeout, interval).Should(BeTrue())
+			})
+
 			It("it should create a metrics service and servicemonitor auth", func() {
 				_ = createServingRuntime(testNs, KserveServingRuntimePath1)
 				inferenceService := createInferenceService(testNs, KserveOvmsInferenceServiceName, KserveInferenceServicePath1)
@@ -1286,6 +1499,338 @@ var _ = Describe("InferenceService Controller", func() {
 						return errors.New("crb deletion not detected")
 					}
 				}, timeout, interval).ShouldNot(HaveOccurred())
+			})
+		})
+	})
+
+	Describe("KServe KEDA Reconciler", func() {
+		var (
+			testNs         string
+			kedaReconciler *reconcilers.KserveKEDAReconciler
+		)
+
+		BeforeEach(func() {
+			testNs = testutils.Namespaces.Create(ctx, k8sClient).Name
+			kedaReconciler = reconcilers.NewKServeKEDAReconciler(k8sClient)
+		})
+
+		Context("when InferenceServices are configured to scale on KEDA metrics", func() {
+			var isvc *kservev1beta1.InferenceService
+			var isvc2 *kservev1beta1.InferenceService
+
+			const fake = "fake" // for the love of the linter :)
+
+			BeforeEach(func() {
+				isvc = makeKedaTestISVC(testNs, names.SimpleNameGenerator.GenerateName("keda-isvc"), true)
+				Expect(k8sClient.Create(ctx, isvc)).Should(Succeed())
+				Expect(k8sClient.Get(ctx, types.NamespacedName{Name: isvc.Name, Namespace: isvc.Namespace}, isvc)).Should(Succeed())
+
+				isvc2 = makeKedaTestISVC(testNs, names.SimpleNameGenerator.GenerateName("keda-isvc-2"), true)
+				Expect(k8sClient.Create(ctx, isvc2)).Should(Succeed())
+				Expect(k8sClient.Get(ctx, types.NamespacedName{Name: isvc2.Name, Namespace: isvc2.Namespace}, isvc2)).Should(Succeed())
+
+				// Safety checks
+				Expect(isvc.Spec.Predictor.AutoScaling).ToNot(BeNil())
+				Expect(isvc2.Spec.Predictor.AutoScaling).ToNot(BeNil())
+				Expect(isvc.ObjectMeta.UID).ToNot(BeEmpty())
+				Expect(isvc2.ObjectMeta.UID).ToNot(BeEmpty())
+
+				Expect(kedaReconciler.Reconcile(ctx, GinkgoLogr, isvc)).NotTo(HaveOccurred())
+				Expect(kedaReconciler.Reconcile(ctx, GinkgoLogr, isvc2)).NotTo(HaveOccurred())
+			})
+
+			It("Must have owner reference to InferenceService", func() {
+				for _, obj := range getAllKedaTestResources(ctx, k8sClient, testNs) {
+					Expect(obj).To(Not(BeNil()), fmt.Sprintf("Obj: %#v", obj))
+					Expect(obj).To(HaveOwnerReferenceByUID(isvc.UID))
+					Expect(obj).To(HaveOwnerReferenceByUID(isvc2.UID))
+				}
+			})
+
+			It("Must remove owner reference from deleted InferenceService", func() {
+				Expect(k8sClient.Delete(ctx, isvc2)).Should(Succeed())
+				Expect(kedaReconciler.Delete(ctx, GinkgoLogr, isvc2)).To(Succeed())
+
+				for _, obj := range getAllKedaTestResources(ctx, k8sClient, testNs) {
+					Expect(obj).To(Not(BeNil()), fmt.Sprintf("Obj: %#v", obj))
+					Expect(obj).To(HaveOwnerReferenceByUID(isvc.UID))
+					Expect(obj).ToNot(HaveOwnerReferenceByUID(isvc2.UID))
+				}
+			})
+
+			It("Must update managed role when it diverges", func() {
+				role := &rbacv1.Role{}
+				Expect(k8sClient.Get(ctx, types.NamespacedName{Namespace: isvc.Namespace, Name: reconcilers.KEDAPrometheusAuthMetricsReaderRoleName}, role)).Should(Succeed())
+				role.Rules[0].Resources = []string{fake}
+				Expect(k8sClient.Update(ctx, role)).To(Succeed())
+
+				Expect(kedaReconciler.Reconcile(ctx, GinkgoLogr, isvc)).To(Succeed())
+
+				Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(role), role)).Should(Succeed())
+
+				Expect(role.Rules[0].Resources[0]).ToNot(Equal(fake))
+			})
+
+			It("Must update managed service account when it diverges", func() {
+				sa := &corev1.ServiceAccount{}
+				Expect(k8sClient.Get(ctx, types.NamespacedName{Namespace: isvc.Namespace, Name: reconcilers.KEDAPrometheusAuthMetricsReaderRoleName}, sa)).Should(Succeed())
+				sa.Labels[reconcilers.KEDAResourcesLabelKey] = fake
+				Expect(k8sClient.Update(ctx, sa)).To(Succeed())
+
+				Expect(kedaReconciler.Reconcile(ctx, GinkgoLogr, isvc)).To(Succeed())
+
+				Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(sa), sa)).Should(Succeed())
+
+				Expect(sa.Labels[reconcilers.KEDAResourcesLabelKey]).To(Equal(reconcilers.KEDAResourcesLabelValue))
+			})
+
+			It("Must update managed role binding when it diverges", func() {
+				rb := &rbacv1.RoleBinding{}
+				Expect(k8sClient.Get(ctx, types.NamespacedName{Namespace: isvc.Namespace, Name: reconcilers.KEDAPrometheusAuthMetricsReaderRoleBindingName}, rb)).Should(Succeed())
+				rb.Subjects[0].Kind = "User"
+				rb.Subjects[0].Name = fake
+				Expect(k8sClient.Update(ctx, rb)).To(Succeed())
+
+				Expect(kedaReconciler.Reconcile(ctx, GinkgoLogr, isvc)).To(Succeed())
+
+				Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(rb), rb)).Should(Succeed())
+
+				Expect(rb.Subjects[0].Kind).ToNot(Equal("User"))
+				Expect(rb.Subjects[0].Name).ToNot(Equal(fake))
+			})
+
+			It("Must update managed secret when it diverges", func() {
+				secret := &corev1.Secret{}
+				Expect(k8sClient.Get(ctx, types.NamespacedName{Namespace: isvc.Namespace, Name: reconcilers.KEDAPrometheusAuthTriggerSecretName}, secret)).Should(Succeed())
+				secret.Labels[reconcilers.KEDAResourcesLabelKey] = fake
+				Expect(k8sClient.Update(ctx, secret)).To(Succeed())
+
+				Expect(kedaReconciler.Reconcile(ctx, GinkgoLogr, isvc)).To(Succeed())
+
+				Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(secret), secret)).Should(Succeed())
+
+				Expect(secret.Labels[reconcilers.KEDAResourcesLabelKey]).To(Equal(reconcilers.KEDAResourcesLabelValue))
+			})
+
+			It("Must update managed trigger authentication when it diverges", func() {
+				ta := &kedaapi.TriggerAuthentication{}
+				Expect(k8sClient.Get(ctx, types.NamespacedName{Namespace: isvc.Namespace, Name: reconcilers.KEDAPrometheusAuthTriggerAuthName}, ta)).Should(Succeed())
+				ta.Spec.SecretTargetRef = []kedaapi.AuthSecretTargetRef{}
+				Expect(k8sClient.Update(ctx, ta)).To(Succeed())
+
+				Expect(kedaReconciler.Reconcile(ctx, GinkgoLogr, isvc)).To(Succeed())
+
+				Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(ta), ta)).Should(Succeed())
+
+				Expect(ta.Spec.SecretTargetRef).To(HaveLen(2))
+			})
+
+			AfterEach(func() {
+				Expect(k8sClient.Delete(ctx, isvc)).Should(Succeed())
+
+				Expect(kedaReconciler.Delete(ctx, GinkgoLogr, isvc)).To(Succeed())
+				Expect(kedaReconciler.Cleanup(ctx, GinkgoLogr, testNs)).To(Succeed())
+
+				Expect(getAllKedaTestResources(ctx, k8sClient, testNs)).To(BeEmpty())
+			})
+		})
+
+		Context("when an InferenceService no longer requires KEDA metrics", func() {
+			var isvc *kservev1beta1.InferenceService
+
+			BeforeEach(func() {
+				// Create ISVC initially requiring KEDA
+				isvc = makeKedaTestISVC(testNs, names.SimpleNameGenerator.GenerateName("keda-isvc"), true)
+				Expect(k8sClient.Create(ctx, isvc)).Should(Succeed())
+				Expect(k8sClient.Get(ctx, types.NamespacedName{Name: isvc.Name, Namespace: isvc.Namespace}, isvc)).Should(Succeed())
+
+				err := kedaReconciler.Reconcile(ctx, GinkgoLogr, isvc)
+				Expect(err).NotTo(HaveOccurred())
+
+				// Verify initial ownership
+				for _, obj := range getAllKedaTestResources(ctx, k8sClient, testNs) {
+					Expect(obj).To(Not(BeNil()), fmt.Sprintf("Obj: %#v", obj))
+					Expect(obj).To(HaveOwnerReferenceByUID(isvc.UID))
+				}
+
+				// Update ISVC to no longer require KEDA
+				// Fetch the latest version first
+				latestIsvc := &kservev1beta1.InferenceService{}
+				Expect(k8sClient.Get(ctx, types.NamespacedName{Name: isvc.Name, Namespace: isvc.Namespace}, latestIsvc)).Should(Succeed())
+
+				updatedIsvc := makeKedaTestISVC(testNs, isvc.Name, false)
+				latestIsvc.Spec = updatedIsvc.Spec // Only update spec
+				Expect(k8sClient.Update(ctx, latestIsvc)).Should(Succeed())
+				isvc = latestIsvc // Use the updated ISVC for the Reconcile call
+			})
+
+			It("should remove the ISVC owner reference from all KEDA resources", func() {
+				err := kedaReconciler.Reconcile(ctx, GinkgoLogr, isvc)
+				Expect(err).NotTo(HaveOccurred())
+
+				// Verify owner reference is removed
+				for _, obj := range getAllKedaTestResources(ctx, k8sClient, testNs) {
+					// Refetch the object to get its latest state
+					currentObj := obj.DeepCopyObject().(client.Object)
+					Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(currentObj), currentObj)).Should(Succeed())
+					Expect(obj).ToNot(HaveOwnerReferenceByUID(isvc.UID))
+				}
+			})
+		})
+
+		Context("when an ISVC no longer requires KEDA and resources have other owners", func() {
+			var isvc1 *kservev1beta1.InferenceService
+			var otherOwnerRef *metav1.OwnerReference
+
+			BeforeEach(func() {
+				isvc1 = makeKedaTestISVC(testNs, "isvc1-keda", true)
+				Expect(k8sClient.Create(ctx, isvc1)).Should(Succeed())
+
+				// Create a second InferenceService so that the resources are not deleted.
+				isvc2 := makeKedaTestISVC(testNs, "isvc2-keda", true)
+				Expect(k8sClient.Create(ctx, isvc2)).Should(Succeed())
+
+				// Dummy "other" owner
+				otherOwnerRef = &metav1.OwnerReference{
+					APIVersion: "v1",
+					Kind:       "Pod", // Arbitrary kind for testing
+					Name:       "other-owner-pod",
+					UID:        "other-owner-uid",
+				}
+
+				// Create KEDA resources owned by ISVC1 and otherOwner
+				_ = createTestKedaSA(ctx, k8sClient, testNs, isvc1, otherOwnerRef)
+				_ = createTestKedaSecret(ctx, k8sClient, testNs, isvc1, otherOwnerRef)
+				_ = createTestKedaRole(ctx, k8sClient, testNs, isvc1, otherOwnerRef)
+				_ = createTestKedaRoleBinding(ctx, k8sClient, testNs, isvc1, otherOwnerRef)
+				_ = createTestKedaTA(ctx, k8sClient, testNs, isvc1, otherOwnerRef)
+
+				// Update ISVC1 to no longer require KEDA
+				latestIsvc1 := &kservev1beta1.InferenceService{}
+				Expect(k8sClient.Get(ctx, types.NamespacedName{Name: isvc1.Name, Namespace: isvc1.Namespace}, latestIsvc1)).Should(Succeed())
+				updatedIsvc1 := makeKedaTestISVC(testNs, "isvc1-keda", false)
+				latestIsvc1.Spec = updatedIsvc1.Spec
+				Expect(k8sClient.Update(ctx, latestIsvc1)).Should(Succeed())
+				isvc1 = latestIsvc1
+			})
+
+			It("should remove only the specific ISVC's owner reference, preserving others", func() {
+				err := kedaReconciler.Reconcile(ctx, GinkgoLogr, isvc1)
+				Expect(err).NotTo(HaveOccurred())
+
+				sa := &corev1.ServiceAccount{}
+				Expect(k8sClient.Get(ctx, types.NamespacedName{Name: reconcilers.KEDAPrometheusAuthResourceName, Namespace: testNs}, sa)).Should(Succeed())
+				Expect(sa).ToNot(HaveOwnerReferenceByUID(isvc1.UID))
+				Expect(sa).To(HaveOwnerReferenceByUID(otherOwnerRef.UID))
+
+				secret := &corev1.Secret{}
+				Expect(k8sClient.Get(ctx, types.NamespacedName{Name: reconcilers.KEDAPrometheusAuthTriggerSecretName, Namespace: testNs}, secret)).Should(Succeed())
+				Expect(secret).ToNot(HaveOwnerReferenceByUID(isvc1.UID))
+				Expect(secret).To(HaveOwnerReferenceByUID(otherOwnerRef.UID))
+
+				ta := &kedaapi.TriggerAuthentication{}
+				Expect(k8sClient.Get(ctx, types.NamespacedName{Name: reconcilers.KEDAPrometheusAuthTriggerAuthName, Namespace: testNs}, ta)).Should(Succeed())
+				Expect(ta).ToNot(HaveOwnerReferenceByUID(isvc1.UID))
+				Expect(ta).To(HaveOwnerReferenceByUID(otherOwnerRef.UID))
+
+				role := &rbacv1.Role{}
+				Expect(k8sClient.Get(ctx, types.NamespacedName{Name: reconcilers.KEDAPrometheusAuthMetricsReaderRoleName, Namespace: testNs}, role)).Should(Succeed())
+				Expect(role).ToNot(HaveOwnerReferenceByUID(isvc1.UID))
+				Expect(role).To(HaveOwnerReferenceByUID(otherOwnerRef.UID))
+
+				roleBinding := &rbacv1.RoleBinding{}
+				Expect(k8sClient.Get(ctx, types.NamespacedName{Name: reconcilers.KEDAPrometheusAuthMetricsReaderRoleBindingName, Namespace: testNs}, roleBinding)).Should(Succeed())
+				Expect(roleBinding).ToNot(HaveOwnerReferenceByUID(isvc1.UID))
+				Expect(roleBinding).To(HaveOwnerReferenceByUID(otherOwnerRef.UID))
+			})
+		})
+
+		Context("when KEDA resources do not exist and autoscaling is not configured", func() {
+			var isvc *kservev1beta1.InferenceService
+
+			BeforeEach(func() {
+				isvc = makeKedaTestISVC(testNs, "isvc-no-keda-res", false)
+				Expect(k8sClient.Create(ctx, isvc)).Should(Succeed())
+			})
+
+			It("should complete without error (no-op)", func() {
+				err := kedaReconciler.Reconcile(ctx, GinkgoLogr, isvc)
+				Expect(err).NotTo(HaveOccurred())
+
+				sa := &corev1.ServiceAccount{}
+				err = k8sClient.Get(ctx, types.NamespacedName{Name: reconcilers.KEDAPrometheusAuthResourceName, Namespace: testNs}, sa)
+				Expect(err).To(HaveOccurred())
+				Expect(k8sErrors.IsNotFound(err)).To(BeTrue())
+
+				secret := &corev1.Secret{}
+				err = k8sClient.Get(ctx, types.NamespacedName{Name: reconcilers.KEDAPrometheusAuthResourceName, Namespace: testNs}, secret)
+				Expect(err).To(HaveOccurred())
+				Expect(k8sErrors.IsNotFound(err)).To(BeTrue())
+
+				ta := &kedaapi.TriggerAuthentication{}
+				err = k8sClient.Get(ctx, types.NamespacedName{Name: reconcilers.KEDAPrometheusAuthResourceName, Namespace: testNs}, ta)
+				Expect(err).To(HaveOccurred())
+				Expect(k8sErrors.IsNotFound(err)).To(BeTrue())
+
+				role := &rbacv1.Role{}
+				err = k8sClient.Get(ctx, types.NamespacedName{Name: reconcilers.KEDAPrometheusAuthResourceName, Namespace: testNs}, role)
+				Expect(err).To(HaveOccurred())
+				Expect(k8sErrors.IsNotFound(err)).To(BeTrue())
+
+				roleBinding := &rbacv1.RoleBinding{}
+				err = k8sClient.Get(ctx, types.NamespacedName{Name: reconcilers.KEDAPrometheusAuthResourceName, Namespace: testNs}, roleBinding)
+				Expect(err).To(HaveOccurred())
+				Expect(k8sErrors.IsNotFound(err)).To(BeTrue())
+			})
+		})
+
+		Context("when KEDA resource does not have the target ISVC as an owner and autoscaling is not configured", func() {
+			var isvc *kservev1beta1.InferenceService
+			var sa *corev1.ServiceAccount
+
+			BeforeEach(func() {
+				isvc = makeKedaTestISVC(testNs, "isvc-not-owner", false)
+				Expect(k8sClient.Create(ctx, isvc)).Should(Succeed())
+
+				// Create a second InferenceService so that the resources are not deleted.
+				isvc2 := makeKedaTestISVC(testNs, "isvc2-keda", true)
+				Expect(k8sClient.Create(ctx, isvc2)).Should(Succeed())
+
+				// Create SA but not owned by this ISVC
+				sa = createTestKedaSA(ctx, k8sClient, testNs, nil, nil) // No owners
+			})
+
+			It("should complete without error and not modify the resource's owners", func() {
+				originalSAOwnerRefs := sa.GetOwnerReferences()
+				err := kedaReconciler.Reconcile(ctx, GinkgoLogr, isvc)
+				Expect(err).NotTo(HaveOccurred())
+
+				updatedSA := &corev1.ServiceAccount{ObjectMeta: metav1.ObjectMeta{Name: reconcilers.KEDAPrometheusAuthServiceAccountName, Namespace: testNs}}
+				Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(sa), updatedSA)).Should(Succeed())
+				Expect(updatedSA.GetOwnerReferences()).To(Equal(originalSAOwnerRefs)) // Should be unchanged
+			})
+		})
+
+		Context("when ISVC does require KEDA resources", func() {
+			var isvc *kservev1beta1.InferenceService
+			var sa *corev1.ServiceAccount
+
+			BeforeEach(func() {
+				isvc = makeKedaTestISVC(testNs, "isvc-not-owner", false)
+				Expect(k8sClient.Create(ctx, isvc)).Should(Succeed())
+
+				// Create SA
+				sa = createTestKedaSA(ctx, k8sClient, testNs, nil, nil) // No owners
+			})
+
+			It("should cleanup resources", func() {
+				err := kedaReconciler.Reconcile(ctx, GinkgoLogr, isvc)
+				Expect(err).NotTo(HaveOccurred())
+
+				updatedSA := &corev1.ServiceAccount{ObjectMeta: metav1.ObjectMeta{Name: reconcilers.KEDAPrometheusAuthServiceAccountName, Namespace: testNs}}
+				err = k8sClient.Get(ctx, client.ObjectKeyFromObject(sa), updatedSA)
+				Expect(err).Should(HaveOccurred())
+				Expect(k8sErrors.IsNotFound(err)).Should(BeTrue())
 			})
 		})
 	})
@@ -1541,4 +2086,60 @@ func deleteAuthorizationPolicy(authPolicyFile string) error {
 	_, meshNamespace := utils.GetIstioControlPlaneName(ctx, k8sClient)
 	err = dynamicClient.Resource(gvr).Namespace(meshNamespace).Delete(context.TODO(), obj.GetName(), metav1.DeleteOptions{})
 	return client.IgnoreNotFound(err)
+}
+
+func getDefaultService(isvcNamespace string) *corev1.Service {
+	return &corev1.Service{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      KserveOvmsInferenceServiceName + "-predictor",
+			Namespace: isvcNamespace,
+			Annotations: map[string]string{
+				"openshift.io/display-name":        KserveOvmsInferenceServiceName,
+				"serving.kserve.io/deploymentMode": "RawDeployment",
+			},
+			Labels: map[string]string{
+				"app":                                "isvc." + KserveOvmsInferenceServiceName + "-predictor",
+				"component":                          "predictor",
+				"serving.kserve.io/inferenceservice": KserveOvmsInferenceServiceName,
+			},
+		},
+		Spec: corev1.ServiceSpec{
+			ClusterIP:  "None",
+			IPFamilies: []corev1.IPFamily{"IPv4"},
+			Ports: []corev1.ServicePort{
+				{
+					Name:       "http",
+					Protocol:   corev1.ProtocolTCP,
+					Port:       8888,
+					TargetPort: intstr.FromString("http"),
+				},
+			},
+			ClusterIPs: []string{"None"},
+			Selector: map[string]string{
+				"app": "isvc." + KserveOvmsInferenceServiceName + "-predictor",
+			},
+		},
+	}
+}
+
+func checkRouteTimeout(key types.NamespacedName, expectedValue string) error {
+	route := &routev1.Route{}
+	err := k8sClient.Get(ctx, key, route)
+	if err != nil {
+		return err
+	}
+	val, found := route.Annotations[constants.RouteTimeoutAnnotationKey]
+	if !found {
+		return fmt.Errorf("%s annotation not present on route %s", constants.RouteTimeoutAnnotationKey, route.Name)
+	}
+	if val != expectedValue {
+		return fmt.Errorf(
+			"%s annotation on route %s has value %s, but expecting %s",
+			constants.RouteTimeoutAnnotationKey,
+			route.Name,
+			val,
+			expectedValue,
+		)
+	}
+	return nil
 }
