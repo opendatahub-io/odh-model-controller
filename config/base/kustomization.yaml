@@ -11,6 +11,7 @@ configMapGenerator:
       - params-vllm-cpu.env
       - params-vllm-rocm.env
       - params-vllm-gaudi.env
+      - params-vllm-spyre.env
       - params-guardrails-hf-runtime.env
     name: odh-model-controller-parameters
 generatorOptions:
@@ -125,6 +126,17 @@ replacements:
       - select:
           kind: Template
           name: vllm-gaudi-runtime-template
+        fieldPaths:
+          - objects.0.spec.containers.0.image
+  - source:
+      kind: ConfigMap
+      version: v1
+      name: odh-model-controller-parameters
+      fieldPath: data.vllm-spyre-image
+    targets:
+      - select:
+          kind: Template
+          name: vllm-spyre-runtime-template
         fieldPaths:
           - objects.0.spec.containers.0.image
   - source:
