@@ -323,7 +323,7 @@ func (r *ServingRuntimeReconciler) reconcileDefaultRayServerCertSecretInUserNS(c
 			return err
 		}
 		for _, sr := range servingRuntimeList.Items {
-			if isMultiNodeServingRuntime(sr.Name) {
+			if isMultiNodeServingRuntime(sr) {
 				rayDefaultSecret.SetNamespace(sr.Namespace)
 				if err := r.Client.Update(ctx, rayDefaultSecret); err != nil {
 					if apierrs.IsNotFound(err) {
@@ -397,18 +397,17 @@ func getDesiredRayDefaultSecret(namespace string, caSecret *corev1.Secret) *core
 }
 
 func existMultiNodeServingRuntimeInNs(srList servingv1alpha1.ServingRuntimeList) bool {
-	existMultiNodeServingRuntime := false
 	for _, sr := range srList.Items {
-		existMultiNodeServingRuntime = isMultiNodeServingRuntime(sr.Name)
+		if isMultiNodeServingRuntime(sr) {
+			return true
+		}
 	}
-	return existMultiNodeServingRuntime
+	return false
 }
 
 // Determine if ServingRuntime matches specific conditions
-// TO-DO upstream Kserve 0.15 will have a new API WorkerSpec
-// So for now, it will check servingRuntime name, but after we move to 0.15, it needs to check workerSpec is specified or not.(RHOAIENG-16147)
-func isMultiNodeServingRuntime(srName string) bool {
-	return srName == "vllm-multinode-runtime"
+func isMultiNodeServingRuntime(sr servingv1alpha1.ServingRuntime) bool {
+	return sr.Spec.WorkerSpec != nil
 }
 
 // SetupWithManager sets up the controller with the Manager.
