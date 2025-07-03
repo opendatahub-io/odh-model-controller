@@ -108,7 +108,7 @@ var _ = Describe("NIM ConfigMap Handler", func() {
 				Labels:    map[string]string{"opendatahub.io/managed": "true"},
 			},
 			Data: map[string][]byte{
-				"api_key": []byte(testdata.FakeApiKey),
+				"api_key": []byte(testdata.FakeLegacyApiKey),
 			},
 		}
 		Expect(testClient.Create(ctx, apiKeySecret)).To(Succeed())
@@ -228,7 +228,7 @@ var _ = Describe("NIM ConfigMap Handler", func() {
 				Labels:    map[string]string{"opendatahub.io/managed": "true"},
 			},
 			Data: map[string][]byte{
-				"api_key": []byte(testdata.FakeApiKey),
+				"api_key": []byte(testdata.FakeLegacyApiKey),
 			},
 		}
 		Expect(testClient.Create(ctx, apiKeySecret)).To(Succeed())
@@ -297,7 +297,7 @@ var _ = Describe("NIM ConfigMap Handler", func() {
 				Labels:    map[string]string{"opendatahub.io/managed": "true"},
 			},
 			Data: map[string][]byte{
-				"api_key": []byte(testdata.FakeApiKey),
+				"api_key": []byte(testdata.FakeLegacyApiKey),
 			},
 		}
 		Expect(testClient.Create(ctx, apiKeySecret)).To(Succeed())
@@ -379,7 +379,7 @@ var _ = Describe("NIM ConfigMap Handler", func() {
 				Labels:    map[string]string{"opendatahub.io/managed": "true"},
 			},
 			Data: map[string][]byte{
-				"api_key": []byte(testdata.FakeApiKey),
+				"api_key": []byte(testdata.FakeLegacyApiKey),
 			},
 		}
 		Expect(testClient.Create(ctx, apiKeySecret)).To(Succeed())
@@ -461,7 +461,7 @@ var _ = Describe("NIM ConfigMap Handler", func() {
 				Labels:    map[string]string{"opendatahub.io/managed": "true"},
 			},
 			Data: map[string][]byte{
-				"api_key": []byte(testdata.FakeApiKey),
+				"api_key": []byte(testdata.FakeLegacyApiKey),
 			},
 		}
 		Expect(testClient.Create(ctx, apiKeySecret)).To(Succeed())
@@ -542,7 +542,7 @@ var _ = Describe("NIM ConfigMap Handler", func() {
 				Labels:    map[string]string{"opendatahub.io/managed": "true"},
 			},
 			Data: map[string][]byte{
-				"api_key": []byte(testdata.FakeApiKey),
+				"api_key": []byte(testdata.FakeLegacyApiKey),
 			},
 		}
 		Expect(testClient.Create(ctx, apiKeySecret)).To(Succeed())
@@ -634,7 +634,7 @@ var _ = Describe("NIM ConfigMap Handler", func() {
 				Labels:    map[string]string{"opendatahub.io/managed": "true"},
 			},
 			Data: map[string][]byte{
-				"api_key": []byte(testdata.FakeApiKey),
+				"api_key": []byte(testdata.FakeLegacyApiKey),
 			},
 		}
 		Expect(testClient.Create(ctx, apiKeySecret)).To(Succeed())
@@ -716,7 +716,7 @@ var _ = Describe("NIM ConfigMap Handler", func() {
 				Labels:    map[string]string{"opendatahub.io/managed": "true"},
 			},
 			Data: map[string][]byte{
-				"api_key": []byte(testdata.FakeApiKey),
+				"api_key": []byte(testdata.FakeLegacyApiKey),
 			},
 		}
 		Expect(testClient.Create(ctx, apiKeySecret)).To(Succeed())
@@ -805,7 +805,7 @@ var _ = Describe("NIM ConfigMap Handler", func() {
 				Labels:    map[string]string{"opendatahub.io/managed": "true"},
 			},
 			Data: map[string][]byte{
-				"api_key": []byte(testdata.FakeApiKey),
+				"api_key": []byte(testdata.FakeLegacyApiKey),
 			},
 		}
 		Expect(testClient.Create(ctx, apiKeySecret)).To(Succeed())
@@ -913,6 +913,87 @@ var _ = Describe("NIM ConfigMap Handler", func() {
 		Expect(testClient.Delete(ctx, modelSelectionConfig)).To(Succeed())
 		Expect(testClient.Delete(ctx, cm1)).To(Succeed())
 		Expect(testClient.Delete(ctx, account1)).To(Succeed())
+		Expect(testClient.Delete(ctx, testNs)).To(Succeed())
+	})
+
+	It("should accept personal api keys and reconcile", func(ctx SpecContext) {
+		tstName := "testing-nim-configmap-handler-12"
+		tstAccountKey := types.NamespacedName{Name: tstName, Namespace: tstName}
+
+		By("Create testing Namespace " + tstAccountKey.Namespace)
+		testNs := &corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: tstAccountKey.Namespace}}
+		Expect(testClient.Create(ctx, testNs)).To(Succeed())
+
+		By("Create an API Key Secret")
+		apiKeySecret := &corev1.Secret{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      tstAccountKey.Name + "-api-key",
+				Namespace: tstAccountKey.Namespace,
+				Labels:    map[string]string{"opendatahub.io/managed": "true"},
+			},
+			Data: map[string][]byte{
+				"api_key": []byte(testdata.FakePersonalApiKey),
+			},
+		}
+		Expect(testClient.Create(ctx, apiKeySecret)).To(Succeed())
+		apiKeySecretRef, refErr := reference.GetReference(testClient.Scheme(), apiKeySecret)
+		Expect(refErr).NotTo(HaveOccurred())
+
+		By("Create an Account without referencing the configmap")
+		acct := &v1.Account{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      tstAccountKey.Name,
+				Namespace: tstAccountKey.Namespace,
+			},
+			Spec: v1.AccountSpec{
+				APIKeySecret:          *apiKeySecretRef,
+				ValidationRefreshRate: "24h",
+				NIMConfigRefreshRate:  "24h",
+			},
+		}
+		Expect(testClient.Create(ctx, acct)).To(Succeed())
+
+		By("Create a ConfigMap")
+		cm := &corev1.ConfigMap{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:            tstAccountKey.Name + "-cm",
+				Namespace:       tstAccountKey.Namespace,
+				Labels:          map[string]string{"opendatahub.io/managed": "true"},
+				OwnerReferences: acct.GetOwnerReferences(),
+			},
+			Data: map[string]string{"dummy_model": "dummy_model_info"},
+		}
+		Expect(testClient.Create(ctx, cm)).To(Succeed())
+		cmRef, psErr := reference.GetReference(testClient.Scheme(), cm)
+		Expect(psErr).NotTo(HaveOccurred())
+
+		By("Update the Account referencing the ConfigMap")
+		acct.Status = v1.AccountStatus{Conditions: []metav1.Condition{
+			utils.MakeNimCondition(utils.NimConditionAPIKeyValidation, metav1.ConditionTrue, acct.Generation, "ApiKeyValidated", "api key validated successfully"),
+			utils.MakeNimCondition(utils.NimConditionConfigMapUpdate, metav1.ConditionFalse, acct.Generation, "ConfigMapNotUpdated", "here's the thing, something happen"),
+		}}
+		acct.Status.NIMConfig = cmRef
+		acct.Status.LastSuccessfulValidation = &metav1.Time{Time: time.Now().Add(-time.Minute)}
+		acct.Status.LastSuccessfulConfigRefresh = &metav1.Time{Time: time.Now().Add(-time.Second)}
+		Expect(testClient.Status().Update(ctx, acct)).To(Succeed())
+
+		By("Run the handler")
+		resp := cmHandler.Handle(ctx, acct)
+
+		By("Verify the response - expect a requeue")
+		Expect(resp.Error).ToNot(HaveOccurred())
+		Expect(resp.Requeue).To(BeTrue())
+		Expect(resp.Continue).To(BeFalse())
+
+		By("Verify Account status")
+		account := &v1.Account{}
+		Expect(testClient.Get(ctx, client.ObjectKeyFromObject(acct), account)).To(Succeed())
+		// verify configmap was updated
+		Expect(account.Status.LastSuccessfulConfigRefresh.Time.After(acct.Status.LastSuccessfulConfigRefresh.Time)).To(BeTrue())
+
+		By("Cleanups")
+		Expect(testClient.Delete(ctx, cm)).To(Succeed())
+		Expect(testClient.Delete(ctx, account)).To(Succeed())
 		Expect(testClient.Delete(ctx, testNs)).To(Succeed())
 	})
 })

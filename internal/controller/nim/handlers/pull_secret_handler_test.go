@@ -426,7 +426,7 @@ var _ = Describe("NIM Pull Secret Handler", func() {
 				Labels:    map[string]string{"opendatahub.io/managed": "true"},
 			},
 			Data: map[string][]byte{
-				"api_key": []byte(testdata.FakeApiKey),
+				"api_key": []byte(testdata.FakeLegacyApiKey),
 			},
 		}
 		Expect(testClient.Create(ctx, apiKeySecret)).To(Succeed())

@@ -32,7 +32,10 @@ import (
 type NimHttpClientMock struct{}
 
 const (
-	FakeApiKey = "NGo4bmk2cmh1Z242amQyMGVhdmNwbW4zdTU6MTIyYmE4NTctMTA4My00ZDU0LWJkZmYtZDc5Njk1OWRlY2Q1"
+	// legacy api key
+	FakeLegacyApiKey = "NGo4bmk2cmh1Z242amQyMGVhdmNwbW4zdTU6MTIyYmE4NTctMTA4My00ZDU0LWJkZmYtZDc5Njk1OWRlY2Q1"
+	// personal api key starts with "nvapi-"
+	FakePersonalApiKey = "nvapi-" + FakeLegacyApiKey
 )
 
 func (r *NimHttpClientMock) Do(req *http.Request) (*http.Response, error) {
@@ -47,7 +50,7 @@ func (r *NimHttpClientMock) Do(req *http.Request) (*http.Response, error) {
 		}
 	}
 
-	// stub runtime registry token, requested from the utils.ValidateApiKey function (nim)
+	// stub runtime registry token, requested from the utils.ValidateLegacyApiKey function (nim)
 	if req.URL.Host == "nvcr.io" && req.URL.Path == "/proxy_auth" {
 		if req.URL.Query().Get("account") == "$oauthtoken" && req.URL.Query().Get("offline_token") == "true" {
 			if req.URL.Query().Get("scope") == "repository:nim/microsoft/phi-3-mini-4k-instruct:pull" {
@@ -55,7 +58,7 @@ func (r *NimHttpClientMock) Do(req *http.Request) (*http.Response, error) {
 				// from runtimes returned by the ngc catalog endpoint, check testdata/ngc_catalog_response_page_0.json
 				authHeaderParts := strings.Split(req.Header.Get("Authorization"), " ")
 				token, _ := base64.StdEncoding.DecodeString(authHeaderParts[1])
-				if authHeaderParts[0] == "Basic" && string(token) == "$oauthtoken:"+FakeApiKey {
+				if authHeaderParts[0] == "Basic" && string(token) == "$oauthtoken:"+FakeLegacyApiKey {
 					f, _ := os.ReadFile("testdata/runtime_token_response.json")
 					return &http.Response{StatusCode: 200, Body: io.NopCloser(bytes.NewReader(f))}, nil
 				}
@@ -63,7 +66,7 @@ func (r *NimHttpClientMock) Do(req *http.Request) (*http.Response, error) {
 		}
 	}
 
-	// stub runtime manifest fetching, requested from the utils.ValidateApiKey function (nim)
+	// stub runtime manifest fetching, requested from the utils.ValidateLegacyApiKey function (nim)
 	if req.URL.Host == "nvcr.io" && req.URL.Path == "/v2/nim/microsoft/phi-3-mini-4k-instruct/manifests/1.2.3" {
 		// repository name "nim/microsoft/phi-3-mini-4k-instruct" is the FIRST resource from the available
 		// from runtimes returned by the ngc catalog endpoint, version "1.2.3" is the latestTag attribute for the runtime
@@ -77,10 +80,23 @@ func (r *NimHttpClientMock) Do(req *http.Request) (*http.Response, error) {
 		}
 	}
 
+	// stub get caller info, requested from the utils.ValidatePersonalApiKey function (nim)
+	if req.URL.Host == "api.ngc.nvidia.com" && req.URL.Path == "/v3/keys/get-caller-info" {
+		authHeaderParts := strings.Split(req.Header.Get("Authorization"), " ")
+		contentType := req.Header.Get("Content-Type")
+		if contentType == "application/x-www-form-urlencoded" && authHeaderParts[0] == "Bearer" && strings.HasPrefix(authHeaderParts[1], "nvapi-") {
+			body, _ := io.ReadAll(req.Body)
+			if string(body) == fmt.Sprintf("credentials=%s", authHeaderParts[1]) {
+				f, _ := os.ReadFile("testdata/get_caller_info_response.json")
+				return &http.Response{StatusCode: 200, Body: io.NopCloser(bytes.NewReader(f))}, nil
+			}
+		}
+	}
+
 	// stub ngc model token, requested from the utils.GetNimModelData function (nim)
 	if req.URL.Host == "authn.nvidia.com" && req.URL.Path == "/token" && req.URL.Query().Get("service") == "ngc" {
 		authHeaderParts := strings.Split(req.Header.Get("Authorization"), " ")
-		if authHeaderParts[0] == "ApiKey" && authHeaderParts[1] == FakeApiKey {
+		if authHeaderParts[0] == "ApiKey" && authHeaderParts[1] == FakeLegacyApiKey {
 			f, _ := os.ReadFile("testdata/ngc_token_response.json")
 			return &http.Response{StatusCode: 200, Body: io.NopCloser(bytes.NewReader(f))}, nil
 		}
@@ -91,7 +107,7 @@ func (r *NimHttpClientMock) Do(req *http.Request) (*http.Response, error) {
 		// repository name "nim/microsoft/phi-3-mini-4k-instruct" is the FIRST resource from the available
 		// from runtimes returned by the ngc catalog endpoint, check testdata/ngc_catalog_response_page_0.json
 		authHeaderParts := strings.Split(req.Header.Get("Authorization"), " ")
-		if authHeaderParts[0] == "Bearer" && authHeaderParts[1] == "this-is-yet-another-fake-token-of-mine-you-know-what-not-do-to" {
+		if authHeaderParts[0] == "Bearer" && (authHeaderParts[1] == "this-is-yet-another-fake-token-of-mine-you-know-what-not-do-to" || strings.HasPrefix(authHeaderParts[1], "nvapi-")) {
 			// the token is returned by the authn.nvidia.com/token endpoint (stubbed), check testdata/ngc_token_response.json
 			f, _ := os.ReadFile("testdata/ngc_model_phi-3-mini-4k-instruct_response.json")
 			return &http.Response{StatusCode: 200, Body: io.NopCloser(bytes.NewReader(f))}, nil
@@ -103,7 +119,7 @@ func (r *NimHttpClientMock) Do(req *http.Request) (*http.Response, error) {
 		// repository name "nim/meta/llama-3.1-8b-instruct" is the SECOND resource from the available
 		// from runtimes returned by the ngc catalog endpoint, check testdata/ngc_catalog_response_page_1.json
 		authHeaderParts := strings.Split(req.Header.Get("Authorization"), " ")
-		if authHeaderParts[0] == "Bearer" && authHeaderParts[1] == "this-is-yet-another-fake-token-of-mine-you-know-what-not-do-to" {
+		if authHeaderParts[0] == "Bearer" && (authHeaderParts[1] == "this-is-yet-another-fake-token-of-mine-you-know-what-not-do-to" || strings.HasPrefix(authHeaderParts[1], "nvapi-")) {
 			// the token is returned by the authn.nvidia.com/token endpoint (stubbed), check testdata/ngc_token_response.json
 			f, _ := os.ReadFile("testdata/ngc_model_llama-3_1-8b-instruct_response.json")
 			return &http.Response{StatusCode: 200, Body: io.NopCloser(bytes.NewReader(f))}, nil

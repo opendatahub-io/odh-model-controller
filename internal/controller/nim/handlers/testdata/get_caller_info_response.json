@@ -1,0 +1,92 @@
+{
+    "userId": "fake-user-id",
+    "orgName": "fake-org-name",
+    "type": "PERSONAL_KEY",
+    "products": [
+      "ai-foundations",
+      "nv-cloud-functions",
+      "artifact-catalog"
+    ],
+    "user": {
+      "id": 123456,
+      "clientId": "fake-client-id",
+      "starfleetId": "fake-starfleet-id",
+      "name": "Jon Doe",
+      "email": "jon.doe@example.com",
+      "hasSignedPrivacyPolicy": true,
+      "hasSignedEULA": true,
+      "hasSignedNvidiaEULA": false,
+      "hasSignedEgxEULA": false,
+      "hasSignedFleetCommandEULA": false,
+      "hasSignedNVAIEEULA": true,
+      "hasSignedBaseCommandEULA": false,
+      "hasSignedOmniverseEULA": false,
+      "hasSignedLlmEULA": false,
+      "hasSignedBioNeMoEULA": false,
+      "hasSignedThirdPartyRegistryShareEULA": true,
+      "hasSignedContainerPublishingEULA": false,
+      "hasSignedCuOptEULA": false,
+      "hasSubscribedToEmail": false,
+      "hasBetaAccess": false,
+      "isActive": false,
+      "isDeleted": false,
+      "isSAML": false,
+      "createdDate": "2024-06-24T15:48:02.000Z",
+      "updatedDate": "2025-06-26T21:45:13.000Z",
+      "firstLoginDate": "2024-06-24T15:48:02.000Z",
+      "lastLoginDate": "2025-06-26T21:45:13.000Z",
+      "roles": [
+        {
+          "org": {
+            "id": 654321,
+            "name": "fake-org-name",
+            "displayName": "Doe",
+            "industry": "",
+            "country": "US",
+            "type": "ENTERPRISE",
+            "repoScanSettings": {},
+            "infinityManagerSettings": {},
+            "isSeparateInfluxDbUsed": false,
+            "pecSfdcId": "fake-pec-sfdc-id",
+            "alternateContact": {}
+          },
+          "orgRoles": [
+            "NVIDIA_AI_ENTERPRISE_VIEWER",
+            "ORG_OWNER",
+            "PUBLIC_API_ENDPOINTS_USER",
+            "REGISTRY-ADMIN",
+            "REGISTRY-READ",
+            "REGISTRY-WRITE",
+            "REGISTRY_ADMIN",
+            "USER-ADMIN",
+            "USER-READ",
+            "USER-WRITE",
+            "USER_ADMIN"
+          ],
+          "orgRolesByUserGroupId": [
+            {
+              "userGroupId": "NO_GROUP",
+              "roles": [
+                "NVIDIA_AI_ENTERPRISE_VIEWER",
+                "ORG_OWNER",
+                "PUBLIC_API_ENDPOINTS_USER",
+                "REGISTRY-ADMIN",
+                "REGISTRY-READ",
+                "REGISTRY-WRITE",
+                "REGISTRY_ADMIN",
+                "USER-ADMIN",
+                "USER-READ",
+                "USER-WRITE",
+                "USER_ADMIN"
+              ]
+            }
+          ],
+          "membershipRolesOnly": true
+        }
+      ],
+      "idpType": "NVIDIA",
+      "idpId": "fake-idp-id",
+      "idpName": "fake-idp-name",
+      "externalId": "fake-external-id"
+    }
+  }
