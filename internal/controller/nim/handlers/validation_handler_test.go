@@ -129,7 +129,7 @@ var _ = Describe("NIM Validation Handler", func() {
 				Labels:    map[string]string{"opendatahub.io/managed": "true"},
 			},
 			Data: map[string][]byte{
-				"api_key": []byte(testdata.FakeApiKey),
+				"api_key": []byte(testdata.FakeLegacyApiKey),
 			},
 		}
 		Expect(testClient.Create(ctx, apiKeySecret)).To(Succeed())
@@ -188,7 +188,7 @@ var _ = Describe("NIM Validation Handler", func() {
 				Labels:    map[string]string{"opendatahub.io/managed": "true"},
 			},
 			Data: map[string][]byte{
-				"api_key": []byte(testdata.FakeApiKey),
+				"api_key": []byte(testdata.FakeLegacyApiKey),
 			},
 		}
 		Expect(testClient.Create(ctx, apiKeySecret)).To(Succeed())
@@ -553,7 +553,7 @@ var _ = Describe("NIM Validation Handler", func() {
 				Labels:    map[string]string{"opendatahub.io/managed": "true"},
 			},
 			Data: map[string][]byte{
-				"api_key": []byte(testdata.FakeApiKey),
+				"api_key": []byte(testdata.FakeLegacyApiKey),
 			},
 		}
 		Expect(testClient.Create(ctx, apiKeySecret)).To(Succeed())
@@ -609,6 +609,65 @@ var _ = Describe("NIM Validation Handler", func() {
 		By("Cleanups")
 		Expect(testClient.Delete(ctx, apiKeySecret)).To(Succeed())
 		Expect(testClient.Delete(ctx, modelSelectionConfig)).To(Succeed())
+		Expect(testClient.Delete(ctx, account)).To(Succeed())
+		Expect(testClient.Delete(ctx, testNs)).To(Succeed())
+	})
+
+	It("should validate personal api keys", func(ctx SpecContext) {
+		tstName := "testing-nim-validation-handler-10"
+		tstAccountKey := types.NamespacedName{Name: tstName, Namespace: tstName}
+
+		By("Create testing Namespace " + tstAccountKey.Namespace)
+		testNs := &corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: tstAccountKey.Namespace}}
+		Expect(testClient.Create(ctx, testNs)).To(Succeed())
+
+		By("Create an API Key Secret with a personal api key")
+		apiKeySecret := &corev1.Secret{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      tstAccountKey.Name + "-api-key",
+				Namespace: tstAccountKey.Namespace,
+				Labels:    map[string]string{"opendatahub.io/managed": "true"},
+			},
+			Data: map[string][]byte{
+				"api_key": []byte(testdata.FakePersonalApiKey),
+			},
+		}
+		Expect(testClient.Create(ctx, apiKeySecret)).To(Succeed())
+		apiKeySecretRef, refErr := reference.GetReference(testClient.Scheme(), apiKeySecret)
+		Expect(refErr).NotTo(HaveOccurred())
+
+		By("Create an Account referencing the API Key Secret without a validation status")
+		acct := &v1.Account{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      tstAccountKey.Name,
+				Namespace: tstAccountKey.Namespace,
+			},
+			Spec: v1.AccountSpec{
+				APIKeySecret:          *apiKeySecretRef,
+				ValidationRefreshRate: "24h",
+				NIMConfigRefreshRate:  "24h",
+			},
+		}
+		Expect(testClient.Create(ctx, acct)).To(Succeed())
+
+		By("Run the handler")
+		resp := validationHandler.Handle(ctx, acct)
+
+		By("Verify the response - expect a requeue")
+		Expect(resp.Error).ToNot(HaveOccurred())
+		Expect(resp.Requeue).To(BeTrue())
+		Expect(resp.Continue).To(BeFalse())
+
+		By("Verify Account status update")
+		account := &v1.Account{}
+		Expect(testClient.Get(ctx, client.ObjectKeyFromObject(acct), account)).To(Succeed())
+		// report successful status
+		Expect(meta.IsStatusConditionTrue(account.Status.Conditions, utils.NimConditionAPIKeyValidation.String())).To(BeTrue())
+		// successful validation timestamp should be set
+		Expect(account.Status.LastSuccessfulValidation).NotTo(BeNil())
+
+		By("Cleanups")
+		Expect(testClient.Delete(ctx, apiKeySecret)).To(Succeed())
 		Expect(testClient.Delete(ctx, account)).To(Succeed())
 		Expect(testClient.Delete(ctx, testNs)).To(Succeed())
 	})
