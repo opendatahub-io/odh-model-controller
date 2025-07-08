@@ -118,7 +118,6 @@ const (
 	NimConfigRefreshRate         = time.Hour * 24
 	NimCleanupFinalizer          = "runtimes.opendatahub.io/nim-cleanup-finalizer"
 	NimForceValidationAnnotation = "runtimes.opendatahub.io/nim-force-validation"
-	NimSkipValidationAnnotation  = "runtimes.opendatahub.io/nim-skip-validation"
 )
 
 // Ray
