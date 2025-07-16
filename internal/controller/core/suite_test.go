@@ -203,6 +203,7 @@ func convertToStructuredResource(path string, out k8sRuntime.Object) error {
 	return utils.ConvertToStructuredResource(data, out)
 }
 
+// nolint:unparam
 func waitForConfigMap(cli client.Client, namespace, configMapName string, maxTries int, delay time.Duration) (*corev1.ConfigMap, error) {
 	time.Sleep(delay)
 

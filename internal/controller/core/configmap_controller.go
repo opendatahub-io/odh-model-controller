@@ -44,7 +44,7 @@ const (
 	serviceCAConfigMapName          = constants.ServiceCAConfigMapName
 )
 
-var caBundleConfigmaps = constants.CABundleConfigMaps
+var caBundleConfigmaps = constants.CABundleConfigMaps()
 
 // ConfigMapReconciler was formerly known as KServeCustomCACertReconciler.
 type ConfigMapReconciler struct {

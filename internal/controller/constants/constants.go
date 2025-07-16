@@ -71,6 +71,7 @@ const (
 	ModelRegistryServiceAnnotation       = "routing.opendatahub.io/external-address-rest"
 )
 
+// CA bundles
 const (
 	KServeCACertFileName       = "cabundle.crt"
 	KServeCACertConfigMapName  = "odh-kserve-custom-ca-bundle"
@@ -82,9 +83,11 @@ const (
 	ServiceCACertFileName      = "service-ca.crt"
 )
 
-var CABundleConfigMaps = map[string][]string{
-	ODHGlobalCertConfigMapName: {ODHClusterCACertFileName, ODHCustomCACertFileName},
-	ServiceCAConfigMapName:     {ServiceCACertFileName},
+func CABundleConfigMaps() map[string][]string {
+	return map[string][]string{
+		ODHGlobalCertConfigMapName: {ODHClusterCACertFileName, ODHCustomCACertFileName},
+		ServiceCAConfigMapName:     {ServiceCACertFileName},
+	}
 }
 
 const (

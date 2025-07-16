@@ -94,7 +94,7 @@ var _ = Describe("Secret Controller (StorageConfig controller)", func() {
 			Expect(err).NotTo(HaveOccurred())
 
 			By("updating storage-config label opendatahub.io/managed: false")
-			err = updateSecretLabel(k8sClient, WorkingNamespace, storageSecretName, "opendatahub.io/managed", "false")
+			err = updateSecretLabel(k8sClient, WorkingNamespace, constants.DefaultStorageConfig, "opendatahub.io/managed", "false")
 			Expect(err).NotTo(HaveOccurred())
 
 			By("deleting the dataconnection secrets")
@@ -122,16 +122,16 @@ var _ = Describe("Secret Controller (StorageConfig controller)", func() {
 			Expect(err).NotTo(HaveOccurred())
 
 			By("updating storage-config label opendatahub.io/managed: false")
-			err = updateSecretLabel(k8sClient, WorkingNamespace, storageSecretName, "opendatahub.io/managed", "false")
+			err = updateSecretLabel(k8sClient, WorkingNamespace, constants.DefaultStorageConfig, "opendatahub.io/managed", "false")
 			Expect(err).NotTo(HaveOccurred())
 
 			By("updating storage-config secret data")
-			err = updateSecretData(k8sClient, WorkingNamespace, storageSecretName, "aws-connection-minio-http", "unmanaged")
+			err = updateSecretData(k8sClient, WorkingNamespace, constants.DefaultStorageConfig, "aws-connection-minio-http", "unmanaged")
 			Expect(err).NotTo(HaveOccurred())
-			err = updateSecretData(k8sClient, WorkingNamespace, storageSecretName, "aws-connection-minio-https", "unmanaged")
+			err = updateSecretData(k8sClient, WorkingNamespace, constants.DefaultStorageConfig, "aws-connection-minio-https", "unmanaged")
 			Expect(err).NotTo(HaveOccurred())
 
-			storageconfigSecret, err := waitForSecret(k8sClient, WorkingNamespace, storageSecretName, 30, 3*time.Second)
+			storageconfigSecret, err := waitForSecret(k8sClient, WorkingNamespace, constants.DefaultStorageConfig, 30, 3*time.Second)
 			Expect(err).NotTo(HaveOccurred())
 
 			expectedStorageConfigSecret := &corev1.Secret{}
@@ -243,6 +243,7 @@ func updateSecretLabel(cli client.Client, namespace, secretName string, labelKey
 	return nil
 }
 
+// nolint:unparam
 func waitForSecret(cli client.Client, namespace string, secretName string, maxTries int, delay time.Duration) (*corev1.Secret, error) {
 	time.Sleep(delay)
 	ctx := context.Background()
