@@ -78,7 +78,14 @@ const (
 	ODHClusterCACertFileName   = "ca-bundle.crt"
 	ODHCustomCACertFileName    = "odh-ca-bundle.crt"
 	KServeGatewayName          = "kserve-local-gateway"
+	ServiceCAConfigMapName     = "openshift-service-ca.crt"
+	ServiceCACertFileName      = "service-ca.crt"
 )
+
+var CABundleConfigMaps = map[string][]string{
+	ODHGlobalCertConfigMapName: {ODHClusterCACertFileName, ODHCustomCACertFileName},
+	ServiceCAConfigMapName:     {ServiceCACertFileName},
+}
 
 const (
 	KserveMetricsConfigMapNameSuffix = "-metrics-dashboard"
