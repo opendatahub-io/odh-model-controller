@@ -70,9 +70,12 @@ func newStorageSecret(dataConnectionSecretsList *corev1.SecretList, odhCustomCer
 		dataConnectionElement["bucket"] = string(secret.Data["AWS_S3_BUCKET"])
 		dataConnectionElement["region"] = string(secret.Data["AWS_DEFAULT_REGION"])
 
-		if odhCustomCertData != "" {
+		if odhCustomCertData != "" && strings.HasPrefix(string(secret.Data["AWS_S3_ENDPOINT"]), "https://") {
 			dataConnectionElement["certificate"] = odhCustomCertData
 			dataConnectionElement["cabundle_configmap"] = constants.KServeCACertConfigMapName
+		} else {
+			delete(dataConnectionElement, "certificate")
+			delete(dataConnectionElement, "cabundle_configmap")
 		}
 		jsonBytes, _ := json.Marshal(dataConnectionElement)
 		storageByteData[secret.Name] = jsonBytes
@@ -115,19 +118,18 @@ func (r *SecretReconciler) reconcileSecret(secret *corev1.Secret,
 	odhCustomCertData := ""
 	odhGlobalCertConfigMap := &corev1.ConfigMap{}
 	err = r.Get(ctx, types.NamespacedName{
-		Name:      constants.ODHGlobalCertConfigMapName,
+		Name:      constants.KServeCACertConfigMapName,
 		Namespace: secret.Namespace,
 	}, odhGlobalCertConfigMap)
 
 	if err != nil {
 		if apierrs.IsNotFound(err) {
-			logger.Info("unable to fetch the ODH Global Cert ConfigMap", "error", err)
+			logger.Info("unable to fetch the ODH kserve custom CA bundle configmap", "error", err)
 		} else {
 			return err
 		}
 	} else {
-		// Only add custom certificates.
-		odhCustomCertData = strings.TrimSpace(odhGlobalCertConfigMap.Data[constants.ODHCustomCACertFileName])
+		odhCustomCertData = odhGlobalCertConfigMap.Data[constants.KServeCACertFileName]
 	}
 
 	// Generate desire Storage Config Secret
