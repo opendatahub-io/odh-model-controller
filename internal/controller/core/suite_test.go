@@ -65,9 +65,19 @@ var ctx context.Context
 var cancel context.CancelFunc
 
 const (
-	WorkingNamespace                     = "default"
-	odhtrustedcabundleConfigMapPath      = "./testdata/configmaps/odh-trusted-ca-bundle-configmap.yaml"
-	odhKserveCustomCABundleConfigMapPath = "./testdata/configmaps/odh-kserve-custom-ca-cert-configmap.yaml"
+	dataconnectionHttpStringPath                = "./testdata/secrets/dataconnection-string-http.yaml"
+	dataconnectionHttpsStringPath               = "./testdata/secrets/dataconnection-string-https.yaml"
+	odhKserveCustomCABundleConfigMapPath        = "./testdata/configmaps/odh-kserve-custom-ca-cert-configmap.yaml"
+	odhKserveCustomCABundleConfigMapUpdatedPath = "./testdata/configmaps/odh-kserve-custom-ca-cert-configmap-updated.yaml"
+	odhtrustedcabundleConfigMapPath             = "./testdata/configmaps/odh-trusted-ca-bundle-configmap.yaml"
+	odhtrustedcabundleConfigMapUpdatedPath      = "./testdata/configmaps/odh-trusted-ca-bundle-configmap-updated.yaml"
+	openshiftServiceCAConfigMapPath             = "./testdata/configmaps/openshift-service-ca-configmap.yaml"
+	openshiftServiceCAConfigMapUpdatedPath      = "./testdata/configmaps/openshift-service-ca-configmap-updated.yaml"
+	storageconfigEncodedPath                    = "./testdata/secrets/storageconfig-encoded.yaml"
+	storageconfigEncodedUnmanagedPath           = "./testdata/secrets/storageconfig-encoded-unmanaged.yaml"
+	storageconfigCertEncodedPath                = "./testdata/secrets/storageconfig-cert-encoded.yaml"
+	storageconfigCertEncodedUpdatedPath         = "./testdata/secrets/storageconfig-cert-encoded-updated.yaml"
+	WorkingNamespace                            = "default"
 )
 
 func TestControllers(t *testing.T) {
@@ -193,24 +203,22 @@ func convertToStructuredResource(path string, out k8sRuntime.Object) error {
 	return utils.ConvertToStructuredResource(data, out)
 }
 
+// nolint:unparam
 func waitForConfigMap(cli client.Client, namespace, configMapName string, maxTries int, delay time.Duration) (*corev1.ConfigMap, error) {
 	time.Sleep(delay)
 
 	ctx := context.Background()
 	configMap := &corev1.ConfigMap{}
+	var err error
 	for try := 1; try <= maxTries; try++ {
-		err := cli.Get(ctx, client.ObjectKey{Namespace: namespace, Name: configMapName}, configMap)
+		err = cli.Get(ctx, client.ObjectKey{Namespace: namespace, Name: configMapName}, configMap)
 		if err == nil {
 			return configMap, nil
 		}
 		if !apierrs.IsNotFound(err) {
 			return nil, fmt.Errorf("failed to get configmap %s/%s: %v", namespace, configMapName, err)
 		}
-
-		if try > maxTries {
-			time.Sleep(1 * time.Second)
-			return nil, err
-		}
 	}
-	return configMap, nil
+	time.Sleep(1 * time.Second)
+	return nil, err
 }
