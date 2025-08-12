@@ -157,8 +157,8 @@ spec:
                 format: duration
                 type: string
               validationRefreshRate:
-                default: 24h
-                description: Refresh Rate for validation, defaults to 24h
+                default: 1h
+                description: Refresh Rate for validation, defaults to 1h
                 format: duration
                 type: string
             required:
