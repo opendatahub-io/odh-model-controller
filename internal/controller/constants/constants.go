@@ -124,7 +124,7 @@ const (
 // NIM
 const (
 	NimApplyConfigFieldManager   = "nim-account-controller"
-	NimValidationRefreshRate     = time.Hour * 24
+	NimValidationRefreshRate     = time.Hour * 1
 	NimConfigRefreshRate         = time.Hour * 24
 	NimCleanupFinalizer          = "runtimes.opendatahub.io/nim-cleanup-finalizer"
 	NimForceValidationAnnotation = "runtimes.opendatahub.io/nim-force-validation"

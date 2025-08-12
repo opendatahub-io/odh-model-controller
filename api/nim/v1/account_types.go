@@ -13,9 +13,9 @@ type AccountSpec struct {
 	APIKeySecret corev1.ObjectReference `json:"apiKeySecret"`
 	// A reference to the ConfigMap containing the list of NIM models that are allowed to be deployed.
 	ModelListConfig *corev1.ObjectReference `json:"modelListConfig,omitempty"`
-	// Refresh Rate for validation, defaults to 24h
+	// Refresh Rate for validation, defaults to 1h
 	// +kubebuilder:validation:Format="duration"
-	// +kubebuilder:default:="24h"
+	// +kubebuilder:default:="1h"
 	// +kubebuilder:validation:Optional
 	ValidationRefreshRate string `json:"validationRefreshRate"`
 	// Refresh rate for models data, defaults to 24h
