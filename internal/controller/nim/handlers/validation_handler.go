@@ -25,6 +25,7 @@ import (
 	v1 "github.com/opendatahub-io/odh-model-controller/api/nim/v1"
 	"github.com/opendatahub-io/odh-model-controller/internal/controller/constants"
 	"github.com/opendatahub-io/odh-model-controller/internal/controller/utils"
+	corev1 "k8s.io/api/core/v1"
 	k8serrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -52,77 +53,55 @@ func (v *ValidationHandler) Handle(ctx context.Context, account *v1.Account) Han
 		return HandleResponse{Error: kmErr} // requeue for other errors
 	}
 
-	if _, skipValidation := apiKeySecret.Annotations[constants.NimSkipValidationAnnotation]; skipValidation {
-		logger.Info("skipping validation")
-		defer func() {
-			logger.V(1).Info("removing skip validation annotation")
-
-			patchFmt := "[{\"op\": \"remove\", \"path\": \"/metadata/annotations/%s\"}"
-			patchStr := fmt.Sprintf(patchFmt, strings.ReplaceAll(constants.NimSkipValidationAnnotation, "/", "~1"))
-
-			if _, forceValidation := apiKeySecret.Annotations[constants.NimForceValidationAnnotation]; forceValidation {
-				patchStr += fmt.Sprintf(",%s", fmt.Sprintf(patchFmt, fmt.Sprintf(patchFmt, strings.ReplaceAll(constants.NimForceValidationAnnotation, "/", "~1"))))
-			}
-
-			patchStr += "]"
-			if pErr := v.Client.Patch(ctx, apiKeySecret, client.RawPatch(types.JSONPatchType, []byte(patchStr))); pErr != nil {
-				if k8serrors.IsNotFound(pErr) {
-					logger.V(1).Info("account removed before the skip validation annotation was removed")
-				} else {
-					logger.Error(pErr, "failed removing skip annotation from secret")
-				}
-			}
-		}()
-	} else {
-		if shouldReconcile := v.shouldReconcile(ctx, account); !shouldReconcile {
-			return HandleResponse{Continue: true}
-		}
-
-		// fetch available runtimes
-		availableRuntimes, runtimesErr := getRuntimes(ctx, v.Client, account)
-		if runtimesErr != nil {
-			msg := "failed to fetch NIM runtimes"
-
-			failedStatus := account.Status
-			failedStatus.LastAccountCheck = &metav1.Time{Time: time.Now()}
-			meta.SetStatusCondition(&failedStatus.Conditions,
-				utils.MakeNimCondition(utils.NimConditionAPIKeyValidation, metav1.ConditionFalse, account.Generation, "ApiKeyNotValidated", msg))
-			meta.SetStatusCondition(&failedStatus.Conditions, utils.AccountFailCondition(account.Generation, msg))
-
-			if updateErr := utils.UpdateStatus(ctx, client.ObjectKeyFromObject(account), failedStatus, v.Client); updateErr != nil {
-				return HandleResponse{Error: updateErr}
-			}
-			return HandleResponse{Error: runtimesErr}
-		}
-		logger.V(1).Info("got NIM runtimes")
-
-		apiKeyStr, kmSErr := v.KeyManager.GetAPIKey(ctx, account)
-		if kmSErr != nil {
-			if k8serrors.IsNotFound(kmSErr) {
-				return HandleResponse{} // don't requeue if the api key secret is not found
-			}
-			return HandleResponse{Error: kmSErr} // requeue for other errors
-		}
-
-		// validate api key
-		if err := utils.ValidateApiKey(logger, apiKeyStr, availableRuntimes); err != nil {
-			msg := "api key failed validation"
-			logger.Info(msg)
-
-			logger.Info(fmt.Sprintf("%s, cleaning up", msg))
-			if cleanErr := utils.CleanupResources(ctx, account, v.Client); cleanErr != nil {
-				return HandleResponse{Error: cleanErr}
-			}
-
-			failedStatus := makeCleanStatusForAccountFailure(account, msg,
-				utils.MakeNimCondition(utils.NimConditionAPIKeyValidation, metav1.ConditionFalse, account.Generation, "ApiKeyNotValidated", msg))
-			if updateErr := utils.UpdateStatus(ctx, client.ObjectKeyFromObject(account), failedStatus, v.Client); updateErr != nil {
-				return HandleResponse{Error: updateErr}
-			}
-
-			return HandleResponse{} // don't requeue or continue for invalid api keys
-		}
+	if shouldReconcile := v.shouldReconcile(ctx, account, apiKeySecret); !shouldReconcile {
+		return HandleResponse{Continue: true}
 	}
+
+	// fetch available runtimes
+	availableRuntimes, runtimesErr := getRuntimes(ctx, v.Client, account)
+	if runtimesErr != nil {
+		msg := "failed to fetch NIM runtimes"
+
+		failedStatus := account.Status
+		failedStatus.LastAccountCheck = &metav1.Time{Time: time.Now()}
+		meta.SetStatusCondition(&failedStatus.Conditions,
+			utils.MakeNimCondition(utils.NimConditionAPIKeyValidation, metav1.ConditionFalse, account.Generation, "ApiKeyNotValidated", msg))
+		meta.SetStatusCondition(&failedStatus.Conditions, utils.AccountFailCondition(account.Generation, msg))
+
+		if updateErr := utils.UpdateStatus(ctx, client.ObjectKeyFromObject(account), failedStatus, v.Client); updateErr != nil {
+			return HandleResponse{Error: updateErr}
+		}
+		return HandleResponse{Error: runtimesErr}
+	}
+	logger.V(1).Info("got NIM runtimes")
+
+	apiKeyStr, kmSErr := v.KeyManager.GetAPIKey(ctx, account)
+	if kmSErr != nil {
+		if k8serrors.IsNotFound(kmSErr) {
+			return HandleResponse{} // don't requeue if the api key secret is not found
+		}
+		return HandleResponse{Error: kmSErr} // requeue for other errors
+	}
+
+	// validate api key
+	if err := utils.ValidateApiKey(logger, apiKeyStr, availableRuntimes); err != nil {
+		msg := "api key failed validation"
+		logger.Info(msg)
+
+		logger.Info(fmt.Sprintf("%s, cleaning up", msg))
+		if cleanErr := utils.CleanupResources(ctx, account, v.Client); cleanErr != nil {
+			return HandleResponse{Error: cleanErr}
+		}
+
+		failedStatus := makeCleanStatusForAccountFailure(account, msg,
+			utils.MakeNimCondition(utils.NimConditionAPIKeyValidation, metav1.ConditionFalse, account.Generation, "ApiKeyNotValidated", msg))
+		if updateErr := utils.UpdateStatus(ctx, client.ObjectKeyFromObject(account), failedStatus, v.Client); updateErr != nil {
+			return HandleResponse{Error: updateErr}
+		}
+
+		return HandleResponse{} // don't requeue or continue for invalid api keys
+	}
+
 	apiKeyOk := "api key validated successfully"
 
 	successStatus := account.Status
@@ -141,13 +120,8 @@ func (v *ValidationHandler) Handle(ctx context.Context, account *v1.Account) Han
 	return HandleResponse{Requeue: true}
 }
 
-func (v *ValidationHandler) shouldReconcile(ctx context.Context, account *v1.Account) bool {
+func (v *ValidationHandler) shouldReconcile(ctx context.Context, account *v1.Account, apiKeySecret *corev1.Secret) bool {
 	logger := log.FromContext(ctx)
-
-	apiKeySecret, kmErr := v.KeyManager.GetAPIKeySecret(ctx, account)
-	if kmErr != nil {
-		return false
-	}
 
 	if _, forceValidation := apiKeySecret.Annotations[constants.NimForceValidationAnnotation]; forceValidation {
 		logger.Info("forcing validation")
