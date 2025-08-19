@@ -154,6 +154,8 @@ require (
 	k8s.io/kube-openapi v0.0.0-20250318190949-c8a335a9a2ff // indirect
 	knative.dev/networking v0.0.0-20250117155906-67d1c274ba6a // indirect
 	sigs.k8s.io/apiserver-network-proxy/konnectivity-client v0.31.2 // indirect
+	sigs.k8s.io/gateway-api v1.2.1 // indirect
+	sigs.k8s.io/gateway-api-inference-extension v0.3.0 // indirect
 	sigs.k8s.io/json v0.0.0-20241014173422-cfa47c3a1cc8 // indirect
 	sigs.k8s.io/randfill v1.0.0 // indirect
 	sigs.k8s.io/structured-merge-diff/v4 v4.7.0 // indirect
@@ -162,3 +164,7 @@ require (
 // Addresses https://github.com/kedacore/keda/issues/6660
 // Needed by github.com/kedacore/keda/v2 because it breaks on controller-runtime >= v0.20.0
 replace sigs.k8s.io/controller-runtime => sigs.k8s.io/controller-runtime v0.19.1
+
+// Use ODH release branch instead
+// odh-v2.33
+replace github.com/kserve/kserve => github.com/opendatahub-io/kserve v0.0.0-20250812054942-f704774f7e6d
