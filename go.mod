@@ -2,8 +2,6 @@ module github.com/opendatahub-io/odh-model-controller
 
 go 1.24.1
 
-toolchain go1.24.5
-
 require (
 	github.com/go-logr/logr v1.4.3
 	github.com/go-logr/zapr v1.3.0
