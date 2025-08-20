@@ -55,7 +55,7 @@ dev:
     labelSelector:
       control-plane: odh-model-controller
     # Replace the container image with this dev-optimized image (allows to skip image building during development)
-    devImage: quay.io/rh-ee-allausas/golang:1.24.2-odh-devspace
+    devImage: quay.io/rh-ee-allausas/golang:1.24.6-devspace-toolset
     # Sync files between the local filesystem and the development container
     sync:
       - path: ../:/app
