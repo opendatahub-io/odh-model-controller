@@ -55,7 +55,7 @@ dev:
     labelSelector:
       control-plane: odh-model-controller
     # Replace the container image with this dev-optimized image (allows to skip image building during development)
-    devImage: quay.io/rh-ee-allausas/golang:1.22-odh-devspace-debug
+    devImage: quay.io/rh-ee-allausas/golang:1.24.6-devspace-toolset
     # Sync files between the local filesystem and the development container
     sync:
       - path: ../:/app
@@ -101,3 +101,10 @@ commands:
 #     tag: v1.0.0
 #   ui:
 #     path: ./ui        # Path-based dependencies (for monorepos)
+
+profiles:
+  - name: go1.22 
+    patches: # Use patches to modify the base configuration
+      - op: replace
+        path: dev.app.devImage
+        value: quay.io/rh-ee-allausas/golang:1.22-odh-devspace-debug
