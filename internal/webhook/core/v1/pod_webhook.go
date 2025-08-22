@@ -121,7 +121,7 @@ INITIAL_DELAY_SECONDS=10
 
 sleep $INITIAL_DELAY_SECONDS
 
-for ((retries = 0; i < MAX_RETRIES; retries++)); do
+for ((retries = 0; retries <= MAX_RETRIES; retries++)); do
     if [[ -f "$SOURCE_RAY_CA_PEM_FILE_PATH" ]]; then
         cp "$SOURCE_RAY_CA_PEM_FILE_PATH" "$TARGET_RAY_CA_PEM_FILE_PATH"
         chmod 644 "$TARGET_RAY_CA_PEM_FILE_PATH"
@@ -135,7 +135,7 @@ if [[ ! -f "$SOURCE_RAY_CA_PEM_FILE_PATH" ]]; then
     echo "Error: CA Cert file not found!"
 fi
 
-for ((retires = 0; i < MAX_RETRIES; retries++)); do
+for ((retires = 0; retries <= MAX_RETRIES; retries++)); do
     if [[ -f "$SOURCE_RAY_TLS_PEM_FILE_PATH" ]]; then
         cp "$SOURCE_RAY_TLS_PEM_FILE_PATH" "$TARGET_RAY_TLS_PEM_FILE_PATH"
         chmod 644 "$TARGET_RAY_TLS_PEM_FILE_PATH"
