@@ -1,6 +1,6 @@
 # odh-model-controller
 
-// TODO(user): Add simple overview of use/purpose
+A Kubernetes operator that extends KServe model serving capabilities for Open Data Hub (ODH), providing NIM integration, OpenShift-native features, and multi-runtime AI model serving support.
 
 ## Description
 
