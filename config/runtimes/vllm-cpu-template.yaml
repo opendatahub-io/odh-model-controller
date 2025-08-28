@@ -13,6 +13,7 @@ metadata:
     template.openshift.io/long-description: This template defines resources needed to deploy vLLM CPU ServingRuntime with KServe in Red Hat OpenShift AI (ppc64le/s390x architectures only)
     opendatahub.io/modelServingSupport: '["single"]'
     opendatahub.io/apiProtocol: 'REST'
+    opendatahub.io/model-type: '["generative"]'
   name: vllm-cpu-runtime-template
 objects:
   - apiVersion: serving.kserve.io/v1alpha1
