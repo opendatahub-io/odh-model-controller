@@ -18,7 +18,7 @@ require (
 	github.com/openshift/api v0.0.0-20250102185430-d6d8306a24ec
 	github.com/openshift/client-go v0.0.0-20250102190827-c8a353937472
 	github.com/pkg/errors v0.9.1
-	github.com/prometheus-operator/prometheus-operator/pkg/apis/monitoring v0.64.1
+	github.com/prometheus-operator/prometheus-operator/pkg/apis/monitoring v0.76.2
 	github.com/stretchr/testify v1.10.0
 	github.com/tidwall/gjson v1.18.0
 	go.uber.org/zap v1.27.0
@@ -167,4 +167,4 @@ replace sigs.k8s.io/controller-runtime => sigs.k8s.io/controller-runtime v0.19.1
 
 // Use ODH release branch instead
 // odh-v2.33
-replace github.com/kserve/kserve => github.com/opendatahub-io/kserve v0.0.0-20250812054942-f704774f7e6d
+replace github.com/kserve/kserve => github.com/opendatahub-io/kserve v0.0.0-20250901180218-9873b9442ed2
