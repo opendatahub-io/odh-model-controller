@@ -17,7 +17,7 @@ It has been developed using **Golang** and
 
 ### Prerequisites
 
-- go version v1.22.0+
+- go version v1.24.0+
 - podman version v5.2+.
 - kubectl version v1.11.3+.
 - Access to a Kubernetes v1.11.3+ cluster.
