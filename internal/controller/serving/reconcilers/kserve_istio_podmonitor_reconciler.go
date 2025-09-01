@@ -19,6 +19,8 @@ import (
 	"context"
 	"fmt"
 
+	"k8s.io/utils/ptr"
+
 	"github.com/opendatahub-io/odh-model-controller/internal/controller/constants"
 
 	"github.com/go-logr/logr"
@@ -104,7 +106,7 @@ func (r *KserveIstioPodMonitorReconciler) createDesiredResource(ctx context.Cont
 				{
 					Path:     "/stats/prometheus",
 					Interval: "30s",
-					RelabelConfigs: []*v1.RelabelConfig{
+					RelabelConfigs: []v1.RelabelConfig{
 						{
 							Action:       "keep",
 							SourceLabels: []v1.LabelName{"__meta_kubernetes_pod_container_name"},
@@ -117,14 +119,14 @@ func (r *KserveIstioPodMonitorReconciler) createDesiredResource(ctx context.Cont
 						{
 							Action:       "replace",
 							Regex:        "(\\d+);(([A-Fa-f0-9]{1,4}::?){1,7}[A-Fa-f0-9]{1,4})",
-							Replacement:  "[$2]:$1",
+							Replacement:  ptr.To("[$2]:$1"),
 							SourceLabels: []v1.LabelName{"__meta_kubernetes_pod_annotation_prometheus_io_port", "__meta_kubernetes_pod_ip"},
 							TargetLabel:  "__address__",
 						},
 						{
 							Action:       "replace",
 							Regex:        "(\\d+);((([0-9]+?)(\\.|$)){4})",
-							Replacement:  "$2:$1",
+							Replacement:  ptr.To("$2:$1"),
 							SourceLabels: []v1.LabelName{"__meta_kubernetes_pod_annotation_prometheus_io_port", "__meta_kubernetes_pod_ip"},
 							TargetLabel:  "__address__",
 						},
@@ -144,7 +146,7 @@ func (r *KserveIstioPodMonitorReconciler) createDesiredResource(ctx context.Cont
 						},
 						{
 							Action:      "replace",
-							Replacement: fmt.Sprintf("%s-%s", istioControlPlaneName, meshNamespace),
+							Replacement: ptr.To(fmt.Sprintf("%s-%s", istioControlPlaneName, meshNamespace)),
 							TargetLabel: "mesh_id",
 						},
 					},
