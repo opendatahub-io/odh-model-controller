@@ -18,6 +18,8 @@ package reconcilers
 import (
 	"context"
 
+	"github.com/opendatahub-io/odh-model-controller/internal/controller/constants"
+
 	"github.com/go-logr/logr"
 	kservev1beta1 "github.com/kserve/kserve/pkg/apis/serving/v1beta1"
 	"github.com/opendatahub-io/odh-model-controller/internal/controller/utils"
@@ -81,6 +83,9 @@ func (r *KserveRawMetricsServiceMonitorReconciler) createDesiredResource(ctx con
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      getMetricsServiceMonitorName(isvc),
 			Namespace: isvc.Namespace,
+			Labels: map[string]string{
+				constants.RhoaiObservabilityLabel: "true",
+			},
 		},
 		Spec: v1.ServiceMonitorSpec{
 			Endpoints: []v1.Endpoint{

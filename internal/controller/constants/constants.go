@@ -31,6 +31,7 @@ const (
 	IstioSidecarInjectAnnotationName = "sidecar.istio.io/inject"
 	KserveNetworkVisibility          = "networking.kserve.io/visibility"
 	KserveGroupAnnotation            = "serving.kserve.io/inferenceservice"
+	RhoaiObservabilityLabel          = "monitoring.opendatahub.io/scrape"
 
 	EnableAuthODHAnnotation   = "security.opendatahub.io/enable-auth"
 	LabelAuthGroup            = "security.opendatahub.io/authorization-group"
