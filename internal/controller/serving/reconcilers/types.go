@@ -20,21 +20,28 @@ import (
 
 	"github.com/go-logr/logr"
 	kservev1beta1 "github.com/kserve/kserve/pkg/apis/serving/v1beta1"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
+// Reconciler is a basic reconciler interface for InferenceService
 type Reconciler interface {
 	// Reconcile ensures the resource related to given InferenceService is in the desired state.
 	Reconcile(ctx context.Context, log logr.Logger, isvc *kservev1beta1.InferenceService) error
 }
 
-type SubResourceReconciler interface {
-	Reconciler
-	// Delete removes subresource owned by InferenceService.
-	Delete(ctx context.Context, log logr.Logger, isvc *kservev1beta1.InferenceService) error
+// GenericSubResourceReconciler interface that can handle both InferenceService and LLMInferenceService
+type GenericSubResourceReconciler[T client.Object] interface {
+	// Reconcile ensures the resource related to given object is in the desired state.
+	Reconcile(ctx context.Context, log logr.Logger, obj T) error
+	// Delete removes subresource owned by the object.
+	Delete(ctx context.Context, log logr.Logger, obj T) error
 	// Cleanup ensures singleton resource (such as ServiceMonitor) is removed
-	// when there is no InferenceServices left in the namespace.
-	Cleanup(ctx context.Context, log logr.Logger, isvcNs string) error
+	// when there are no objects left in the namespace.
+	Cleanup(ctx context.Context, log logr.Logger, objNs string) error
 }
+
+// SubResourceReconciler interface for InferenceService-specific reconcilers (backward compatibility)
+type SubResourceReconciler = GenericSubResourceReconciler[*kservev1beta1.InferenceService]
 
 // NoResourceRemoval is a trait to indicate that given reconciler
 // is not supposed to delete any resources left.
