@@ -20,6 +20,7 @@ import (
 	"context"
 	_ "embed" // needed for go:embed directive
 	"fmt"
+	"os"
 	"sort"
 	"strings"
 	"text/template"
@@ -32,7 +33,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	"github.com/opendatahub-io/odh-model-controller/internal/controller/constants"
-	controllerutils "github.com/opendatahub-io/odh-model-controller/internal/controller/utils"
+	"github.com/opendatahub-io/odh-model-controller/internal/controller/utils"
 )
 
 type AuthType string
@@ -89,7 +90,7 @@ func (s *staticTemplateLoader) Load(_ context.Context, authType AuthType, protec
 
 	templateData := map[string]interface{}{
 		"Namespace":      protectedResource.GetNamespace(),
-		"Audiences":      controllerutils.GetAuthAudience("https://kubernetes.default.svc"),
+		"Audiences":      getAuthAudience(),
 		"AuthorinoLabel": authKey + ": " + authVal,
 		"ResourceName":   protectedResource.GetName(),
 	}
@@ -106,7 +107,7 @@ func (s *staticTemplateLoader) Load(_ context.Context, authType AuthType, protec
 	if err != nil {
 		return authConfig, fmt.Errorf("could not resolve auth template. cause %w", err)
 	}
-	err = controllerutils.ConvertToStructuredResource(resolvedTemplate, &authConfig)
+	err = utils.ConvertToStructuredResource(resolvedTemplate, &authConfig)
 	if err != nil {
 		return authConfig, fmt.Errorf("could not load auth template. cause %w", err)
 	}
@@ -303,8 +304,17 @@ func (k *kserveInferenceEndpointsHostExtractor) findAllInferenceGraphURLHosts(ig
 	return hosts
 }
 
+func getAuthAudience() []string {
+	aud := getEnvOr(AuthAudience, "https://kubernetes.default.svc")
+	audiences := strings.Split(aud, ",")
+	for i := range audiences {
+		audiences[i] = strings.TrimSpace(audiences[i])
+	}
+	return audiences
+}
+
 func getAuthorinoLabel() (string, string, error) {
-	label := controllerutils.GetEnvOr(AuthorinoLabel, "security.opendatahub.io/authorization-group=default")
+	label := getEnvOr(AuthorinoLabel, "security.opendatahub.io/authorization-group=default")
 	keyValue := strings.Split(label, "=")
 
 	if len(keyValue) != 2 {
@@ -312,4 +322,12 @@ func getAuthorinoLabel() (string, string, error) {
 	}
 
 	return keyValue[0], keyValue[1], nil
+}
+
+func getEnvOr(key, defaultValue string) string {
+	if env, defined := os.LookupEnv(key); defined {
+		return env
+	}
+
+	return defaultValue
 }
