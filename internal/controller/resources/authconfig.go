@@ -20,7 +20,6 @@ import (
 	"context"
 	_ "embed" // needed for go:embed directive
 	"fmt"
-	"os"
 	"sort"
 	"strings"
 	"text/template"
@@ -33,16 +32,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	"github.com/opendatahub-io/odh-model-controller/internal/controller/constants"
-	"github.com/opendatahub-io/odh-model-controller/internal/controller/utils"
-)
-
-type AuthType string
-
-const (
-	UserDefined    AuthType = "userdefined"
-	Anonymous      AuthType = "anonymous"
-	AuthAudience            = "AUTH_AUDIENCE"
-	AuthorinoLabel          = "AUTHORINO_LABEL"
+	controllerutils "github.com/opendatahub-io/odh-model-controller/internal/controller/utils"
 )
 
 type InferenceEndpointsHostExtractor interface {
@@ -50,11 +40,11 @@ type InferenceEndpointsHostExtractor interface {
 }
 
 type AuthConfigTemplateLoader interface {
-	Load(ctx context.Context, authType AuthType, protectedResource client.Object) (authorinov1beta2.AuthConfig, error)
+	Load(ctx context.Context, authType constants.AuthType, protectedResource client.Object) (authorinov1beta2.AuthConfig, error)
 }
 
 type AuthTypeDetector interface {
-	Detect(ctx context.Context, annotations map[string]string) AuthType
+	Detect(ctx context.Context, annotations map[string]string) constants.AuthType
 }
 
 type AuthConfigStore interface {
@@ -80,7 +70,7 @@ func NewStaticTemplateLoader() AuthConfigTemplateLoader {
 	return &staticTemplateLoader{}
 }
 
-func (s *staticTemplateLoader) Load(_ context.Context, authType AuthType, protectedResource client.Object) (authorinov1beta2.AuthConfig, error) {
+func (s *staticTemplateLoader) Load(_ context.Context, authType constants.AuthType, protectedResource client.Object) (authorinov1beta2.AuthConfig, error) {
 	authConfig := authorinov1beta2.AuthConfig{}
 
 	authKey, authVal, err := getAuthorinoLabel()
@@ -90,12 +80,12 @@ func (s *staticTemplateLoader) Load(_ context.Context, authType AuthType, protec
 
 	templateData := map[string]interface{}{
 		"Namespace":      protectedResource.GetNamespace(),
-		"Audiences":      getAuthAudience(),
+		"Audiences":      controllerutils.GetAuthAudience(constants.KubernetesAudience),
 		"AuthorinoLabel": authKey + ": " + authVal,
 		"ResourceName":   protectedResource.GetName(),
 	}
 	template := authConfigTemplateAnonymous
-	if authType == UserDefined {
+	if authType == constants.UserDefined {
 		template = authConfigTemplateUserDefined
 
 		if _, isIg := protectedResource.(*v1alpha1.InferenceGraph); isIg {
@@ -107,7 +97,7 @@ func (s *staticTemplateLoader) Load(_ context.Context, authType AuthType, protec
 	if err != nil {
 		return authConfig, fmt.Errorf("could not resolve auth template. cause %w", err)
 	}
-	err = utils.ConvertToStructuredResource(resolvedTemplate, &authConfig)
+	err = controllerutils.ConvertToStructuredResource(resolvedTemplate, &authConfig)
 	if err != nil {
 		return authConfig, fmt.Errorf("could not load auth template. cause %w", err)
 	}
@@ -140,7 +130,7 @@ func NewConfigMapTemplateLoader(client client.Client, fallback AuthConfigTemplat
 	}
 }
 
-func (c *configMapTemplateLoader) Load(ctx context.Context, authType AuthType, protectedResource client.Object) (authorinov1beta2.AuthConfig, error) {
+func (c *configMapTemplateLoader) Load(ctx context.Context, authType constants.AuthType, protectedResource client.Object) (authorinov1beta2.AuthConfig, error) {
 	// TODO: check "authconfig-template" CM in key.Namespace to see if there is a "spec" to use, construct a AuthConfig object
 	// https://issues.redhat.com/browse/RHOAIENG-847
 
@@ -207,17 +197,17 @@ func NewKServeAuthTypeDetector(client client.Client) AuthTypeDetector {
 	}
 }
 
-func (k *kserveAuthTypeDetector) Detect(_ context.Context, annotations map[string]string) AuthType {
+func (k *kserveAuthTypeDetector) Detect(_ context.Context, annotations map[string]string) constants.AuthType {
 	if value, exist := annotations[constants.EnableAuthODHAnnotation]; exist {
 		if strings.ToLower(value) == "true" {
-			return UserDefined
+			return constants.UserDefined
 		}
 	} else { // backward compat
 		if strings.ToLower(annotations[constants.LabelEnableAuth]) == "true" {
-			return UserDefined
+			return constants.UserDefined
 		}
 	}
-	return Anonymous
+	return constants.Anonymous
 }
 
 type kserveInferenceEndpointsHostExtractor struct {
@@ -304,17 +294,8 @@ func (k *kserveInferenceEndpointsHostExtractor) findAllInferenceGraphURLHosts(ig
 	return hosts
 }
 
-func getAuthAudience() []string {
-	aud := getEnvOr(AuthAudience, "https://kubernetes.default.svc")
-	audiences := strings.Split(aud, ",")
-	for i := range audiences {
-		audiences[i] = strings.TrimSpace(audiences[i])
-	}
-	return audiences
-}
-
 func getAuthorinoLabel() (string, string, error) {
-	label := getEnvOr(AuthorinoLabel, "security.opendatahub.io/authorization-group=default")
+	label := controllerutils.GetEnvOr(constants.AuthorinoLabel, "security.opendatahub.io/authorization-group=default")
 	keyValue := strings.Split(label, "=")
 
 	if len(keyValue) != 2 {
@@ -322,12 +303,4 @@ func getAuthorinoLabel() (string, string, error) {
 	}
 
 	return keyValue[0], keyValue[1], nil
-}
-
-func getEnvOr(key, defaultValue string) string {
-	if env, defined := os.LookupEnv(key); defined {
-		return env
-	}
-
-	return defaultValue
 }
