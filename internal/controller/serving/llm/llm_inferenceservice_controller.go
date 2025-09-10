@@ -68,10 +68,11 @@ func (r *LLMInferenceServiceReconciler) Reconcile(ctx context.Context, req ctrl.
 		return ctrl.Result{}, err
 	}
 
-	if llmisvc.GetDeletionTimestamp() != nil {
+	if !llmisvc.GetDeletionTimestamp().IsZero() {
 		logger.Info("LLMInferenceService being deleted, cleaning up sub-resources")
 		if err := r.onDeletion(ctx, logger, llmisvc); err != nil {
 			logger.Error(err, "Failed to cleanup sub-resources during LLMInferenceService deletion")
+			return ctrl.Result{}, err
 		}
 		return ctrl.Result{}, nil
 	}
