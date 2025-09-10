@@ -22,14 +22,18 @@ import (
 	"github.com/go-logr/logr"
 	kservev1alpha1 "github.com/kserve/kserve/pkg/apis/serving/v1alpha1"
 	apierrs "k8s.io/apimachinery/pkg/api/errors"
+	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/rest"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/log"
 
-	"github.com/opendatahub-io/odh-model-controller/internal/controller/serving/reconcilers"
+	"github.com/opendatahub-io/odh-model-controller/internal/controller/constants"
+	"github.com/opendatahub-io/odh-model-controller/internal/controller/serving/llm/reconcilers"
+	"github.com/opendatahub-io/odh-model-controller/internal/controller/utils"
 )
 
 type LLMInferenceServiceReconciler struct {
@@ -48,13 +52,10 @@ func NewLLMInferenceServiceReconciler(client client.Client, scheme *runtime.Sche
 		Scheme:            scheme,
 		kClient:           kClient,
 		restConfig:        restConfig,
-		llmIsvcReconciler: reconcilers.NewKServeLLMInferenceServiceReconciler(client, kClient, restConfig),
+		llmIsvcReconciler: reconcilers.NewKServeLLMInferenceServiceReconciler(client, kClient, restConfig, scheme),
 	}
 }
 
-// +kubebuilder:rbac:groups=serving.kserve.io,resources=llminferenceservices,verbs=get;list;watch;update;patch
-// +kubebuilder:rbac:groups=serving.kserve.io,resources=llminferenceservices/finalizers,verbs=get;list;watch;update;create;patch;delete
-// +kubebuilder:rbac:groups=kuadrant.io,resources=authpolicies,verbs=get;list;watch;create;update;patch;delete
 func (r *LLMInferenceServiceReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
 	logger := log.FromContext(ctx).WithValues("LLMInferenceService", req.Name, "namespace", req.Namespace)
 
@@ -77,7 +78,6 @@ func (r *LLMInferenceServiceReconciler) Reconcile(ctx context.Context, req ctrl.
 		return ctrl.Result{}, nil
 	}
 
-	// Main reconciliation logic for all sub-resources
 	if err := r.llmIsvcReconciler.Reconcile(ctx, logger, llmisvc); err != nil {
 		logger.Error(err, "Failed to reconcile LLMInferenceService sub-resources")
 		return ctrl.Result{}, err
@@ -87,12 +87,37 @@ func (r *LLMInferenceServiceReconciler) Reconcile(ctx context.Context, req ctrl.
 	return ctrl.Result{}, nil
 }
 
+// +kubebuilder:rbac:groups=serving.kserve.io,resources=llminferenceservices,verbs=get;list;watch;update;patch
+// +kubebuilder:rbac:groups=serving.kserve.io,resources=llminferenceservices/finalizers,verbs=get;list;watch;update;create;patch;delete
+// +kubebuilder:rbac:groups=kuadrant.io,resources=authpolicies,verbs=get;list;watch;create;update;patch;delete
+
 func (r *LLMInferenceServiceReconciler) SetupWithManager(mgr ctrl.Manager, setupLog logr.Logger) error {
 	builder := ctrl.NewControllerManagedBy(mgr).
 		For(&kservev1alpha1.LLMInferenceService{}).
 		Named("llminferenceservice")
 
 	setupLog.Info("Setting up LLMInferenceService controller")
+
+	isAuthPolicyAvailable, crdErr := utils.IsCrdAvailable(mgr.GetConfig(), constants.GetAuthPolicyGroupVersion(), constants.AuthPolicyKind)
+	if crdErr != nil {
+		setupLog.V(1).Error(crdErr, "could not determine if AuthPolicy CRD is available")
+		isAuthPolicyAvailable = false
+	}
+
+	if isAuthPolicyAvailable {
+		setupLog.Info("AuthPolicy CRD is available, watching AuthPolicies for LLMInferenceService")
+
+		authPolicyGVK := schema.GroupVersionKind{
+			Group:   constants.AuthPolicyGroup,
+			Version: constants.AuthPolicyVersion,
+			Kind:    constants.AuthPolicyKind,
+		}
+		authPolicyUnstructured := &unstructured.Unstructured{}
+		authPolicyUnstructured.SetGroupVersionKind(authPolicyGVK)
+		builder.Owns(authPolicyUnstructured)
+	} else {
+		setupLog.Info("AuthPolicy CRD is not available - skipping AuthPolicy watches for LLMInferenceService")
+	}
 
 	return builder.Complete(r)
 }

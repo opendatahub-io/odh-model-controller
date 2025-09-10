@@ -21,20 +21,28 @@ import (
 	"github.com/go-logr/logr"
 	"github.com/hashicorp/go-multierror"
 	kservev1alpha1 "github.com/kserve/kserve/pkg/apis/serving/v1alpha1"
+	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/rest"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+
+	"github.com/opendatahub-io/odh-model-controller/internal/controller/constants"
+	parentreconcilers "github.com/opendatahub-io/odh-model-controller/internal/controller/serving/reconcilers"
+	"github.com/opendatahub-io/odh-model-controller/internal/controller/utils"
 )
 
 type KserveLLMInferenceServiceReconciler struct {
 	client                 client.Client
-	subResourceReconcilers []LLMSubResourceReconciler
+	subResourceReconcilers []parentreconcilers.LLMSubResourceReconciler
 }
 
-func NewKServeLLMInferenceServiceReconciler(client client.Client, kClient kubernetes.Interface, restConfig *rest.Config) *KserveLLMInferenceServiceReconciler {
+func NewKServeLLMInferenceServiceReconciler(client client.Client, kClient kubernetes.Interface, restConfig *rest.Config, scheme *runtime.Scheme) *KserveLLMInferenceServiceReconciler {
+	var subResourceReconcilers []parentreconcilers.LLMSubResourceReconciler
 
-	subResourceReconcilers := []LLMSubResourceReconciler{
-		// TODO: NewKserveAuthPolicyReconciler(client, kClient, restConfig),
+	// Check if AuthPolicy CRD is available before adding AuthPolicy reconciler
+	authPolicyAvailable, err := utils.IsCrdAvailable(restConfig, constants.GetAuthPolicyGroupVersion(), constants.AuthPolicyKind)
+	if err == nil && authPolicyAvailable {
+		subResourceReconcilers = append(subResourceReconcilers, NewKserveAuthPolicyReconciler(client, kClient, restConfig, scheme))
 	}
 
 	return &KserveLLMInferenceServiceReconciler{

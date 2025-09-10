@@ -19,8 +19,6 @@ import "time"
 
 type KServeDeploymentMode string
 
-type AuthType string
-
 const (
 	InferenceServiceKind             = "InferenceService"
 	InferenceServiceODHFinalizerName = "odh.inferenceservice.finalizers"
@@ -148,18 +146,22 @@ const (
 // Default timeout value for Openshift routes
 const DefaultOpenshiftRouteTimeout int64 = 30
 
-// AuthPolicy constants
+type AuthType string
+
 const (
-	UserDefined          AuthType = "userdefined"
-	Anonymous            AuthType = "anonymous"
-	AuthAudience                  = "AUTH_AUDIENCE"
-	AuthorinoLabel                = "AUTHORINO_LABEL"
-	AuthPolicyNameSuffix          = "-authn"
-	AuthPolicyGroup               = "kuadrant.io"
-	AuthPolicyVersion             = "v1"
-	AuthPolicyKind                = "AuthPolicy"
-	HTTPRouteNameSuffix           = "-kserve-route"
-	KubernetesAudience            = "https://kubernetes.default.svc"
+	UserDefined AuthType = "userdefined"
+	Anonymous   AuthType = "anonymous"
+)
+
+const (
+	AuthAudience         = "AUTH_AUDIENCE"
+	AuthorinoLabel       = "AUTHORINO_LABEL"
+	AuthPolicyNameSuffix = "-authn"
+	AuthPolicyGroup      = "kuadrant.io"
+	AuthPolicyVersion    = "v1"
+	AuthPolicyKind       = "AuthPolicy"
+	HTTPRouteNameSuffix  = "-kserve-route"
+	KubernetesAudience   = "https://kubernetes.default.svc"
 )
 
 func GetAuthPolicyName(llmisvcName string) string {
