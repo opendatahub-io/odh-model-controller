@@ -145,3 +145,33 @@ const (
 
 // Default timeout value for Openshift routes
 const DefaultOpenshiftRouteTimeout int64 = 30
+
+type AuthType string
+
+const (
+	UserDefined AuthType = "userdefined"
+	Anonymous   AuthType = "anonymous"
+)
+
+const (
+	AuthAudience         = "AUTH_AUDIENCE"
+	AuthorinoLabel       = "AUTHORINO_LABEL"
+	AuthPolicyNameSuffix = "-authn"
+	AuthPolicyGroup      = "kuadrant.io"
+	AuthPolicyVersion    = "v1"
+	AuthPolicyKind       = "AuthPolicy"
+	HTTPRouteNameSuffix  = "-kserve-route"
+	KubernetesAudience   = "https://kubernetes.default.svc"
+)
+
+func GetAuthPolicyName(llmisvcName string) string {
+	return llmisvcName + AuthPolicyNameSuffix
+}
+
+func GetHTTPRouteName(llmisvcName string) string {
+	return llmisvcName + HTTPRouteNameSuffix
+}
+
+func GetAuthPolicyGroupVersion() string {
+	return AuthPolicyGroup + "/" + AuthPolicyVersion
+}

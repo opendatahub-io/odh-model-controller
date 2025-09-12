@@ -478,3 +478,21 @@ func SetOpenshiftRouteTimeoutForIsvc(route *v1.Route, isvc *kservev1beta1.Infere
 
 	route.Annotations[constants.RouteTimeoutAnnotationKey] = fmt.Sprintf("%ds", timeout)
 }
+
+// GetEnvOr returns the value of the environment variable key if it exists, otherwise returns defaultValue
+func GetEnvOr(key, defaultValue string) string {
+	if env, defined := os.LookupEnv(key); defined {
+		return env
+	}
+	return defaultValue
+}
+
+// GetAuthAudience returns the authentication audience from environment variable or default
+func GetAuthAudience(defaultAudience string) []string {
+	aud := GetEnvOr("AUTH_AUDIENCE", defaultAudience)
+	audiences := strings.Split(aud, ",")
+	for i := range audiences {
+		audiences[i] = strings.TrimSpace(audiences[i])
+	}
+	return audiences
+}

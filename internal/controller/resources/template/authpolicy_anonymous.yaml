@@ -1,0 +1,21 @@
+apiVersion: kuadrant.io/v1
+kind: AuthPolicy
+metadata:
+  name: {{.Name}}
+  namespace: {{.Namespace}}
+spec:
+  targetRef:
+    group: "gateway.networking.k8s.io"
+    kind: "HTTPRoute"
+    name: {{.HTTPRouteName}}
+  defaults:
+    strategy: merge
+    rules:
+      authentication:
+        anonymous:
+          metrics: false
+          priority: 0
+      authorization:
+        allow:
+          metrics: false
+          priority: 0
