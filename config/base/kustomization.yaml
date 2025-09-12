@@ -7,11 +7,6 @@ namespace: opendatahub
 configMapGenerator:
   - envs:
       - params.env
-      - params-cuda.env
-      - params-vllm-rocm.env
-      - params-vllm-gaudi.env
-      - params-vllm-cpu.env
-      - params-guardrails-hf-runtime.env
     name: odh-model-controller-parameters
 generatorOptions:
   disableNameSuffixHash: true
