@@ -22,7 +22,7 @@ import (
 	"github.com/go-logr/logr"
 	kservev1beta1 "github.com/kserve/kserve/pkg/apis/serving/v1beta1"
 	"github.com/kserve/kserve/pkg/constants"
-	constants2 "github.com/opendatahub-io/odh-model-controller/internal/controller/constants"
+	odhconstants "github.com/opendatahub-io/odh-model-controller/internal/controller/constants"
 	"github.com/opendatahub-io/odh-model-controller/internal/controller/utils"
 	v1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -96,7 +96,8 @@ func (r *KserveRawMetricsServiceReconciler) createDesiredResource(ctx context.Co
 			Name:      getMetricsServiceName(isvc),
 			Namespace: isvc.Namespace,
 			Labels: map[string]string{
-				"name": getMetricsServiceName(isvc),
+				"name":                               getMetricsServiceName(isvc),
+				odhconstants.RhoaiObservabilityLabel: "true",
 			},
 		},
 		Spec: v1.ServiceSpec{
@@ -110,7 +111,7 @@ func (r *KserveRawMetricsServiceReconciler) createDesiredResource(ctx context.Co
 			},
 			Type: v1.ServiceTypeClusterIP,
 			Selector: map[string]string{
-				constants2.KserveGroupAnnotation: isvc.Name,
+				odhconstants.KserveGroupAnnotation: isvc.Name,
 			},
 		},
 	}
