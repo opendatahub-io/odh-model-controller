@@ -2,42 +2,33 @@ apiVersion: kuadrant.io/v1
 kind: AuthPolicy
 metadata:
   name: {{.Name}}
-  namespace: {{.Namespace}}
+  namespace: {{.GatewayNamespace}}
 spec:
   targetRef:
-    group: "gateway.networking.k8s.io"
-    kind: "HTTPRoute"
-    name: {{.HTTPRouteName}}
-  defaults:
-    strategy: merge
-    rules:
-      authentication:
-        kubernetes-user:
-          credentials:
-            authorizationHeader: {}
-          kubernetesTokenReview:
-            audiences: {{.AudiencesJSON}}
-          metrics: false
-          priority: 0
-      authorization:
-        kubernetes-rbac:
-          kubernetesSubjectAccessReview:
-            resourceAttributes:
-              group:
-                value: "serving.kserve.io"
-              version:
-                value: "v1alpha1"
-              name:
-                value: {{.LLMInferenceServiceName}}
-              namespace:
-                value: {{.Namespace}}
-              resource:
-                value: llminferenceservices
-              subresource:
-                value: ""
-              verb:
-                value: get
-            user:
-              selector: auth.identity.user.username
-          metrics: false
-          priority: 0
+    group: gateway.networking.k8s.io
+    kind: Gateway
+    name: {{.GatewayName}}
+  rules:
+    authentication:
+      kubernetes-user:
+        kubernetesTokenReview:
+          audiences: {{.AudiencesJSON}}
+    authorization:
+      tier-access:
+        kubernetesSubjectAccessReview:
+          user:
+            expression: auth.identity.user.username
+          authorizationGroups:
+            expression: auth.identity.user.groups
+          resourceAttributes:
+            group:
+              value: serving.kserve.io
+            resource:
+              value: llminferenceservices
+            namespace:
+              expression: request.path.split("/")[1]
+            name:
+              expression: request.path.split("/")[2]
+            verb:
+              value: get
+        priority: 1

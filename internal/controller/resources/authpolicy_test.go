@@ -122,57 +122,57 @@ var _ = Describe("AuthPolicyDetector", func() {
 
 var _ = Describe("AuthPolicyTemplateLoader", func() {
 	Context("Template loading", func() {
-		dummyLLMISvc := kservev1alpha1.LLMInferenceService{
-			ObjectMeta: v1.ObjectMeta{
-				Namespace: "test-ns",
-				Name:      "test-llm",
-			},
-		}
+		var loader resources.AuthPolicyTemplateLoader
+		var dummyLLMISvc kservev1alpha1.LLMInferenceService
 
-		It("should resolve UserDefined template for LLMInferenceService", func() {
+		BeforeEach(func() {
 			scheme := runtime.NewScheme()
 			Expect(kservev1alpha1.AddToScheme(scheme)).To(Succeed())
 			fakeClient := fake.NewClientBuilder().WithScheme(scheme).Build()
-			loader := resources.NewKServeAuthPolicyTemplateLoader(fakeClient, scheme)
-			authPolicy, err := loader.Load(
+			loader = resources.NewKServeAuthPolicyTemplateLoader(fakeClient, scheme)
+
+			dummyLLMISvc = kservev1alpha1.LLMInferenceService{
+				ObjectMeta: v1.ObjectMeta{
+					Namespace: "test-ns",
+					Name:      "test-llm",
+				},
+			}
+		})
+
+		It("should resolve UserDefined template for LLMInferenceService", func() {
+			authPolicies, err := loader.Load(
 				context.Background(),
 				constants.UserDefined,
 				&dummyLLMISvc)
 
 			Expect(err).To(Succeed())
-			Expect(authPolicy).ToNot(BeNil())
-			Expect(authPolicy.GetName()).To(Equal(constants.GetAuthPolicyName(dummyLLMISvc.Name)))
-			Expect(authPolicy.GetNamespace()).To(Equal(dummyLLMISvc.Namespace))
+			Expect(authPolicies).ToNot(BeNil())
+			Expect(authPolicies).ToNot(BeEmpty())
+			Expect(authPolicies[0].GetName()).To(Equal(constants.GetGatewayAuthPolicyName("openshift-ai-inference")))
+			Expect(authPolicies[0].GetNamespace()).To(Equal("openshift-ingress"))
 		})
 
 		It("should resolve Anonymous template for LLMInferenceService", func() {
-			scheme := runtime.NewScheme()
-			Expect(kservev1alpha1.AddToScheme(scheme)).To(Succeed())
-			fakeClient := fake.NewClientBuilder().WithScheme(scheme).Build()
-			loader := resources.NewKServeAuthPolicyTemplateLoader(fakeClient, scheme)
-			authPolicy, err := loader.Load(
+			authPolicies, err := loader.Load(
 				context.Background(),
 				constants.Anonymous,
 				&dummyLLMISvc)
 
 			Expect(err).To(Succeed())
-			Expect(authPolicy).ToNot(BeNil())
-			Expect(authPolicy.GetName()).To(Equal(constants.GetAuthPolicyName(dummyLLMISvc.Name)))
-			Expect(authPolicy.GetNamespace()).To(Equal(dummyLLMISvc.Namespace))
+			Expect(authPolicies).ToNot(BeNil())
+			Expect(authPolicies).To(HaveLen(1))
+			Expect(authPolicies[0].GetName()).To(Equal(constants.GetAuthPolicyName(dummyLLMISvc.Name)))
+			Expect(authPolicies[0].GetNamespace()).To(Equal(dummyLLMISvc.Namespace))
 		})
 
 		It("should return error for unsupported auth type", func() {
-			scheme := runtime.NewScheme()
-			Expect(kservev1alpha1.AddToScheme(scheme)).To(Succeed())
-			fakeClient := fake.NewClientBuilder().WithScheme(scheme).Build()
-			loader := resources.NewKServeAuthPolicyTemplateLoader(fakeClient, scheme)
-			authPolicy, err := loader.Load(
+			authPolicies, err := loader.Load(
 				context.Background(),
-				"unsupported-type",
+				constants.AuthType("unsupported-type"),
 				&dummyLLMISvc)
 
 			Expect(err).To(HaveOccurred())
-			Expect(authPolicy).To(BeNil())
+			Expect(authPolicies).To(BeNil())
 			Expect(err.Error()).To(ContainSubstring("unsupported AuthPolicy type"))
 		})
 
@@ -182,19 +182,16 @@ var _ = Describe("AuthPolicyTemplateLoader", func() {
 				_ = os.Unsetenv("AUTH_AUDIENCE")
 			}()
 
-			scheme := runtime.NewScheme()
-			Expect(kservev1alpha1.AddToScheme(scheme)).To(Succeed())
-			fakeClient := fake.NewClientBuilder().WithScheme(scheme).Build()
-			loader := resources.NewKServeAuthPolicyTemplateLoader(fakeClient, scheme)
-			authPolicy, err := loader.Load(
+			authPolicies, err := loader.Load(
 				context.Background(),
 				constants.UserDefined,
 				&dummyLLMISvc)
 
 			Expect(err).To(Succeed())
-			Expect(authPolicy).ToNot(BeNil())
+			Expect(authPolicies).ToNot(BeNil())
+			Expect(authPolicies).ToNot(BeEmpty())
 
-			audiences, found, err := unstructured.NestedStringSlice(authPolicy.Object, "spec", "defaults", "rules", "authentication", "kubernetes-user", "kubernetesTokenReview", "audiences")
+			audiences, found, err := unstructured.NestedStringSlice(authPolicies[0].Object, "spec", "rules", "authentication", "kubernetes-user", "kubernetesTokenReview", "audiences")
 			Expect(err).To(Succeed())
 			Expect(found).To(BeTrue())
 			Expect(audiences).To(ContainElement("http://test.com"))

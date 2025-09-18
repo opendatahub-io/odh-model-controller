@@ -24,11 +24,11 @@ import (
 	"strings"
 	"text/template"
 
+	"github.com/go-logr/logr"
 	kservev1alpha1 "github.com/kserve/kserve/pkg/apis/serving/v1alpha1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
-	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 	"sigs.k8s.io/yaml"
 
 	"github.com/opendatahub-io/odh-model-controller/internal/controller/constants"
@@ -40,7 +40,7 @@ type AuthPolicyDetector interface {
 }
 
 type AuthPolicyTemplateLoader interface {
-	Load(ctx context.Context, authType constants.AuthType, llmisvc *kservev1alpha1.LLMInferenceService) (*unstructured.Unstructured, error)
+	Load(ctx context.Context, authType constants.AuthType, llmisvc *kservev1alpha1.LLMInferenceService) ([]*unstructured.Unstructured, error)
 }
 
 //go:embed template/authpolicy_llm_isvc_userdefined.yaml
@@ -61,7 +61,7 @@ func NewKServeAuthPolicyDetector(client client.Client) AuthPolicyDetector {
 
 func (k *kserveAuthPolicyDetector) Detect(_ context.Context, annotations map[string]string) constants.AuthType {
 	if value, exist := annotations[constants.EnableAuthODHAnnotation]; exist {
-		if strings.ToLower(value) == "false" {
+		if strings.EqualFold(strings.TrimSpace(value), "false") {
 			return constants.Anonymous
 		}
 	}
@@ -80,10 +80,10 @@ func NewKServeAuthPolicyTemplateLoader(client client.Client, scheme *runtime.Sch
 	}
 }
 
-func (k *kserveAuthPolicyTemplateLoader) Load(ctx context.Context, authType constants.AuthType, llmisvc *kservev1alpha1.LLMInferenceService) (*unstructured.Unstructured, error) {
+func (k *kserveAuthPolicyTemplateLoader) Load(ctx context.Context, authType constants.AuthType, llmisvc *kservev1alpha1.LLMInferenceService) ([]*unstructured.Unstructured, error) {
 	switch authType {
 	case constants.UserDefined:
-		return k.loadUserDefinedTemplate(llmisvc)
+		return k.loadUserDefinedTemplates(ctx, llmisvc)
 	case constants.Anonymous:
 		return k.loadAnonymousTemplate(llmisvc)
 	default:
@@ -91,7 +91,24 @@ func (k *kserveAuthPolicyTemplateLoader) Load(ctx context.Context, authType cons
 	}
 }
 
-func (k *kserveAuthPolicyTemplateLoader) loadUserDefinedTemplate(llmisvc *kservev1alpha1.LLMInferenceService) (*unstructured.Unstructured, error) {
+func (k *kserveAuthPolicyTemplateLoader) loadUserDefinedTemplates(ctx context.Context, llmisvc *kservev1alpha1.LLMInferenceService) ([]*unstructured.Unstructured, error) {
+	logger := logr.FromContextOrDiscard(ctx).WithName("authpolicy")
+	gateways := k.getGatewayInfo(ctx, logger, llmisvc)
+
+	authPolicies := make([]*unstructured.Unstructured, 0, len(gateways))
+
+	for _, gateway := range gateways {
+		authPolicy, err := k.renderUserDefinedTemplate(gateway.Namespace, gateway.Name)
+		if err != nil {
+			return nil, fmt.Errorf("failed to render AuthPolicy for gateway %s/%s: %w", gateway.Namespace, gateway.Name, err)
+		}
+		authPolicies = append(authPolicies, authPolicy)
+	}
+
+	return authPolicies, nil
+}
+
+func (k *kserveAuthPolicyTemplateLoader) renderUserDefinedTemplate(gatewayNamespace, gatewayName string) (*unstructured.Unstructured, error) {
 	tmpl, err := template.New("authpolicy").Parse(string(authPolicyTemplateUserDefined))
 	if err != nil {
 		return nil, fmt.Errorf("failed to parse AuthPolicy template: %w", err)
@@ -100,44 +117,39 @@ func (k *kserveAuthPolicyTemplateLoader) loadUserDefinedTemplate(llmisvc *kserve
 	audiences := controllerutils.GetAuthAudience(constants.KubernetesAudience)
 	audiencesJSON, err := json.Marshal(audiences)
 	if err != nil {
-		return nil, fmt.Errorf("failed to marshal audiences to JSON: %w", err)
+		return nil, fmt.Errorf("failed to marshal audiences %v to JSON: %w", audiences, err)
 	}
 
 	templateData := struct {
-		Name                    string
-		Namespace               string
-		LLMInferenceServiceName string
-		HTTPRouteName           string
-		Audiences               []string
-		AudiencesJSON           string
+		Name             string
+		GatewayName      string
+		GatewayNamespace string
+		Audiences        []string
+		AudiencesJSON    string
 	}{
-		Name:                    constants.GetAuthPolicyName(llmisvc.Name),
-		Namespace:               llmisvc.Namespace,
-		LLMInferenceServiceName: llmisvc.Name,
-		HTTPRouteName:           constants.GetHTTPRouteName(llmisvc.Name),
-		Audiences:               audiences,
-		AudiencesJSON:           string(audiencesJSON),
+		Name:             constants.GetGatewayAuthPolicyName(gatewayName),
+		GatewayName:      gatewayName,
+		GatewayNamespace: gatewayNamespace,
+		Audiences:        audiences,
+		AudiencesJSON:    string(audiencesJSON),
 	}
 
 	var builder strings.Builder
 	if err := tmpl.Execute(&builder, templateData); err != nil {
-		return nil, fmt.Errorf("failed to execute AuthPolicy template: %w", err)
+		return nil, fmt.Errorf("failed to execute AuthPolicy template with data %+v: %w", templateData, err)
 	}
 
-	var authPolicyObj map[string]interface{}
+	var authPolicyObj map[string]any
 	if err := yaml.Unmarshal([]byte(builder.String()), &authPolicyObj); err != nil {
 		return nil, fmt.Errorf("failed to unmarshal AuthPolicy YAML: %w", err)
 	}
 
 	authPolicy := &unstructured.Unstructured{Object: authPolicyObj}
-	if err := controllerutil.SetControllerReference(llmisvc, authPolicy, k.scheme); err != nil {
-		return nil, fmt.Errorf("failed to set controller reference: %w", err)
-	}
 
 	return authPolicy, nil
 }
 
-func (k *kserveAuthPolicyTemplateLoader) loadAnonymousTemplate(llmisvc *kservev1alpha1.LLMInferenceService) (*unstructured.Unstructured, error) {
+func (k *kserveAuthPolicyTemplateLoader) loadAnonymousTemplate(llmisvc *kservev1alpha1.LLMInferenceService) ([]*unstructured.Unstructured, error) {
 	tmpl, err := template.New("authpolicy").Parse(string(authPolicyTemplateAnonymous))
 	if err != nil {
 		return nil, fmt.Errorf("failed to parse AuthPolicy anonymous template: %w", err)
@@ -155,18 +167,50 @@ func (k *kserveAuthPolicyTemplateLoader) loadAnonymousTemplate(llmisvc *kservev1
 
 	var builder strings.Builder
 	if err := tmpl.Execute(&builder, templateData); err != nil {
-		return nil, fmt.Errorf("failed to execute AuthPolicy anonymous template: %w", err)
+		return nil, fmt.Errorf("failed to execute AuthPolicy anonymous template with data %+v: %w", templateData, err)
 	}
 
-	var authPolicyObj map[string]interface{}
+	var authPolicyObj map[string]any
 	if err := yaml.Unmarshal([]byte(builder.String()), &authPolicyObj); err != nil {
 		return nil, fmt.Errorf("failed to unmarshal AuthPolicy anonymous YAML: %w", err)
 	}
 
 	authPolicy := &unstructured.Unstructured{Object: authPolicyObj}
-	if err := controllerutil.SetControllerReference(llmisvc, authPolicy, k.scheme); err != nil {
-		return nil, fmt.Errorf("failed to set controller reference: %w", err)
+
+	return []*unstructured.Unstructured{authPolicy}, nil
+}
+
+// getGatewayInfo returns gateway list with fallback logic
+func (k *kserveAuthPolicyTemplateLoader) getGatewayInfo(ctx context.Context, log logr.Logger, llmisvc *kservev1alpha1.LLMInferenceService) []struct{ Namespace, Name string } {
+	var gateways []struct{ Namespace, Name string }
+
+	if llmisvc.Spec.Router != nil && llmisvc.Spec.Router.Gateway != nil && len(llmisvc.Spec.Router.Gateway.Refs) > 0 {
+		for _, ref := range llmisvc.Spec.Router.Gateway.Refs {
+			gateways = append(gateways, struct{ Namespace, Name string }{
+				Namespace: string(ref.Namespace),
+				Name:      string(ref.Name),
+			})
+		}
+		return gateways
 	}
 
-	return authPolicy, nil
+	var fallbackNamespace, fallbackName string
+	if userDefinedGatewayNS, userDefinedGatewayName, err := controllerutils.GetGatewayInfoFromConfigMap(ctx, k.client); err == nil {
+		fallbackNamespace = userDefinedGatewayNS
+		fallbackName = userDefinedGatewayName
+	} else {
+		log.Info("Using default gateway values due to ConfigMap parsing failure",
+			"error", err.Error(),
+			"defaultNamespace", constants.DefaultGatewayNamespace,
+			"defaultName", constants.DefaultGatewayName)
+		fallbackNamespace = constants.DefaultGatewayNamespace
+		fallbackName = constants.DefaultGatewayName
+	}
+
+	gateways = append(gateways, struct{ Namespace, Name string }{
+		Namespace: fallbackNamespace,
+		Name:      fallbackName,
+	})
+
+	return gateways
 }

@@ -8,14 +8,10 @@ spec:
     group: "gateway.networking.k8s.io"
     kind: "HTTPRoute"
     name: {{.HTTPRouteName}}
-  defaults:
-    strategy: merge
-    rules:
-      authentication:
-        anonymous:
-          metrics: false
-          priority: 0
-      authorization:
-        allow:
-          metrics: false
-          priority: 0
+  rules:
+    authentication:
+      public:
+        anonymous: {}
+        metrics: false
+        priority: 0
+
