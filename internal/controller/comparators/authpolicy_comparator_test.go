@@ -84,7 +84,7 @@ func createAuthPolicyWithoutLabels() *unstructured.Unstructured {
 	}
 }
 
-func createAuthPolicyWithAnnotations(appLabel string, annotations map[string]string) *unstructured.Unstructured {
+func createAuthPolicyWithAnnotations(annotations map[string]string) *unstructured.Unstructured {
 	annotationsInterface := make(map[string]interface{})
 	for k, v := range annotations {
 		annotationsInterface[k] = v
@@ -95,10 +95,10 @@ func createAuthPolicyWithAnnotations(appLabel string, annotations map[string]str
 			"apiVersion": "kuadrant.io/v1",
 			"kind":       "AuthPolicy",
 			"metadata": map[string]interface{}{
-				"name":        "test-authn",
-				"namespace":   "test-ns",
+				"name":      "test-authn",
+				"namespace": "test-ns",
 				"labels": map[string]interface{}{
-					"app": appLabel,
+					"app": "test",
 				},
 				"annotations": annotationsInterface,
 			},
@@ -239,11 +239,11 @@ func TestAuthPolicyComparator(t *testing.T) {
 		},
 		{
 			name: "policies with identical annotations should return true",
-			deployed: createAuthPolicyWithAnnotations("test", map[string]string{
+			deployed: createAuthPolicyWithAnnotations(map[string]string{
 				"example.com/annotation": "value1",
 				"test.io/config":         "enabled",
 			}),
-			requested: createAuthPolicyWithAnnotations("test", map[string]string{
+			requested: createAuthPolicyWithAnnotations(map[string]string{
 				"example.com/annotation": "value1",
 				"test.io/config":         "enabled",
 			}),
@@ -251,31 +251,31 @@ func TestAuthPolicyComparator(t *testing.T) {
 		},
 		{
 			name: "policies with different annotation values should return false",
-			deployed: createAuthPolicyWithAnnotations("test", map[string]string{
+			deployed: createAuthPolicyWithAnnotations(map[string]string{
 				"example.com/annotation": "value1",
 			}),
-			requested: createAuthPolicyWithAnnotations("test", map[string]string{
+			requested: createAuthPolicyWithAnnotations(map[string]string{
 				"example.com/annotation": "value2",
 			}),
 			expected: false,
 		},
 		{
 			name: "deployed with extra annotations - DeepDerivative checks if requested is subset of deployed",
-			deployed: createAuthPolicyWithAnnotations("test", map[string]string{
+			deployed: createAuthPolicyWithAnnotations(map[string]string{
 				"example.com/annotation":             "value1",
 				"kubectl.kubernetes.io/last-applied": "...",
 			}),
-			requested: createAuthPolicyWithAnnotations("test", map[string]string{
+			requested: createAuthPolicyWithAnnotations(map[string]string{
 				"example.com/annotation": "value1",
 			}),
 			expected: true,
 		},
 		{
 			name: "requested with extra annotations - deployed cannot contain all requested fields",
-			deployed: createAuthPolicyWithAnnotations("test", map[string]string{
+			deployed: createAuthPolicyWithAnnotations(map[string]string{
 				"example.com/annotation": "value1",
 			}),
-			requested: createAuthPolicyWithAnnotations("test", map[string]string{
+			requested: createAuthPolicyWithAnnotations(map[string]string{
 				"example.com/annotation":             "value1",
 				"kubectl.kubernetes.io/last-applied": "...",
 			}),
