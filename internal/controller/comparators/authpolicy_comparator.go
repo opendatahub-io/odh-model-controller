@@ -22,11 +22,12 @@ import (
 )
 
 func GetAuthPolicyComparator() ResourceComparator {
-	return func(deployed client.Object, requested client.Object) bool {
-		deployedAP := deployed.(*unstructured.Unstructured)
-		requestedAP := requested.(*unstructured.Unstructured)
+	return func(current client.Object, desired client.Object) bool {
+		currentAP := current.(*unstructured.Unstructured)
+		desiredAP := desired.(*unstructured.Unstructured)
 
-		return equality.Semantic.DeepDerivative(deployedAP.Object["spec"], requestedAP.Object["spec"]) &&
-			equality.Semantic.DeepDerivative(deployedAP.GetLabels(), requestedAP.GetLabels())
+		return equality.Semantic.DeepDerivative(desiredAP.Object["spec"], currentAP.Object["spec"]) &&
+			equality.Semantic.DeepDerivative(desiredAP.GetLabels(), currentAP.GetLabels()) &&
+			equality.Semantic.DeepDerivative(desiredAP.GetAnnotations(), currentAP.GetAnnotations())
 	}
 }

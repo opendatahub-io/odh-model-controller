@@ -84,6 +84,33 @@ func createAuthPolicyWithoutLabels() *unstructured.Unstructured {
 	}
 }
 
+func createAuthPolicyWithAnnotations(appLabel string, annotations map[string]string) *unstructured.Unstructured {
+	annotationsInterface := make(map[string]interface{})
+	for k, v := range annotations {
+		annotationsInterface[k] = v
+	}
+
+	return &unstructured.Unstructured{
+		Object: map[string]interface{}{
+			"apiVersion": "kuadrant.io/v1",
+			"kind":       "AuthPolicy",
+			"metadata": map[string]interface{}{
+				"name":        "test-authn",
+				"namespace":   "test-ns",
+				"labels": map[string]interface{}{
+					"app": appLabel,
+				},
+				"annotations": annotationsInterface,
+			},
+			"spec": map[string]interface{}{
+				"defaults": map[string]interface{}{
+					"strategy": "atomic",
+				},
+			},
+		},
+	}
+}
+
 func createComplexAuthPolicy(gatewayName, authType string) *unstructured.Unstructured {
 	return &unstructured.Unstructured{
 		Object: map[string]interface{}{
@@ -111,7 +138,7 @@ func createComplexAuthPolicy(gatewayName, authType string) *unstructured.Unstruc
 								},
 								"kubernetesTokenReview": map[string]interface{}{
 									"audiences": []interface{}{
-										"https://rh-oidc.s3.us-east-1.amazonaws.com/27bd6cg0vs7nn08mue83fbof94dj4m9a",
+										"https://example.com/test-audience",
 									},
 								},
 							},
@@ -184,13 +211,13 @@ func TestAuthPolicyComparator(t *testing.T) {
 			name:      "deployed with extra labels - DeepDerivative checks if requested is subset of deployed",
 			deployed:  createAuthPolicyWithExtraLabels("test"),
 			requested: createAuthPolicy("test"),
-			expected:  false,
+			expected:  true,
 		},
 		{
 			name:      "requested with extra labels - deployed cannot contain all requested fields",
 			deployed:  createAuthPolicy("test"),
 			requested: createAuthPolicyWithExtraLabels("test"),
-			expected:  true,
+			expected:  false,
 		},
 		{
 			name:      "complex AuthPolicy with different authorization types should return false",
@@ -209,6 +236,50 @@ func TestAuthPolicyComparator(t *testing.T) {
 			deployed:  createComplexAuthPolicy("gateway-1", "tier-access"),
 			requested: createComplexAuthPolicy("gateway-2", "tier-access"),
 			expected:  false,
+		},
+		{
+			name: "policies with identical annotations should return true",
+			deployed: createAuthPolicyWithAnnotations("test", map[string]string{
+				"example.com/annotation": "value1",
+				"test.io/config":         "enabled",
+			}),
+			requested: createAuthPolicyWithAnnotations("test", map[string]string{
+				"example.com/annotation": "value1",
+				"test.io/config":         "enabled",
+			}),
+			expected: true,
+		},
+		{
+			name: "policies with different annotation values should return false",
+			deployed: createAuthPolicyWithAnnotations("test", map[string]string{
+				"example.com/annotation": "value1",
+			}),
+			requested: createAuthPolicyWithAnnotations("test", map[string]string{
+				"example.com/annotation": "value2",
+			}),
+			expected: false,
+		},
+		{
+			name: "deployed with extra annotations - DeepDerivative checks if requested is subset of deployed",
+			deployed: createAuthPolicyWithAnnotations("test", map[string]string{
+				"example.com/annotation":             "value1",
+				"kubectl.kubernetes.io/last-applied": "...",
+			}),
+			requested: createAuthPolicyWithAnnotations("test", map[string]string{
+				"example.com/annotation": "value1",
+			}),
+			expected: true,
+		},
+		{
+			name: "requested with extra annotations - deployed cannot contain all requested fields",
+			deployed: createAuthPolicyWithAnnotations("test", map[string]string{
+				"example.com/annotation": "value1",
+			}),
+			requested: createAuthPolicyWithAnnotations("test", map[string]string{
+				"example.com/annotation":             "value1",
+				"kubectl.kubernetes.io/last-applied": "...",
+			}),
+			expected: false,
 		},
 	}
 
