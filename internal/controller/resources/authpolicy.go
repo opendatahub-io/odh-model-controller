@@ -275,6 +275,16 @@ func (c *clientAuthPolicyStore) Update(ctx context.Context, authPolicy *unstruct
 	c.setAuthPolicyGVK(authPolicy)
 
 	return retry.RetryOnConflict(retry.DefaultRetry, func() error {
+		current := &unstructured.Unstructured{}
+		c.setAuthPolicyGVK(current)
+		if err := c.client.Get(ctx, types.NamespacedName{
+			Name:      authPolicy.GetName(),
+			Namespace: authPolicy.GetNamespace(),
+		}, current); err != nil {
+			return err
+		}
+
+		authPolicy.SetResourceVersion(current.GetResourceVersion())
 		return c.client.Update(ctx, authPolicy)
 	})
 }
