@@ -28,6 +28,9 @@ import (
 	kservev1alpha1 "github.com/kserve/kserve/pkg/apis/serving/v1alpha1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/apimachinery/pkg/runtime/schema"
+	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/client-go/util/retry"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/yaml"
 
@@ -41,6 +44,13 @@ type AuthPolicyDetector interface {
 
 type AuthPolicyTemplateLoader interface {
 	Load(ctx context.Context, authType constants.AuthType, llmisvc *kservev1alpha1.LLMInferenceService) ([]*unstructured.Unstructured, error)
+}
+
+type AuthPolicyStore interface {
+	Get(ctx context.Context, key types.NamespacedName) (*unstructured.Unstructured, error)
+	Remove(ctx context.Context, key types.NamespacedName) error
+	Create(ctx context.Context, authPolicy *unstructured.Unstructured) error
+	Update(ctx context.Context, authPolicy *unstructured.Unstructured) error
 }
 
 //go:embed template/authpolicy_llm_isvc_userdefined.yaml
@@ -213,4 +223,74 @@ func (k *kserveAuthPolicyTemplateLoader) getGatewayInfo(ctx context.Context, log
 	})
 
 	return gateways
+}
+
+type clientAuthPolicyStore struct {
+	client client.Client
+}
+
+func NewClientAuthPolicyStore(client client.Client) AuthPolicyStore {
+	return &clientAuthPolicyStore{
+		client: client,
+	}
+}
+
+func (c *clientAuthPolicyStore) Get(ctx context.Context, key types.NamespacedName) (*unstructured.Unstructured, error) {
+	authPolicy := &unstructured.Unstructured{}
+	c.setAuthPolicyGVK(authPolicy)
+
+	err := c.client.Get(ctx, key, authPolicy)
+	if err != nil {
+		return nil, fmt.Errorf("could not GET authpolicy %s. cause %w", key, err)
+	}
+	return authPolicy, nil
+}
+
+func (c *clientAuthPolicyStore) Remove(ctx context.Context, key types.NamespacedName) error {
+	authPolicy := &unstructured.Unstructured{}
+	c.setAuthPolicyGVK(authPolicy)
+	authPolicy.SetName(key.Name)
+	authPolicy.SetNamespace(key.Namespace)
+
+	if err := c.client.Delete(ctx, authPolicy); err != nil {
+		return fmt.Errorf("could not DELETE authpolicy %s. cause %w", key, err)
+	}
+	return nil
+}
+
+func (c *clientAuthPolicyStore) Create(ctx context.Context, authPolicy *unstructured.Unstructured) error {
+	c.setAuthPolicyGVK(authPolicy)
+
+	if err := c.client.Create(ctx, authPolicy); err != nil {
+		return fmt.Errorf("could not CREATE authpolicy %s/%s. cause %w", authPolicy.GetNamespace(), authPolicy.GetName(), err)
+	}
+	return nil
+}
+
+func (c *clientAuthPolicyStore) Update(ctx context.Context, authPolicy *unstructured.Unstructured) error {
+	c.setAuthPolicyGVK(authPolicy)
+
+	return retry.RetryOnConflict(retry.DefaultRetry, func() error {
+		current := &unstructured.Unstructured{}
+		c.setAuthPolicyGVK(current)
+		if err := c.client.Get(ctx, types.NamespacedName{
+			Name:      authPolicy.GetName(),
+			Namespace: authPolicy.GetNamespace(),
+		}, current); err != nil {
+			return err
+		}
+
+		authPolicy.SetResourceVersion(current.GetResourceVersion())
+		authPolicy.SetUID(current.GetUID())
+
+		return c.client.Update(ctx, authPolicy)
+	})
+}
+
+func (c *clientAuthPolicyStore) setAuthPolicyGVK(authPolicy *unstructured.Unstructured) {
+	authPolicy.SetGroupVersionKind(schema.GroupVersionKind{
+		Group:   constants.AuthPolicyGroup,
+		Version: constants.AuthPolicyVersion,
+		Kind:    constants.AuthPolicyKind,
+	})
 }
