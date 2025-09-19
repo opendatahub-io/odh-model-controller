@@ -26,6 +26,7 @@ import (
 
 	"github.com/go-logr/logr"
 	kservev1alpha1 "github.com/kserve/kserve/pkg/apis/serving/v1alpha1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
@@ -241,7 +242,7 @@ func (c *clientAuthPolicyStore) Get(ctx context.Context, key types.NamespacedNam
 
 	err := c.client.Get(ctx, key, authPolicy)
 	if err != nil {
-		return nil, fmt.Errorf("could not GET authpolicy %s. cause %w", key, err)
+		return nil, fmt.Errorf("could not GET AuthPolicy %s: %w", key, err)
 	}
 	return authPolicy, nil
 }
@@ -253,7 +254,10 @@ func (c *clientAuthPolicyStore) Remove(ctx context.Context, key types.Namespaced
 	authPolicy.SetNamespace(key.Namespace)
 
 	if err := c.client.Delete(ctx, authPolicy); err != nil {
-		return fmt.Errorf("could not DELETE authpolicy %s. cause %w", key, err)
+		if apierrors.IsNotFound(err) {
+			return nil
+		}
+		return fmt.Errorf("could not DELETE AuthPolicy %s: %w", key, err)
 	}
 	return nil
 }
@@ -262,7 +266,7 @@ func (c *clientAuthPolicyStore) Create(ctx context.Context, authPolicy *unstruct
 	c.setAuthPolicyGVK(authPolicy)
 
 	if err := c.client.Create(ctx, authPolicy); err != nil {
-		return fmt.Errorf("could not CREATE authpolicy %s/%s. cause %w", authPolicy.GetNamespace(), authPolicy.GetName(), err)
+		return fmt.Errorf("could not CREATE AuthPolicy %s/%s: %w", authPolicy.GetNamespace(), authPolicy.GetName(), err)
 	}
 	return nil
 }
@@ -271,18 +275,6 @@ func (c *clientAuthPolicyStore) Update(ctx context.Context, authPolicy *unstruct
 	c.setAuthPolicyGVK(authPolicy)
 
 	return retry.RetryOnConflict(retry.DefaultRetry, func() error {
-		current := &unstructured.Unstructured{}
-		c.setAuthPolicyGVK(current)
-		if err := c.client.Get(ctx, types.NamespacedName{
-			Name:      authPolicy.GetName(),
-			Namespace: authPolicy.GetNamespace(),
-		}, current); err != nil {
-			return err
-		}
-
-		authPolicy.SetResourceVersion(current.GetResourceVersion())
-		authPolicy.SetUID(current.GetUID())
-
 		return c.client.Update(ctx, authPolicy)
 	})
 }
