@@ -3,9 +3,19 @@ name: Create Tag and Release with Changelog
 on:
   workflow_dispatch:
     inputs:
-      tag_name:
-        description: 'Tag name for the new release'
+      tag_name: # The new release tag to be created and used as the search value.
+        description: 'New release tag (e.g., odh-v2.35)'
         required: true
+        type: string
+      next_odh_tag: # The next ODH tag to replace the current one in the Konflux files.
+        description: 'Next development cycle tag: (e.g., odh-v2.36)'
+        required: true
+        type: string
+    #
+    # Note: This workflow assumes the release tag and image tags are in sync.
+    #       'tag_name' is used to create the release and as the value to find in konflux files.
+    #       'next_odh_tag' provides the new value to set.
+    #
 
 permissions:
   contents: write
@@ -101,3 +111,43 @@ jobs:
           files: bin/*
           generate_release_notes: true
           name: ${{ github.event.inputs.tag_name }}
+  
+  # This job updates the ODH tag in the specified file and commits the change
+  bump-odh-tag: 
+    name: Bump ODH Tag for Next Release
+    runs-on: ubuntu-latest
+    needs: [fetch-tag, update-params-env, changelog]
+    permissions:
+      contents: write # Re-adding to ensure write permission.
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.ref }} # This will resolve the detached HEAD issue that code rabbit brought up.
+      
+      - name: Update odh-model-controller-push.yaml with next ODH tag
+        run: |
+          CURRENT_TAG="${{ github.event.inputs.tag_name }}"
+          NEXT_TAG="${{ github.event.inputs.next_odh_tag }}"
+          
+          echo "Updating ODH tag from $CURRENT_TAG to $NEXT_TAG..."
+          
+          # Using sed to replace the current ODH tag with the next one,
+          # anchored to the image name to prevent over-matching.
+          sed -i "s|odh-model-controller:${CURRENT_TAG}|odh-model-controller:${NEXT_TAG}|g" .tekton/odh-model-controller-push.yaml
+
+          echo "Update complete."
+          
+      - name: Commit and Push Changes
+        run: |
+          git config --global user.email "github-actions@github.com"
+          git config --global user.name "GitHub Actions"
+          git add .tekton/odh-model-controller-push.yaml
+          
+          # Check if there are any changes to commit
+          if [[ -z "$(git status --porcelain)" ]]; then 
+            echo "No changes to commit. Exiting."
+          else
+            git commit -m "chore(konflux): Bump ODH release tag to ${{ github.event.inputs.next_odh_tag }}"
+            git push
+          fi
