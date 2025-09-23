@@ -16,17 +16,17 @@ limitations under the License.
 package comparators
 
 import (
+	kuadrantv1 "github.com/kuadrant/kuadrant-operator/api/v1"
 	"k8s.io/apimachinery/pkg/api/equality"
-	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
 func GetAuthPolicyComparator() ResourceComparator {
 	return func(current client.Object, desired client.Object) bool {
-		currentAP := current.(*unstructured.Unstructured)
-		desiredAP := desired.(*unstructured.Unstructured)
+		currentAP := current.(*kuadrantv1.AuthPolicy)
+		desiredAP := desired.(*kuadrantv1.AuthPolicy)
 
-		return equality.Semantic.DeepDerivative(desiredAP.Object["spec"], currentAP.Object["spec"]) &&
+		return equality.Semantic.DeepDerivative(desiredAP.Spec, currentAP.Spec) &&
 			equality.Semantic.DeepDerivative(desiredAP.GetLabels(), currentAP.GetLabels()) &&
 			equality.Semantic.DeepDerivative(desiredAP.GetAnnotations(), currentAP.GetAnnotations())
 	}

@@ -18,162 +18,115 @@ package comparators_test
 import (
 	"testing"
 
+	kuadrantv1 "github.com/kuadrant/kuadrant-operator/api/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	gwapiv1alpha2 "sigs.k8s.io/gateway-api/apis/v1alpha2"
+
 	"github.com/opendatahub-io/odh-model-controller/internal/controller/comparators"
-	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 )
 
-func createAuthPolicy(appLabel string) *unstructured.Unstructured {
-	return &unstructured.Unstructured{
-		Object: map[string]interface{}{
-			"apiVersion": "kuadrant.io/v1",
-			"kind":       "AuthPolicy",
-			"metadata": map[string]interface{}{
-				"name":      "test-authn",
-				"namespace": "test-ns",
-				"labels": map[string]interface{}{
-					"app": appLabel,
-				},
+func createAuthPolicy(appLabel string) *kuadrantv1.AuthPolicy {
+	return &kuadrantv1.AuthPolicy{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "test-authn",
+			Namespace: "test-ns",
+			Labels: map[string]string{
+				"app": appLabel,
 			},
-			"spec": map[string]interface{}{
-				"defaults": map[string]interface{}{
-					"strategy": "atomic",
+		},
+		Spec: kuadrantv1.AuthPolicySpec{
+			TargetRef: gwapiv1alpha2.LocalPolicyTargetReferenceWithSectionName{
+				LocalPolicyTargetReference: gwapiv1alpha2.LocalPolicyTargetReference{
+					Group: "gateway.networking.k8s.io",
+					Kind:  "HTTPRoute",
+					Name:  "test-route",
 				},
 			},
 		},
 	}
 }
 
-func createAuthPolicyWithExtraLabels(appLabel string) *unstructured.Unstructured {
-	return &unstructured.Unstructured{
-		Object: map[string]interface{}{
-			"apiVersion": "kuadrant.io/v1",
-			"kind":       "AuthPolicy",
-			"metadata": map[string]interface{}{
-				"name":      "test-authn",
-				"namespace": "test-ns",
-				"labels": map[string]interface{}{
-					"app": appLabel,
-					"kubectl.kubernetes.io/last-applied-configuration": "...",
-					"app.kubernetes.io/managed-by":                     "controller",
-				},
+func createAuthPolicyWithExtraLabels(appLabel string) *kuadrantv1.AuthPolicy {
+	return &kuadrantv1.AuthPolicy{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "test-authn",
+			Namespace: "test-ns",
+			Labels: map[string]string{
+				"app": appLabel,
+				"kubectl.kubernetes.io/last-applied-configuration": "...",
+				"app.kubernetes.io/managed-by":                     "controller",
 			},
-			"spec": map[string]interface{}{
-				"defaults": map[string]interface{}{
-					"strategy": "atomic",
+		},
+		Spec: kuadrantv1.AuthPolicySpec{
+			TargetRef: gwapiv1alpha2.LocalPolicyTargetReferenceWithSectionName{
+				LocalPolicyTargetReference: gwapiv1alpha2.LocalPolicyTargetReference{
+					Group: "gateway.networking.k8s.io",
+					Kind:  "HTTPRoute",
+					Name:  "test-route",
 				},
 			},
 		},
 	}
 }
 
-func createAuthPolicyWithoutLabels() *unstructured.Unstructured {
-	return &unstructured.Unstructured{
-		Object: map[string]interface{}{
-			"apiVersion": "kuadrant.io/v1",
-			"kind":       "AuthPolicy",
-			"metadata": map[string]interface{}{
-				"name":      "test-authn",
-				"namespace": "test-ns",
-			},
-			"spec": map[string]interface{}{
-				"defaults": map[string]interface{}{
-					"strategy": "atomic",
+func createAuthPolicyWithoutLabels() *kuadrantv1.AuthPolicy {
+	return &kuadrantv1.AuthPolicy{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "test-authn",
+			Namespace: "test-ns",
+		},
+		Spec: kuadrantv1.AuthPolicySpec{
+			TargetRef: gwapiv1alpha2.LocalPolicyTargetReferenceWithSectionName{
+				LocalPolicyTargetReference: gwapiv1alpha2.LocalPolicyTargetReference{
+					Group: "gateway.networking.k8s.io",
+					Kind:  "HTTPRoute",
+					Name:  "test-route",
 				},
 			},
 		},
 	}
 }
 
-func createAuthPolicyWithAnnotations(annotations map[string]string) *unstructured.Unstructured {
-	annotationsInterface := make(map[string]interface{})
-	for k, v := range annotations {
-		annotationsInterface[k] = v
-	}
-
-	return &unstructured.Unstructured{
-		Object: map[string]interface{}{
-			"apiVersion": "kuadrant.io/v1",
-			"kind":       "AuthPolicy",
-			"metadata": map[string]interface{}{
-				"name":      "test-authn",
-				"namespace": "test-ns",
-				"labels": map[string]interface{}{
-					"app": "test",
-				},
-				"annotations": annotationsInterface,
+func createAuthPolicyWithAnnotations(annotations map[string]string) *kuadrantv1.AuthPolicy {
+	return &kuadrantv1.AuthPolicy{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "test-authn",
+			Namespace: "test-ns",
+			Labels: map[string]string{
+				"app": "test",
 			},
-			"spec": map[string]interface{}{
-				"defaults": map[string]interface{}{
-					"strategy": "atomic",
+			Annotations: annotations,
+		},
+		Spec: kuadrantv1.AuthPolicySpec{
+			TargetRef: gwapiv1alpha2.LocalPolicyTargetReferenceWithSectionName{
+				LocalPolicyTargetReference: gwapiv1alpha2.LocalPolicyTargetReference{
+					Group: "gateway.networking.k8s.io",
+					Kind:  "HTTPRoute",
+					Name:  "test-route",
 				},
 			},
 		},
 	}
 }
 
-func createComplexAuthPolicy(gatewayName, authType string) *unstructured.Unstructured {
-	return &unstructured.Unstructured{
-		Object: map[string]interface{}{
-			"apiVersion": "kuadrant.io/v1",
-			"kind":       "AuthPolicy",
-			"metadata": map[string]interface{}{
-				"name":      "llm-gateway-authn",
-				"namespace": "openshift-ingress",
-				"labels": map[string]interface{}{
-					"app": "test",
-				},
+func createComplexAuthPolicy(gatewayName, authType string) *kuadrantv1.AuthPolicy {
+	return &kuadrantv1.AuthPolicy{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "llm-gateway-authn",
+			Namespace: "openshift-ingress",
+			Labels: map[string]string{
+				"app": "test",
 			},
-			"spec": map[string]interface{}{
-				"targetRef": map[string]interface{}{
-					"group": "gateway.networking.k8s.io",
-					"kind":  "Gateway",
-					"name":  gatewayName,
-				},
-				"defaults": map[string]interface{}{
-					"rules": map[string]interface{}{
-						"authentication": map[string]interface{}{
-							"kubernetes-user": map[string]interface{}{
-								"credentials": map[string]interface{}{
-									"authorizationHeader": map[string]interface{}{},
-								},
-								"kubernetesTokenReview": map[string]interface{}{
-									"audiences": []interface{}{
-										"https://example.com/test-audience",
-									},
-								},
-							},
-						},
-						"authorization": map[string]interface{}{
-							authType: map[string]interface{}{
-								"kubernetesSubjectAccessReview": map[string]interface{}{
-									"user": map[string]interface{}{
-										"expression": "auth.identity.user.username",
-									},
-									"authorizationGroups": map[string]interface{}{
-										"expression": "auth.identity.user.groups",
-									},
-									"resourceAttributes": map[string]interface{}{
-										"group": map[string]interface{}{
-											"value": "serving.kserve.io",
-										},
-										"resource": map[string]interface{}{
-											"value": "llminferenceservices",
-										},
-										"namespace": map[string]interface{}{
-											"expression": "request.path.split(\"/\")[1]",
-										},
-										"name": map[string]interface{}{
-											"expression": "request.path.split(\"/\")[2]",
-										},
-										"verb": map[string]interface{}{
-											"value": "get",
-										},
-									},
-								},
-								"priority": 1,
-							},
-						},
-					},
+			Annotations: map[string]string{
+				"auth-type": authType,
+			},
+		},
+		Spec: kuadrantv1.AuthPolicySpec{
+			TargetRef: gwapiv1alpha2.LocalPolicyTargetReferenceWithSectionName{
+				LocalPolicyTargetReference: gwapiv1alpha2.LocalPolicyTargetReference{
+					Group: "gateway.networking.k8s.io",
+					Kind:  "Gateway",
+					Name:  gwapiv1alpha2.ObjectName(gatewayName),
 				},
 			},
 		},
@@ -185,8 +138,8 @@ func TestAuthPolicyComparator(t *testing.T) {
 
 	tests := []struct {
 		name      string
-		deployed  *unstructured.Unstructured
-		requested *unstructured.Unstructured
+		deployed  *kuadrantv1.AuthPolicy
+		requested *kuadrantv1.AuthPolicy
 		expected  bool
 	}{
 		{
