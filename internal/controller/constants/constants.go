@@ -15,6 +15,8 @@ limitations under the License.
 
 package constants
 
+import "time"
+
 type KServeDeploymentMode string
 
 const (
@@ -29,6 +31,7 @@ const (
 	IstioSidecarInjectAnnotationName = "sidecar.istio.io/inject"
 	KserveNetworkVisibility          = "networking.kserve.io/visibility"
 	KserveGroupAnnotation            = "serving.kserve.io/inferenceservice"
+	RhoaiObservabilityLabel          = "monitoring.opendatahub.io/scrape"
 
 	EnableAuthODHAnnotation   = "security.opendatahub.io/enable-auth"
 	LabelAuthGroup            = "security.opendatahub.io/authorization-group"
@@ -69,13 +72,24 @@ const (
 	ModelRegistryServiceAnnotation       = "routing.opendatahub.io/external-address-rest"
 )
 
+// CA bundles
 const (
 	KServeCACertFileName       = "cabundle.crt"
 	KServeCACertConfigMapName  = "odh-kserve-custom-ca-bundle"
 	ODHGlobalCertConfigMapName = "odh-trusted-ca-bundle"
+	ODHClusterCACertFileName   = "ca-bundle.crt"
 	ODHCustomCACertFileName    = "odh-ca-bundle.crt"
 	KServeGatewayName          = "kserve-local-gateway"
+	ServiceCAConfigMapName     = "openshift-service-ca.crt"
+	ServiceCACertFileName      = "service-ca.crt"
 )
+
+func CABundleConfigMaps() map[string][]string {
+	return map[string][]string{
+		ODHGlobalCertConfigMapName: {ODHClusterCACertFileName, ODHCustomCACertFileName},
+		ServiceCAConfigMapName:     {ServiceCACertFileName},
+	}
+}
 
 const (
 	KserveMetricsConfigMapNameSuffix = "-metrics-dashboard"
@@ -92,7 +106,8 @@ const (
 
 // openshift
 const (
-	ServingCertAnnotationKey = "service.beta.openshift.io/serving-cert-secret-name"
+	ServingCertAnnotationKey  = "service.beta.openshift.io/serving-cert-secret-name"
+	RouteTimeoutAnnotationKey = "haproxy.router.openshift.io/timeout"
 )
 
 // Events
@@ -109,7 +124,11 @@ const (
 
 // NIM
 const (
-	NimApplyConfigFieldManager = "nim-account-controller"
+	NimApplyConfigFieldManager   = "nim-account-controller"
+	NimValidationRefreshRate     = time.Hour * 24
+	NimConfigRefreshRate         = time.Hour * 24
+	NimCleanupFinalizer          = "runtimes.opendatahub.io/nim-cleanup-finalizer"
+	NimForceValidationAnnotation = "runtimes.opendatahub.io/nim-force-validation"
 )
 
 // Ray
@@ -123,3 +142,6 @@ const (
 	RayTLSVolumeMountPath            = "/etc/ray/tls"
 	RayTLSSecretMountPath            = "/etc/ray-secret"
 )
+
+// Default timeout value for Openshift routes
+const DefaultOpenshiftRouteTimeout int64 = 30

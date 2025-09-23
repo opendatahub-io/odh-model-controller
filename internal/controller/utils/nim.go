@@ -38,6 +38,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/utils/semantic"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/apiutil"
 )
@@ -104,6 +105,7 @@ type (
 const (
 	nimGetRuntimeTokenFmt    = "https://nvcr.io/proxy_auth?account=$oauthtoken&offline_token=true&scope=repository:%s:pull"
 	nimGetRuntimeManifestFmt = "https://nvcr.io/v2/%s/manifests/%s"
+	nimGetCallerInfoFmt      = "https://api.ngc.nvidia.com/v3/keys/get-caller-info"
 	nimGetNgcCatalog         = "https://api.ngc.nvidia.com/v2/search/catalog/resources/CONTAINER"
 	nimGetNgcToken           = "https://authn.nvidia.com/token?service=ngc&"
 	nimGetNgcModelDataFmt    = "https://api.ngc.nvidia.com/v2/org/%s/team/%s/repos/%s?resolve-labels=true"
@@ -111,9 +113,18 @@ const (
 )
 
 var NimHttpClient HttpClient
+var NimEqualities semantic.Equalities
 
 func init() {
 	NimHttpClient = &http.Client{Timeout: time.Second * 30}
+	NimEqualities = semantic.EqualitiesOrDie(
+		func(a, b resource.Quantity) bool {
+			return true
+		},
+		func(a, b metav1.Time) bool {
+			return a.UTC() == b.UTC()
+		},
+	)
 }
 
 // GetAvailableNimRuntimes is used for fetching a list of available NIM custom runtimes
@@ -123,6 +134,37 @@ func GetAvailableNimRuntimes(logger logr.Logger) ([]NimRuntime, error) {
 
 // ValidateApiKey is used for validating the given API key by retrieving the token and pulling the given custom runtime
 func ValidateApiKey(logger logr.Logger, apiKey string, runtimes []NimRuntime) error {
+	if isPersonalApiKey(apiKey) {
+		return validatePersonalApiKey(logger, apiKey)
+	}
+	return validateLegacyApiKey(logger, apiKey, runtimes)
+}
+
+// validatePersonalApiKey is used for validating the given API key by retrieving the token and pulling the given custom runtime
+func validatePersonalApiKey(logger logr.Logger, apiKey string) error {
+	req, reqErr := http.NewRequest("POST", nimGetCallerInfoFmt, strings.NewReader(fmt.Sprintf("credentials=%s", apiKey)))
+	if reqErr != nil {
+		return reqErr
+	}
+
+	req.Header.Add("Content-Type", "application/x-www-form-urlencoded")
+	req.Header.Add("Authorization", fmt.Sprintf("Bearer %s", apiKey))
+
+	resp, respErr := handleRequest(logger, req)
+	if respErr != nil {
+		return respErr
+	}
+
+	if resp.StatusCode != http.StatusOK {
+		return fmt.Errorf("got response %s", resp.Status)
+	}
+	return nil
+}
+
+// validateLegacyApiKey is used for validating the given Legacy API key by retrieving the token and pulling the given custom runtime
+// DEPRECATED: please use personal api keys to avoid disruption. Legacy api keys are deprecated and will be removed in the future.
+func validateLegacyApiKey(logger logr.Logger, apiKey string, runtimes []NimRuntime) error {
+	logger.Info("validating as legacy api key, this is deprecated, please use personal api key to avoid disruption")
 	for _, runtime := range runtimes {
 		tokenResp, tokenErr := getRuntimeRegistryToken(logger, apiKey, runtime.Resource)
 		if tokenErr != nil {
@@ -148,13 +190,22 @@ func ValidateApiKey(logger logr.Logger, apiKey string, runtimes []NimRuntime) er
 // GetNimModelData is used for fetching the model info for the given runtimes, returns configmap data
 func GetNimModelData(logger logr.Logger, apiKey string, runtimes []NimRuntime) (map[string]string, error) {
 	data := map[string]string{}
-	tokenResp, tokenErr := getNgcToken(logger, apiKey)
-	if tokenErr != nil {
-		return data, tokenErr
+	var key string
+	if isPersonalApiKey(apiKey) {
+		// personal api keys can be used directly as bearer tokens
+		key = apiKey
+	} else {
+		// legacy api keys require a token creation
+		logger.Info("using a legacy api key to fetch models data, this is deprecated, please use personal api key to avoid disruption")
+		tokenResp, tokenErr := getNgcToken(logger, apiKey)
+		if tokenErr != nil {
+			return data, tokenErr
+		}
+		key = tokenResp.Token
 	}
 
 	for _, runtime := range runtimes {
-		if model, unmarshaled := getModelData(logger, runtime, tokenResp); model != nil {
+		if model, unmarshaled := getModelData(logger, runtime, key); model != nil {
 			data[model.Name] = unmarshaled
 		}
 	}
@@ -296,14 +347,14 @@ func attemptToPullManifest(logger logr.Logger, runtime NimRuntime, tokenResp *Ni
 }
 
 // getModelData is used for fetching NIM model data for the given runtime
-func getModelData(logger logr.Logger, runtime NimRuntime, tokenResp *NimTokenResponse) (*NimModel, string) {
+func getModelData(logger logr.Logger, runtime NimRuntime, key string) (*NimModel, string) {
 	req, reqErr := http.NewRequest("GET", fmt.Sprintf(nimGetNgcModelDataFmt, runtime.Org, runtime.Team, runtime.Image), nil)
 	if reqErr != nil {
 		logger.Error(reqErr, "failed to construct request")
 		return nil, ""
 	}
 
-	req.Header.Add("Authorization", fmt.Sprintf("Bearer %s", tokenResp.Token))
+	req.Header.Add("Authorization", fmt.Sprintf("Bearer %s", key))
 
 	resp, respErr := handleRequest(logger, req)
 	if respErr != nil {
@@ -355,6 +406,10 @@ func handleRequest(logger logr.Logger, req *http.Request) (*http.Response, error
 		}
 	}
 	return resp, nil
+}
+
+func isPersonalApiKey(apiKey string) bool {
+	return strings.HasPrefix(apiKey, "nvapi-")
 }
 
 // GetNimServingRuntimeTemplate returns the Template used by ODH for creating serving runtimes
@@ -475,7 +530,6 @@ func GetNimServingRuntimeTemplate(scheme *runtime.Scheme) (*v1alpha1.ServingRunt
 
 // CleanupResources is used for deleting the integration related resources (configmap, template, pull secret)
 func CleanupResources(ctx context.Context, account *v1.Account, kubeClient client.Client) error {
-
 	var delObjs []client.Object
 
 	if account.Status.NIMPullSecret != nil {
@@ -506,7 +560,6 @@ func CleanupResources(ctx context.Context, account *v1.Account, kubeClient clien
 	}
 
 	var deleteErrors *multierror.Error
-
 	for _, obj := range delObjs {
 		if err := kubeClient.Delete(ctx, obj); err != nil {
 			if !k8serrors.IsNotFound(err) {
@@ -515,21 +568,21 @@ func CleanupResources(ctx context.Context, account *v1.Account, kubeClient clien
 		}
 	}
 	return deleteErrors.ErrorOrNil()
-
 }
 
 // UpdateStatus is used for fetching an updating the status of the account
 func UpdateStatus(ctx context.Context, subject types.NamespacedName, status v1.AccountStatus, kubeClient client.Client) error {
-
 	account := &v1.Account{}
 	if err := kubeClient.Get(ctx, subject, account); err != nil {
 		if !k8serrors.IsNotFound(err) {
 			return err
 		}
 	} else {
-		account.Status = *status.DeepCopy()
-		if err = kubeClient.Status().Update(ctx, account); err != nil {
-			return err
+		if !NimEqualities.DeepEqual(account.Status, status) {
+			account.Status = *status.DeepCopy()
+			if err = kubeClient.Status().Update(ctx, account); err != nil {
+				return err
+			}
 		}
 	}
 	return nil
@@ -571,11 +624,15 @@ func (r *NIMCleanupRunner) Start(ctx context.Context) error {
 					"SecretNotReconciled", msg),
 			},
 		}
-		subject := types.NamespacedName{Name: account.Name, Namespace: account.Namespace}
 
-		if err := UpdateStatus(ctx, subject, cleanStatus, r.Client); err != nil {
+		if err := UpdateStatus(ctx, client.ObjectKeyFromObject(&account), cleanStatus, r.Client); err != nil {
 			r.Logger.Error(err, "failed to perform clean up on some accounts")
 		}
 	}
 	return nil
+}
+
+// ObjectKeyFromReference returns the ObjectKey given a ObjectReference
+func ObjectKeyFromReference(ref *corev1.ObjectReference) client.ObjectKey {
+	return types.NamespacedName{Name: ref.Name, Namespace: ref.Namespace}
 }

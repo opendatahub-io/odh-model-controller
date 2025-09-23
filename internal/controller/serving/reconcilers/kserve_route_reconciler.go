@@ -22,7 +22,6 @@ import (
 	"github.com/go-logr/logr"
 	kservev1beta1 "github.com/kserve/kserve/pkg/apis/serving/v1beta1"
 	"github.com/kserve/kserve/pkg/constants"
-	"github.com/kserve/kserve/pkg/utils"
 	v1 "github.com/openshift/api/route/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
@@ -61,7 +60,7 @@ func (r *KserveRouteReconciler) Reconcile(ctx context.Context, log logr.Logger, 
 	log.V(1).Info("Reconciling Generic Route for Kserve InferenceService")
 
 	// Create Desired resource
-	desiredResource, err := r.createDesiredResource(isvc)
+	desiredResource, err := r.createDesiredResource(ctx, isvc)
 	if err != nil {
 		return err
 	}
@@ -80,9 +79,8 @@ func (r *KserveRouteReconciler) Reconcile(ctx context.Context, log logr.Logger, 
 }
 
 func (r *KserveRouteReconciler) Delete(ctx context.Context, log logr.Logger, isvc *kservev1beta1.InferenceService) error {
-	log.V(1).Info("Deleting Kserve inference service generic route")
-	_, meshNamespace := utils2.GetIstioControlPlaneName(ctx, r.client)
-	return r.routeHandler.DeleteRoute(ctx, types.NamespacedName{Name: getKServeRouteName(isvc), Namespace: meshNamespace})
+	// handled by owner references
+	return nil
 }
 
 func (r *KserveRouteReconciler) Cleanup(_ context.Context, _ logr.Logger, _ string) error {
@@ -90,8 +88,12 @@ func (r *KserveRouteReconciler) Cleanup(_ context.Context, _ logr.Logger, _ stri
 	return nil
 }
 
-func (r *KserveRouteReconciler) createDesiredResource(isvc *kservev1beta1.InferenceService) (*v1.Route, error) {
-	ingressConfig, err := kservev1beta1.NewIngressConfig(r.kClient)
+func (r *KserveRouteReconciler) createDesiredResource(ctx context.Context, isvc *kservev1beta1.InferenceService) (*v1.Route, error) {
+	isvcConfigMap, err := kservev1beta1.GetInferenceServiceConfigMap(ctx, r.kClient)
+	if err != nil {
+		return nil, err
+	}
+	ingressConfig, err := kservev1beta1.NewIngressConfig(isvcConfigMap)
 	if err != nil {
 		return nil, err
 	}
@@ -119,9 +121,6 @@ func (r *KserveRouteReconciler) createDesiredResource(isvc *kservev1beta1.Infere
 		if ingressConfig.PathTemplate != "" {
 			serviceHost = ingressConfig.IngressDomain
 		}
-		annotations := utils.Filter(isvc.Annotations, func(key string) bool {
-			return !utils.Includes(constants.ServiceAnnotationDisallowedList, key)
-		})
 
 		urlScheme := ingressConfig.UrlScheme
 		var targetPort intstr.IntOrString
@@ -140,10 +139,9 @@ func (r *KserveRouteReconciler) createDesiredResource(isvc *kservev1beta1.Infere
 
 		route := &v1.Route{
 			ObjectMeta: metav1.ObjectMeta{
-				Name:        getKServeRouteName(isvc),
-				Namespace:   meshNamespace,
-				Annotations: annotations,
-				Labels:      isvc.Labels,
+				Name:      getKServeRouteName(isvc),
+				Namespace: meshNamespace,
+				Labels:    isvc.Labels,
 			},
 			Spec: v1.RouteSpec{
 				Host: serviceHost,
@@ -159,6 +157,10 @@ func (r *KserveRouteReconciler) createDesiredResource(isvc *kservev1beta1.Infere
 				WildcardPolicy: v1.WildcardPolicyNone,
 			},
 		}
+
+		// Set route timeout
+		utils2.SetOpenshiftRouteTimeoutForIsvc(route, isvc)
+
 		return route, nil
 	}
 	return nil, nil

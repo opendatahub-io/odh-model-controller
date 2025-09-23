@@ -41,7 +41,10 @@ const (
 	kserveCustomCACertConfigMapName = constants.KServeCACertConfigMapName
 	kserveCustomCACertFileName      = constants.KServeCACertFileName
 	odhGlobalCACertConfigMapName    = constants.ODHGlobalCertConfigMapName
+	serviceCAConfigMapName          = constants.ServiceCAConfigMapName
 )
+
+var caBundleConfigmaps = constants.CABundleConfigMaps()
 
 // ConfigMapReconciler was formerly known as KServeCustomCACertReconciler.
 type ConfigMapReconciler struct {
@@ -54,20 +57,31 @@ type ConfigMapReconciler struct {
 // reconcileConfigMap watch odh global ca cert and it will create/update/delete kserve custom cert configmap
 func (r *ConfigMapReconciler) reconcileConfigMap(configmap *corev1.ConfigMap, ctx context.Context, log logr.Logger) error {
 
-	var odhCustomCertData string
-	// If kserve custom cert configmap changed, rollback it
-	if configmap.Name == kserveCustomCACertConfigMapName {
-		odhCustomCertConfigMap := &corev1.ConfigMap{}
-		err := r.Get(ctx, types.NamespacedName{Name: odhGlobalCACertConfigMapName, Namespace: configmap.Namespace}, odhCustomCertConfigMap)
-		if err != nil {
-			return err
+	var certData string
+	for caBundleConfigmapName, caBundleFiles := range caBundleConfigmaps {
+		cabundleConfigmap := &corev1.ConfigMap{}
+		if caBundleConfigmapName == configmap.Name {
+			cabundleConfigmap = configmap
+		} else {
+			err := r.Get(ctx, types.NamespacedName{Name: caBundleConfigmapName, Namespace: configmap.Namespace}, cabundleConfigmap)
+			if err != nil {
+				if apierrs.IsNotFound(err) {
+					continue
+				} else {
+					return err
+				}
+			}
 		}
-		configmap = odhCustomCertConfigMap
+		for _, fileName := range caBundleFiles {
+			fileData := strings.TrimSpace(cabundleConfigmap.Data[fileName])
+			if fileData != "" {
+				certData = strings.TrimPrefix(certData+"\n\n"+fileData, "\n\n")
+			}
+		}
 	}
-	odhCustomCertData = strings.TrimSpace(configmap.Data[constants.ODHCustomCACertFileName])
 
 	// Create Desired resource
-	configData := map[string]string{kserveCustomCACertFileName: odhCustomCertData}
+	configData := map[string]string{kserveCustomCACertFileName: certData}
 	desiredResource := getDesiredCaCertConfigMapForKServe(kserveCustomCACertConfigMapName, configmap.Namespace, configData)
 
 	// Get Existing resource
@@ -89,7 +103,7 @@ func (r *ConfigMapReconciler) reconcileConfigMap(configmap *corev1.ConfigMap, ct
 }
 
 func checkOpenDataHubGlobalCertCAConfigMapName(objectName string) bool {
-	return objectName == odhGlobalCACertConfigMapName || objectName == kserveCustomCACertConfigMapName
+	return objectName == odhGlobalCACertConfigMapName || objectName == kserveCustomCACertConfigMapName || objectName == serviceCAConfigMapName
 }
 
 // reconcileOpenDataHubGlobalCertConfigMap filters out all ConfigMaps that are not the OpenDataHub global certificate ConfigMap.
@@ -117,7 +131,8 @@ func (r *ConfigMapReconciler) Reconcile(ctx context.Context, req ctrl.Request) (
 	configmap := &corev1.ConfigMap{}
 	err := r.Get(ctx, req.NamespacedName, configmap)
 	if err != nil && apierrs.IsNotFound(err) {
-		log.Info("Opendatahub global cert ConfigMap not found")
+		log.Info("Cert ConfigMap not found")
+		configmap.Name = req.Name
 		configmap.Namespace = req.Namespace
 	} else if err != nil {
 		log.Error(err, "Unable to fetch the ConfigMap")
