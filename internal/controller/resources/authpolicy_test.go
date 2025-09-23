@@ -20,11 +20,15 @@ import (
 	"os"
 
 	kservev1alpha1 "github.com/kserve/kserve/pkg/apis/serving/v1alpha1"
-	. "github.com/onsi/ginkgo"
+	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	v1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/apimachinery/pkg/runtime/schema"
+	"k8s.io/apimachinery/pkg/types"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 
 	"github.com/opendatahub-io/odh-model-controller/internal/controller/constants"
@@ -33,51 +37,50 @@ import (
 
 var _ = Describe("AuthPolicyDetector", func() {
 	var detector resources.AuthPolicyDetector
-	ctx := context.Background()
 
 	BeforeEach(func() {
 		detector = resources.NewKServeAuthPolicyDetector(nil)
 	})
 
-	It("should return UserDefined when annotation is 'true'", func() {
+	It("should return UserDefined when annotation is 'true'", func(_ SpecContext) {
 		annotations := map[string]string{
 			constants.EnableAuthODHAnnotation: "true",
 		}
 
-		result := detector.Detect(ctx, annotations)
+		result := detector.Detect(context.Background(), annotations)
 
 		Expect(result).To(Equal(constants.UserDefined))
 	})
 
-	It("should return Anonymous when annotation is 'false'", func() {
+	It("should return Anonymous when annotation is 'false'", func(_ SpecContext) {
 		annotations := map[string]string{
 			constants.EnableAuthODHAnnotation: "false",
 		}
 
-		result := detector.Detect(ctx, annotations)
+		result := detector.Detect(context.Background(), annotations)
 
 		Expect(result).To(Equal(constants.Anonymous))
 	})
 
-	It("should return UserDefined when annotation is empty string", func() {
+	It("should return UserDefined when annotation is empty string", func(_ SpecContext) {
 		annotations := map[string]string{
 			constants.EnableAuthODHAnnotation: "",
 		}
 
-		result := detector.Detect(ctx, annotations)
+		result := detector.Detect(context.Background(), annotations)
 
 		Expect(result).To(Equal(constants.UserDefined))
 	})
 
-	It("should return UserDefined when annotation does not exist", func() {
+	It("should return UserDefined when annotation does not exist", func(_ SpecContext) {
 		annotations := map[string]string{}
 
-		result := detector.Detect(ctx, annotations)
+		result := detector.Detect(context.Background(), annotations)
 
 		Expect(result).To(Equal(constants.UserDefined))
 	})
 
-	It("should be case-insensitive for 'true' value", func() {
+	It("should be case-insensitive for 'true' value", func(_ SpecContext) {
 		testCases := []string{"TRUE", "True", "tRuE"}
 
 		for _, value := range testCases {
@@ -85,13 +88,13 @@ var _ = Describe("AuthPolicyDetector", func() {
 				constants.EnableAuthODHAnnotation: value,
 			}
 
-			result := detector.Detect(ctx, annotations)
+			result := detector.Detect(context.Background(), annotations)
 
 			Expect(result).To(Equal(constants.UserDefined), "Expected UserDefined for case variation: %s", value)
 		}
 	})
 
-	It("should be case-insensitive for 'false' value", func() {
+	It("should be case-insensitive for 'false' value", func(_ SpecContext) {
 		testCases := []string{"FALSE", "False", "fAlSe"}
 
 		for _, value := range testCases {
@@ -99,13 +102,13 @@ var _ = Describe("AuthPolicyDetector", func() {
 				constants.EnableAuthODHAnnotation: value,
 			}
 
-			result := detector.Detect(ctx, annotations)
+			result := detector.Detect(context.Background(), annotations)
 
 			Expect(result).To(Equal(constants.Anonymous), "Expected Anonymous for case variation: %s", value)
 		}
 	})
 
-	It("should return UserDefined for any other invalid values", func() {
+	It("should return UserDefined for any other invalid values", func(_ SpecContext) {
 		testCases := []string{"yes", "1", "enabled", "on", "invalid", "123"}
 
 		for _, value := range testCases {
@@ -113,7 +116,7 @@ var _ = Describe("AuthPolicyDetector", func() {
 				constants.EnableAuthODHAnnotation: value,
 			}
 
-			result := detector.Detect(ctx, annotations)
+			result := detector.Detect(context.Background(), annotations)
 
 			Expect(result).To(Equal(constants.UserDefined), "Expected UserDefined for invalid value: %s", value)
 		}
@@ -139,33 +142,33 @@ var _ = Describe("AuthPolicyTemplateLoader", func() {
 			}
 		})
 
-		It("should resolve UserDefined template for LLMInferenceService", func() {
+		It("should resolve UserDefined template for LLMInferenceService", func(_ SpecContext) {
 			authPolicies, err := loader.Load(
 				context.Background(),
 				constants.UserDefined,
 				&dummyLLMISvc)
 
-			Expect(err).To(Succeed())
+			Expect(err).ToNot(HaveOccurred())
 			Expect(authPolicies).ToNot(BeNil())
 			Expect(authPolicies).ToNot(BeEmpty())
 			Expect(authPolicies[0].GetName()).To(Equal(constants.GetGatewayAuthPolicyName("openshift-ai-inference")))
 			Expect(authPolicies[0].GetNamespace()).To(Equal("openshift-ingress"))
 		})
 
-		It("should resolve Anonymous template for LLMInferenceService", func() {
+		It("should resolve Anonymous template for LLMInferenceService", func(_ SpecContext) {
 			authPolicies, err := loader.Load(
 				context.Background(),
 				constants.Anonymous,
 				&dummyLLMISvc)
 
-			Expect(err).To(Succeed())
+			Expect(err).ToNot(HaveOccurred())
 			Expect(authPolicies).ToNot(BeNil())
 			Expect(authPolicies).To(HaveLen(1))
 			Expect(authPolicies[0].GetName()).To(Equal(constants.GetAuthPolicyName(dummyLLMISvc.Name)))
 			Expect(authPolicies[0].GetNamespace()).To(Equal(dummyLLMISvc.Namespace))
 		})
 
-		It("should return error for unsupported auth type", func() {
+		It("should return error for unsupported auth type", func(_ SpecContext) {
 			authPolicies, err := loader.Load(
 				context.Background(),
 				constants.AuthType("unsupported-type"),
@@ -176,7 +179,7 @@ var _ = Describe("AuthPolicyTemplateLoader", func() {
 			Expect(err.Error()).To(ContainSubstring("unsupported AuthPolicy type"))
 		})
 
-		It("should read AUTH_AUDIENCE env var for Audience", func() {
+		It("should read AUTH_AUDIENCE env var for Audience", func(_ SpecContext) {
 			_ = os.Setenv("AUTH_AUDIENCE", "http://test.com")
 			defer func() {
 				_ = os.Unsetenv("AUTH_AUDIENCE")
@@ -187,14 +190,159 @@ var _ = Describe("AuthPolicyTemplateLoader", func() {
 				constants.UserDefined,
 				&dummyLLMISvc)
 
-			Expect(err).To(Succeed())
+			Expect(err).ToNot(HaveOccurred())
 			Expect(authPolicies).ToNot(BeNil())
 			Expect(authPolicies).ToNot(BeEmpty())
 
 			audiences, found, err := unstructured.NestedStringSlice(authPolicies[0].Object, "spec", "rules", "authentication", "kubernetes-user", "kubernetesTokenReview", "audiences")
-			Expect(err).To(Succeed())
+			Expect(err).ToNot(HaveOccurred())
 			Expect(found).To(BeTrue())
 			Expect(audiences).To(ContainElement("http://test.com"))
 		})
+	})
+})
+
+func createTestAuthPolicy() *unstructured.Unstructured {
+	return &unstructured.Unstructured{
+		Object: map[string]interface{}{
+			"metadata": map[string]interface{}{
+				"name":      constants.GetAuthPolicyName("test-llm"),
+				"namespace": "test-namespace",
+			},
+			"spec": map[string]interface{}{
+				"targetRef": map[string]interface{}{
+					"group": "gateway.networking.k8s.io",
+					"kind":  "HTTPRoute",
+					"name":  constants.GetHTTPRouteName("test-llm"),
+				},
+			},
+		},
+	}
+}
+
+var _ = Describe("AuthPolicyStore", func() {
+	var store resources.AuthPolicyStore
+	var fakeClient client.Client
+
+	BeforeEach(func() {
+		scheme := runtime.NewScheme()
+		Expect(kservev1alpha1.AddToScheme(scheme)).ToNot(HaveOccurred())
+		scheme.AddKnownTypeWithName(schema.GroupVersionKind{
+			Group:   constants.AuthPolicyGroup,
+			Version: constants.AuthPolicyVersion,
+			Kind:    constants.AuthPolicyKind,
+		}, &unstructured.Unstructured{})
+		fakeClient = fake.NewClientBuilder().WithScheme(scheme).Build()
+		store = resources.NewClientAuthPolicyStore(fakeClient)
+	})
+
+	Context("CRUD operations", func() {
+		It("should create AuthPolicy successfully", func(ctx SpecContext) {
+			testAuthPolicy := createTestAuthPolicy()
+			err := store.Create(ctx, testAuthPolicy)
+			Expect(err).ToNot(HaveOccurred())
+		})
+
+		It("should return error when creating duplicate AuthPolicy", func(ctx SpecContext) {
+			testAuthPolicy := createTestAuthPolicy()
+			err := store.Create(ctx, testAuthPolicy)
+			Expect(err).ToNot(HaveOccurred())
+
+			err = store.Create(ctx, testAuthPolicy)
+			Expect(err).To(HaveOccurred())
+			// Note: fake client may not return exact AlreadyExists error
+		})
+
+		It("should get AuthPolicy successfully", func(ctx SpecContext) {
+			testAuthPolicy := createTestAuthPolicy()
+			err := store.Create(ctx, testAuthPolicy)
+			Expect(err).ToNot(HaveOccurred())
+
+			key := types.NamespacedName{
+				Name:      testAuthPolicy.GetName(),
+				Namespace: testAuthPolicy.GetNamespace(),
+			}
+			retrieved, err := store.Get(ctx, key)
+			Expect(err).ToNot(HaveOccurred())
+			Expect(retrieved).ToNot(BeNil())
+			Expect(retrieved.GetName()).To(Equal(testAuthPolicy.GetName()))
+			Expect(retrieved.GetNamespace()).To(Equal(testAuthPolicy.GetNamespace()))
+		})
+
+		It("should return error when getting non-existent AuthPolicy", func(ctx SpecContext) {
+			key := types.NamespacedName{
+				Name:      constants.GetAuthPolicyName("non-existent"),
+				Namespace: "test-namespace",
+			}
+			_, err := store.Get(ctx, key)
+			Expect(err).To(HaveOccurred())
+			Expect(apierrors.IsNotFound(err)).To(BeTrue())
+		})
+
+		It("should update AuthPolicy successfully", func(ctx SpecContext) {
+			testAuthPolicy := createTestAuthPolicy()
+			err := store.Create(ctx, testAuthPolicy)
+			Expect(err).ToNot(HaveOccurred())
+
+			testAuthPolicy.Object["spec"].(map[string]interface{})["updated"] = true
+			err = store.Update(ctx, testAuthPolicy)
+			Expect(err).ToNot(HaveOccurred())
+
+			key := types.NamespacedName{
+				Name:      testAuthPolicy.GetName(),
+				Namespace: testAuthPolicy.GetNamespace(),
+			}
+			retrieved, err := store.Get(ctx, key)
+			Expect(err).ToNot(HaveOccurred())
+			updated, found, err := unstructured.NestedBool(retrieved.Object, "spec", "updated")
+			Expect(err).ToNot(HaveOccurred())
+			Expect(found).To(BeTrue())
+			Expect(updated).To(BeTrue())
+		})
+
+		It("should return error when updating non-existent AuthPolicy", func(ctx SpecContext) {
+			nonExistentAuthPolicy := &unstructured.Unstructured{
+				Object: map[string]interface{}{
+					"metadata": map[string]interface{}{
+						"name":      constants.GetAuthPolicyName("non-existent"),
+						"namespace": "test-namespace",
+					},
+					"spec": map[string]interface{}{
+						"updated": true,
+					},
+				},
+			}
+
+			err := store.Update(ctx, nonExistentAuthPolicy)
+			Expect(err).To(HaveOccurred())
+			Expect(apierrors.IsNotFound(err)).To(BeTrue())
+		})
+
+		It("should remove AuthPolicy successfully", func(ctx SpecContext) {
+			testAuthPolicy := createTestAuthPolicy()
+			err := store.Create(ctx, testAuthPolicy)
+			Expect(err).ToNot(HaveOccurred())
+
+			key := types.NamespacedName{
+				Name:      testAuthPolicy.GetName(),
+				Namespace: testAuthPolicy.GetNamespace(),
+			}
+			err = store.Remove(ctx, key)
+			Expect(err).ToNot(HaveOccurred())
+
+			_, err = store.Get(ctx, key)
+			Expect(err).To(HaveOccurred())
+			Expect(apierrors.IsNotFound(err)).To(BeTrue())
+		})
+
+		It("should handle NotFound gracefully on remove", func(ctx SpecContext) {
+			key := types.NamespacedName{
+				Name:      constants.GetAuthPolicyName("non-existent"),
+				Namespace: "test-namespace",
+			}
+			err := store.Remove(ctx, key)
+			Expect(err).ToNot(HaveOccurred())
+		})
+
 	})
 })
