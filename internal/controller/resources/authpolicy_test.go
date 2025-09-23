@@ -196,6 +196,7 @@ var _ = Describe("AuthPolicyTemplateLoader", func() {
 
 			Expect(authPolicies[0].Name).To(ContainSubstring("authn"))
 			Expect(string(authPolicies[0].Spec.TargetRef.Kind)).To(Equal("Gateway"))
+			Expect(authPolicies[0].Spec.AuthScheme.Authentication["kubernetes-user"].KubernetesTokenReview.Audiences).To(ContainElement("http://test.com"))
 		})
 	})
 })
