@@ -389,17 +389,25 @@ var _ = Describe("InferenceService Controller", func() {
 				isvcName = inferenceService.Name
 
 				// Update the URL of the InferenceService to indicate it is ready.
-				deployedInferenceService := &kservev1beta1.InferenceService{}
-				err = k8sClient.Get(ctx, types.NamespacedName{Name: inferenceService.Name, Namespace: testNs}, deployedInferenceService)
-				Expect(err).NotTo(HaveOccurred())
-
 				newAddress := &duckv1.Addressable{
 					URL: apis.HTTPS("example-onnx-mnist-default.test.com"),
 				}
-				deployedInferenceService.Status.Address = newAddress
 
-				err = k8sClient.Status().Update(ctx, deployedInferenceService)
-				Expect(err).NotTo(HaveOccurred())
+				Eventually(func() error {
+					// Get latest version of InferenceService
+					deployedInferenceService := &kservev1beta1.InferenceService{}
+					err := k8sClient.Get(ctx, types.NamespacedName{Name: inferenceService.Name, Namespace: testNs}, deployedInferenceService)
+					if err != nil {
+						return err
+					}
+
+					// Create a copy and update status
+					updatedISVC := deployedInferenceService.DeepCopy()
+					updatedISVC.Status.Address = newAddress
+
+					// Use Patch instead of Update to reduce conflicts
+					return k8sClient.Status().Patch(ctx, updatedISVC, client.MergeFrom(deployedInferenceService))
+				}, timeout, interval).Should(Succeed())
 
 				// Verify that the certificate secret is created in the istio-system namespace.
 				Eventually(func() error {
@@ -448,7 +456,10 @@ var _ = Describe("InferenceService Controller", func() {
 					_, meshNamespace := utils.GetIstioControlPlaneName(ctx, k8sClient)
 					destSecret := &corev1.Secret{}
 					Eventually(func() error {
-						Expect(k8sClient.Get(ctx, client.ObjectKey{Namespace: meshNamespace, Name: fmt.Sprintf("%s-%s", deployedInferenceService.Name, deployedInferenceService.Namespace)}, destSecret)).Should(Succeed())
+						err := k8sClient.Get(ctx, client.ObjectKey{Namespace: meshNamespace, Name: fmt.Sprintf("%s-%s", deployedInferenceService.Name, deployedInferenceService.Namespace)}, destSecret)
+						if err != nil {
+							return err
+						}
 						if string(destSecret.Data["tls.crt"]) != updatedDataString {
 							return fmt.Errorf("destSecret is not updated yet")
 						}
