@@ -16,7 +16,6 @@ limitations under the License.
 package resources_test
 
 import (
-	"context"
 	"os"
 
 	kservev1alpha1 "github.com/kserve/kserve/pkg/apis/serving/v1alpha1"
@@ -42,45 +41,45 @@ var _ = Describe("AuthPolicyDetector", func() {
 		detector = resources.NewKServeAuthPolicyDetector(nil)
 	})
 
-	It("should return UserDefined when annotation is 'true'", func(_ SpecContext) {
+	It("should return UserDefined when annotation is 'true'", func(ctx SpecContext) {
 		annotations := map[string]string{
 			constants.EnableAuthODHAnnotation: "true",
 		}
 
-		result := detector.Detect(context.Background(), annotations)
+		result := detector.Detect(ctx, annotations)
 
 		Expect(result).To(Equal(constants.UserDefined))
 	})
 
-	It("should return Anonymous when annotation is 'false'", func(_ SpecContext) {
+	It("should return Anonymous when annotation is 'false'", func(ctx SpecContext) {
 		annotations := map[string]string{
 			constants.EnableAuthODHAnnotation: "false",
 		}
 
-		result := detector.Detect(context.Background(), annotations)
+		result := detector.Detect(ctx, annotations)
 
 		Expect(result).To(Equal(constants.Anonymous))
 	})
 
-	It("should return UserDefined when annotation is empty string", func(_ SpecContext) {
+	It("should return UserDefined when annotation is empty string", func(ctx SpecContext) {
 		annotations := map[string]string{
 			constants.EnableAuthODHAnnotation: "",
 		}
 
-		result := detector.Detect(context.Background(), annotations)
+		result := detector.Detect(ctx, annotations)
 
 		Expect(result).To(Equal(constants.UserDefined))
 	})
 
-	It("should return UserDefined when annotation does not exist", func(_ SpecContext) {
+	It("should return UserDefined when annotation does not exist", func(ctx SpecContext) {
 		annotations := map[string]string{}
 
-		result := detector.Detect(context.Background(), annotations)
+		result := detector.Detect(ctx, annotations)
 
 		Expect(result).To(Equal(constants.UserDefined))
 	})
 
-	It("should be case-insensitive for 'true' value", func(_ SpecContext) {
+	It("should be case-insensitive for 'true' value", func(ctx SpecContext) {
 		testCases := []string{"TRUE", "True", "tRuE"}
 
 		for _, value := range testCases {
@@ -88,13 +87,13 @@ var _ = Describe("AuthPolicyDetector", func() {
 				constants.EnableAuthODHAnnotation: value,
 			}
 
-			result := detector.Detect(context.Background(), annotations)
+			result := detector.Detect(ctx, annotations)
 
 			Expect(result).To(Equal(constants.UserDefined), "Expected UserDefined for case variation: %s", value)
 		}
 	})
 
-	It("should be case-insensitive for 'false' value", func(_ SpecContext) {
+	It("should be case-insensitive for 'false' value", func(ctx SpecContext) {
 		testCases := []string{"FALSE", "False", "fAlSe"}
 
 		for _, value := range testCases {
@@ -102,13 +101,13 @@ var _ = Describe("AuthPolicyDetector", func() {
 				constants.EnableAuthODHAnnotation: value,
 			}
 
-			result := detector.Detect(context.Background(), annotations)
+			result := detector.Detect(ctx, annotations)
 
 			Expect(result).To(Equal(constants.Anonymous), "Expected Anonymous for case variation: %s", value)
 		}
 	})
 
-	It("should return UserDefined for any other invalid values", func(_ SpecContext) {
+	It("should return UserDefined for any other invalid values", func(ctx SpecContext) {
 		testCases := []string{"yes", "1", "enabled", "on", "invalid", "123"}
 
 		for _, value := range testCases {
@@ -116,7 +115,7 @@ var _ = Describe("AuthPolicyDetector", func() {
 				constants.EnableAuthODHAnnotation: value,
 			}
 
-			result := detector.Detect(context.Background(), annotations)
+			result := detector.Detect(ctx, annotations)
 
 			Expect(result).To(Equal(constants.UserDefined), "Expected UserDefined for invalid value: %s", value)
 		}
@@ -132,7 +131,7 @@ var _ = Describe("AuthPolicyTemplateLoader", func() {
 			scheme := runtime.NewScheme()
 			Expect(kservev1alpha1.AddToScheme(scheme)).To(Succeed())
 			fakeClient := fake.NewClientBuilder().WithScheme(scheme).Build()
-			loader = resources.NewKServeAuthPolicyTemplateLoader(fakeClient, scheme)
+			loader = resources.NewKServeAuthPolicyTemplateLoader(fakeClient)
 
 			dummyLLMISvc = kservev1alpha1.LLMInferenceService{
 				ObjectMeta: v1.ObjectMeta{
@@ -142,9 +141,9 @@ var _ = Describe("AuthPolicyTemplateLoader", func() {
 			}
 		})
 
-		It("should resolve UserDefined template for LLMInferenceService", func(_ SpecContext) {
+		It("should resolve UserDefined template for LLMInferenceService", func(ctx SpecContext) {
 			authPolicies, err := loader.Load(
-				context.Background(),
+				ctx,
 				constants.UserDefined,
 				&dummyLLMISvc)
 
@@ -155,9 +154,9 @@ var _ = Describe("AuthPolicyTemplateLoader", func() {
 			Expect(authPolicies[0].GetNamespace()).To(Equal("openshift-ingress"))
 		})
 
-		It("should resolve Anonymous template for LLMInferenceService", func(_ SpecContext) {
+		It("should resolve Anonymous template for LLMInferenceService", func(ctx SpecContext) {
 			authPolicies, err := loader.Load(
-				context.Background(),
+				ctx,
 				constants.Anonymous,
 				&dummyLLMISvc)
 
@@ -168,9 +167,9 @@ var _ = Describe("AuthPolicyTemplateLoader", func() {
 			Expect(authPolicies[0].GetNamespace()).To(Equal(dummyLLMISvc.Namespace))
 		})
 
-		It("should return error for unsupported auth type", func(_ SpecContext) {
+		It("should return error for unsupported auth type", func(ctx SpecContext) {
 			authPolicies, err := loader.Load(
-				context.Background(),
+				ctx,
 				constants.AuthType("unsupported-type"),
 				&dummyLLMISvc)
 
@@ -179,14 +178,14 @@ var _ = Describe("AuthPolicyTemplateLoader", func() {
 			Expect(err.Error()).To(ContainSubstring("unsupported AuthPolicy type"))
 		})
 
-		It("should read AUTH_AUDIENCE env var for Audience", func(_ SpecContext) {
+		It("should read AUTH_AUDIENCE env var for Audience", func(ctx SpecContext) {
 			_ = os.Setenv("AUTH_AUDIENCE", "http://test.com")
 			defer func() {
 				_ = os.Unsetenv("AUTH_AUDIENCE")
 			}()
 
 			authPolicies, err := loader.Load(
-				context.Background(),
+				ctx,
 				constants.UserDefined,
 				&dummyLLMISvc)
 
