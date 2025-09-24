@@ -18,6 +18,7 @@ package comparators_test
 import (
 	"testing"
 
+	authorinov1beta3 "github.com/kuadrant/authorino/api/v1beta3"
 	kuadrantv1 "github.com/kuadrant/kuadrant-operator/api/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	gwapiv1alpha2 "sigs.k8s.io/gateway-api/apis/v1alpha2"
@@ -127,6 +128,57 @@ func createComplexAuthPolicy(gatewayName, authType string) *kuadrantv1.AuthPolic
 					Group: "gateway.networking.k8s.io",
 					Kind:  "Gateway",
 					Name:  gwapiv1alpha2.ObjectName(gatewayName),
+				},
+			},
+			AuthPolicySpecProper: kuadrantv1.AuthPolicySpecProper{
+				AuthScheme: &kuadrantv1.AuthSchemeSpec{
+					Authentication: map[string]kuadrantv1.MergeableAuthenticationSpec{
+						"kubernetes-user": {
+							AuthenticationSpec: authorinov1beta3.AuthenticationSpec{
+								AuthenticationMethodSpec: authorinov1beta3.AuthenticationMethodSpec{
+									KubernetesTokenReview: &authorinov1beta3.KubernetesTokenReviewSpec{
+										Audiences: []string{"https://kubernetes.default.svc.cluster.local", "http://test.com"},
+									},
+								},
+							},
+						},
+					},
+					Authorization: map[string]kuadrantv1.MergeableAuthorizationSpec{
+						"tier-access": {
+							AuthorizationSpec: authorinov1beta3.AuthorizationSpec{
+								CommonEvaluatorSpec: authorinov1beta3.CommonEvaluatorSpec{
+									Priority: 1,
+								},
+								AuthorizationMethodSpec: authorinov1beta3.AuthorizationMethodSpec{
+									KubernetesSubjectAccessReview: &authorinov1beta3.KubernetesSubjectAccessReviewAuthorizationSpec{
+										User: &authorinov1beta3.ValueOrSelector{
+											Expression: "auth.identity.user.username",
+										},
+										AuthorizationGroups: &authorinov1beta3.ValueOrSelector{
+											Expression: "auth.identity.user.groups",
+										},
+										ResourceAttributes: &authorinov1beta3.KubernetesSubjectAccessReviewResourceAttributesSpec{
+											Group: authorinov1beta3.ValueOrSelector{
+												Selector: "serving.kserve.io",
+											},
+											Resource: authorinov1beta3.ValueOrSelector{
+												Selector: "llminferenceservices",
+											},
+											Namespace: authorinov1beta3.ValueOrSelector{
+												Expression: `request.path.split("/")[1]`,
+											},
+											Name: authorinov1beta3.ValueOrSelector{
+												Expression: `request.path.split("/")[2]`,
+											},
+											Verb: authorinov1beta3.ValueOrSelector{
+												Selector: "get",
+											},
+										},
+									},
+								},
+							},
+						},
+					},
 				},
 			},
 		},
