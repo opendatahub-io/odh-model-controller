@@ -28,7 +28,6 @@ import (
 	kservev1alpha1 "github.com/kserve/kserve/pkg/apis/serving/v1alpha1"
 	kuadrantv1 "github.com/kuadrant/kuadrant-operator/api/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
-	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/util/retry"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -80,13 +79,11 @@ func (k *kserveAuthPolicyDetector) Detect(_ context.Context, annotations map[str
 
 type kserveAuthPolicyTemplateLoader struct {
 	client client.Client
-	scheme *runtime.Scheme
 }
 
-func NewKServeAuthPolicyTemplateLoader(client client.Client, scheme *runtime.Scheme) AuthPolicyTemplateLoader {
+func NewKServeAuthPolicyTemplateLoader(client client.Client) AuthPolicyTemplateLoader {
 	return &kserveAuthPolicyTemplateLoader{
 		client: client,
-		scheme: scheme,
 	}
 }
 
