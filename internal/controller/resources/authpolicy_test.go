@@ -20,16 +20,16 @@ import (
 	"os"
 
 	kservev1alpha1 "github.com/kserve/kserve/pkg/apis/serving/v1alpha1"
+	kuadrantv1 "github.com/kuadrant/kuadrant-operator/api/v1"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	v1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime"
-	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
+	gwapiv1alpha2 "sigs.k8s.io/gateway-api/apis/v1alpha2"
 
 	"github.com/opendatahub-io/odh-model-controller/internal/controller/constants"
 	"github.com/opendatahub-io/odh-model-controller/internal/controller/resources"
@@ -194,26 +194,25 @@ var _ = Describe("AuthPolicyTemplateLoader", func() {
 			Expect(authPolicies).ToNot(BeNil())
 			Expect(authPolicies).ToNot(BeEmpty())
 
-			audiences, found, err := unstructured.NestedStringSlice(authPolicies[0].Object, "spec", "rules", "authentication", "kubernetes-user", "kubernetesTokenReview", "audiences")
-			Expect(err).ToNot(HaveOccurred())
-			Expect(found).To(BeTrue())
-			Expect(audiences).To(ContainElement("http://test.com"))
+			Expect(authPolicies[0].Name).To(ContainSubstring("authn"))
+			Expect(string(authPolicies[0].Spec.TargetRef.Kind)).To(Equal("Gateway"))
+			Expect(authPolicies[0].Spec.AuthScheme.Authentication["kubernetes-user"].KubernetesTokenReview.Audiences).To(ContainElement("http://test.com"))
 		})
 	})
 })
 
-func createTestAuthPolicy() *unstructured.Unstructured {
-	return &unstructured.Unstructured{
-		Object: map[string]interface{}{
-			"metadata": map[string]interface{}{
-				"name":      constants.GetAuthPolicyName("test-llm"),
-				"namespace": "test-namespace",
-			},
-			"spec": map[string]interface{}{
-				"targetRef": map[string]interface{}{
-					"group": "gateway.networking.k8s.io",
-					"kind":  "HTTPRoute",
-					"name":  constants.GetHTTPRouteName("test-llm"),
+func createTestAuthPolicy() *kuadrantv1.AuthPolicy {
+	return &kuadrantv1.AuthPolicy{
+		ObjectMeta: v1.ObjectMeta{
+			Name:      constants.GetAuthPolicyName("test-llm"),
+			Namespace: "test-namespace",
+		},
+		Spec: kuadrantv1.AuthPolicySpec{
+			TargetRef: gwapiv1alpha2.LocalPolicyTargetReferenceWithSectionName{
+				LocalPolicyTargetReference: gwapiv1alpha2.LocalPolicyTargetReference{
+					Group: "gateway.networking.k8s.io",
+					Kind:  "HTTPRoute",
+					Name:  gwapiv1alpha2.ObjectName(constants.GetHTTPRouteName("test-llm")),
 				},
 			},
 		},
@@ -226,12 +225,7 @@ var _ = Describe("AuthPolicyStore", func() {
 
 	BeforeEach(func() {
 		scheme := runtime.NewScheme()
-		Expect(kservev1alpha1.AddToScheme(scheme)).ToNot(HaveOccurred())
-		scheme.AddKnownTypeWithName(schema.GroupVersionKind{
-			Group:   constants.AuthPolicyGroup,
-			Version: constants.AuthPolicyVersion,
-			Kind:    constants.AuthPolicyKind,
-		}, &unstructured.Unstructured{})
+		Expect(kuadrantv1.AddToScheme(scheme)).ToNot(HaveOccurred())
 		fakeClient = fake.NewClientBuilder().WithScheme(scheme).Build()
 		store = resources.NewClientAuthPolicyStore(fakeClient)
 	})
@@ -250,7 +244,6 @@ var _ = Describe("AuthPolicyStore", func() {
 
 			err = store.Create(ctx, testAuthPolicy)
 			Expect(err).To(HaveOccurred())
-			// Note: fake client may not return exact AlreadyExists error
 		})
 
 		It("should get AuthPolicy successfully", func(ctx SpecContext) {
@@ -284,7 +277,10 @@ var _ = Describe("AuthPolicyStore", func() {
 			err := store.Create(ctx, testAuthPolicy)
 			Expect(err).ToNot(HaveOccurred())
 
-			testAuthPolicy.Object["spec"].(map[string]interface{})["updated"] = true
+			if testAuthPolicy.Annotations == nil {
+				testAuthPolicy.Annotations = make(map[string]string)
+			}
+			testAuthPolicy.Annotations["test-updated"] = "true"
 			err = store.Update(ctx, testAuthPolicy)
 			Expect(err).ToNot(HaveOccurred())
 
@@ -294,24 +290,12 @@ var _ = Describe("AuthPolicyStore", func() {
 			}
 			retrieved, err := store.Get(ctx, key)
 			Expect(err).ToNot(HaveOccurred())
-			updated, found, err := unstructured.NestedBool(retrieved.Object, "spec", "updated")
-			Expect(err).ToNot(HaveOccurred())
-			Expect(found).To(BeTrue())
-			Expect(updated).To(BeTrue())
+			Expect(retrieved.Annotations).To(HaveKeyWithValue("test-updated", "true"))
 		})
 
 		It("should return error when updating non-existent AuthPolicy", func(ctx SpecContext) {
-			nonExistentAuthPolicy := &unstructured.Unstructured{
-				Object: map[string]interface{}{
-					"metadata": map[string]interface{}{
-						"name":      constants.GetAuthPolicyName("non-existent"),
-						"namespace": "test-namespace",
-					},
-					"spec": map[string]interface{}{
-						"updated": true,
-					},
-				},
-			}
+			nonExistentAuthPolicy := createTestAuthPolicy()
+			nonExistentAuthPolicy.Name = constants.GetAuthPolicyName("non-existent")
 
 			err := store.Update(ctx, nonExistentAuthPolicy)
 			Expect(err).To(HaveOccurred())
