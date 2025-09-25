@@ -135,8 +135,12 @@ func (r *LLMInferenceServiceReconciler) enqueueOnAuthPolicyChange() handler.Even
 			}
 		}
 
-		if namespacedName, found := r.authPolicyMatcher.FindLLMServiceFromGatewayAuthPolicy(ctx, authPolicy); found {
-			return []reconcile.Request{{NamespacedName: namespacedName}}
+		if namespacedNames, err := r.authPolicyMatcher.FindLLMServiceFromGatewayAuthPolicy(ctx, authPolicy); err == nil && len(namespacedNames) > 0 {
+			requests := make([]reconcile.Request, len(namespacedNames))
+			for i, namespacedName := range namespacedNames {
+				requests[i] = reconcile.Request{NamespacedName: namespacedName}
+			}
+			return requests
 		}
 		return []reconcile.Request{}
 	})

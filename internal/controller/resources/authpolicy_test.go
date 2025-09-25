@@ -481,7 +481,7 @@ var _ = Describe("AuthPolicyMatcher", func() {
 	})
 
 	Describe("FindLLMServiceFromGatewayAuthPolicy", func() {
-		It("should return false when no LLMInferenceService found", func(ctx SpecContext) {
+		It("should return empty slice when no LLMInferenceService found", func(ctx SpecContext) {
 			authPolicy := &kuadrantv1.AuthPolicy{
 				ObjectMeta: v1.ObjectMeta{
 					Name:      "gateway-auth-policy",
@@ -498,10 +498,10 @@ var _ = Describe("AuthPolicyMatcher", func() {
 				},
 			}
 
-			namespacedName, found := matcher.FindLLMServiceFromGatewayAuthPolicy(ctx, authPolicy)
+			namespacedNames, err := matcher.FindLLMServiceFromGatewayAuthPolicy(ctx, authPolicy)
 
-			Expect(found).To(BeFalse())
-			Expect(namespacedName).To(Equal(types.NamespacedName{}))
+			Expect(err).ToNot(HaveOccurred())
+			Expect(namespacedNames).To(BeEmpty())
 		})
 
 		It("should find LLMInferenceService with default gateway", func(ctx SpecContext) {
@@ -531,11 +531,64 @@ var _ = Describe("AuthPolicyMatcher", func() {
 				},
 			}
 
-			namespacedName, found := matcher.FindLLMServiceFromGatewayAuthPolicy(ctx, authPolicy)
+			namespacedNames, err := matcher.FindLLMServiceFromGatewayAuthPolicy(ctx, authPolicy)
 
-			Expect(found).To(BeTrue())
-			Expect(namespacedName.Name).To(Equal("test-llm-service"))
-			Expect(namespacedName.Namespace).To(Equal("test-namespace"))
+			Expect(err).ToNot(HaveOccurred())
+			Expect(namespacedNames).To(HaveLen(1))
+			Expect(namespacedNames[0].Name).To(Equal("test-llm-service"))
+			Expect(namespacedNames[0].Namespace).To(Equal("test-namespace"))
+		})
+
+		It("should find multiple LLMInferenceServices with default gateway", func(ctx SpecContext) {
+			// Create multiple LLM services
+			llmService1 := &kservev1alpha1.LLMInferenceService{
+				ObjectMeta: v1.ObjectMeta{
+					Name:      "test-llm-service-1",
+					Namespace: "test-namespace",
+				},
+				Spec: kservev1alpha1.LLMInferenceServiceSpec{},
+			}
+			err := fakeClient.Create(ctx, llmService1)
+			Expect(err).ToNot(HaveOccurred())
+
+			llmService2 := &kservev1alpha1.LLMInferenceService{
+				ObjectMeta: v1.ObjectMeta{
+					Name:      "test-llm-service-2",
+					Namespace: "test-namespace",
+				},
+				Spec: kservev1alpha1.LLMInferenceServiceSpec{},
+			}
+			err = fakeClient.Create(ctx, llmService2)
+			Expect(err).ToNot(HaveOccurred())
+
+			authPolicy := &kuadrantv1.AuthPolicy{
+				ObjectMeta: v1.ObjectMeta{
+					Name:      "gateway-auth-policy",
+					Namespace: constants.DefaultGatewayNamespace,
+				},
+				Spec: kuadrantv1.AuthPolicySpec{
+					TargetRef: gwapiv1alpha2.LocalPolicyTargetReferenceWithSectionName{
+						LocalPolicyTargetReference: gwapiv1alpha2.LocalPolicyTargetReference{
+							Group: "gateway.networking.k8s.io",
+							Kind:  "Gateway",
+							Name:  constants.DefaultGatewayName,
+						},
+					},
+				},
+			}
+
+			namespacedNames, err := matcher.FindLLMServiceFromGatewayAuthPolicy(ctx, authPolicy)
+
+			Expect(err).ToNot(HaveOccurred())
+			Expect(namespacedNames).To(HaveLen(2))
+
+			// Verify both services are found
+			serviceNames := make([]string, len(namespacedNames))
+			for i, ns := range namespacedNames {
+				serviceNames[i] = ns.Name
+			}
+			Expect(serviceNames).To(ContainElement("test-llm-service-1"))
+			Expect(serviceNames).To(ContainElement("test-llm-service-2"))
 		})
 
 		It("should handle API errors gracefully", func(ctx SpecContext) {
@@ -555,10 +608,10 @@ var _ = Describe("AuthPolicyMatcher", func() {
 				},
 			}
 
-			namespacedName, found := matcher.FindLLMServiceFromGatewayAuthPolicy(ctx, authPolicy)
+			namespacedNames, err := matcher.FindLLMServiceFromGatewayAuthPolicy(ctx, authPolicy)
 
-			Expect(found).To(BeFalse())
-			Expect(namespacedName).To(Equal(types.NamespacedName{}))
+			Expect(err).ToNot(HaveOccurred())
+			Expect(namespacedNames).To(BeEmpty())
 		})
 	})
 })

@@ -55,7 +55,7 @@ type AuthPolicyStore interface {
 
 type AuthPolicyMatcher interface {
 	FindLLMServiceFromHTTPRouteAuthPolicy(authPolicy *kuadrantv1.AuthPolicy) (types.NamespacedName, bool)
-	FindLLMServiceFromGatewayAuthPolicy(ctx context.Context, authPolicy *kuadrantv1.AuthPolicy) (types.NamespacedName, bool)
+	FindLLMServiceFromGatewayAuthPolicy(ctx context.Context, authPolicy *kuadrantv1.AuthPolicy) ([]types.NamespacedName, error)
 }
 
 //go:embed template/authpolicy_llm_isvc_userdefined.yaml
@@ -312,7 +312,7 @@ func (k *kserveAuthPolicyMatcher) FindLLMServiceFromHTTPRouteAuthPolicy(authPoli
 	return types.NamespacedName{}, false
 }
 
-func (k *kserveAuthPolicyMatcher) FindLLMServiceFromGatewayAuthPolicy(ctx context.Context, authPolicy *kuadrantv1.AuthPolicy) (types.NamespacedName, bool) {
+func (k *kserveAuthPolicyMatcher) FindLLMServiceFromGatewayAuthPolicy(ctx context.Context, authPolicy *kuadrantv1.AuthPolicy) ([]types.NamespacedName, error) {
 	gatewayNamespace, gatewayName, err := controllerutils.GetGatewayInfoFromConfigMap(ctx, k.client)
 	if err != nil {
 		// Fallback to default gateway values when ConfigMap is not available
@@ -320,20 +320,21 @@ func (k *kserveAuthPolicyMatcher) FindLLMServiceFromGatewayAuthPolicy(ctx contex
 		gatewayName = constants.DefaultGatewayName
 	}
 
+	var matchedServices []types.NamespacedName
 	listNamespace := metav1.NamespaceAll
 	continueToken := ""
 	for {
 		llmSvcList := &kservev1alpha1.LLMInferenceServiceList{}
 		if err := k.client.List(ctx, llmSvcList, &client.ListOptions{Namespace: listNamespace, Continue: continueToken}); err != nil {
-			return types.NamespacedName{}, false
+			return nil, err
 		}
 
 		for _, llmSvc := range llmSvcList.Items {
 			if k.isGatewayMatchedWithInfo(&llmSvc, authPolicy, gatewayNamespace, gatewayName) {
-				return types.NamespacedName{
+				matchedServices = append(matchedServices, types.NamespacedName{
 					Name:      llmSvc.Name,
 					Namespace: llmSvc.Namespace,
-				}, true
+				})
 			}
 		}
 
@@ -343,7 +344,7 @@ func (k *kserveAuthPolicyMatcher) FindLLMServiceFromGatewayAuthPolicy(ctx contex
 		continueToken = llmSvcList.Continue
 	}
 
-	return types.NamespacedName{}, false
+	return matchedServices, nil
 }
 
 func (k *kserveAuthPolicyMatcher) isGatewayMatchedWithInfo(llmSvc *kservev1alpha1.LLMInferenceService, authPolicy *kuadrantv1.AuthPolicy, gatewayNamespace, gatewayName string) bool {
