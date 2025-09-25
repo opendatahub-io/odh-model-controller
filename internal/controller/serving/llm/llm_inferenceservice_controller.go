@@ -28,8 +28,8 @@ import (
 	"github.com/opendatahub-io/odh-model-controller/internal/controller/utils"
 	apierrs "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/runtime"
-	"k8s.io/client-go/rest"
 	ctrl "sigs.k8s.io/controller-runtime"
+	ctrlbuilder "sigs.k8s.io/controller-runtime/pkg/builder"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/event"
 	"sigs.k8s.io/controller-runtime/pkg/handler"
@@ -45,7 +45,7 @@ type LLMInferenceServiceReconciler struct {
 	authPolicyMatcher      resources.AuthPolicyMatcher
 }
 
-func NewLLMInferenceServiceReconciler(client client.Client, scheme *runtime.Scheme, config *rest.Config) *LLMInferenceServiceReconciler {
+func NewLLMInferenceServiceReconciler(client client.Client, scheme *runtime.Scheme) *LLMInferenceServiceReconciler {
 
 	var subResourceReconcilers []parentreconcilers.LLMSubResourceReconciler
 
@@ -97,16 +97,18 @@ func (r *LLMInferenceServiceReconciler) Reconcile(ctx context.Context, req ctrl.
 // +kubebuilder:rbac:groups=kuadrant.io,resources=authpolicies,verbs=get;list;watch;create;update;patch;delete
 
 func (r *LLMInferenceServiceReconciler) SetupWithManager(mgr ctrl.Manager, setupLog logr.Logger) error {
-	builder := ctrl.NewControllerManagedBy(mgr).
+	b := ctrl.NewControllerManagedBy(mgr).
 		For(&kservev1alpha1.LLMInferenceService{}).
 		Named("llminferenceservice")
 
 	setupLog.Info("Setting up LLMInferenceService controller")
 
-	if ok, err := utils.IsCrdAvailable(mgr.GetConfig(), kuadrantv1.GroupVersion.String(), "AuthPolicy"); ok && err == nil {
-		builder = builder.Watches(&kuadrantv1.AuthPolicy{},
-			r.enqueueOnAuthPolicyChange()).
-			WithEventFilter(predicate.Funcs{
+	if ok, err := utils.IsCrdAvailable(mgr.GetConfig(), kuadrantv1.GroupVersion.String(), "AuthPolicy"); err != nil {
+		setupLog.Error(err, "Failed to check CRD availability for AuthPolicy")
+	} else if ok {
+		b = b.Watches(&kuadrantv1.AuthPolicy{},
+			r.enqueueOnAuthPolicyChange(),
+			ctrlbuilder.WithPredicates(predicate.Funcs{
 				CreateFunc: func(e event.CreateEvent) bool {
 					return false
 				},
@@ -116,10 +118,10 @@ func (r *LLMInferenceServiceReconciler) SetupWithManager(mgr ctrl.Manager, setup
 				DeleteFunc: func(e event.DeleteEvent) bool {
 					return true
 				},
-			})
+			}))
 	}
 
-	return builder.Complete(r)
+	return b.Complete(r)
 }
 
 func (r *LLMInferenceServiceReconciler) enqueueOnAuthPolicyChange() handler.EventHandler {
