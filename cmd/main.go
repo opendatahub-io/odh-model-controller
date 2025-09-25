@@ -26,8 +26,8 @@ import (
 	"github.com/go-logr/logr"
 	// Import all Kubernetes client auth plugins (e.g. Azure, GCP, OIDC, etc.)
 	// to ensure that exec-entrypoint and run can make use of them.
-	templatev1client "github.com/openshift/client-go/template/clientset/versioned"
 	kuadrantv1 "github.com/kuadrant/kuadrant-operator/api/v1"
+	templatev1client "github.com/openshift/client-go/template/clientset/versioned"
 	istiov1beta1 "istio.io/client-go/pkg/apis/security/v1beta1"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/labels"
