@@ -61,14 +61,9 @@ func GetDeploymentModeForKServeResource(ctx context.Context, cli client.Client, 
 		}
 	} else {
 		// There is no explicit deployment mode using an annotation, determine the default from configmap
-		controllerNs := os.Getenv("POD_NAMESPACE")
-		inferenceServiceConfigMap := &corev1.ConfigMap{}
-		err := cli.Get(ctx, client.ObjectKey{
-			Namespace: controllerNs,
-			Name:      KserveConfigMapName,
-		}, inferenceServiceConfigMap)
+		inferenceServiceConfigMap, err := GetInferenceServiceConfigMap(ctx, cli)
 		if err != nil {
-			return "", fmt.Errorf("error getting configmap 'inferenceservice-config'. %w", err)
+			return "", err
 		}
 		var deployData map[string]interface{}
 		if err = json.Unmarshal([]byte(inferenceServiceConfigMap.Data["deploy"]), &deployData); err != nil {
@@ -477,4 +472,57 @@ func SetOpenshiftRouteTimeoutForIsvc(route *v1.Route, isvc *kservev1beta1.Infere
 	}
 
 	route.Annotations[constants.RouteTimeoutAnnotationKey] = fmt.Sprintf("%ds", timeout)
+}
+
+// GetEnvOr returns the value of the environment variable key if it exists, otherwise returns defaultValue
+func GetEnvOr(key, defaultValue string) string {
+	if env, defined := os.LookupEnv(key); defined {
+		return env
+	}
+	return defaultValue
+}
+
+// GetAuthAudience returns the authentication audience from environment variable or default
+func GetAuthAudience(defaultAudience string) []string {
+	aud := GetEnvOr("AUTH_AUDIENCE", defaultAudience)
+	audiences := strings.Split(aud, ",")
+	for i := range audiences {
+		audiences[i] = strings.TrimSpace(audiences[i])
+	}
+	return audiences
+}
+
+// GetInferenceServiceConfigMap retrieves the KServe inference service configuration ConfigMap
+func GetInferenceServiceConfigMap(ctx context.Context, cli client.Client) (*corev1.ConfigMap, error) {
+	controllerNs := os.Getenv("POD_NAMESPACE")
+	inferenceServiceConfigMap := &corev1.ConfigMap{}
+	err := cli.Get(ctx, client.ObjectKey{
+		Namespace: controllerNs,
+		Name:      KserveConfigMapName,
+	}, inferenceServiceConfigMap)
+	if err != nil {
+		return nil, fmt.Errorf("error getting configmap 'inferenceservice-config'. %w", err)
+	}
+	return inferenceServiceConfigMap, nil
+}
+
+// GetGatewayInfoFromConfigMap parses the gateway namespace and name from the inference service ConfigMap
+func GetGatewayInfoFromConfigMap(ctx context.Context, cli client.Client) (namespace, name string, err error) {
+	configMap, err := GetInferenceServiceConfigMap(ctx, cli)
+	if err != nil {
+		return "", "", err
+	}
+
+	if ingressData := configMap.Data["ingress"]; ingressData != "" {
+		var config map[string]any
+		if json.Unmarshal([]byte(ingressData), &config) == nil {
+			if gateway, ok := config["kserveIngressGateway"].(string); ok {
+				if parts := strings.Split(gateway, "/"); len(parts) == 2 {
+					return parts[0], parts[1], nil
+				}
+			}
+		}
+	}
+
+	return "", "", fmt.Errorf("failed to parse gateway info from configmap")
 }
