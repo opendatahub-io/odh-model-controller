@@ -172,6 +172,6 @@ require (
 // Needed by github.com/kedacore/keda/v2 because it breaks on controller-runtime >= v0.20.0
 replace sigs.k8s.io/controller-runtime => sigs.k8s.io/controller-runtime v0.19.1
 
-// Use ODH release branch instead
-// odh-v2.34
-replace github.com/kserve/kserve => github.com/opendatahub-io/kserve v0.0.0-20250901180218-9873b9442ed2
+// Use stable release branch instead
+// stable-2.x
+replace github.com/kserve/kserve => github.com/opendatahub-io/kserve v0.0.0-20250918160249-bd373d9ec0ac
