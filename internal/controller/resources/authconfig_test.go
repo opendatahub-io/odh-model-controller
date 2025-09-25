@@ -5,7 +5,7 @@ import (
 	"os"
 
 	kservev1beta1 "github.com/kserve/kserve/pkg/apis/serving/v1beta1"
-	. "github.com/onsi/ginkgo"
+	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	"github.com/tidwall/gjson"
 	v1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -13,6 +13,7 @@ import (
 	duckv1 "knative.dev/pkg/apis/duck/v1"
 	knservingv1 "knative.dev/serving/pkg/apis/serving/v1"
 
+	"github.com/opendatahub-io/odh-model-controller/internal/controller/constants"
 	"github.com/opendatahub-io/odh-model-controller/internal/controller/resources"
 )
 
@@ -88,7 +89,7 @@ var _ = When("InferenceService is ready", func() {
 		It("should resolve UserDefined template for InferenceService", func() {
 			ac, err := resources.NewStaticTemplateLoader().Load(
 				context.Background(),
-				resources.UserDefined,
+				constants.UserDefined,
 				&dummyIsvc)
 
 			Expect(err).To(Succeed())
@@ -98,7 +99,7 @@ var _ = When("InferenceService is ready", func() {
 		It("should default to kubernetes.default.svc Audience", func() {
 			ac, err := resources.NewStaticTemplateLoader().Load(
 				context.Background(),
-				resources.UserDefined,
+				constants.UserDefined,
 				&dummyIsvc)
 
 			Expect(err).To(Succeed())
@@ -113,7 +114,7 @@ var _ = When("InferenceService is ready", func() {
 
 			ac, err := resources.NewStaticTemplateLoader().Load(
 				context.Background(),
-				resources.UserDefined,
+				constants.UserDefined,
 				&dummyIsvc)
 
 			Expect(err).To(Succeed())
@@ -123,7 +124,7 @@ var _ = When("InferenceService is ready", func() {
 		It("should default to opendatahub.io.. AuthorinoLabel", func() {
 			ac, err := resources.NewStaticTemplateLoader().Load(
 				context.Background(),
-				resources.UserDefined,
+				constants.UserDefined,
 				&dummyIsvc)
 
 			Expect(err).To(Succeed())
@@ -138,7 +139,7 @@ var _ = When("InferenceService is ready", func() {
 
 			ac, err := resources.NewStaticTemplateLoader().Load(
 				context.Background(),
-				resources.UserDefined,
+				constants.UserDefined,
 				&dummyIsvc)
 
 			Expect(err).To(Succeed())
