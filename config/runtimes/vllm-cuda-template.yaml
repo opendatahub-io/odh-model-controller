@@ -2,10 +2,10 @@ apiVersion: template.openshift.io/v1
 kind: Template
 metadata:
   labels:
-    opendatahub.io/dashboard: 'true'
-    opendatahub.io/ootb: 'true'
+    opendatahub.io/dashboard: "true"
+    opendatahub.io/ootb: "true"
   annotations:
-    description: vLLM ServingRuntime with CUDA support (for NVIDIA GPUs) 
+    description: vLLM ServingRuntime with CUDA support (for NVIDIA GPUs)
     openshift.io/display-name: vLLM NVIDIA GPU ServingRuntime for KServe
     openshift.io/provider-display-name: Red Hat, Inc.
     tags: rhods,rhoai,kserve,servingruntime
@@ -25,11 +25,11 @@ objects:
         opendatahub.io/recommended-accelerators: '["nvidia.com/gpu"]'
         opendatahub.io/runtime-version: 'v0.9.1.0'
       labels:
-        opendatahub.io/dashboard: 'true'
+        opendatahub.io/dashboard: "true"
     spec:
       annotations:
-        prometheus.io/port: '8080'
-        prometheus.io/path: '/metrics'
+        prometheus.io/port: "8080"
+        prometheus.io/path: "/metrics"
       multiModel: false
       supportedModelFormats:
         - autoSelect: true
