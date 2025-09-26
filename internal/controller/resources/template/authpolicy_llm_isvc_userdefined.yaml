@@ -3,6 +3,8 @@ kind: AuthPolicy
 metadata:
   name: {{.Name}}
   namespace: {{.GatewayNamespace}}
+  labels:
+    opendatahub.io/managed: "true"  
 spec:
   targetRef:
     group: gateway.networking.k8s.io

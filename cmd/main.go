@@ -26,6 +26,7 @@ import (
 	"github.com/go-logr/logr"
 	// Import all Kubernetes client auth plugins (e.g. Azure, GCP, OIDC, etc.)
 	// to ensure that exec-entrypoint and run can make use of them.
+	kuadrantv1 "github.com/kuadrant/kuadrant-operator/api/v1"
 	templatev1client "github.com/openshift/client-go/template/clientset/versioned"
 	istiov1beta1 "istio.io/client-go/pkg/apis/security/v1beta1"
 	corev1 "k8s.io/api/core/v1"
@@ -274,6 +275,11 @@ func createManager(cfg *rest.Config, metricsAddr, probeAddr string,
 						"opendatahub.io/managed": "true",
 					}),
 				},
+				&kuadrantv1.AuthPolicy{}: {
+					Label: labels.SelectorFromSet(labels.Set{
+						"opendatahub.io/managed": "true",
+					}),
+				},
 				&corev1.Pod{}: {
 					Label: labels.SelectorFromSet(labels.Set{
 						"component": "predictor",
@@ -349,7 +355,7 @@ func setupReconcilers(mgr ctrl.Manager, setupLog logr.Logger,
 		setupLog.Error(err, "unable to create controller", "controller", "ServingRuntime")
 		return err
 	}
-	if err := setupLLMInferenceServiceReconciler(mgr, kubeClient, cfg); err != nil {
+	if err := setupLLMInferenceServiceReconciler(mgr); err != nil {
 		setupLog.Error(err, "unable to create controller", "controller", "LLMInferenceService")
 		return err
 	}
@@ -418,11 +424,9 @@ func setupInferenceGraphReconciler(mgr ctrl.Manager, isServerlessMode bool) erro
 	return servingcontroller.NewInferenceGraphReconciler(mgr).SetupWithManager(mgr, isServerlessMode)
 }
 
-func setupLLMInferenceServiceReconciler(mgr ctrl.Manager, kubeClient kubernetes.Interface, cfg *rest.Config) error {
+func setupLLMInferenceServiceReconciler(mgr ctrl.Manager) error {
 	return llmcontroller.NewLLMInferenceServiceReconciler(
 		mgr.GetClient(),
 		mgr.GetScheme(),
-		kubeClient,
-		cfg,
 	).SetupWithManager(mgr, setupLog)
 }
