@@ -56,6 +56,10 @@ func GetDeploymentModeForKServeResource(ctx context.Context, cli client.Client, 
 			return constants.Serverless, nil
 		case string(constants.RawDeployment):
 			return constants.RawDeployment, nil
+		case "Standard":
+			return constants.RawDeployment, nil
+		case "Knative":
+			return constants.Serverless, nil
 		default:
 			return "", fmt.Errorf("the deployment mode '%s' of the KServe resource is invalid", value)
 		}
