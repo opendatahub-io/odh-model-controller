@@ -51,6 +51,7 @@ func NewLLMInferenceServiceReconciler(client client.Client, scheme *runtime.Sche
 
 	var subResourceReconcilers []parentreconcilers.LLMSubResourceReconciler
 	subResourceReconcilers = append(subResourceReconcilers, parentreconcilers.NewLLMRoleReconciler(client))
+	subResourceReconcilers = append(subResourceReconcilers, parentreconcilers.NewLLMRoleBindingReconciler(client))
 
 	return &LLMInferenceServiceReconciler{
 		Client:                 client,
@@ -101,6 +102,7 @@ func (r *LLMInferenceServiceReconciler) Reconcile(ctx context.Context, req ctrl.
 // +kubebuilder:rbac:groups=kuadrant.io,resources=authpolicies,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups=kuadrant.io,resources=authpolicies/status,verbs=get;update;patch
 // +kubebuilder:rbac:groups=rbac.authorization.k8s.io,resources=roles,verbs=get;list;watch;create;update;patch;delete
+// +kubebuilder:rbac:groups=rbac.authorization.k8s.io,resources=rolebindings,verbs=get;list;watch;create;update;patch;delete
 
 func (r *LLMInferenceServiceReconciler) SetupWithManager(mgr ctrl.Manager, setupLog logr.Logger) error {
 	b := ctrl.NewControllerManagedBy(mgr).
