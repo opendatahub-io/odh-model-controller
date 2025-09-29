@@ -56,6 +56,11 @@ func GetDeploymentModeForKServeResource(ctx context.Context, cli client.Client, 
 			return constants.Serverless, nil
 		case string(constants.RawDeployment):
 			return constants.RawDeployment, nil
+		// TODO: Remove temporary alias mapping ("Standard"→RawDeployment, "Knative"→Serverless) post-RHOAI 3.0, with code refactor for new deployment modes.
+		case "Standard":
+			return constants.RawDeployment, nil
+		case "Knative":
+			return constants.Serverless, nil
 		default:
 			return "", fmt.Errorf("the deployment mode '%s' of the KServe resource is invalid", value)
 		}
@@ -77,6 +82,11 @@ func GetDeploymentModeForKServeResource(ctx context.Context, cli client.Client, 
 			return constants.Serverless, nil
 		case string(constants.RawDeployment):
 			return constants.RawDeployment, nil
+		// TODO: Remove temporary alias mapping ("Standard"→RawDeployment, "Knative"→Serverless) post-RHOAI 3.0, with code refactor for new deployment modes.
+		case "Standard":
+			return constants.RawDeployment, nil
+		case "Knative":
+			return constants.Serverless, nil
 		default:
 			return "", fmt.Errorf("the deployment mode '%s' of the Inference Service is invalid", defaultDeploymentMode)
 		}
