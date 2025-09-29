@@ -26,7 +26,7 @@ import (
 	"github.com/go-logr/logr"
 	// Import all Kubernetes client auth plugins (e.g. Azure, GCP, OIDC, etc.)
 	// to ensure that exec-entrypoint and run can make use of them.
-	kuadrantv1 "github.com/kuadrant/kuadrant-operator/api/v1"
+
 	templatev1client "github.com/openshift/client-go/template/clientset/versioned"
 	istiov1beta1 "istio.io/client-go/pkg/apis/security/v1beta1"
 	corev1 "k8s.io/api/core/v1"
@@ -271,11 +271,6 @@ func createManager(cfg *rest.Config, metricsAddr, probeAddr string,
 		Cache: cache.Options{
 			ByObject: map[client.Object]cache.ByObject{
 				&corev1.Secret{}: {
-					Label: labels.SelectorFromSet(labels.Set{
-						"opendatahub.io/managed": "true",
-					}),
-				},
-				&kuadrantv1.AuthPolicy{}: {
 					Label: labels.SelectorFromSet(labels.Set{
 						"opendatahub.io/managed": "true",
 					}),
