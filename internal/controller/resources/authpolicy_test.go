@@ -163,7 +163,7 @@ var _ = Describe("AuthPolicyTemplateLoader", func() {
 			Expect(err).ToNot(HaveOccurred())
 			Expect(authPolicies).ToNot(BeNil())
 			Expect(authPolicies).To(HaveLen(1))
-			Expect(authPolicies[0].GetName()).To(Equal(constants.GetAuthPolicyName(dummyLLMISvc.Name)))
+			Expect(authPolicies[0].GetName()).To(Equal(constants.GetHTTPRouteAuthPolicyName(dummyLLMISvc.Name)))
 			Expect(authPolicies[0].GetNamespace()).To(Equal(dummyLLMISvc.Namespace))
 		})
 
@@ -203,7 +203,7 @@ var _ = Describe("AuthPolicyTemplateLoader", func() {
 func createTestAuthPolicy() *kuadrantv1.AuthPolicy {
 	return &kuadrantv1.AuthPolicy{
 		ObjectMeta: v1.ObjectMeta{
-			Name:      constants.GetAuthPolicyName("test-llm"),
+			Name:      constants.GetHTTPRouteAuthPolicyName("test-llm"),
 			Namespace: "test-namespace",
 		},
 		Spec: kuadrantv1.AuthPolicySpec{
@@ -263,7 +263,7 @@ var _ = Describe("AuthPolicyStore", func() {
 
 		It("should return error when getting non-existent AuthPolicy", func(ctx SpecContext) {
 			key := types.NamespacedName{
-				Name:      constants.GetAuthPolicyName("non-existent"),
+				Name:      constants.GetHTTPRouteAuthPolicyName("non-existent"),
 				Namespace: "test-namespace",
 			}
 			_, err := store.Get(ctx, key)
@@ -294,7 +294,7 @@ var _ = Describe("AuthPolicyStore", func() {
 
 		It("should return error when updating non-existent AuthPolicy", func(ctx SpecContext) {
 			nonExistentAuthPolicy := createTestAuthPolicy()
-			nonExistentAuthPolicy.Name = constants.GetAuthPolicyName("non-existent")
+			nonExistentAuthPolicy.Name = constants.GetHTTPRouteAuthPolicyName("non-existent")
 
 			err := store.Update(ctx, nonExistentAuthPolicy)
 			Expect(err).To(HaveOccurred())
@@ -320,7 +320,7 @@ var _ = Describe("AuthPolicyStore", func() {
 
 		It("should handle NotFound gracefully on remove", func(ctx SpecContext) {
 			key := types.NamespacedName{
-				Name:      constants.GetAuthPolicyName("non-existent"),
+				Name:      constants.GetHTTPRouteAuthPolicyName("non-existent"),
 				Namespace: "test-namespace",
 			}
 			err := store.Remove(ctx, key)

@@ -26,6 +26,7 @@ type KServeDeploymentMode string
 const (
 	InferenceServiceKind             = "InferenceService"
 	InferenceServiceODHFinalizerName = "odh.inferenceservice.finalizers"
+	InferenceServiceConfigMapName    = "inferenceservice-config"
 
 	ServiceMeshMemberRollName        = "default"
 	ServiceMeshMemberName            = "default"
@@ -170,7 +171,7 @@ const (
 	DefaultGatewayNamespace = "openshift-ingress"
 )
 
-func GetAuthPolicyName(llmisvcName string) string {
+func GetHTTPRouteAuthPolicyName(llmisvcName string) string {
 	return kmeta.ChildName(llmisvcName, AuthPolicyNameSuffix)
 }
 
