@@ -73,6 +73,9 @@ func (r *LLMRoleReconciler) createDesiredResource(llmisvc *kservev1alpha1.LLMInf
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      kmeta.ChildName(llmisvc.Name, "-model-user"),
 			Namespace: llmisvc.Namespace,
+			Labels: map[string]string{
+				"app.kubernetes.io/managed-by": "odh-model-controller",
+			},
 		},
 		Rules: []v1.PolicyRule{
 			{

@@ -23,6 +23,7 @@ import (
 	"github.com/hashicorp/go-multierror"
 	kservev1alpha1 "github.com/kserve/kserve/pkg/apis/serving/v1alpha1"
 	kuadrantv1 "github.com/kuadrant/kuadrant-operator/api/v1"
+	v1 "k8s.io/api/rbac/v1"
 	apierrs "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/client-go/rest"
@@ -107,6 +108,9 @@ func (r *LLMInferenceServiceReconciler) Reconcile(ctx context.Context, req ctrl.
 func (r *LLMInferenceServiceReconciler) SetupWithManager(mgr ctrl.Manager, setupLog logr.Logger) error {
 	b := ctrl.NewControllerManagedBy(mgr).
 		For(&kservev1alpha1.LLMInferenceService{}).
+		Owns(&v1.Role{}, ctrlbuilder.WithPredicates(predicate.NewPredicateFuncs(func(o client.Object) bool {
+			return o.GetLabels()["app.kubernetes.io/managed-by"] == "odh-model-controller"
+		}))).
 		Named("llminferenceservice")
 
 	setupLog.Info("Setting up LLMInferenceService controller")

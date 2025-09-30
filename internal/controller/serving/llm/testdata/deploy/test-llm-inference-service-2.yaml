@@ -1,0 +1,9 @@
+apiVersion: serving.kserve.io/v1alpha1
+kind: LLMInferenceService
+metadata:
+  name: test-llm-service-2
+  namespace: default
+spec:
+  model:
+    name: "test-model-2"
+    uri: s3://test-bucket/test-model-2
