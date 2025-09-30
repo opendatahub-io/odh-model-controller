@@ -24,6 +24,7 @@ import (
 	kservev1alpha1 "github.com/kserve/kserve/pkg/apis/serving/v1alpha1"
 	kuadrantv1 "github.com/kuadrant/kuadrant-operator/api/v1"
 	"github.com/opendatahub-io/odh-model-controller/internal/controller/resources"
+	"github.com/opendatahub-io/odh-model-controller/internal/controller/serving/llm/reconcilers"
 	parentreconcilers "github.com/opendatahub-io/odh-model-controller/internal/controller/serving/reconcilers"
 	"github.com/opendatahub-io/odh-model-controller/internal/controller/utils"
 	apierrs "k8s.io/apimachinery/pkg/api/errors"
@@ -47,8 +48,11 @@ type LLMInferenceServiceReconciler struct {
 }
 
 func NewLLMInferenceServiceReconciler(client client.Client, scheme *runtime.Scheme, config *rest.Config) *LLMInferenceServiceReconciler {
-
 	var subResourceReconcilers []parentreconcilers.LLMSubResourceReconciler
+
+	if ok, err := utils.IsCrdAvailable(config, kuadrantv1.GroupVersion.String(), "AuthPolicy"); err == nil && ok {
+		subResourceReconcilers = append(subResourceReconcilers, reconcilers.NewKserveAuthPolicyReconciler(client, scheme))
+	}
 
 	return &LLMInferenceServiceReconciler{
 		Client:                 client,
@@ -116,15 +120,22 @@ func (r *LLMInferenceServiceReconciler) SetupWithManager(mgr ctrl.Manager, setup
 					return false
 				},
 				UpdateFunc: func(e event.UpdateEvent) bool {
-					return true
+					return hasOpenDataHubManagedLabel(e.ObjectNew)
 				},
 				DeleteFunc: func(e event.DeleteEvent) bool {
-					return true
+					return hasOpenDataHubManagedLabel(e.Object)
 				},
 			}))
 	}
 
 	return b.Complete(r)
+}
+
+func hasOpenDataHubManagedLabel(obj client.Object) bool {
+	if labels := obj.GetLabels(); labels != nil {
+		return labels["opendatahub.io/managed"] == "true"
+	}
+	return false
 }
 
 func (r *LLMInferenceServiceReconciler) enqueueOnAuthPolicyChange() handler.EventHandler {
