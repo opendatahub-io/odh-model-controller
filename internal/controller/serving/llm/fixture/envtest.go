@@ -62,7 +62,7 @@ func SetupTestEnv() *pkgtest.Client {
 		gomega.Expect(envTest.Stop()).To(gomega.Succeed())
 	})
 
-	RequiredResources(context.Background(), envTest.Client, systemNs)
+	RequiredResources(ctx, envTest.Client, systemNs)
 
 	return envTest
 }

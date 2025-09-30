@@ -76,14 +76,6 @@ func CreateNamespaceIfNotExists(ctx context.Context, c client.Client, name strin
 
 	// Create namespace if it doesn't exist
 	gomega.Expect(c.Create(ctx, ns)).To(gomega.Succeed())
-	// Check if namespace already exists
-	existingNs = &corev1.Namespace{}
-	err = c.Get(ctx, client.ObjectKey{Name: name}, existingNs)
-	if err == nil {
-		// Namespace already exists, skip creation
-		return
-	}
-
 }
 
 // GenerateUniqueTestNamespaceName generates a unique namespace name with prefix

@@ -28,6 +28,7 @@ import (
 
 	kservev1alpha1 "github.com/kserve/kserve/pkg/apis/serving/v1alpha1"
 
+	igwapi "sigs.k8s.io/gateway-api-inference-extension/api/v1alpha2"
 	gatewayapiv1 "sigs.k8s.io/gateway-api/apis/v1"
 )
 
@@ -39,7 +40,6 @@ func NewEnvTest(options ...Option) *Config {
 	schemes := WithScheme(
 		// KServe Schemes
 		kservev1alpha1.AddToScheme,
-		// kservev1beta1.AddToScheme,
 		// Kubernetes Schemes
 		corev1.AddToScheme,
 		rbacv1.AddToScheme,
@@ -48,13 +48,7 @@ func NewEnvTest(options ...Option) *Config {
 		netv1.AddToScheme,
 		kuadrantv1.AddToScheme,
 		gatewayapiv1.Install,
-		// igwapi.Install,
-		// Other Schemes
-		// knservingv1.AddToScheme,
-		// istioclientv1beta1.AddToScheme,
-		// kedav1alpha1.AddToScheme,
-		// otelv1beta1.AddToScheme,
-		// monitoringv1.AddToScheme,
+		igwapi.Install,
 	)
 
 	return Configure(append(options, testCRDs, schemes)...)
