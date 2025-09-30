@@ -1,0 +1,35 @@
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  name: authpolicies.kuadrant.io
+spec:
+  group: kuadrant.io
+  versions:
+  - name: v1
+    served: true
+    storage: true
+    schema:
+      openAPIV3Schema:
+        type: object
+        properties:
+          spec:
+            type: object
+            properties:
+              targetRef:
+                type: object
+                properties:
+                  group:
+                    type: string
+                  kind:
+                    type: string
+                  name:
+                    type: string
+              defaults:
+                type: object
+          status:
+            type: object
+  scope: Namespaced
+  names:
+    plural: authpolicies
+    singular: authpolicy
+    kind: AuthPolicy
