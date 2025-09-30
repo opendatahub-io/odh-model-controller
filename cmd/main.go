@@ -350,7 +350,7 @@ func setupReconcilers(mgr ctrl.Manager, setupLog logr.Logger,
 		setupLog.Error(err, "unable to create controller", "controller", "ServingRuntime")
 		return err
 	}
-	if err := setupLLMInferenceServiceReconciler(mgr); err != nil {
+	if err := setupLLMInferenceServiceReconciler(mgr, cfg); err != nil {
 		setupLog.Error(err, "unable to create controller", "controller", "LLMInferenceService")
 		return err
 	}
@@ -419,9 +419,10 @@ func setupInferenceGraphReconciler(mgr ctrl.Manager, isServerlessMode bool) erro
 	return servingcontroller.NewInferenceGraphReconciler(mgr).SetupWithManager(mgr, isServerlessMode)
 }
 
-func setupLLMInferenceServiceReconciler(mgr ctrl.Manager) error {
+func setupLLMInferenceServiceReconciler(mgr ctrl.Manager, cfg *rest.Config) error {
 	return llmcontroller.NewLLMInferenceServiceReconciler(
 		mgr.GetClient(),
 		mgr.GetScheme(),
+		cfg,
 	).SetupWithManager(mgr, setupLog)
 }

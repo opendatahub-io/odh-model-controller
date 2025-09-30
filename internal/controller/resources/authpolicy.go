@@ -171,7 +171,7 @@ func (k *kserveAuthPolicyTemplateLoader) loadAnonymousTemplate(llmisvc *kservev1
 		Namespace     string
 		HTTPRouteName string
 	}{
-		Name:          constants.GetAuthPolicyName(llmisvc.Name),
+		Name:          constants.GetHTTPRouteAuthPolicyName(llmisvc.Name),
 		Namespace:     llmisvc.Namespace,
 		HTTPRouteName: constants.GetHTTPRouteName(llmisvc.Name),
 	}
