@@ -124,6 +124,95 @@ var _ = Describe("LLMInferenceService Controller", func() {
 			})
 		})
 	})
+
+	Describe("MaaS RoleBinding Reconciler Integration", func() {
+		var testNs string
+
+		BeforeEach(func() {
+			ctx := context.Background()
+			testNamespace := testutils.Namespaces.Create(ctx, k8sClient)
+			testNs = testNamespace.Name
+		})
+
+		When("creating an LLMInferenceService", func() {
+			It("should create a RoleBinding with correct MaaS tier specifications and proper owner references, and should reference the Role created by LLMRoleReconciler", func() {
+				// Create LLMInferenceService
+				llmisvc := createLLMInferenceService(testNs, "test-llm-service", LLMServicePath1)
+				Expect(k8sClient.Create(ctx, llmisvc)).Should(Succeed())
+
+				// Wait for RoleBinding to be created and verify its specification
+				roleBindingName := llmisvc.Name + "-tier-binding"
+				roleBinding := waitForRoleBinding(testNs, roleBindingName)
+				verifyRoleBindingSpecification(Default, roleBinding, llmisvc)
+
+				// Verify owner reference
+				Expect(roleBinding.GetOwnerReferences()).To(HaveLen(1))
+				ownerRef := roleBinding.GetOwnerReferences()[0]
+				Expect(ownerRef.UID).To(Equal(llmisvc.UID))
+				Expect(ownerRef.Kind).To(Equal("LLMInferenceService"))
+				Expect(ownerRef.APIVersion).To(Equal("serving.kserve.io/v1alpha1"))
+				Expect(*ownerRef.Controller).To(BeTrue())
+			})
+		})
+
+		When("RoleBinding is manually modified", func() {
+			It("should reconcile back to desired state and restore correct MaaS tier subjects when changed", func() {
+				// Create LLMInferenceService with RoleBinding
+				llmisvc := createLLMInferenceService(testNs, "test-llm-service", LLMServicePath1)
+				Expect(k8sClient.Create(ctx, llmisvc)).Should(Succeed())
+
+				roleBindingName := llmisvc.Name + "-tier-binding"
+				roleBinding := waitForRoleBinding(testNs, roleBindingName)
+
+				// Manually modify RoleBinding subjects (remove a MaaS tier)
+				roleBinding.Subjects = []rbacv1.Subject{
+					{
+						Kind:      "Group",
+						APIGroup:  "rbac.authorization.k8s.io",
+						Name:      "system:serviceaccounts:openshift-ai-inference-tier-free",
+						Namespace: "",
+					},
+				}
+				Expect(k8sClient.Update(ctx, roleBinding)).Should(Succeed())
+
+				// Verify RoleBinding is restored to include all three tiers
+				Eventually(func(g Gomega) {
+					updatedRoleBinding := &rbacv1.RoleBinding{}
+					err := k8sClient.Get(ctx, types.NamespacedName{
+						Name:      roleBindingName,
+						Namespace: testNs,
+					}, updatedRoleBinding)
+					g.Expect(err).To(BeNil())
+
+					// Check RoleBinding is restored
+					verifyRoleBindingSpecification(g, updatedRoleBinding, llmisvc)
+				}, TestTimeout, TestInterval).Should(Succeed())
+			})
+		})
+
+		When("multiple LLMInferenceServices exist", func() {
+			It("should create individual RoleBindings with correct Role references", func() {
+				// Create multiple LLMInferenceServices in the same namespace
+				llmisvc1 := createLLMInferenceService(testNs, "test-llm-service-1", LLMServicePath1)
+				llmisvc1.Name = "test-llm-service-1"
+				Expect(k8sClient.Create(ctx, llmisvc1)).Should(Succeed())
+
+				llmisvc2 := createLLMInferenceService(testNs, "test-llm-service-2", LLMServicePath2)
+				llmisvc2.Name = "test-llm-service-2"
+				Expect(k8sClient.Create(ctx, llmisvc2)).Should(Succeed())
+
+				// Verify each has its own RoleBinding with correct Role reference
+				roleBinding1Name := llmisvc1.Name + "-tier-binding"
+				roleBinding2Name := llmisvc2.Name + "-tier-binding"
+
+				roleBinding1 := waitForRoleBinding(testNs, roleBinding1Name)
+				verifyRoleBindingSpecification(Default, roleBinding1, llmisvc1)
+
+				roleBinding2 := waitForRoleBinding(testNs, roleBinding2Name)
+				verifyRoleBindingSpecification(Default, roleBinding2, llmisvc2)
+			})
+		})
+	})
 })
 
 // Helper Functions
@@ -141,7 +230,7 @@ func createLLMInferenceService(namespace, name, path string) *kservev1alpha1.LLM
 }
 
 func waitForRole(namespace, name string) *rbacv1.Role {
-	GinkgoT().Helper()
+	GinkgoHelper()
 
 	role := &rbacv1.Role{}
 	Eventually(func() error {
@@ -175,4 +264,64 @@ func verifyRoleSpecification(role *rbacv1.Role, llmIsvc *kservev1alpha1.LLMInfer
 	Expect(rule.Resources).To(HaveExactElements("llminferenceservices"))
 	Expect(rule.ResourceNames).To(HaveExactElements(llmIsvc.Name))
 	Expect(rule.Verbs).To(HaveExactElements("post"))
+}
+
+// waitForRoleBinding waits for RoleBinding to be created and returns it
+func waitForRoleBinding(namespace, name string) *rbacv1.RoleBinding {
+	GinkgoHelper()
+
+	roleBinding := &rbacv1.RoleBinding{}
+	Eventually(func() error {
+		return k8sClient.Get(context.Background(), types.NamespacedName{
+			Name:      name,
+			Namespace: namespace,
+		}, roleBinding)
+	}, TestTimeout, TestInterval).Should(Succeed())
+
+	return roleBinding
+}
+
+// verifyRoleBindingSpecification validates RoleBinding matches MaaS template
+func verifyRoleBindingSpecification(g Gomega, roleBinding *rbacv1.RoleBinding, llmIsvc *kservev1alpha1.LLMInferenceService) {
+	GinkgoHelper()
+
+	// Verify RoleBinding name, labels, and MaaS tier subjects
+	expectedName := llmIsvc.Name + "-tier-binding"
+	g.Expect(roleBinding.GetName()).To(Equal(expectedName))
+	g.Expect(roleBinding.GetLabels()).To(HaveKeyWithValue("app.kubernetes.io/managed-by", "odh-model-controller"))
+	verifyMaaSTierSubjects(g, roleBinding.Subjects)
+
+	// Verify RoleRef points to correct Role
+	expectedRoleName := llmIsvc.Name + "-model-user"
+	g.Expect(roleBinding.RoleRef.Name).To(Equal(expectedRoleName))
+	g.Expect(roleBinding.RoleRef.Kind).To(Equal("Role"))
+	g.Expect(roleBinding.RoleRef.APIGroup).To(Equal("rbac.authorization.k8s.io"))
+}
+
+// verifyMaaSTierSubjects validates all three MaaS tier groups are present
+func verifyMaaSTierSubjects(g Gomega, subjects []rbacv1.Subject) {
+	GinkgoHelper()
+
+	expectedSubjects := []rbacv1.Subject{
+		{
+			Kind:      "Group",
+			APIGroup:  "rbac.authorization.k8s.io",
+			Name:      "system:serviceaccounts:openshift-ai-inference-tier-free",
+			Namespace: "",
+		},
+		{
+			Kind:      "Group",
+			APIGroup:  "rbac.authorization.k8s.io",
+			Name:      "system:serviceaccounts:openshift-ai-inference-tier-premium",
+			Namespace: "",
+		},
+		{
+			Kind:      "Group",
+			APIGroup:  "rbac.authorization.k8s.io",
+			Name:      "system:serviceaccounts:openshift-ai-inference-tier-enterprise",
+			Namespace: "",
+		},
+	}
+
+	g.Expect(subjects).To(HaveExactElements(expectedSubjects))
 }

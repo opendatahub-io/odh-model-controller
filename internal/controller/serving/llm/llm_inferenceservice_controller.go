@@ -48,6 +48,10 @@ type LLMInferenceServiceReconciler struct {
 	authPolicyMatcher      resources.AuthPolicyMatcher
 }
 
+var ownedBySelfPredicate = predicate.NewPredicateFuncs(func(o client.Object) bool {
+	return o.GetLabels()["app.kubernetes.io/managed-by"] == "odh-model-controller"
+})
+
 func NewLLMInferenceServiceReconciler(client client.Client, scheme *runtime.Scheme, config *rest.Config) *LLMInferenceServiceReconciler {
 
 	var subResourceReconcilers []parentreconcilers.LLMSubResourceReconciler
@@ -108,9 +112,8 @@ func (r *LLMInferenceServiceReconciler) Reconcile(ctx context.Context, req ctrl.
 func (r *LLMInferenceServiceReconciler) SetupWithManager(mgr ctrl.Manager, setupLog logr.Logger) error {
 	b := ctrl.NewControllerManagedBy(mgr).
 		For(&kservev1alpha1.LLMInferenceService{}).
-		Owns(&v1.Role{}, ctrlbuilder.WithPredicates(predicate.NewPredicateFuncs(func(o client.Object) bool {
-			return o.GetLabels()["app.kubernetes.io/managed-by"] == "odh-model-controller"
-		}))).
+		Owns(&v1.Role{}, ctrlbuilder.WithPredicates(ownedBySelfPredicate)).
+		Owns(&v1.RoleBinding{}, ctrlbuilder.WithPredicates(ownedBySelfPredicate)).
 		Named("llminferenceservice")
 
 	setupLog.Info("Setting up LLMInferenceService controller")

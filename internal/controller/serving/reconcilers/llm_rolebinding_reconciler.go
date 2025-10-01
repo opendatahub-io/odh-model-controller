@@ -73,6 +73,9 @@ func (r *LLMRoleBindingReconciler) createDesiredResource(llmisvc *kservev1alpha1
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      kmeta.ChildName(llmisvc.Name, "-tier-binding"),
 			Namespace: llmisvc.Namespace,
+			Labels: map[string]string{
+				"app.kubernetes.io/managed-by": "odh-model-controller",
+			},
 		},
 		Subjects: []v1.Subject{
 			{
