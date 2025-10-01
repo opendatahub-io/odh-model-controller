@@ -14,7 +14,7 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package llm
+package llm_test
 
 import (
 	"context"
@@ -39,7 +39,7 @@ var _ = Describe("LLMInferenceService Controller", func() {
 
 		BeforeEach(func() {
 			ctx := context.Background()
-			testNamespace := testutils.Namespaces.Create(ctx, k8sClient)
+			testNamespace := testutils.Namespaces.Create(ctx, envTest.Client)
 			testNs = testNamespace.Name
 		})
 
@@ -49,7 +49,7 @@ var _ = Describe("LLMInferenceService Controller", func() {
 
 				// Create LLMInferenceService
 				llmisvc := createLLMInferenceService(testNs, "test-llm-service", LLMServicePath1)
-				Expect(k8sClient.Create(ctx, llmisvc)).Should(Succeed())
+				Expect(envTest.Create(ctx, llmisvc)).Should(Succeed())
 
 				// Wait for Role to be created and verify its specification
 				role := waitForRole(testNs, llmisvc.Name+"-model-user")
@@ -71,19 +71,19 @@ var _ = Describe("LLMInferenceService Controller", func() {
 
 				// Create LLMInferenceService with Role
 				llmisvc := createLLMInferenceService(testNs, "test-llm-service", LLMServicePath1)
-				Expect(k8sClient.Create(ctx, llmisvc)).Should(Succeed())
+				Expect(envTest.Create(ctx, llmisvc)).Should(Succeed())
 
 				roleName := llmisvc.Name + "-model-user"
 				role := waitForRole(testNs, roleName)
 
 				// Manually modify Role (change verb from "post" to "get")
 				role.Rules[0].Verbs = []string{"get"}
-				Expect(k8sClient.Update(ctx, role)).Should(Succeed())
+				Expect(envTest.Update(ctx, role)).Should(Succeed())
 
 				// Verify the role is restored to the correct state
 				Eventually(func() bool {
 					updatedRole := &rbacv1.Role{}
-					err := k8sClient.Get(ctx, types.NamespacedName{
+					err := envTest.Get(ctx, types.NamespacedName{
 						Name:      roleName,
 						Namespace: testNs,
 					}, updatedRole)
@@ -95,7 +95,7 @@ var _ = Describe("LLMInferenceService Controller", func() {
 					return len(updatedRole.Rules) > 0 &&
 						len(updatedRole.Rules[0].Verbs) > 0 &&
 						updatedRole.Rules[0].Verbs[0] == "post"
-				}, TestTimeout, TestInterval).Should(BeTrue())
+				}).Should(BeTrue())
 			})
 		})
 
@@ -106,11 +106,11 @@ var _ = Describe("LLMInferenceService Controller", func() {
 				// Create multiple LLMInferenceServices in same namespace
 				llmisvc1 := createLLMInferenceService(testNs, "test-llm-service-1", LLMServicePath1)
 				llmisvc1.Name = "test-llm-service-1"
-				Expect(k8sClient.Create(ctx, llmisvc1)).Should(Succeed())
+				Expect(envTest.Create(ctx, llmisvc1)).Should(Succeed())
 
 				llmisvc2 := createLLMInferenceService(testNs, "test-llm-service-2", LLMServicePath2)
 				llmisvc2.Name = "test-llm-service-2"
-				Expect(k8sClient.Create(ctx, llmisvc2)).Should(Succeed())
+				Expect(envTest.Create(ctx, llmisvc2)).Should(Succeed())
 
 				// Verify each has its own Role with correct resource names
 				role1Name := llmisvc1.Name + "-model-user"
@@ -130,15 +130,15 @@ var _ = Describe("LLMInferenceService Controller", func() {
 
 		BeforeEach(func() {
 			ctx := context.Background()
-			testNamespace := testutils.Namespaces.Create(ctx, k8sClient)
+			testNamespace := testutils.Namespaces.Create(ctx, envTest.Client)
 			testNs = testNamespace.Name
 		})
 
 		When("creating an LLMInferenceService", func() {
-			It("should create a RoleBinding with correct MaaS tier specifications and proper owner references, and should reference the Role created by LLMRoleReconciler", func() {
+			It("should create a RoleBinding with correct MaaS tier specifications and proper owner references, and should reference the Role created by LLMRoleReconciler", func(ctx SpecContext) {
 				// Create LLMInferenceService
 				llmisvc := createLLMInferenceService(testNs, "test-llm-service", LLMServicePath1)
-				Expect(k8sClient.Create(ctx, llmisvc)).Should(Succeed())
+				Expect(envTest.Create(ctx, llmisvc)).Should(Succeed())
 
 				// Wait for RoleBinding to be created and verify its specification
 				roleBindingName := llmisvc.Name + "-tier-binding"
@@ -156,10 +156,10 @@ var _ = Describe("LLMInferenceService Controller", func() {
 		})
 
 		When("RoleBinding is manually modified", func() {
-			It("should reconcile back to desired state and restore correct MaaS tier subjects when changed", func() {
+			It("should reconcile back to desired state and restore correct MaaS tier subjects when changed", func(ctx SpecContext) {
 				// Create LLMInferenceService with RoleBinding
 				llmisvc := createLLMInferenceService(testNs, "test-llm-service", LLMServicePath1)
-				Expect(k8sClient.Create(ctx, llmisvc)).Should(Succeed())
+				Expect(envTest.Create(ctx, llmisvc)).Should(Succeed())
 
 				roleBindingName := llmisvc.Name + "-tier-binding"
 				roleBinding := waitForRoleBinding(testNs, roleBindingName)
@@ -173,33 +173,33 @@ var _ = Describe("LLMInferenceService Controller", func() {
 						Namespace: "",
 					},
 				}
-				Expect(k8sClient.Update(ctx, roleBinding)).Should(Succeed())
+				Expect(envTest.Update(ctx, roleBinding)).Should(Succeed())
 
 				// Verify RoleBinding is restored to include all three tiers
 				Eventually(func(g Gomega) {
 					updatedRoleBinding := &rbacv1.RoleBinding{}
-					err := k8sClient.Get(ctx, types.NamespacedName{
+					err := envTest.Get(ctx, types.NamespacedName{
 						Name:      roleBindingName,
 						Namespace: testNs,
 					}, updatedRoleBinding)
-					g.Expect(err).To(BeNil())
+					g.Expect(err).ToNot(HaveOccurred())
 
 					// Check RoleBinding is restored
 					verifyRoleBindingSpecification(g, updatedRoleBinding, llmisvc)
-				}, TestTimeout, TestInterval).Should(Succeed())
+				}).Should(Succeed())
 			})
 		})
 
 		When("multiple LLMInferenceServices exist", func() {
-			It("should create individual RoleBindings with correct Role references", func() {
+			It("should create individual RoleBindings with correct Role references", func(ctx SpecContext) {
 				// Create multiple LLMInferenceServices in the same namespace
 				llmisvc1 := createLLMInferenceService(testNs, "test-llm-service-1", LLMServicePath1)
 				llmisvc1.Name = "test-llm-service-1"
-				Expect(k8sClient.Create(ctx, llmisvc1)).Should(Succeed())
+				Expect(envTest.Create(ctx, llmisvc1)).Should(Succeed())
 
 				llmisvc2 := createLLMInferenceService(testNs, "test-llm-service-2", LLMServicePath2)
 				llmisvc2.Name = "test-llm-service-2"
-				Expect(k8sClient.Create(ctx, llmisvc2)).Should(Succeed())
+				Expect(envTest.Create(ctx, llmisvc2)).Should(Succeed())
 
 				// Verify each has its own RoleBinding with correct Role reference
 				roleBinding1Name := llmisvc1.Name + "-tier-binding"
@@ -234,11 +234,11 @@ func waitForRole(namespace, name string) *rbacv1.Role {
 
 	role := &rbacv1.Role{}
 	Eventually(func() error {
-		return k8sClient.Get(context.Background(), types.NamespacedName{
+		return envTest.Get(context.Background(), types.NamespacedName{
 			Name:      name,
 			Namespace: namespace,
 		}, role)
-	}, TestTimeout, TestInterval).Should(Succeed())
+	}).Should(Succeed())
 
 	return role
 }
@@ -272,11 +272,11 @@ func waitForRoleBinding(namespace, name string) *rbacv1.RoleBinding {
 
 	roleBinding := &rbacv1.RoleBinding{}
 	Eventually(func() error {
-		return k8sClient.Get(context.Background(), types.NamespacedName{
+		return envTest.Get(context.Background(), types.NamespacedName{
 			Name:      name,
 			Namespace: namespace,
 		}, roleBinding)
-	}, TestTimeout, TestInterval).Should(Succeed())
+	}).Should(Succeed())
 
 	return roleBinding
 }
