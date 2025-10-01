@@ -53,7 +53,10 @@ func (r *LLMRoleReconciler) Reconcile(ctx context.Context, log logr.Logger, llmi
 	log.V(1).Info("Verifying that the model user role exists")
 
 	// Create Desired resource
-	desiredResource := r.createDesiredResource(llmisvc)
+	desiredResource, err := r.createDesiredResource(llmisvc)
+	if err != nil {
+		return err
+	}
 
 	// Get Existing resource
 	existingResource, err := r.getExistingResource(ctx, log, llmisvc)
@@ -68,7 +71,7 @@ func (r *LLMRoleReconciler) Reconcile(ctx context.Context, log logr.Logger, llmi
 	return nil
 }
 
-func (r *LLMRoleReconciler) createDesiredResource(llmisvc *kservev1alpha1.LLMInferenceService) *v1.Role {
+func (r *LLMRoleReconciler) createDesiredResource(llmisvc *kservev1alpha1.LLMInferenceService) (*v1.Role, error) {
 	desiredRole := &v1.Role{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      kmeta.ChildName(llmisvc.Name, "-model-user"),
@@ -89,9 +92,11 @@ func (r *LLMRoleReconciler) createDesiredResource(llmisvc *kservev1alpha1.LLMInf
 
 	// Set the LLMInferenceService as the owner of the Role
 	// This ensures the Role is deleted when the LLMInferenceService is deleted
-	_ = controllerutil.SetControllerReference(llmisvc, desiredRole, r.client.Scheme())
+	if err := controllerutil.SetControllerReference(llmisvc, desiredRole, r.client.Scheme()); err != nil {
+		return nil, err
+	}
 
-	return desiredRole
+	return desiredRole, nil
 }
 
 func (r *LLMRoleReconciler) getExistingResource(ctx context.Context, log logr.Logger, llmisvc *kservev1alpha1.LLMInferenceService) (*v1.Role, error) {

@@ -53,7 +53,10 @@ func (r *LLMRoleBindingReconciler) Reconcile(ctx context.Context, log logr.Logge
 	log.V(1).Info("Verifying that the model tier binding exists")
 
 	// Create Desired resource
-	desiredResource := r.createDesiredResource(llmisvc)
+	desiredResource, err := r.createDesiredResource(llmisvc)
+	if err != nil {
+		return err
+	}
 
 	// Get Existing resource
 	existingResource, err := r.getExistingResource(ctx, log, llmisvc)
@@ -68,7 +71,7 @@ func (r *LLMRoleBindingReconciler) Reconcile(ctx context.Context, log logr.Logge
 	return nil
 }
 
-func (r *LLMRoleBindingReconciler) createDesiredResource(llmisvc *kservev1alpha1.LLMInferenceService) *v1.RoleBinding {
+func (r *LLMRoleBindingReconciler) createDesiredResource(llmisvc *kservev1alpha1.LLMInferenceService) (*v1.RoleBinding, error) {
 	desiredRoleBinding := &v1.RoleBinding{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      kmeta.ChildName(llmisvc.Name, "-tier-binding"),
@@ -103,9 +106,11 @@ func (r *LLMRoleBindingReconciler) createDesiredResource(llmisvc *kservev1alpha1
 
 	// Set the LLMInferenceService as the owner of the RoleBinding
 	// This ensures the RoleBinding is deleted when the LLMInferenceService is deleted
-	_ = controllerutil.SetControllerReference(llmisvc, desiredRoleBinding, r.client.Scheme())
+	if err := controllerutil.SetControllerReference(llmisvc, desiredRoleBinding, r.client.Scheme()); err != nil {
+		return nil, err
+	}
 
-	return desiredRoleBinding
+	return desiredRoleBinding, nil
 }
 
 func (r *LLMRoleBindingReconciler) getExistingResource(ctx context.Context, log logr.Logger, llmisvc *kservev1alpha1.LLMInferenceService) (*v1.RoleBinding, error) {

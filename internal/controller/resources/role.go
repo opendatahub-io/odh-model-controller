@@ -63,7 +63,7 @@ func (r *roleHandler) DeleteRole(ctx context.Context, key types.NamespacedName) 
 		}
 		return err
 	}
-	if err = r.client.Delete(ctx, role); err != nil {
+	if err = r.client.Delete(ctx, role); err != nil && !errors.IsNotFound(err) {
 		return fmt.Errorf("failed to delete Role: %w", err)
 	}
 	return nil
