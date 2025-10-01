@@ -44,6 +44,7 @@ type KserveAuthPolicyReconciler struct {
 	detector       resources.AuthPolicyDetector
 	templateLoader resources.AuthPolicyTemplateLoader
 	store          resources.AuthPolicyStore
+	matcher        resources.AuthPolicyMatcher
 }
 
 func NewKserveAuthPolicyReconciler(client client.Client, scheme *runtime.Scheme) *KserveAuthPolicyReconciler {
@@ -53,20 +54,19 @@ func NewKserveAuthPolicyReconciler(client client.Client, scheme *runtime.Scheme)
 		detector:       resources.NewKServeAuthPolicyDetector(client),
 		templateLoader: resources.NewKServeAuthPolicyTemplateLoader(client),
 		store:          resources.NewClientAuthPolicyStore(client),
+		matcher:        resources.NewKServeAuthPolicyMatcher(client),
 	}
 }
 
 func (r *KserveAuthPolicyReconciler) Reconcile(ctx context.Context, log logr.Logger, llmisvc *kservev1alpha1.LLMInferenceService) error {
 	log.V(1).Info("Starting AuthPolicy reconciliation for LLMInferenceService")
 
-	authType := r.detector.Detect(ctx, llmisvc.GetAnnotations())
-
 	if err := r.reconcileGatewayAuthpolicy(ctx, log, llmisvc); err != nil {
 		log.Error(err, "Failed to reconcile Gateway AuthPolicy")
 		return err
 	}
 
-	if err := r.reconcileHTTPRouteAuthpolicy(ctx, log, llmisvc, authType); err != nil {
+	if err := r.reconcileHTTPRouteAuthpolicy(ctx, log, llmisvc); err != nil {
 		log.Error(err, "Failed to reconcile HTTPRoute AuthPolicy")
 		return err
 	}
@@ -99,8 +99,8 @@ func (r *KserveAuthPolicyReconciler) reconcileGatewayAuthpolicy(ctx context.Cont
 	return nil
 }
 
-func (r *KserveAuthPolicyReconciler) reconcileHTTPRouteAuthpolicy(ctx context.Context, log logr.Logger, llmisvc *kservev1alpha1.LLMInferenceService, authType constants.AuthType) error {
-	log.V(1).Info("Reconciling HTTPRoute AuthPolicy", "authType", authType)
+func (r *KserveAuthPolicyReconciler) reconcileHTTPRouteAuthpolicy(ctx context.Context, log logr.Logger, llmisvc *kservev1alpha1.LLMInferenceService) error {
+	log.V(1).Info("Reconciling HTTPRoute AuthPolicy")
 
 	desiredAuthPolicies, err := r.templateLoader.Load(ctx, constants.Anonymous, llmisvc)
 	if err != nil {
@@ -115,7 +115,7 @@ func (r *KserveAuthPolicyReconciler) reconcileHTTPRouteAuthpolicy(ctx context.Co
 			return err
 		}
 
-		if err := r.httpRouteAuthPolicyProcessDelta(ctx, log, llmisvc, authType, desired, existing); err != nil {
+		if err := r.httpRouteAuthPolicyProcessDelta(ctx, log, llmisvc, desired, existing); err != nil {
 			log.Error(err, "Failed to process HTTPRoute AuthPolicy delta", "name", desired.GetName())
 			return err
 		}
@@ -125,6 +125,112 @@ func (r *KserveAuthPolicyReconciler) reconcileHTTPRouteAuthpolicy(ctx context.Co
 }
 
 func (r *KserveAuthPolicyReconciler) Delete(ctx context.Context, log logr.Logger, llmisvc *kservev1alpha1.LLMInferenceService) error {
+	log.V(1).Info("Deleting AuthPolicies for LLMInferenceService")
+
+	// 1. Delete HTTPRoute AuthPolicies (always delete)
+	if err := r.deleteHTTPRouteAuthPolicies(ctx, log, llmisvc); err != nil {
+		return err
+	}
+
+	// 2. Delete Gateway AuthPolicies (only if no other LLMInferenceService uses the same gateway)
+	if err := r.deleteGatewayAuthPoliciesIfUnused(ctx, log, llmisvc); err != nil {
+		return err
+	}
+
+	return nil
+}
+
+func (r *KserveAuthPolicyReconciler) deleteHTTPRouteAuthPolicies(ctx context.Context, log logr.Logger, llmisvc *kservev1alpha1.LLMInferenceService) error {
+	log.V(1).Info("Deleting HTTPRoute AuthPolicy for LLMInferenceService")
+
+	httpRouteAuthPolicies, err := r.templateLoader.Load(ctx, constants.Anonymous, llmisvc)
+	if err != nil {
+		log.Error(err, "Failed to load HTTPRoute AuthPolicy templates for deletion")
+		return err
+	}
+
+	for _, authPolicy := range httpRouteAuthPolicies {
+		namespacedName := types.NamespacedName{
+			Name:      authPolicy.GetName(),
+			Namespace: authPolicy.GetNamespace(),
+		}
+
+		log.V(1).Info("Attempting to delete HTTPRoute AuthPolicy", "name", namespacedName.Name)
+
+		if err := r.store.Remove(ctx, namespacedName); err != nil {
+			if !apierrors.IsNotFound(err) {
+				log.Error(err, "Failed to delete HTTPRoute AuthPolicy", "name", namespacedName.Name)
+				return err
+			}
+			log.V(1).Info("HTTPRoute AuthPolicy not found, already deleted", "name", namespacedName.Name)
+		} else {
+			log.Info("Successfully deleted HTTPRoute AuthPolicy", "name", namespacedName.Name)
+		}
+	}
+
+	return nil
+}
+
+func (r *KserveAuthPolicyReconciler) deleteGatewayAuthPoliciesIfUnused(ctx context.Context, log logr.Logger, llmisvc *kservev1alpha1.LLMInferenceService) error {
+	log.V(1).Info("Checking Gateway AuthPolicies for deletion")
+
+	gatewayAuthPolicies, err := r.templateLoader.Load(ctx, constants.UserDefined, llmisvc)
+	if err != nil {
+		log.Error(err, "Failed to load Gateway AuthPolicy templates for deletion")
+		return err
+	}
+
+	for _, authPolicy := range gatewayAuthPolicies {
+		namespacedName := types.NamespacedName{
+			Name:      authPolicy.GetName(),
+			Namespace: authPolicy.GetNamespace(),
+		}
+
+		log.V(1).Info("Checking if Gateway AuthPolicy is used by other LLMInferenceServices", "name", namespacedName.Name)
+
+		existingAuthPolicy, err := r.store.Get(ctx, namespacedName)
+		if err != nil {
+			if apierrors.IsNotFound(err) {
+				log.V(1).Info("Gateway AuthPolicy not found, already deleted", "name", namespacedName.Name)
+				continue
+			}
+			log.Error(err, "Failed to get Gateway AuthPolicy", "name", namespacedName.Name)
+			return err
+		}
+
+		matchedServices, err := r.matcher.FindLLMServiceFromGatewayAuthPolicy(ctx, existingAuthPolicy)
+		if err != nil {
+			log.Error(err, "Failed to find LLMInferenceServices using Gateway AuthPolicy", "name", namespacedName.Name)
+			return err
+		}
+
+		hasOtherUsers := false
+		for _, svc := range matchedServices {
+			if svc.Name != llmisvc.Name || svc.Namespace != llmisvc.Namespace {
+				hasOtherUsers = true
+				break
+			}
+		}
+
+		if hasOtherUsers {
+			log.Info("Skipping Gateway AuthPolicy deletion as it is used by other LLMInferenceServices",
+				"authPolicy", namespacedName.Name)
+			continue
+		}
+
+		log.V(1).Info("Attempting to delete Gateway AuthPolicy", "name", namespacedName.Name)
+
+		if err := r.store.Remove(ctx, namespacedName); err != nil {
+			if !apierrors.IsNotFound(err) {
+				log.Error(err, "Failed to delete Gateway AuthPolicy", "name", namespacedName.Name)
+				return err
+			}
+			log.V(1).Info("Gateway AuthPolicy not found, already deleted", "name", namespacedName.Name)
+		} else {
+			log.Info("Successfully deleted Gateway AuthPolicy", "name", namespacedName.Name)
+		}
+	}
+
 	return nil
 }
 
@@ -223,8 +329,11 @@ func (r *KserveAuthPolicyReconciler) gatewayAuthPolicyProcessDelta(ctx context.C
 	return nil
 }
 
-func (r *KserveAuthPolicyReconciler) httpRouteAuthPolicyProcessDelta(ctx context.Context, log logr.Logger, llmisvc *kservev1alpha1.LLMInferenceService, authType constants.AuthType, desired *kuadrantv1.AuthPolicy, existing *kuadrantv1.AuthPolicy) error {
-	log.V(1).Info("Processing HTTPRoute AuthPolicy delta", "name", desired.GetName(), "authType", authType)
+func (r *KserveAuthPolicyReconciler) httpRouteAuthPolicyProcessDelta(ctx context.Context, log logr.Logger, llmisvc *kservev1alpha1.LLMInferenceService, desired *kuadrantv1.AuthPolicy, existing *kuadrantv1.AuthPolicy) error {
+	log.V(1).Info("Processing HTTPRoute AuthPolicy delta", "name", desired.GetName())
+
+	authType := r.detector.Detect(ctx, llmisvc.GetAnnotations())
+	log.V(1).Info("AuthType", "authType", authType)
 
 	if authType == constants.UserDefined {
 		if existing != nil {

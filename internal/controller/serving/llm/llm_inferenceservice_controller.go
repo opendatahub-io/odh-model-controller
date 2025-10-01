@@ -120,22 +120,15 @@ func (r *LLMInferenceServiceReconciler) SetupWithManager(mgr ctrl.Manager, setup
 					return false
 				},
 				UpdateFunc: func(e event.UpdateEvent) bool {
-					return hasOpenDataHubManagedLabel(e.ObjectNew)
+					return utils.HasOpenDataHubManagedLabel(e.ObjectNew)
 				},
 				DeleteFunc: func(e event.DeleteEvent) bool {
-					return hasOpenDataHubManagedLabel(e.Object)
+					return utils.HasOpenDataHubManagedLabel(e.Object)
 				},
 			}))
 	}
 
 	return b.Complete(r)
-}
-
-func hasOpenDataHubManagedLabel(obj client.Object) bool {
-	if labels := obj.GetLabels(); labels != nil {
-		return labels["opendatahub.io/managed"] == "true"
-	}
-	return false
 }
 
 func (r *LLMInferenceServiceReconciler) enqueueOnAuthPolicyChange() handler.EventHandler {

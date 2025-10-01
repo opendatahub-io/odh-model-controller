@@ -47,7 +47,8 @@ func GetGatewayAuthPolicy(ctx context.Context, c client.Client, gatewayNamespace
 }
 
 func GetHTTPRouteAuthPolicy(ctx context.Context, c client.Client, llmisvcNamespace, llmisvcName string) (*kuadrantv1.AuthPolicy, error) {
-	return getAuthPolicyByName(ctx, c, llmisvcNamespace, constants.GetHTTPRouteAuthPolicyName(llmisvcName))
+	httpRouteName := constants.GetHTTPRouteName(llmisvcName)
+	return getAuthPolicyByName(ctx, c, llmisvcNamespace, constants.GetHTTPRouteAuthPolicyName(httpRouteName))
 }
 
 func CreateBasicLLMInferenceService(ctx context.Context, c client.Client, testNs string, llmisvcName string, enableAuth *bool) *kservev1alpha1.LLMInferenceService {
@@ -97,7 +98,8 @@ func VerifyGatewayAuthPolicyOwnerRef(ctx context.Context, c client.Client, gatew
 
 func VerifyHTTPRouteAuthPolicyOwnerRef(ctx context.Context, c client.Client, testNs string, llmisvcName string) {
 	gomega.Eventually(func() error {
-		httpRouteAuthPolicy, err := getAuthPolicyByName(ctx, c, testNs, constants.GetHTTPRouteAuthPolicyName(llmisvcName))
+		httpRouteName := constants.GetHTTPRouteName(llmisvcName)
+		httpRouteAuthPolicy, err := getAuthPolicyByName(ctx, c, testNs, constants.GetHTTPRouteAuthPolicyName(httpRouteName))
 		if err != nil {
 			return err
 		}
@@ -134,6 +136,20 @@ func VerifyHTTPRouteAuthPolicyExists(ctx context.Context, c client.Client, testN
 	gomega.Eventually(func() error {
 		_, err := GetHTTPRouteAuthPolicy(ctx, c, testNs, llmisvcName)
 		return err
+	}).WithContext(ctx).Should(gomega.Succeed())
+}
+
+func VerifyCustomHTTPRouteAuthPolicyExists(ctx context.Context, c client.Client, testNs string, llmisvcName string, httpRouteName string) {
+	gomega.Eventually(func() error {
+		authPolicy, err := getAuthPolicyByName(ctx, c, testNs, constants.GetHTTPRouteAuthPolicyName(httpRouteName))
+		if err != nil {
+			return err
+		}
+		// Verify the AuthPolicy targets the correct HTTPRoute
+		if string(authPolicy.Spec.TargetRef.Name) != httpRouteName {
+			return fmt.Errorf("expected AuthPolicy to target HTTPRoute %s, but got %s", httpRouteName, authPolicy.Spec.TargetRef.Name)
+		}
+		return nil
 	}).WithContext(ctx).Should(gomega.Succeed())
 }
 
@@ -187,6 +203,26 @@ func VerifyGatewayAuthPolicyRestored(ctx context.Context, c client.Client, gatew
 func VerifyHTTPRouteAuthPolicyRestored(ctx context.Context, c client.Client, testNs string, llmisvcName string, expectedTargetRefName gatewayapiv1.ObjectName) {
 	gomega.Eventually(func() bool {
 		restored, err := GetHTTPRouteAuthPolicy(ctx, c, testNs, llmisvcName)
+		if err != nil {
+			return false
+		}
+		return restored.Spec.TargetRef.Name == expectedTargetRefName
+	}).WithContext(ctx).Should(gomega.BeTrue())
+}
+
+func WaitForCustomHTTPRouteAuthPolicy(ctx context.Context, c client.Client, testNs string, httpRouteName string) *kuadrantv1.AuthPolicy {
+	var httpRouteAuthPolicy *kuadrantv1.AuthPolicy
+	gomega.Eventually(func() error {
+		var err error
+		httpRouteAuthPolicy, err = getAuthPolicyByName(ctx, c, testNs, constants.GetHTTPRouteAuthPolicyName(httpRouteName))
+		return err
+	}).WithContext(ctx).Should(gomega.Succeed())
+	return httpRouteAuthPolicy
+}
+
+func VerifyCustomHTTPRouteAuthPolicyRestored(ctx context.Context, c client.Client, testNs string, httpRouteName string, expectedTargetRefName gatewayapiv1.ObjectName) {
+	gomega.Eventually(func() bool {
+		restored, err := getAuthPolicyByName(ctx, c, testNs, constants.GetHTTPRouteAuthPolicyName(httpRouteName))
 		if err != nil {
 			return false
 		}
