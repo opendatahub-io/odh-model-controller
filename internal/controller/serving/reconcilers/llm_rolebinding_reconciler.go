@@ -22,14 +22,14 @@ import (
 	kservev1alpha1 "github.com/kserve/kserve/pkg/apis/serving/v1alpha1"
 	v1 "k8s.io/api/rbac/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/apimachinery/pkg/types"
-	"knative.dev/pkg/kmeta"
+	machineryTypes "k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 
 	"github.com/opendatahub-io/odh-model-controller/internal/controller/comparators"
 	"github.com/opendatahub-io/odh-model-controller/internal/controller/processors"
 	"github.com/opendatahub-io/odh-model-controller/internal/controller/resources"
+	"github.com/opendatahub-io/odh-model-controller/internal/types"
 )
 
 var _ LLMSubResourceReconciler = (*LLMRoleBindingReconciler)(nil)
@@ -51,15 +51,16 @@ func NewLLMRoleBindingReconciler(client client.Client) *LLMRoleBindingReconciler
 
 func (r *LLMRoleBindingReconciler) Reconcile(ctx context.Context, log logr.Logger, llmisvc *kservev1alpha1.LLMInferenceService) error {
 	log.V(1).Info("Verifying that the model tier binding exists")
+	enhancedLLM := &types.LLMInferenceService{LLMInferenceService: llmisvc}
 
 	// Create Desired resource
-	desiredResource, err := r.createDesiredResource(llmisvc)
+	desiredResource, err := r.createDesiredResource(enhancedLLM)
 	if err != nil {
 		return err
 	}
 
 	// Get Existing resource
-	existingResource, err := r.getExistingResource(ctx, log, llmisvc)
+	existingResource, err := r.getExistingResource(ctx, log, enhancedLLM)
 	if err != nil {
 		return err
 	}
@@ -71,10 +72,10 @@ func (r *LLMRoleBindingReconciler) Reconcile(ctx context.Context, log logr.Logge
 	return nil
 }
 
-func (r *LLMRoleBindingReconciler) createDesiredResource(llmisvc *kservev1alpha1.LLMInferenceService) (*v1.RoleBinding, error) {
+func (r *LLMRoleBindingReconciler) createDesiredResource(llmisvc *types.LLMInferenceService) (*v1.RoleBinding, error) {
 	desiredRoleBinding := &v1.RoleBinding{
 		ObjectMeta: metav1.ObjectMeta{
-			Name:      kmeta.ChildName(llmisvc.Name, "-tier-binding"),
+			Name:      llmisvc.GetMaaSRoleBindingName(),
 			Namespace: llmisvc.Namespace,
 			Labels: map[string]string{
 				"app.kubernetes.io/managed-by": "odh-model-controller",
@@ -99,23 +100,22 @@ func (r *LLMRoleBindingReconciler) createDesiredResource(llmisvc *kservev1alpha1
 		},
 		RoleRef: v1.RoleRef{
 			Kind:     "Role",
-			Name:     kmeta.ChildName(llmisvc.Name, "-model-user"),
+			Name:     llmisvc.GetMaaSRoleName(),
 			APIGroup: "rbac.authorization.k8s.io",
 		},
 	}
 
 	// Set the LLMInferenceService as the owner of the RoleBinding
 	// This ensures the RoleBinding is deleted when the LLMInferenceService is deleted
-	if err := controllerutil.SetControllerReference(llmisvc, desiredRoleBinding, r.client.Scheme()); err != nil {
+	if err := controllerutil.SetControllerReference(llmisvc.LLMInferenceService, desiredRoleBinding, r.client.Scheme()); err != nil {
 		return nil, err
 	}
 
 	return desiredRoleBinding, nil
 }
 
-func (r *LLMRoleBindingReconciler) getExistingResource(ctx context.Context, log logr.Logger, llmisvc *kservev1alpha1.LLMInferenceService) (*v1.RoleBinding, error) {
-	roleBindingName := kmeta.ChildName(llmisvc.Name, "-tier-binding")
-	return r.roleBindingHandler.FetchRoleBinding(ctx, log, types.NamespacedName{Name: roleBindingName, Namespace: llmisvc.Namespace})
+func (r *LLMRoleBindingReconciler) getExistingResource(ctx context.Context, log logr.Logger, llmisvc *types.LLMInferenceService) (*v1.RoleBinding, error) {
+	return r.roleBindingHandler.FetchRoleBinding(ctx, log, machineryTypes.NamespacedName{Name: llmisvc.GetMaaSRoleBindingName(), Namespace: llmisvc.Namespace})
 }
 
 func (r *LLMRoleBindingReconciler) processDelta(ctx context.Context, log logr.Logger, desiredRoleBinding *v1.RoleBinding, existingRoleBinding *v1.RoleBinding) (err error) {

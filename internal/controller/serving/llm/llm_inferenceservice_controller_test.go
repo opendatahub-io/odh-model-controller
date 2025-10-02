@@ -52,7 +52,7 @@ var _ = Describe("LLMInferenceService Controller", func() {
 				Expect(envTest.Create(ctx, llmisvc)).Should(Succeed())
 
 				// Wait for Role to be created and verify its specification
-				role := waitForRole(testNs, llmisvc.Name+"-model-user")
+				role := waitForRole(testNs, llmisvc.Name+"-model-post-access")
 				verifyRoleSpecification(role, llmisvc)
 
 				// Verify owner reference
@@ -73,7 +73,7 @@ var _ = Describe("LLMInferenceService Controller", func() {
 				llmisvc := createLLMInferenceService(testNs, "test-llm-service", LLMServicePath1)
 				Expect(envTest.Create(ctx, llmisvc)).Should(Succeed())
 
-				roleName := llmisvc.Name + "-model-user"
+				roleName := llmisvc.Name + "-model-post-access"
 				role := waitForRole(testNs, roleName)
 
 				// Manually modify Role (change verb from "post" to "get")
@@ -113,8 +113,8 @@ var _ = Describe("LLMInferenceService Controller", func() {
 				Expect(envTest.Create(ctx, llmisvc2)).Should(Succeed())
 
 				// Verify each has its own Role with correct resource names
-				role1Name := llmisvc1.Name + "-model-user"
-				role2Name := llmisvc2.Name + "-model-user"
+				role1Name := llmisvc1.Name + "-model-post-access"
+				role2Name := llmisvc2.Name + "-model-post-access"
 
 				role1 := waitForRole(testNs, role1Name)
 				verifyRoleSpecification(role1, llmisvc1)
@@ -248,7 +248,7 @@ func verifyRoleSpecification(role *rbacv1.Role, llmIsvc *kservev1alpha1.LLMInfer
 	GinkgoHelper()
 
 	// Verify Role name
-	expectedName := llmIsvc.Name + "-model-user"
+	expectedName := llmIsvc.Name + "-model-post-access"
 	Expect(role.GetName()).To(Equal(expectedName))
 
 	// Verify Role labels
@@ -292,7 +292,7 @@ func verifyRoleBindingSpecification(g Gomega, roleBinding *rbacv1.RoleBinding, l
 	verifyMaaSTierSubjects(g, roleBinding.Subjects)
 
 	// Verify RoleRef points to correct Role
-	expectedRoleName := llmIsvc.Name + "-model-user"
+	expectedRoleName := llmIsvc.Name + "-model-post-access"
 	g.Expect(roleBinding.RoleRef.Name).To(Equal(expectedRoleName))
 	g.Expect(roleBinding.RoleRef.Kind).To(Equal("Role"))
 	g.Expect(roleBinding.RoleRef.APIGroup).To(Equal("rbac.authorization.k8s.io"))
