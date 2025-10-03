@@ -17,6 +17,7 @@ package reconcilers
 
 import (
 	"context"
+	"reflect"
 
 	"github.com/go-logr/logr"
 	kservev1alpha1 "github.com/kserve/kserve/pkg/apis/serving/v1alpha1"
@@ -29,7 +30,7 @@ import (
 	"github.com/opendatahub-io/odh-model-controller/internal/controller/comparators"
 	"github.com/opendatahub-io/odh-model-controller/internal/controller/processors"
 	"github.com/opendatahub-io/odh-model-controller/internal/controller/resources"
-	"github.com/opendatahub-io/odh-model-controller/internal/types"
+	"github.com/opendatahub-io/odh-model-controller/internal/controller/utils"
 )
 
 var _ LLMSubResourceReconciler = (*LLMRoleBindingReconciler)(nil)
@@ -51,16 +52,15 @@ func NewLLMRoleBindingReconciler(client client.Client) *LLMRoleBindingReconciler
 
 func (r *LLMRoleBindingReconciler) Reconcile(ctx context.Context, log logr.Logger, llmisvc *kservev1alpha1.LLMInferenceService) error {
 	log.V(1).Info("Verifying that the model tier binding exists")
-	enhancedLLM := &types.LLMInferenceService{LLMInferenceService: llmisvc}
 
 	// Create Desired resource
-	desiredResource, err := r.createDesiredResource(enhancedLLM)
+	desiredResource, err := r.createDesiredResource(llmisvc)
 	if err != nil {
 		return err
 	}
 
 	// Get Existing resource
-	existingResource, err := r.getExistingResource(ctx, log, enhancedLLM)
+	existingResource, err := r.getExistingResource(ctx, log, llmisvc)
 	if err != nil {
 		return err
 	}
@@ -72,10 +72,10 @@ func (r *LLMRoleBindingReconciler) Reconcile(ctx context.Context, log logr.Logge
 	return nil
 }
 
-func (r *LLMRoleBindingReconciler) createDesiredResource(llmisvc *types.LLMInferenceService) (*v1.RoleBinding, error) {
+func (r *LLMRoleBindingReconciler) createDesiredResource(llmisvc *kservev1alpha1.LLMInferenceService) (*v1.RoleBinding, error) {
 	desiredRoleBinding := &v1.RoleBinding{
 		ObjectMeta: metav1.ObjectMeta{
-			Name:      llmisvc.GetMaaSRoleBindingName(),
+			Name:      utils.GetMaaSRoleBindingName(llmisvc),
 			Namespace: llmisvc.Namespace,
 			Labels: map[string]string{
 				"app.kubernetes.io/managed-by": "odh-model-controller",
@@ -100,22 +100,22 @@ func (r *LLMRoleBindingReconciler) createDesiredResource(llmisvc *types.LLMInfer
 		},
 		RoleRef: v1.RoleRef{
 			Kind:     "Role",
-			Name:     llmisvc.GetMaaSRoleName(),
+			Name:     utils.GetMaaSRoleName(llmisvc),
 			APIGroup: "rbac.authorization.k8s.io",
 		},
 	}
 
 	// Set the LLMInferenceService as the owner of the RoleBinding
 	// This ensures the RoleBinding is deleted when the LLMInferenceService is deleted
-	if err := controllerutil.SetControllerReference(llmisvc.LLMInferenceService, desiredRoleBinding, r.client.Scheme()); err != nil {
+	if err := controllerutil.SetControllerReference(llmisvc, desiredRoleBinding, r.client.Scheme()); err != nil {
 		return nil, err
 	}
 
 	return desiredRoleBinding, nil
 }
 
-func (r *LLMRoleBindingReconciler) getExistingResource(ctx context.Context, log logr.Logger, llmisvc *types.LLMInferenceService) (*v1.RoleBinding, error) {
-	return r.roleBindingHandler.FetchRoleBinding(ctx, log, machineryTypes.NamespacedName{Name: llmisvc.GetMaaSRoleBindingName(), Namespace: llmisvc.Namespace})
+func (r *LLMRoleBindingReconciler) getExistingResource(ctx context.Context, log logr.Logger, llmisvc *kservev1alpha1.LLMInferenceService) (*v1.RoleBinding, error) {
+	return r.roleBindingHandler.FetchRoleBinding(ctx, log, machineryTypes.NamespacedName{Name: utils.GetMaaSRoleBindingName(llmisvc), Namespace: llmisvc.Namespace})
 }
 
 func (r *LLMRoleBindingReconciler) processDelta(ctx context.Context, log logr.Logger, desiredRoleBinding *v1.RoleBinding, existingRoleBinding *v1.RoleBinding) (err error) {
@@ -134,13 +134,27 @@ func (r *LLMRoleBindingReconciler) processDelta(ctx context.Context, log logr.Lo
 		}
 	}
 	if delta.IsUpdated() {
-		log.V(1).Info("Delta found", "update", existingRoleBinding.GetName())
-		rp := existingRoleBinding.DeepCopy()
-		rp.Subjects = desiredRoleBinding.Subjects
-		rp.RoleRef = desiredRoleBinding.RoleRef
+		if reflect.DeepEqual(existingRoleBinding.RoleRef, desiredRoleBinding.RoleRef) {
+			log.V(1).Info("Delta found", "update", existingRoleBinding.GetName())
 
-		if err = r.client.Update(ctx, rp); err != nil {
-			return err
+			rp := existingRoleBinding.DeepCopy()
+			rp.Subjects = desiredRoleBinding.Subjects
+			rp.RoleRef = desiredRoleBinding.RoleRef
+
+			if err = r.client.Update(ctx, rp); err != nil {
+				return err
+			}
+		} else {
+			// The RoleRef is immutable. To fix any diversion, recreation is required.
+			log.V(1).Info("Delta found", "recreate", existingRoleBinding.GetName())
+
+			if err = r.client.Delete(ctx, existingRoleBinding); err != nil {
+				return err
+			}
+
+			if err = r.client.Create(ctx, desiredRoleBinding); err != nil {
+				return err
+			}
 		}
 	}
 	if delta.IsRemoved() {

@@ -29,7 +29,7 @@ import (
 	"github.com/opendatahub-io/odh-model-controller/internal/controller/comparators"
 	"github.com/opendatahub-io/odh-model-controller/internal/controller/processors"
 	"github.com/opendatahub-io/odh-model-controller/internal/controller/resources"
-	"github.com/opendatahub-io/odh-model-controller/internal/types"
+	"github.com/opendatahub-io/odh-model-controller/internal/controller/utils"
 )
 
 var _ LLMSubResourceReconciler = (*LLMRoleReconciler)(nil)
@@ -51,14 +51,13 @@ func NewLLMRoleReconciler(client client.Client) *LLMRoleReconciler {
 
 func (r *LLMRoleReconciler) Reconcile(ctx context.Context, log logr.Logger, llmisvc *kservev1alpha1.LLMInferenceService) error {
 	log.V(1).Info("Verifying that the model user role exists")
-	enhancedLLM := &types.LLMInferenceService{LLMInferenceService: llmisvc}
 
-	desiredResource, err := r.createDesiredResource(enhancedLLM)
+	desiredResource, err := r.createDesiredResource(llmisvc)
 	if err != nil {
 		return err
 	}
 
-	existingResource, err := r.getExistingResource(ctx, log, enhancedLLM)
+	existingResource, err := r.getExistingResource(ctx, log, llmisvc)
 	if err != nil {
 		return err
 	}
@@ -69,10 +68,10 @@ func (r *LLMRoleReconciler) Reconcile(ctx context.Context, log logr.Logger, llmi
 	return nil
 }
 
-func (r *LLMRoleReconciler) createDesiredResource(llmisvc *types.LLMInferenceService) (*v1.Role, error) {
+func (r *LLMRoleReconciler) createDesiredResource(llmisvc *kservev1alpha1.LLMInferenceService) (*v1.Role, error) {
 	desiredRole := &v1.Role{
 		ObjectMeta: metav1.ObjectMeta{
-			Name:      llmisvc.GetMaaSRoleName(),
+			Name:      utils.GetMaaSRoleName(llmisvc),
 			Namespace: llmisvc.Namespace,
 			Labels: map[string]string{
 				"app.kubernetes.io/managed-by": "odh-model-controller",
@@ -90,15 +89,15 @@ func (r *LLMRoleReconciler) createDesiredResource(llmisvc *types.LLMInferenceSer
 
 	// Set the LLMInferenceService as the owner of the Role
 	// This ensures the Role is deleted when the LLMInferenceService is deleted
-	if err := controllerutil.SetControllerReference(llmisvc.LLMInferenceService, desiredRole, r.client.Scheme()); err != nil {
+	if err := controllerutil.SetControllerReference(llmisvc, desiredRole, r.client.Scheme()); err != nil {
 		return nil, err
 	}
 
 	return desiredRole, nil
 }
 
-func (r *LLMRoleReconciler) getExistingResource(ctx context.Context, log logr.Logger, llmisvc *types.LLMInferenceService) (*v1.Role, error) {
-	return r.roleHandler.FetchRole(ctx, log, machineryTypes.NamespacedName{Name: llmisvc.GetMaaSRoleName(), Namespace: llmisvc.Namespace})
+func (r *LLMRoleReconciler) getExistingResource(ctx context.Context, log logr.Logger, llmisvc *kservev1alpha1.LLMInferenceService) (*v1.Role, error) {
+	return r.roleHandler.FetchRole(ctx, log, machineryTypes.NamespacedName{Name: utils.GetMaaSRoleName(llmisvc), Namespace: llmisvc.Namespace})
 }
 
 func (r *LLMRoleReconciler) processDelta(ctx context.Context, log logr.Logger, desiredRole *v1.Role, existingRole *v1.Role) (err error) {
