@@ -55,8 +55,10 @@ var ownedBySelfPredicate = predicate.NewPredicateFuncs(func(o client.Object) boo
 func NewLLMInferenceServiceReconciler(client client.Client, scheme *runtime.Scheme, config *rest.Config) *LLMInferenceServiceReconciler {
 
 	var subResourceReconcilers []parentreconcilers.LLMSubResourceReconciler
-	subResourceReconcilers = append(subResourceReconcilers, parentreconcilers.NewLLMRoleReconciler(client))
-	subResourceReconcilers = append(subResourceReconcilers, parentreconcilers.NewLLMRoleBindingReconciler(client))
+	subResourceReconcilers = append(subResourceReconcilers,
+		parentreconcilers.NewLLMRoleReconciler(client),
+		parentreconcilers.NewLLMRoleBindingReconciler(client),
+	)
 
 	return &LLMInferenceServiceReconciler{
 		Client:                 client,

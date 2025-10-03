@@ -545,5 +545,5 @@ func GetMaaSRoleName(llmisvc *kservev1alpha1.LLMInferenceService) string {
 
 // GetMaaSRoleBindingName returns the name of the related RoleBinding resource for MaaS RBAC use cases
 func GetMaaSRoleBindingName(llmisvc *kservev1alpha1.LLMInferenceService) string {
-	return kmeta.ChildName(llmisvc.Name, "-tier-binding")
+	return kmeta.ChildName(llmisvc.Name, "-model-post-access-tier-binding")
 }

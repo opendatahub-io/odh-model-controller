@@ -3,6 +3,8 @@ kind: LLMInferenceService
 metadata:
   name: test-llm-service-2
   namespace: default
+  annotations:
+    alpha.maas.opendatahub.io/tiers: '["free", "premium", "enterprise"]'
 spec:
   model:
     name: "test-model-2"

@@ -40,6 +40,7 @@ type LLMRoleBindingReconciler struct {
 	client             client.Client
 	roleBindingHandler resources.RoleBindingHandler
 	deltaProcessor     processors.DeltaProcessor
+	tierConfigLoader   *TierConfigLoader
 }
 
 func NewLLMRoleBindingReconciler(client client.Client) *LLMRoleBindingReconciler {
@@ -47,32 +48,37 @@ func NewLLMRoleBindingReconciler(client client.Client) *LLMRoleBindingReconciler
 		client:             client,
 		roleBindingHandler: resources.NewRoleBindingHandler(client),
 		deltaProcessor:     processors.NewDeltaProcessor(),
+		tierConfigLoader:   NewTierConfigLoader(client),
 	}
 }
 
 func (r *LLMRoleBindingReconciler) Reconcile(ctx context.Context, log logr.Logger, llmisvc *kservev1alpha1.LLMInferenceService) error {
-	log.V(1).Info("Verifying that the model tier binding exists")
+	log.V(1).Info("Reconciling tier binding", "name", llmisvc.Name, "namespace", llmisvc.Namespace)
 
-	// Create Desired resource
-	desiredResource, err := r.createDesiredResource(llmisvc)
-	if err != nil {
-		return err
+	// If we don't have the annotation, we should delete the role and rolebinding - opt out
+	// TODO: at this point in the reconcile we don't know if annotation existed before or not
+	// But what if the model was created using plain manifests?
+	// What if the role/rolebinding was created manually and the names match?
+
+	var desiredResource *v1.RoleBinding
+	annotations := llmisvc.GetAnnotations()
+	if annotations != nil {
+		if _, found := annotations[TierAnnotationKey]; found {
+			desiredResource = r.createDesiredResource(ctx, log, llmisvc)
+		}
 	}
 
-	// Get Existing resource
 	existingResource, err := r.getExistingResource(ctx, log, llmisvc)
 	if err != nil {
 		return err
 	}
 
-	// Process Delta
-	if err = r.processDelta(ctx, log, desiredResource, existingResource); err != nil {
-		return err
-	}
-	return nil
+	return r.processDelta(ctx, log, desiredResource, existingResource)
 }
 
-func (r *LLMRoleBindingReconciler) createDesiredResource(llmisvc *kservev1alpha1.LLMInferenceService) (*v1.RoleBinding, error) {
+func (r *LLMRoleBindingReconciler) createDesiredResource(ctx context.Context, log logr.Logger, llmisvc *kservev1alpha1.LLMInferenceService) *v1.RoleBinding {
+	subjects := r.getTierSubjects(ctx, log, llmisvc)
+
 	desiredRoleBinding := &v1.RoleBinding{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      utils.GetMaaSRoleBindingName(llmisvc),
@@ -81,23 +87,7 @@ func (r *LLMRoleBindingReconciler) createDesiredResource(llmisvc *kservev1alpha1
 				"app.kubernetes.io/managed-by": "odh-model-controller",
 			},
 		},
-		Subjects: []v1.Subject{
-			{
-				Kind:     "Group",
-				Name:     "system:serviceaccounts:openshift-ai-inference-tier-free",
-				APIGroup: "rbac.authorization.k8s.io",
-			},
-			{
-				Kind:     "Group",
-				Name:     "system:serviceaccounts:openshift-ai-inference-tier-premium",
-				APIGroup: "rbac.authorization.k8s.io",
-			},
-			{
-				Kind:     "Group",
-				Name:     "system:serviceaccounts:openshift-ai-inference-tier-enterprise",
-				APIGroup: "rbac.authorization.k8s.io",
-			},
-		},
+		Subjects: subjects,
 		RoleRef: v1.RoleRef{
 			Kind:     "Role",
 			Name:     utils.GetMaaSRoleName(llmisvc),
@@ -105,13 +95,39 @@ func (r *LLMRoleBindingReconciler) createDesiredResource(llmisvc *kservev1alpha1
 		},
 	}
 
-	// Set the LLMInferenceService as the owner of the RoleBinding
-	// This ensures the RoleBinding is deleted when the LLMInferenceService is deleted
-	if err := controllerutil.SetControllerReference(llmisvc, desiredRoleBinding, r.client.Scheme()); err != nil {
-		return nil, err
+	_ = controllerutil.SetControllerReference(llmisvc, desiredRoleBinding, r.client.Scheme())
+	return desiredRoleBinding
+}
+
+func (r *LLMRoleBindingReconciler) getTierSubjects(ctx context.Context, log logr.Logger, llmisvc *kservev1alpha1.LLMInferenceService) []v1.Subject {
+	annotations := llmisvc.GetAnnotations()
+	if annotations == nil {
+		return nil
 	}
 
-	return desiredRoleBinding, nil
+	if _, found := annotations[TierAnnotationKey]; !found {
+		return nil
+	}
+
+	groupNames, err := r.tierConfigLoader.DefinedGroups(ctx, log, llmisvc)
+	if err != nil {
+		log.V(1).Error(err, "Failed to get tier group names, using default subjects", "name", llmisvc.Name, "namespace", llmisvc.Namespace)
+		return nil
+	}
+	if len(groupNames) == 0 {
+		return nil
+	}
+
+	subjects := make([]v1.Subject, 0, len(groupNames))
+	for _, groupName := range groupNames {
+		subjects = append(subjects, v1.Subject{
+			Kind:     "Group",
+			Name:     groupName,
+			APIGroup: "rbac.authorization.k8s.io",
+		})
+	}
+
+	return subjects
 }
 
 func (r *LLMRoleBindingReconciler) getExistingResource(ctx context.Context, log logr.Logger, llmisvc *kservev1alpha1.LLMInferenceService) (*v1.RoleBinding, error) {
@@ -128,14 +144,14 @@ func (r *LLMRoleBindingReconciler) processDelta(ctx context.Context, log logr.Lo
 	}
 
 	if delta.IsAdded() {
-		log.V(1).Info("Delta found", "create", desiredRoleBinding.GetName())
+		log.V(1).Info("Delta found", "action", "create", "name", desiredRoleBinding.GetName(), "namespace", desiredRoleBinding.GetNamespace())
 		if err = r.client.Create(ctx, desiredRoleBinding); err != nil {
 			return err
 		}
 	}
 	if delta.IsUpdated() {
 		if reflect.DeepEqual(existingRoleBinding.RoleRef, desiredRoleBinding.RoleRef) {
-			log.V(1).Info("Delta found", "update", existingRoleBinding.GetName())
+			log.V(1).Info("Delta found", "action", "update", "name", existingRoleBinding.GetName(), "namespace", existingRoleBinding.GetNamespace())
 
 			rp := existingRoleBinding.DeepCopy()
 			rp.Subjects = desiredRoleBinding.Subjects
@@ -146,9 +162,12 @@ func (r *LLMRoleBindingReconciler) processDelta(ctx context.Context, log logr.Lo
 			}
 		} else {
 			// The RoleRef is immutable. To fix any diversion, recreation is required.
-			log.V(1).Info("Delta found", "recreate", existingRoleBinding.GetName())
+			log.V(1).Info("Delta found", "action", "recreate", "name", existingRoleBinding.GetName(), "namespace", existingRoleBinding.GetNamespace())
 
-			if err = r.client.Delete(ctx, existingRoleBinding); err != nil {
+			if err = r.roleBindingHandler.DeleteRoleBinding(ctx, log, machineryTypes.NamespacedName{
+				Name:      existingRoleBinding.GetName(),
+				Namespace: existingRoleBinding.GetNamespace(),
+			}); err != nil {
 				return err
 			}
 
@@ -158,8 +177,11 @@ func (r *LLMRoleBindingReconciler) processDelta(ctx context.Context, log logr.Lo
 		}
 	}
 	if delta.IsRemoved() {
-		log.V(1).Info("Delta found", "delete", existingRoleBinding.GetName())
-		if err = r.client.Delete(ctx, existingRoleBinding); err != nil {
+		log.V(1).Info("Delta found", "action", "delete", "name", existingRoleBinding.GetName(), "namespace", existingRoleBinding.GetNamespace())
+		if err = r.roleBindingHandler.DeleteRoleBinding(ctx, log, machineryTypes.NamespacedName{
+			Name:      existingRoleBinding.GetName(),
+			Namespace: existingRoleBinding.GetNamespace(),
+		}); client.IgnoreNotFound(err) != nil {
 			return err
 		}
 	}

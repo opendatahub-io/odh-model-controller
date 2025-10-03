@@ -52,9 +52,21 @@ func NewLLMRoleReconciler(client client.Client) *LLMRoleReconciler {
 func (r *LLMRoleReconciler) Reconcile(ctx context.Context, log logr.Logger, llmisvc *kservev1alpha1.LLMInferenceService) error {
 	log.V(1).Info("Verifying that the model user role exists")
 
-	desiredResource, err := r.createDesiredResource(llmisvc)
-	if err != nil {
-		return err
+	// If we don't have the annotation, we should delete the role and rolebinding - opt out
+	// TODO: at this point in the reconcile we don't know if annotation existed before or not
+	// But what if the model was created using plain manifests?
+	// What if the role/rolebinding was created manually and the names match?
+
+	var desiredResource *v1.Role
+	annotations := llmisvc.GetAnnotations()
+	if annotations != nil {
+		if _, found := annotations[TierAnnotationKey]; found {
+			var err error
+			desiredResource, err = r.createDesiredResource(llmisvc)
+			if err != nil {
+				return err
+			}
+		}
 	}
 
 	existingResource, err := r.getExistingResource(ctx, log, llmisvc)
@@ -62,10 +74,7 @@ func (r *LLMRoleReconciler) Reconcile(ctx context.Context, log logr.Logger, llmi
 		return err
 	}
 
-	if err = r.processDelta(ctx, log, desiredResource, existingResource); err != nil {
-		return err
-	}
-	return nil
+	return r.processDelta(ctx, log, desiredResource, existingResource)
 }
 
 func (r *LLMRoleReconciler) createDesiredResource(llmisvc *kservev1alpha1.LLMInferenceService) (*v1.Role, error) {
@@ -126,9 +135,10 @@ func (r *LLMRoleReconciler) processDelta(ctx context.Context, log logr.Logger, d
 	}
 	if delta.IsRemoved() {
 		log.V(1).Info("Delta found", "delete", existingRole.GetName())
-		if err = r.client.Delete(ctx, existingRole); err != nil {
+		if err = r.client.Delete(ctx, existingRole); client.IgnoreNotFound(err) != nil {
 			return err
 		}
 	}
+
 	return nil
 }

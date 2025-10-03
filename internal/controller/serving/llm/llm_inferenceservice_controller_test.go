@@ -25,6 +25,7 @@ import (
 	rbacv1 "k8s.io/api/rbac/v1"
 	"k8s.io/apimachinery/pkg/types"
 
+	"github.com/opendatahub-io/odh-model-controller/internal/controller/utils"
 	testutils "github.com/opendatahub-io/odh-model-controller/test/utils"
 )
 
@@ -52,7 +53,7 @@ var _ = Describe("LLMInferenceService Controller", func() {
 				Expect(envTest.Create(ctx, llmisvc)).Should(Succeed())
 
 				// Wait for Role to be created and verify its specification
-				role := waitForRole(testNs, llmisvc.Name+"-model-post-access")
+				role := waitForRole(testNs, utils.GetMaaSRoleName(llmisvc))
 				verifyRoleSpecification(role, llmisvc)
 
 				// Verify owner reference
@@ -73,7 +74,7 @@ var _ = Describe("LLMInferenceService Controller", func() {
 				llmisvc := createLLMInferenceService(testNs, "test-llm-service", LLMServicePath1)
 				Expect(envTest.Create(ctx, llmisvc)).Should(Succeed())
 
-				roleName := llmisvc.Name + "-model-post-access"
+				roleName := utils.GetMaaSRoleName(llmisvc)
 				role := waitForRole(testNs, roleName)
 
 				// Manually modify Role (change verb from "post" to "get")
@@ -113,8 +114,8 @@ var _ = Describe("LLMInferenceService Controller", func() {
 				Expect(envTest.Create(ctx, llmisvc2)).Should(Succeed())
 
 				// Verify each has its own Role with correct resource names
-				role1Name := llmisvc1.Name + "-model-post-access"
-				role2Name := llmisvc2.Name + "-model-post-access"
+				role1Name := utils.GetMaaSRoleName(llmisvc1)
+				role2Name := utils.GetMaaSRoleName(llmisvc2)
 
 				role1 := waitForRole(testNs, role1Name)
 				verifyRoleSpecification(role1, llmisvc1)
@@ -141,7 +142,7 @@ var _ = Describe("LLMInferenceService Controller", func() {
 				Expect(envTest.Create(ctx, llmisvc)).Should(Succeed())
 
 				// Wait for RoleBinding to be created and verify its specification
-				roleBindingName := llmisvc.Name + "-tier-binding"
+				roleBindingName := utils.GetMaaSRoleBindingName(llmisvc)
 				roleBinding := waitForRoleBinding(testNs, roleBindingName)
 				verifyRoleBindingSpecification(Default, roleBinding, llmisvc)
 
@@ -161,7 +162,7 @@ var _ = Describe("LLMInferenceService Controller", func() {
 				llmisvc := createLLMInferenceService(testNs, "test-llm-service", LLMServicePath1)
 				Expect(envTest.Create(ctx, llmisvc)).Should(Succeed())
 
-				roleBindingName := llmisvc.Name + "-tier-binding"
+				roleBindingName := utils.GetMaaSRoleBindingName(llmisvc)
 				roleBinding := waitForRoleBinding(testNs, roleBindingName)
 
 				// Manually modify RoleBinding subjects (remove a MaaS tier)
@@ -169,7 +170,7 @@ var _ = Describe("LLMInferenceService Controller", func() {
 					{
 						Kind:      "Group",
 						APIGroup:  "rbac.authorization.k8s.io",
-						Name:      "system:serviceaccounts:openshift-ai-inference-tier-free",
+						Name:      "system:serviceaccounts:maas-default-gateway-tier-free",
 						Namespace: "",
 					},
 				}
@@ -202,8 +203,8 @@ var _ = Describe("LLMInferenceService Controller", func() {
 				Expect(envTest.Create(ctx, llmisvc2)).Should(Succeed())
 
 				// Verify each has its own RoleBinding with correct Role reference
-				roleBinding1Name := llmisvc1.Name + "-tier-binding"
-				roleBinding2Name := llmisvc2.Name + "-tier-binding"
+				roleBinding1Name := utils.GetMaaSRoleBindingName(llmisvc1)
+				roleBinding2Name := utils.GetMaaSRoleBindingName(llmisvc2)
 
 				roleBinding1 := waitForRoleBinding(testNs, roleBinding1Name)
 				verifyRoleBindingSpecification(Default, roleBinding1, llmisvc1)
@@ -248,7 +249,7 @@ func verifyRoleSpecification(role *rbacv1.Role, llmIsvc *kservev1alpha1.LLMInfer
 	GinkgoHelper()
 
 	// Verify Role name
-	expectedName := llmIsvc.Name + "-model-post-access"
+	expectedName := utils.GetMaaSRoleName(llmIsvc)
 	Expect(role.GetName()).To(Equal(expectedName))
 
 	// Verify Role labels
@@ -286,13 +287,13 @@ func verifyRoleBindingSpecification(g Gomega, roleBinding *rbacv1.RoleBinding, l
 	GinkgoHelper()
 
 	// Verify RoleBinding name, labels, and MaaS tier subjects
-	expectedName := llmIsvc.Name + "-tier-binding"
+	expectedName := utils.GetMaaSRoleBindingName(llmIsvc)
 	g.Expect(roleBinding.GetName()).To(Equal(expectedName))
 	g.Expect(roleBinding.GetLabels()).To(HaveKeyWithValue("app.kubernetes.io/managed-by", "odh-model-controller"))
 	verifyMaaSTierSubjects(g, roleBinding.Subjects)
 
 	// Verify RoleRef points to correct Role
-	expectedRoleName := llmIsvc.Name + "-model-post-access"
+	expectedRoleName := utils.GetMaaSRoleName(llmIsvc)
 	g.Expect(roleBinding.RoleRef.Name).To(Equal(expectedRoleName))
 	g.Expect(roleBinding.RoleRef.Kind).To(Equal("Role"))
 	g.Expect(roleBinding.RoleRef.APIGroup).To(Equal("rbac.authorization.k8s.io"))
@@ -306,19 +307,19 @@ func verifyMaaSTierSubjects(g Gomega, subjects []rbacv1.Subject) {
 		{
 			Kind:      "Group",
 			APIGroup:  "rbac.authorization.k8s.io",
-			Name:      "system:serviceaccounts:openshift-ai-inference-tier-free",
+			Name:      "system:serviceaccounts:maas-default-gateway-tier-free",
 			Namespace: "",
 		},
 		{
 			Kind:      "Group",
 			APIGroup:  "rbac.authorization.k8s.io",
-			Name:      "system:serviceaccounts:openshift-ai-inference-tier-premium",
+			Name:      "system:serviceaccounts:maas-default-gateway-tier-premium",
 			Namespace: "",
 		},
 		{
 			Kind:      "Group",
 			APIGroup:  "rbac.authorization.k8s.io",
-			Name:      "system:serviceaccounts:openshift-ai-inference-tier-enterprise",
+			Name:      "system:serviceaccounts:maas-default-gateway-tier-enterprise",
 			Namespace: "",
 		},
 	}
