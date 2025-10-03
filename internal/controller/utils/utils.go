@@ -539,7 +539,7 @@ func GetGatewayInfoFromConfigMap(ctx context.Context, cli client.Client) (namesp
 
 func HasOpenDataHubManagedLabel(obj client.Object) bool {
 	if labels := obj.GetLabels(); labels != nil {
-		return labels["opendatahub.io/managed"] == "true"
+		return labels["opendatahub.io/managed"] == "true" || labels["app.kubernetes.io/managed-by"] == "odh-model-controller"
 	}
 	return false
 }
