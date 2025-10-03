@@ -17,6 +17,7 @@ import (
 	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
 	knservingv1 "knative.dev/serving/pkg/apis/serving/v1"
 	maistrav1 "maistra.io/api/core/v1"
+	gatewayapiv1 "sigs.k8s.io/gateway-api/apis/v1"
 
 	nimv1 "github.com/opendatahub-io/odh-model-controller/api/nim/v1"
 
@@ -45,6 +46,7 @@ func RegisterSchemes(s *runtime.Scheme) {
 	utilruntime.Must(nimv1.SchemeBuilder.AddToScheme(s))
 	utilruntime.Must(templatev1.AddToScheme(s))
 	utilruntime.Must(kedaapi.AddToScheme(s))
+	utilruntime.Must(gatewayapiv1.Install(s))
 
 	// The following are related to Service Mesh, uncomment this and other
 	// similar blocks to use with Service Mesh

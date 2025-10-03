@@ -159,11 +159,11 @@ var _ = Describe("AuthPolicyTemplateLoader", func() {
 				ctx,
 				constants.Anonymous,
 				&dummyLLMISvc)
-
 			Expect(err).ToNot(HaveOccurred())
 			Expect(authPolicies).ToNot(BeNil())
 			Expect(authPolicies).To(HaveLen(1))
-			Expect(authPolicies[0].GetName()).To(Equal(constants.GetHTTPRouteAuthPolicyName(dummyLLMISvc.Name)))
+			httpRouteName := string(authPolicies[0].Spec.TargetRef.Name)
+			Expect(authPolicies[0].GetName()).To(Equal(constants.GetHTTPRouteAuthPolicyName(httpRouteName)))
 			Expect(authPolicies[0].GetNamespace()).To(Equal(dummyLLMISvc.Namespace))
 		})
 

@@ -171,8 +171,8 @@ const (
 	DefaultGatewayNamespace = "openshift-ingress"
 )
 
-func GetHTTPRouteAuthPolicyName(llmisvcName string) string {
-	return kmeta.ChildName(llmisvcName, AuthPolicyNameSuffix)
+func GetHTTPRouteAuthPolicyName(httpRouteName string) string {
+	return kmeta.ChildName(httpRouteName, AuthPolicyNameSuffix)
 }
 
 func GetGatewayAuthPolicyName(gatewayName string) string {

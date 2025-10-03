@@ -536,3 +536,10 @@ func GetGatewayInfoFromConfigMap(ctx context.Context, cli client.Client) (namesp
 
 	return "", "", fmt.Errorf("failed to parse gateway info from configmap")
 }
+
+func HasOpenDataHubManagedLabel(obj client.Object) bool {
+	if labels := obj.GetLabels(); labels != nil {
+		return labels["opendatahub.io/managed"] == "true"
+	}
+	return false
+}

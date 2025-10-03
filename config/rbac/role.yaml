@@ -102,6 +102,14 @@ rules:
   - update
   - watch
 - apiGroups:
+  - kuadrant.io
+  resources:
+  - authpolicies/status
+  verbs:
+  - get
+  - patch
+  - update
+- apiGroups:
   - maistra.io
   resources:
   - servicemeshcontrolplanes
@@ -275,6 +283,7 @@ rules:
   - serving.kserve.io
   resources:
   - inferencegraphs/finalizers
+  - llminferenceservices/finalizers
   - servingruntimes/finalizers
   verbs:
   - update
@@ -293,7 +302,6 @@ rules:
   - serving.kserve.io
   resources:
   - inferenceservices/finalizers
-  - llminferenceservices/finalizers
   verbs:
   - create
   - delete
@@ -302,6 +310,14 @@ rules:
   - patch
   - update
   - watch
+- apiGroups:
+  - serving.kserve.io
+  resources:
+  - llminferenceservices/status
+  verbs:
+  - get
+  - patch
+  - update
 - apiGroups:
   - serving.kserve.io
   resources:
