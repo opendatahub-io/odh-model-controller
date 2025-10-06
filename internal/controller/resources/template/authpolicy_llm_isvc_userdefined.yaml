@@ -16,7 +16,7 @@ spec:
         kubernetesTokenReview:
           audiences: {{.AudiencesJSON}}
     authorization:
-      tier-access:
+      inference-access:
         kubernetesSubjectAccessReview:
           user:
             expression: auth.identity.user.username
