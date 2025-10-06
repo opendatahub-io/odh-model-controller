@@ -120,10 +120,10 @@ func (r *LLMInferenceServiceReconciler) SetupWithManager(mgr ctrl.Manager, setup
 					return false
 				},
 				UpdateFunc: func(e event.UpdateEvent) bool {
-					return utils.HasOpenDataHubManagedLabel(e.ObjectNew)
+					return utils.IsManagedByOpenDataHub(e.ObjectNew)
 				},
 				DeleteFunc: func(e event.DeleteEvent) bool {
-					return utils.HasOpenDataHubManagedLabel(e.Object)
+					return utils.IsManagedByOpenDataHub(e.Object)
 				},
 			}))
 	}

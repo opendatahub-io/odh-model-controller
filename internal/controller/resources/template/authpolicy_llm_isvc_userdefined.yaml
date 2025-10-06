@@ -4,7 +4,10 @@ metadata:
   name: {{.Name}}
   namespace: {{.GatewayNamespace}}
   labels:
-    opendatahub.io/managed: "true"  
+    "app.kubernetes.io/name":       "odh-model-controller"
+    "app.kubernetes.io/component":  "kserve"
+    "app.kubernetes.io/part-of":    "odh-model-serving"
+    "app.kubernetes.io/managed-by": "odh-model-controller"
 spec:
   targetRef:
     group: gateway.networking.k8s.io

@@ -34,6 +34,7 @@ import (
 	"github.com/opendatahub-io/odh-model-controller/internal/controller/processors"
 	"github.com/opendatahub-io/odh-model-controller/internal/controller/resources"
 	parentreconcilers "github.com/opendatahub-io/odh-model-controller/internal/controller/serving/reconcilers"
+	"github.com/opendatahub-io/odh-model-controller/internal/controller/utils"
 )
 
 var _ parentreconcilers.LLMSubResourceReconciler = (*KserveAuthPolicyReconciler)(nil)
@@ -90,6 +91,11 @@ func (r *KserveAuthPolicyReconciler) reconcileGatewayAuthpolicy(ctx context.Cont
 			return err
 		}
 
+		if !utils.IsManagedByOpenDataHub(desired) {
+			log.V(1).Info("Skipping reconciliation - AuthPolicy is not managed by odh-model-controller")
+			continue
+		}
+
 		if err := r.gatewayAuthPolicyProcessDelta(ctx, log, desired, existing); err != nil {
 			log.Error(err, "Failed to process Gateway AuthPolicy delta", "name", desired.GetName())
 			return err
@@ -113,6 +119,11 @@ func (r *KserveAuthPolicyReconciler) reconcileHTTPRouteAuthpolicy(ctx context.Co
 		if err != nil && !apierrors.IsNotFound(err) {
 			log.Error(err, "Failed to get existing HTTPRoute AuthPolicy", "name", desired.GetName())
 			return err
+		}
+
+		if !utils.IsManagedByOpenDataHub(desired) {
+			log.V(1).Info("Skipping reconciliation - AuthPolicy is not managed by odh-model-controller")
+			continue
 		}
 
 		if err := r.httpRouteAuthPolicyProcessDelta(ctx, log, llmisvc, desired, existing); err != nil {
@@ -321,6 +332,8 @@ func (r *KserveAuthPolicyReconciler) gatewayAuthPolicyProcessDelta(ctx context.C
 			return fmt.Errorf("failed to set controller reference to Gateway for AuthPolicy %s: %w", desired.GetName(), err)
 		}
 
+		utils.MergeUserLabelsAndAnnotations(desired, existing)
+
 		if err := r.store.Update(ctx, desired); err != nil {
 			return fmt.Errorf("failed to update Gateway AuthPolicy %s: %w", existing.GetName(), err)
 		}
@@ -376,6 +389,8 @@ func (r *KserveAuthPolicyReconciler) httpRouteAuthPolicyProcessDelta(ctx context
 		if err := controllerutil.SetControllerReference(llmisvc, desired, r.client.Scheme()); err != nil {
 			return fmt.Errorf("failed to set controller reference for HTTPRoute AuthPolicy %s: %w", desired.GetName(), err)
 		}
+
+		utils.MergeUserLabelsAndAnnotations(desired, existing)
 
 		if err := r.store.Update(ctx, desired); err != nil {
 			return fmt.Errorf("failed to update HTTPRoute AuthPolicy %s: %w", existing.GetName(), err)
