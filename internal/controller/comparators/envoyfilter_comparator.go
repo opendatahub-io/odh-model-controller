@@ -32,7 +32,6 @@ func GetEnvoyFilterComparator() ResourceComparator {
 		return reflect.DeepEqual(desiredEF.Spec.TargetRefs, currentEF.Spec.TargetRefs) &&
 			reflect.DeepEqual(desiredEF.Spec.ConfigPatches, currentEF.Spec.ConfigPatches) &&
 			desiredEF.Spec.Priority == currentEF.Spec.Priority &&
-			equality.Semantic.DeepDerivative(desiredEF.GetLabels(), currentEF.GetLabels()) &&
-			equality.Semantic.DeepDerivative(desiredEF.GetAnnotations(), currentEF.GetAnnotations())
+			equality.Semantic.DeepDerivative(desiredEF.GetLabels(), currentEF.GetLabels())
 	}
 }

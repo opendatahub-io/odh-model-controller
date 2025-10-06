@@ -88,28 +88,6 @@ func createEnvoyFilterWithoutLabels() *istioclientv1alpha3.EnvoyFilter {
 	}
 }
 
-func createEnvoyFilterWithAnnotations(annotations map[string]string) *istioclientv1alpha3.EnvoyFilter {
-	return &istioclientv1alpha3.EnvoyFilter{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:      "test-envoyfilter",
-			Namespace: "test-ns",
-			Labels: map[string]string{
-				"app": "test",
-			},
-			Annotations: annotations,
-		},
-		Spec: istiov1alpha3.EnvoyFilter{
-			TargetRefs: []*istiotypev1beta1.PolicyTargetReference{
-				{
-					Group: "gateway.networking.k8s.io",
-					Kind:  "Gateway",
-					Name:  "test-gateway",
-				},
-			},
-		},
-	}
-}
-
 func TestEnvoyFilterComparator(t *testing.T) {
 	comparator := comparators.GetEnvoyFilterComparator()
 
@@ -148,50 +126,6 @@ func TestEnvoyFilterComparator(t *testing.T) {
 			deployed:  createEnvoyFilter("test"),
 			requested: createEnvoyFilterWithExtraLabels("test"),
 			expected:  false,
-		},
-		{
-			name: "filters with identical annotations should return true",
-			deployed: createEnvoyFilterWithAnnotations(map[string]string{
-				"example.com/annotation": "value1",
-				"test.io/config":         "enabled",
-			}),
-			requested: createEnvoyFilterWithAnnotations(map[string]string{
-				"example.com/annotation": "value1",
-				"test.io/config":         "enabled",
-			}),
-			expected: true,
-		},
-		{
-			name: "filters with different annotation values should return false",
-			deployed: createEnvoyFilterWithAnnotations(map[string]string{
-				"example.com/annotation": "value1",
-			}),
-			requested: createEnvoyFilterWithAnnotations(map[string]string{
-				"example.com/annotation": "value2",
-			}),
-			expected: false,
-		},
-		{
-			name: "deployed with extra annotations - DeepDerivative checks if requested is subset of deployed",
-			deployed: createEnvoyFilterWithAnnotations(map[string]string{
-				"example.com/annotation":             "value1",
-				"kubectl.kubernetes.io/last-applied": "...",
-			}),
-			requested: createEnvoyFilterWithAnnotations(map[string]string{
-				"example.com/annotation": "value1",
-			}),
-			expected: true,
-		},
-		{
-			name: "requested with extra annotations - deployed cannot contain all requested fields",
-			deployed: createEnvoyFilterWithAnnotations(map[string]string{
-				"example.com/annotation": "value1",
-			}),
-			requested: createEnvoyFilterWithAnnotations(map[string]string{
-				"example.com/annotation":             "value1",
-				"kubectl.kubernetes.io/last-applied": "...",
-			}),
-			expected: false,
 		},
 	}
 
