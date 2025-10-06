@@ -91,7 +91,7 @@ func (r *KserveAuthPolicyReconciler) reconcileGatewayAuthpolicy(ctx context.Cont
 			return err
 		}
 
-		if !utils.IsManagedByOpenDataHub(desired) {
+		if !utils.IsManagedByOpenDataHub(existing) {
 			log.V(1).Info("Skipping reconciliation - AuthPolicy is not managed by odh-model-controller")
 			continue
 		}
@@ -121,7 +121,7 @@ func (r *KserveAuthPolicyReconciler) reconcileHTTPRouteAuthpolicy(ctx context.Co
 			return err
 		}
 
-		if !utils.IsManagedByOpenDataHub(desired) {
+		if !utils.IsManagedByOpenDataHub(existing) {
 			log.V(1).Info("Skipping reconciliation - AuthPolicy is not managed by odh-model-controller")
 			continue
 		}

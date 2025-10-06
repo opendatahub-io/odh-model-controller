@@ -160,13 +160,8 @@ func (r *SecretReconciler) reconcileSecret(secret *corev1.Secret,
 	desiredStorageSecret := newStorageSecret(dataConnectionSecretsList, odhCustomCertData, kserveCustomCertData)
 	desiredStorageSecret.Name = storageSecretName
 	desiredStorageSecret.Namespace = secret.Namespace
-	desiredStorageSecret.Labels = map[string]string{
-		"opendatahub.io/managed":       "true",
-		"app.kubernetes.io/name":       "odh-model-controller",
-		"app.kubernetes.io/component":  "kserve",
-		"app.kubernetes.io/part-of":    "odh-model-serving",
-		"app.kubernetes.io/managed-by": "odh-model-controller",
-	}
+	desiredStorageSecret.Labels = map[string]string{}
+	desiredStorageSecret.Labels["opendatahub.io/managed"] = "true"
 
 	foundStorageSecret := &corev1.Secret{}
 	justCreated := false
