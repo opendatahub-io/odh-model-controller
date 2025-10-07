@@ -3,8 +3,11 @@ kind: AuthPolicy
 metadata:
   name: {{.Name}}
   namespace: {{.GatewayNamespace}}
-  labels:
-    opendatahub.io/managed: "true"  
+  labels:    
+    "app.kubernetes.io/name":       "llminferenceservice-auth"
+    "app.kubernetes.io/component":  "llminferenceservice-policies"
+    "app.kubernetes.io/part-of":    "llminferenceservice"
+    "app.kubernetes.io/managed-by": "odh-model-controller"
 spec:
   targetRef:
     group: gateway.networking.k8s.io

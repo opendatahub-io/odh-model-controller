@@ -537,9 +537,47 @@ func GetGatewayInfoFromConfigMap(ctx context.Context, cli client.Client) (namesp
 	return "", "", fmt.Errorf("failed to parse gateway info from configmap")
 }
 
-func HasOpenDataHubManagedLabel(obj client.Object) bool {
+func IsManagedByOpenDataHub(obj client.Object) bool {
 	if labels := obj.GetLabels(); labels != nil {
-		return labels["opendatahub.io/managed"] == "true"
+		if labels["app.kubernetes.io/managed-by"] != "odh-model-controller" {
+			return false
+		}
+
+		if managedValue, exists := labels["opendatahub.io/managed"]; exists && managedValue == "false" {
+			return false
+		}
+
+		return true
 	}
 	return false
+}
+
+// MergeUserLabelsAndAnnotations merges user-added labels and annotations from existing resource
+// into desired resource while preserving template-defined values
+func MergeUserLabelsAndAnnotations(desired, existing client.Object) {
+	if existing.GetLabels() != nil {
+		if desired.GetLabels() == nil {
+			desired.SetLabels(make(map[string]string))
+		}
+		desiredLabels := desired.GetLabels()
+		for k, v := range existing.GetLabels() {
+			if _, exists := desiredLabels[k]; !exists {
+				desiredLabels[k] = v
+			}
+		}
+		desired.SetLabels(desiredLabels)
+	}
+
+	if existing.GetAnnotations() != nil {
+		if desired.GetAnnotations() == nil {
+			desired.SetAnnotations(make(map[string]string))
+		}
+		desiredAnnotations := desired.GetAnnotations()
+		for k, v := range existing.GetAnnotations() {
+			if _, exists := desiredAnnotations[k]; !exists {
+				desiredAnnotations[k] = v
+			}
+		}
+		desired.SetAnnotations(desiredAnnotations)
+	}
 }
