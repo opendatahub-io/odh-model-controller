@@ -4,9 +4,9 @@ metadata:
   name: {{.Name}}
   namespace: {{.Namespace}}
   labels:
-    "app.kubernetes.io/name":       "odh-model-controller"
-    "app.kubernetes.io/component":  "kserve"
-    "app.kubernetes.io/part-of":    "odh-model-serving"
+    "app.kubernetes.io/name":       {{.LLMISvcName}}
+    "app.kubernetes.io/component":  "llminferenceservice-policies"
+    "app.kubernetes.io/part-of":    "llminferenceservice"
     "app.kubernetes.io/managed-by": "odh-model-controller"
 spec:
   targetRef:

@@ -166,7 +166,7 @@ func (k *kserveAuthPolicyTemplateLoader) loadAnonymousTemplate(llmisvc *kservev1
 	authPolicies := make([]*kuadrantv1.AuthPolicy, 0, len(httpRoutes))
 
 	for _, route := range httpRoutes {
-		authPolicy, err := k.renderAnonymousTemplate(llmisvc.Namespace, route.Name)
+		authPolicy, err := k.renderAnonymousTemplate(llmisvc, route.Name)
 		if err != nil {
 			return nil, fmt.Errorf("failed to render AuthPolicy for HTTPRoute %s: %w", route.Name, err)
 		}
@@ -176,7 +176,7 @@ func (k *kserveAuthPolicyTemplateLoader) loadAnonymousTemplate(llmisvc *kservev1
 	return authPolicies, nil
 }
 
-func (k *kserveAuthPolicyTemplateLoader) renderAnonymousTemplate(namespace, httpRouteName string) (*kuadrantv1.AuthPolicy, error) {
+func (k *kserveAuthPolicyTemplateLoader) renderAnonymousTemplate(llmisvc *kservev1alpha1.LLMInferenceService, httpRouteName string) (*kuadrantv1.AuthPolicy, error) {
 	tmpl, err := template.New("authpolicy").Parse(string(authPolicyTemplateAnonymous))
 	if err != nil {
 		return nil, fmt.Errorf("failed to parse AuthPolicy anonymous template: %w", err)
@@ -185,10 +185,12 @@ func (k *kserveAuthPolicyTemplateLoader) renderAnonymousTemplate(namespace, http
 	templateData := struct {
 		Name          string
 		Namespace     string
+		LLMISvcName   string
 		HTTPRouteName string
 	}{
 		Name:          constants.GetHTTPRouteAuthPolicyName(httpRouteName),
-		Namespace:     namespace,
+		Namespace:     llmisvc.Namespace,
+		LLMISvcName:   llmisvc.Name,
 		HTTPRouteName: httpRouteName,
 	}
 
