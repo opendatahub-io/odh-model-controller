@@ -18,38 +18,39 @@ package comparators_test
 import (
 	"testing"
 
-	kuadrantv1 "github.com/kuadrant/kuadrant-operator/api/v1"
+	istiov1alpha3 "istio.io/api/networking/v1alpha3"
+	istiotypev1beta1 "istio.io/api/type/v1beta1"
+	istioclientv1alpha3 "istio.io/client-go/pkg/apis/networking/v1alpha3"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	gwapiv1alpha2 "sigs.k8s.io/gateway-api/apis/v1alpha2"
 
 	"github.com/opendatahub-io/odh-model-controller/internal/controller/comparators"
 )
 
-func createAuthPolicy(appLabel string) *kuadrantv1.AuthPolicy {
-	return &kuadrantv1.AuthPolicy{
+func createEnvoyFilter(appLabel string) *istioclientv1alpha3.EnvoyFilter {
+	return &istioclientv1alpha3.EnvoyFilter{
 		ObjectMeta: metav1.ObjectMeta{
-			Name:      "test-authn",
+			Name:      "test-envoyfilter",
 			Namespace: "test-ns",
 			Labels: map[string]string{
 				"app": appLabel,
 			},
 		},
-		Spec: kuadrantv1.AuthPolicySpec{
-			TargetRef: gwapiv1alpha2.LocalPolicyTargetReferenceWithSectionName{
-				LocalPolicyTargetReference: gwapiv1alpha2.LocalPolicyTargetReference{
+		Spec: istiov1alpha3.EnvoyFilter{
+			TargetRefs: []*istiotypev1beta1.PolicyTargetReference{
+				{
 					Group: "gateway.networking.k8s.io",
-					Kind:  "HTTPRoute",
-					Name:  "test-route",
+					Kind:  "Gateway",
+					Name:  "test-gateway",
 				},
 			},
 		},
 	}
 }
 
-func createAuthPolicyWithExtraLabels(appLabel string) *kuadrantv1.AuthPolicy {
-	return &kuadrantv1.AuthPolicy{
+func createEnvoyFilterWithExtraLabels(appLabel string) *istioclientv1alpha3.EnvoyFilter {
+	return &istioclientv1alpha3.EnvoyFilter{
 		ObjectMeta: metav1.ObjectMeta{
-			Name:      "test-authn",
+			Name:      "test-envoyfilter",
 			Namespace: "test-ns",
 			Labels: map[string]string{
 				"app": appLabel,
@@ -57,73 +58,73 @@ func createAuthPolicyWithExtraLabels(appLabel string) *kuadrantv1.AuthPolicy {
 				"app.kubernetes.io/managed-by":                     "controller",
 			},
 		},
-		Spec: kuadrantv1.AuthPolicySpec{
-			TargetRef: gwapiv1alpha2.LocalPolicyTargetReferenceWithSectionName{
-				LocalPolicyTargetReference: gwapiv1alpha2.LocalPolicyTargetReference{
+		Spec: istiov1alpha3.EnvoyFilter{
+			TargetRefs: []*istiotypev1beta1.PolicyTargetReference{
+				{
 					Group: "gateway.networking.k8s.io",
-					Kind:  "HTTPRoute",
-					Name:  "test-route",
+					Kind:  "Gateway",
+					Name:  "test-gateway",
 				},
 			},
 		},
 	}
 }
 
-func createAuthPolicyWithoutLabels() *kuadrantv1.AuthPolicy {
-	return &kuadrantv1.AuthPolicy{
+func createEnvoyFilterWithoutLabels() *istioclientv1alpha3.EnvoyFilter {
+	return &istioclientv1alpha3.EnvoyFilter{
 		ObjectMeta: metav1.ObjectMeta{
-			Name:      "test-authn",
+			Name:      "test-envoyfilter",
 			Namespace: "test-ns",
 		},
-		Spec: kuadrantv1.AuthPolicySpec{
-			TargetRef: gwapiv1alpha2.LocalPolicyTargetReferenceWithSectionName{
-				LocalPolicyTargetReference: gwapiv1alpha2.LocalPolicyTargetReference{
+		Spec: istiov1alpha3.EnvoyFilter{
+			TargetRefs: []*istiotypev1beta1.PolicyTargetReference{
+				{
 					Group: "gateway.networking.k8s.io",
-					Kind:  "HTTPRoute",
-					Name:  "test-route",
+					Kind:  "Gateway",
+					Name:  "test-gateway",
 				},
 			},
 		},
 	}
 }
 
-func TestAuthPolicyComparator(t *testing.T) {
-	comparator := comparators.GetAuthPolicyComparator()
+func TestEnvoyFilterComparator(t *testing.T) {
+	comparator := comparators.GetEnvoyFilterComparator()
 
 	tests := []struct {
 		name      string
-		deployed  *kuadrantv1.AuthPolicy
-		requested *kuadrantv1.AuthPolicy
+		deployed  *istioclientv1alpha3.EnvoyFilter
+		requested *istioclientv1alpha3.EnvoyFilter
 		expected  bool
 	}{
 		{
-			name:      "identical AuthPolicies should return true",
-			deployed:  createAuthPolicy("test"),
-			requested: createAuthPolicy("test"),
+			name:      "identical EnvoyFilters should return true",
+			deployed:  createEnvoyFilter("test"),
+			requested: createEnvoyFilter("test"),
 			expected:  true,
 		},
 		{
 			name:      "different labels should return false",
-			deployed:  createAuthPolicy("test"),
-			requested: createAuthPolicy("different"),
+			deployed:  createEnvoyFilter("test"),
+			requested: createEnvoyFilter("different"),
 			expected:  false,
 		},
 		{
-			name:      "policies without labels should return true when specs match",
-			deployed:  createAuthPolicyWithoutLabels(),
-			requested: createAuthPolicyWithoutLabels(),
+			name:      "filters without labels should return true when specs match",
+			deployed:  createEnvoyFilterWithoutLabels(),
+			requested: createEnvoyFilterWithoutLabels(),
 			expected:  true,
 		},
 		{
 			name:      "deployed with extra labels - DeepDerivative checks if requested is subset of deployed",
-			deployed:  createAuthPolicyWithExtraLabels("test"),
-			requested: createAuthPolicy("test"),
+			deployed:  createEnvoyFilterWithExtraLabels("test"),
+			requested: createEnvoyFilter("test"),
 			expected:  true,
 		},
 		{
 			name:      "requested with extra labels - deployed cannot contain all requested fields",
-			deployed:  createAuthPolicy("test"),
-			requested: createAuthPolicyWithExtraLabels("test"),
+			deployed:  createEnvoyFilter("test"),
+			requested: createEnvoyFilterWithExtraLabels("test"),
 			expected:  false,
 		},
 	}

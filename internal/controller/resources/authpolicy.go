@@ -161,6 +161,22 @@ func (k *kserveAuthPolicyTemplateLoader) renderUserDefinedTemplate(gatewayNamesp
 }
 
 func (k *kserveAuthPolicyTemplateLoader) loadAnonymousTemplate(llmisvc *kservev1alpha1.LLMInferenceService) ([]*kuadrantv1.AuthPolicy, error) {
+	httpRoutes := k.getHTTPRouteInfo(llmisvc)
+
+	authPolicies := make([]*kuadrantv1.AuthPolicy, 0, len(httpRoutes))
+
+	for _, route := range httpRoutes {
+		authPolicy, err := k.renderAnonymousTemplate(llmisvc, route.Name)
+		if err != nil {
+			return nil, fmt.Errorf("failed to render AuthPolicy for HTTPRoute %s: %w", route.Name, err)
+		}
+		authPolicies = append(authPolicies, authPolicy)
+	}
+
+	return authPolicies, nil
+}
+
+func (k *kserveAuthPolicyTemplateLoader) renderAnonymousTemplate(llmisvc *kservev1alpha1.LLMInferenceService, httpRouteName string) (*kuadrantv1.AuthPolicy, error) {
 	tmpl, err := template.New("authpolicy").Parse(string(authPolicyTemplateAnonymous))
 	if err != nil {
 		return nil, fmt.Errorf("failed to parse AuthPolicy anonymous template: %w", err)
@@ -169,11 +185,13 @@ func (k *kserveAuthPolicyTemplateLoader) loadAnonymousTemplate(llmisvc *kservev1
 	templateData := struct {
 		Name          string
 		Namespace     string
+		LLMISvcName   string
 		HTTPRouteName string
 	}{
-		Name:          constants.GetHTTPRouteAuthPolicyName(llmisvc.Name),
+		Name:          constants.GetHTTPRouteAuthPolicyName(httpRouteName),
 		Namespace:     llmisvc.Namespace,
-		HTTPRouteName: constants.GetHTTPRouteName(llmisvc.Name),
+		LLMISvcName:   llmisvc.Name,
+		HTTPRouteName: httpRouteName,
 	}
 
 	var builder strings.Builder
@@ -186,7 +204,28 @@ func (k *kserveAuthPolicyTemplateLoader) loadAnonymousTemplate(llmisvc *kservev1
 		return nil, fmt.Errorf("failed to unmarshal AuthPolicy anonymous YAML: %w", err)
 	}
 
-	return []*kuadrantv1.AuthPolicy{authPolicy}, nil
+	return authPolicy, nil
+}
+
+// getHTTPRouteInfo returns HTTPRoute list with fallback logic
+func (k *kserveAuthPolicyTemplateLoader) getHTTPRouteInfo(llmisvc *kservev1alpha1.LLMInferenceService) []struct{ Name string } {
+	var httpRoutes []struct{ Name string }
+
+	if llmisvc.Spec.Router != nil && llmisvc.Spec.Router.Route != nil && llmisvc.Spec.Router.Route.HTTP != nil && llmisvc.Spec.Router.Route.HTTP.HasRefs() {
+		for _, ref := range llmisvc.Spec.Router.Route.HTTP.Refs {
+			httpRoutes = append(httpRoutes, struct{ Name string }{
+				Name: ref.Name,
+			})
+		}
+		return httpRoutes
+	}
+
+	// Fallback to default naming convention
+	httpRoutes = append(httpRoutes, struct{ Name string }{
+		Name: constants.GetHTTPRouteName(llmisvc.Name),
+	})
+
+	return httpRoutes
 }
 
 // getGatewayInfo returns gateway list with fallback logic

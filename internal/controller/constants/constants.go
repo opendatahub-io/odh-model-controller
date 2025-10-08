@@ -165,18 +165,23 @@ const (
 	AuthPolicyGroup         = "kuadrant.io"
 	AuthPolicyVersion       = "v1"
 	AuthPolicyKind          = "AuthPolicy"
+	EnvoyFilterNameSuffix   = "-authn-ssl"
 	HTTPRouteNameSuffix     = "-kserve-route"
 	KubernetesAudience      = "https://kubernetes.default.svc"
 	DefaultGatewayName      = "openshift-ai-inference"
 	DefaultGatewayNamespace = "openshift-ingress"
 )
 
-func GetHTTPRouteAuthPolicyName(llmisvcName string) string {
-	return kmeta.ChildName(llmisvcName, AuthPolicyNameSuffix)
+func GetHTTPRouteAuthPolicyName(httpRouteName string) string {
+	return kmeta.ChildName(httpRouteName, AuthPolicyNameSuffix)
 }
 
 func GetGatewayAuthPolicyName(gatewayName string) string {
 	return kmeta.ChildName(gatewayName, AuthPolicyNameSuffix)
+}
+
+func GetGatewayEnvoyFilterName(gatewayName string) string {
+	return kmeta.ChildName(gatewayName, EnvoyFilterNameSuffix)
 }
 
 func GetHTTPRouteName(llmisvcName string) string {

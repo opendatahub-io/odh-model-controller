@@ -37,6 +37,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	"github.com/opendatahub-io/odh-model-controller/internal/controller/resources"
+	"github.com/opendatahub-io/odh-model-controller/internal/controller/serving/llm/reconcilers"
 	parentreconcilers "github.com/opendatahub-io/odh-model-controller/internal/controller/serving/reconcilers"
 	"github.com/opendatahub-io/odh-model-controller/internal/controller/utils"
 )
@@ -53,12 +54,15 @@ var ownedBySelfPredicate = predicate.NewPredicateFuncs(func(o client.Object) boo
 })
 
 func NewLLMInferenceServiceReconciler(client client.Client, scheme *runtime.Scheme, config *rest.Config) *LLMInferenceServiceReconciler {
-
 	var subResourceReconcilers []parentreconcilers.LLMSubResourceReconciler
 	subResourceReconcilers = append(subResourceReconcilers,
 		parentreconcilers.NewLLMRoleReconciler(client),
 		parentreconcilers.NewLLMRoleBindingReconciler(client),
 	)
+
+	if ok, err := utils.IsCrdAvailable(config, kuadrantv1.GroupVersion.String(), "AuthPolicy"); err == nil && ok {
+		subResourceReconcilers = append(subResourceReconcilers, reconcilers.NewKserveAuthPolicyReconciler(client, scheme))
+	}
 
 	return &LLMInferenceServiceReconciler{
 		Client:                 client,
@@ -130,10 +134,10 @@ func (r *LLMInferenceServiceReconciler) SetupWithManager(mgr ctrl.Manager, setup
 					return false
 				},
 				UpdateFunc: func(e event.UpdateEvent) bool {
-					return true
+					return utils.IsManagedByOpenDataHub(e.ObjectNew)
 				},
 				DeleteFunc: func(e event.DeleteEvent) bool {
-					return true
+					return utils.IsManagedByOpenDataHub(e.Object)
 				},
 			}))
 	}

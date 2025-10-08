@@ -16,17 +16,22 @@ limitations under the License.
 package comparators
 
 import (
-	kuadrantv1 "github.com/kuadrant/kuadrant-operator/api/v1"
+	"reflect"
+
+	istioclientv1alpha3 "istio.io/client-go/pkg/apis/networking/v1alpha3"
 	"k8s.io/apimachinery/pkg/api/equality"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
-func GetAuthPolicyComparator() ResourceComparator {
+func GetEnvoyFilterComparator() ResourceComparator {
 	return func(current client.Object, desired client.Object) bool {
-		currentAP := current.(*kuadrantv1.AuthPolicy)
-		desiredAP := desired.(*kuadrantv1.AuthPolicy)
+		currentEF := current.(*istioclientv1alpha3.EnvoyFilter)
+		desiredEF := desired.(*istioclientv1alpha3.EnvoyFilter)
 
-		return equality.Semantic.DeepDerivative(desiredAP.Spec, currentAP.Spec) &&
-			equality.Semantic.DeepDerivative(desiredAP.GetLabels(), currentAP.GetLabels())
+		// Compare individual fields to avoid copying lock values from protobuf structs
+		return reflect.DeepEqual(desiredEF.Spec.TargetRefs, currentEF.Spec.TargetRefs) &&
+			reflect.DeepEqual(desiredEF.Spec.ConfigPatches, currentEF.Spec.ConfigPatches) &&
+			desiredEF.Spec.Priority == currentEF.Spec.Priority &&
+			equality.Semantic.DeepDerivative(desiredEF.GetLabels(), currentEF.GetLabels())
 	}
 }

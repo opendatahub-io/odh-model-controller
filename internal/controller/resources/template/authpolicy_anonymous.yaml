@@ -4,7 +4,10 @@ metadata:
   name: {{.Name}}
   namespace: {{.Namespace}}
   labels:
-    opendatahub.io/managed: "true"
+    "app.kubernetes.io/name":       {{.LLMISvcName}}
+    "app.kubernetes.io/component":  "llminferenceservice-policies"
+    "app.kubernetes.io/part-of":    "llminferenceservice"
+    "app.kubernetes.io/managed-by": "odh-model-controller"
 spec:
   targetRef:
     group: "gateway.networking.k8s.io"
