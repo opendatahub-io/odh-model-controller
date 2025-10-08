@@ -51,7 +51,7 @@ var _ = Describe("Secret Controller (StorageConfig controller)", func() {
 			expectedStorageConfigSecret := &corev1.Secret{}
 			err = convertToStructuredResource(storageconfigEncodedPath, expectedStorageConfigSecret)
 			Expect(err).NotTo(HaveOccurred())
-			Expect(compareSecrets(storegeconfigSecret, expectedStorageConfigSecret)).Should((BeTrue()))
+			Expect(compareSecrets(storegeconfigSecret, expectedStorageConfigSecret)).Should(BeTrue())
 		})
 	})
 
@@ -137,7 +137,7 @@ var _ = Describe("Secret Controller (StorageConfig controller)", func() {
 			expectedStorageConfigSecret := &corev1.Secret{}
 			err = convertToStructuredResource(storageconfigEncodedUnmanagedPath, expectedStorageConfigSecret)
 			Expect(err).NotTo(HaveOccurred())
-			Expect(compareSecrets(storageconfigSecret, expectedStorageConfigSecret)).Should((BeTrue()))
+			Expect(compareSecrets(storageconfigSecret, expectedStorageConfigSecret)).Should(BeTrue())
 		})
 	})
 
@@ -172,7 +172,7 @@ var _ = Describe("Secret Controller (StorageConfig controller)", func() {
 			expectedStorageConfigSecret := &corev1.Secret{}
 			err = convertToStructuredResource(storageconfigCertEncodedPath, expectedStorageConfigSecret)
 			Expect(err).NotTo(HaveOccurred())
-			Expect(compareSecrets(storageconfigSecret, expectedStorageConfigSecret)).Should((BeTrue()))
+			Expect(compareSecrets(storageconfigSecret, expectedStorageConfigSecret)).Should(BeTrue())
 
 			By("updating odh-kserve-custom-ca-bundle configmap")
 			updatedOdhtrustedcacertConfigMap := &corev1.ConfigMap{}
@@ -191,7 +191,7 @@ var _ = Describe("Secret Controller (StorageConfig controller)", func() {
 			err = convertToStructuredResource(storageconfigCertEncodedUpdatedPath, expectedUpdatedStorageConfigSecret)
 			Expect(err).NotTo(HaveOccurred())
 
-			Expect(compareSecrets(updatedStorageconfigSecret, expectedUpdatedStorageConfigSecret)).Should((BeTrue()))
+			Expect(compareSecrets(updatedStorageconfigSecret, expectedUpdatedStorageConfigSecret)).Should(BeTrue())
 		})
 	})
 })

@@ -46,8 +46,7 @@ const (
 
 	CapabilityServiceMeshAuthorization = "CapabilityServiceMeshAuthorization"
 
-	ModelMeshServiceAccountName = "modelmesh-serving-sa"
-	KserveServiceAccountName    = "default"
+	KserveServiceAccountName = "default"
 )
 
 // InferenceService container names
@@ -61,7 +60,6 @@ const (
 var (
 	Serverless    KServeDeploymentMode = "Serverless"
 	RawDeployment KServeDeploymentMode = "RawDeployment"
-	ModelMesh     KServeDeploymentMode = "ModelMesh"
 )
 
 // model registry

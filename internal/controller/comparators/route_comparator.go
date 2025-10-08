@@ -22,20 +22,6 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
-func GetMMRouteComparator() ResourceComparator {
-	return func(deployed client.Object, requested client.Object) bool {
-		deployedRoute := deployed.(*v1.Route)
-		requestedRoute := requested.(*v1.Route)
-		return reflect.DeepEqual(deployedRoute.Spec.To, requestedRoute.Spec.To) &&
-			reflect.DeepEqual(deployedRoute.Spec.Port, requestedRoute.Spec.Port) &&
-			reflect.DeepEqual(deployedRoute.Spec.WildcardPolicy, requestedRoute.Spec.WildcardPolicy) &&
-			reflect.DeepEqual(deployedRoute.Spec.Path, requestedRoute.Spec.Path) &&
-			reflect.DeepEqual(deployedRoute.Spec.TLS, requestedRoute.Spec.TLS) &&
-			reflect.DeepEqual(deployedRoute.Labels, requestedRoute.Labels) &&
-			reflect.DeepEqual(deployedRoute.Annotations, requestedRoute.Annotations)
-	}
-}
-
 func GetKServeRouteComparator() ResourceComparator {
 	return func(deployed client.Object, requested client.Object) bool {
 		deployedRoute := deployed.(*v1.Route)

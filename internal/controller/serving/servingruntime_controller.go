@@ -140,24 +140,16 @@ func (r *ServingRuntimeReconciler) createRBIfDNE(ctx context.Context, exists boo
 	return nil
 }
 
-// modelMeshEnabled return true if this Namespace is modelmesh enabled
-func (r *ServingRuntimeReconciler) modelMeshEnabled(_ string, labels map[string]string) bool {
-	enabled, ok := labels["modelmesh-enabled"]
-	if !ok || enabled != "true" {
-		return false
-	}
-	return true
-}
-
 // monitoringThisNameSpace return true if this Namespace should be monitored by monitoring stack
-func (r *ServingRuntimeReconciler) monitoringThisNameSpace(ns string, labels map[string]string, monitoringNs string) bool {
+func (r *ServingRuntimeReconciler) monitoringThisNameSpace(ns string, monitoringNs string) bool {
 	if monitoringNs == "" {
 		return false
 	}
 	if ns == OpenshiftMonitoringNS || ns == monitoringNs {
 		return true
 	}
-	return r.modelMeshEnabled(ns, labels)
+	// Regular namespaces are handled separately in reconcileRoleBinding
+	return false
 }
 
 func (r *ServingRuntimeReconciler) reconcileRoleBinding(ctx context.Context, req ctrl.Request, monitoringNs string) error {
@@ -169,16 +161,16 @@ func (r *ServingRuntimeReconciler) reconcileRoleBinding(ctx context.Context, req
 		return err
 	}
 
-	monitoringNS := r.monitoringThisNameSpace(req.Namespace, ns.Labels, monitoringNs)
+	monitoringNS := r.monitoringThisNameSpace(req.Namespace, monitoringNs)
 
 	if !monitoringNS {
-		logger.Info("Namespace is not modelmesh enabled, or configured for monitoring, skipping.")
+		logger.Info("Namespace is not configured for monitoring, skipping.")
 		return nil
 	}
 
 	// We are also adding RoleBindings in  OpenShift Monitoring
 	// handle this case separately
-	if monitoringNS && !r.modelMeshEnabled(req.Namespace, ns.Labels) {
+	if monitoringNS {
 		// Create an RB in OCP monitoring NS for federation
 		actualRB := &k8srbacv1.RoleBinding{}
 		roleBindingExists, err := r.foundRB(ctx, actualRB, req.Namespace)
@@ -431,11 +423,11 @@ func (r *ServingRuntimeReconciler) SetupWithManager(mgr ctrl.Manager) error {
 				}
 			}),
 		).
-		// Watch for changes to ModelMesh Enabled namespaces & a select few others
+		// Watch for changes to monitoring enabled namespaces & a select few others
 		Watches(&corev1.Namespace{},
 			handler.EnqueueRequestsFromMapFunc(func(ctx context.Context, o client.Object) []reconcile.Request {
 				monitoringNs := os.Getenv("MONITORING_NAMESPACE")
-				if !r.monitoringThisNameSpace(o.GetName(), o.GetLabels(), monitoringNs) {
+				if !r.monitoringThisNameSpace(o.GetName(), monitoringNs) {
 					return []reconcile.Request{}
 				}
 
@@ -446,7 +438,7 @@ func (r *ServingRuntimeReconciler) SetupWithManager(mgr ctrl.Manager) error {
 				reconcileRequests := append([]reconcile.Request{}, reconcile.Request{NamespacedName: namespacedName})
 				return reconcileRequests
 			})).
-		// Watch for RoleBinding in modelmesh enabled namespaces & a select few others
+		// Watch for RoleBinding in monitoring enabled namespaces & a select few others
 		Watches(&k8srbacv1.RoleBinding{},
 			handler.EnqueueRequestsFromMapFunc(func(ctx context.Context, o client.Object) []reconcile.Request {
 				logger := log.FromContext(ctx)
