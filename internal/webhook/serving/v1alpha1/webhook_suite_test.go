@@ -76,7 +76,8 @@ var _ = BeforeSuite(func() {
 	testEnv = &envtest.Environment{
 		CRDDirectoryPaths: []string{
 			filepath.Join("..", "..", "..", "..", "config", "crd", "bases"),
-			filepath.Join("..", "..", "..", "..", "config", "crd", "external")},
+			filepath.Join("..", "..", "..", "..", "config", "crd", "external"),
+			filepath.Join("..", "..", "..", "..", "test", "crds")},
 		ErrorIfCRDPathMissing: true,
 
 		// The BinaryAssetsDirectory is only required if you want to run the tests directly

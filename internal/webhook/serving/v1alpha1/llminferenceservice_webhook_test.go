@@ -20,10 +20,11 @@ import (
 	kservev1alpha1 "github.com/kserve/kserve/pkg/apis/serving/v1alpha1"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
-	"github.com/opendatahub-io/odh-model-controller/internal/controller/serving/reconcilers"
 	corev1 "k8s.io/api/core/v1"
 	k8sErrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+
+	"github.com/opendatahub-io/odh-model-controller/internal/controller/serving/reconcilers"
 
 	testutils "github.com/opendatahub-io/odh-model-controller/test/utils"
 )
@@ -176,7 +177,7 @@ var _ = Describe("LLMInferenceService Webhook", func() {
 					},
 				}
 				Expect(k8sClient.Create(ctx, tierConfigMap)).Should(Succeed())
-				defer k8sClient.Delete(ctx, tierConfigMap)
+				defer func() { _ = k8sClient.Delete(ctx, tierConfigMap) }()
 
 				llmisvc := &kservev1alpha1.LLMInferenceService{
 					ObjectMeta: metav1.ObjectMeta{

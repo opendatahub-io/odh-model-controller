@@ -18,12 +18,12 @@ package testing
 import (
 	"context"
 	"fmt"
-	"math/rand"
 	"os"
 	"path/filepath"
 
 	"github.com/onsi/gomega"
 	corev1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
@@ -66,19 +66,9 @@ func CreateNamespaceIfNotExists(ctx context.Context, c client.Client, name strin
 		},
 	}
 
-	// Check if namespace already exists
-	existingNs := &corev1.Namespace{}
-	err := c.Get(ctx, client.ObjectKey{Name: name}, existingNs)
-	if err == nil {
-		// Namespace already exists, skip creation
-		return
-	}
-
 	// Create namespace if it doesn't exist
-	gomega.Expect(c.Create(ctx, ns)).To(gomega.Succeed())
-}
-
-// GenerateUniqueTestNamespaceName generates a unique namespace name with prefix
-func GenerateUniqueTestNamespaceName(prefix string) string {
-	return fmt.Sprintf("%s-%d", prefix, rand.Intn(99999))
+	gomega.Expect(c.Create(ctx, ns)).To(gomega.Or(
+		gomega.Succeed(),
+		gomega.WithTransform(errors.IsAlreadyExists, gomega.BeTrue()),
+	))
 }
