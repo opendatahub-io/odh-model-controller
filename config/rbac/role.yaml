@@ -163,8 +163,12 @@ rules:
 - apiGroups:
   - networking.istio.io
   resources:
-  - gateways
+  - envoyfilters
+  - virtualservices
+  - virtualservices/finalizers
   verbs:
+  - create
+  - delete
   - get
   - list
   - patch
@@ -173,11 +177,8 @@ rules:
 - apiGroups:
   - networking.istio.io
   resources:
-  - virtualservices
-  - virtualservices/finalizers
+  - gateways
   verbs:
-  - create
-  - delete
   - get
   - list
   - patch

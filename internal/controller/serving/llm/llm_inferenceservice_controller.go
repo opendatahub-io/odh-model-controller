@@ -23,6 +23,7 @@ import (
 	"github.com/hashicorp/go-multierror"
 	kservev1alpha1 "github.com/kserve/kserve/pkg/apis/serving/v1alpha1"
 	kuadrantv1 "github.com/kuadrant/kuadrant-operator/api/v1"
+	istioclientv1alpha3 "istio.io/client-go/pkg/apis/networking/v1alpha3"
 	v1 "k8s.io/api/rbac/v1"
 	apierrs "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -47,6 +48,7 @@ type LLMInferenceServiceReconciler struct {
 	Scheme                 *runtime.Scheme
 	subResourceReconcilers []parentreconcilers.LLMSubResourceReconciler
 	authPolicyMatcher      resources.AuthPolicyMatcher
+	envoyFilterMatcher     resources.EnvoyFilterMatcher
 }
 
 var ownedBySelfPredicate = predicate.NewPredicateFuncs(func(o client.Object) bool {
@@ -61,7 +63,10 @@ func NewLLMInferenceServiceReconciler(client client.Client, scheme *runtime.Sche
 	)
 
 	if ok, err := utils.IsCrdAvailable(config, kuadrantv1.GroupVersion.String(), "AuthPolicy"); err == nil && ok {
-		subResourceReconcilers = append(subResourceReconcilers, reconcilers.NewKserveAuthPolicyReconciler(client, scheme))
+		subResourceReconcilers = append(subResourceReconcilers,
+			reconcilers.NewKserveAuthPolicyReconciler(client, scheme),
+			reconcilers.NewKserveEnvoyFilterReconciler(client, scheme),
+		)
 	}
 
 	return &LLMInferenceServiceReconciler{
@@ -69,6 +74,7 @@ func NewLLMInferenceServiceReconciler(client client.Client, scheme *runtime.Sche
 		Scheme:                 scheme,
 		subResourceReconcilers: subResourceReconcilers,
 		authPolicyMatcher:      resources.NewKServeAuthPolicyMatcher(client),
+		envoyFilterMatcher:     resources.NewKServeEnvoyFilterMatcher(client),
 	}
 }
 
@@ -114,6 +120,7 @@ func (r *LLMInferenceServiceReconciler) Reconcile(ctx context.Context, req ctrl.
 // +kubebuilder:rbac:groups=kuadrant.io,resources=authpolicies/status,verbs=get;update;patch
 // +kubebuilder:rbac:groups=rbac.authorization.k8s.io,resources=roles,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups=rbac.authorization.k8s.io,resources=rolebindings,verbs=get;list;watch;create;update;patch;delete
+// +kubebuilder:rbac:groups=networking.istio.io,resources=envoyfilters,verbs=get;list;watch;create;update;patch;delete
 
 func (r *LLMInferenceServiceReconciler) SetupWithManager(mgr ctrl.Manager, setupLog logr.Logger) error {
 	b := ctrl.NewControllerManagedBy(mgr).
@@ -142,6 +149,24 @@ func (r *LLMInferenceServiceReconciler) SetupWithManager(mgr ctrl.Manager, setup
 			}))
 	}
 
+	if ok, err := utils.IsCrdAvailable(mgr.GetConfig(), istioclientv1alpha3.SchemeGroupVersion.String(), "EnvoyFilter"); err != nil {
+		setupLog.Error(err, "Failed to check CRD availability for EnvoyFilter")
+	} else if ok {
+		b = b.Watches(&istioclientv1alpha3.EnvoyFilter{},
+			r.enqueueOnEnvoyFilterChange(),
+			ctrlbuilder.WithPredicates(predicate.Funcs{
+				CreateFunc: func(e event.CreateEvent) bool {
+					return false
+				},
+				UpdateFunc: func(e event.UpdateEvent) bool {
+					return true
+				},
+				DeleteFunc: func(e event.DeleteEvent) bool {
+					return true
+				},
+			}))
+	}
+
 	return b.Complete(r)
 }
 
@@ -157,6 +182,21 @@ func (r *LLMInferenceServiceReconciler) enqueueOnAuthPolicyChange() handler.Even
 		}
 
 		if namespacedNames, err := r.authPolicyMatcher.FindLLMServiceFromGatewayAuthPolicy(ctx, authPolicy); err == nil && len(namespacedNames) > 0 {
+			requests := make([]reconcile.Request, len(namespacedNames))
+			for i, namespacedName := range namespacedNames {
+				requests[i] = reconcile.Request{NamespacedName: namespacedName}
+			}
+			return requests
+		}
+		return []reconcile.Request{}
+	})
+}
+
+func (r *LLMInferenceServiceReconciler) enqueueOnEnvoyFilterChange() handler.EventHandler {
+	return handler.EnqueueRequestsFromMapFunc(func(ctx context.Context, object client.Object) []reconcile.Request {
+		envoyFilter := object.(*istioclientv1alpha3.EnvoyFilter)
+
+		if namespacedNames, err := r.envoyFilterMatcher.FindLLMServiceFromEnvoyFilter(ctx, envoyFilter); err == nil && len(namespacedNames) > 0 {
 			requests := make([]reconcile.Request, len(namespacedNames))
 			for i, namespacedName := range namespacedNames {
 				requests[i] = reconcile.Request{NamespacedName: namespacedName}

@@ -4,9 +4,9 @@ metadata:
   name: {{.Name}}
   namespace: {{.GatewayNamespace}}
   labels:
-    "app.kubernetes.io/name":       "odh-model-controller"
-    "app.kubernetes.io/component":  "kserve"
-    "app.kubernetes.io/part-of":    "odh-model-serving"
+    "app.kubernetes.io/name":       "llminferenceservice-auth"
+    "app.kubernetes.io/component":  "llminferenceservice-policies"
+    "app.kubernetes.io/part-of":    "llminferenceservice"
     "app.kubernetes.io/managed-by": "odh-model-controller"
 spec:
   priority: 0
