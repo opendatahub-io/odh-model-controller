@@ -4,7 +4,7 @@ metadata:
   name: test-llm-service
   namespace: default
   annotations:
-    alpha.maas.opendatahub.io/tiers: '["free", "premium", "enterprise"]'
+    alpha.maas.opendatahub.io/tiers: '[]'
 spec:
   model:
     name: "test-model"

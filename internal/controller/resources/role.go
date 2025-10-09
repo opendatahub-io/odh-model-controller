@@ -50,7 +50,7 @@ func (r *roleHandler) FetchRole(ctx context.Context, log logr.Logger, key types.
 	} else if err != nil {
 		return nil, err
 	}
-	log.V(1).Info("Successfully fetch deployed Role")
+	log.V(1).Info("Successfully fetch deployed Role", "roleName", role.Name)
 	return role, nil
 }
 

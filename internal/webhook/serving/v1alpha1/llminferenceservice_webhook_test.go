@@ -43,7 +43,7 @@ var _ = Describe("LLMInferenceService Webhook", func() {
 					Name: reconcilers.DefaultTenantNamespace,
 				},
 			}
-			_ = k8sClient.Create(ctx, maasNs)
+			Expect(k8sClient.Create(ctx, maasNs)).To(Or(Succeed(), WithTransform(k8sErrors.IsAlreadyExists, BeTrue())))
 		})
 
 		Context("Without tier annotation", func() {
@@ -195,7 +195,7 @@ var _ = Describe("LLMInferenceService Webhook", func() {
 				Expect(k8sErrors.IsInvalid(err)).Should(BeTrue())
 				Expect(err.Error()).Should(ContainSubstring("not found in tier configuration"))
 				Expect(err.Error()).Should(ContainSubstring("Available tiers"))
-				Expect(err.Error()).Should(SatisfyAny(
+				Expect(err.Error()).Should(SatisfyAll(
 					ContainSubstring("free"),
 					ContainSubstring("premium"),
 				))

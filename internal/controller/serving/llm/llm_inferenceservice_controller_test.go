@@ -450,7 +450,7 @@ var _ = Describe("LLMInferenceService Controller", func() {
 					verifyRoleBindingSpecification(Default, roleBinding1, llmisvc1)
 
 					roleBinding2 := waitForRoleBinding(testNs, roleBinding2Name)
-					verifyRoleBindingSpecification(Default, roleBinding2, llmisvc2)
+					verifyRoleBinding2Specification(Default, roleBinding2, llmisvc2)
 				})
 			})
 		})
@@ -527,13 +527,31 @@ func waitForRoleBinding(namespace, name string) *rbacv1.RoleBinding {
 func verifyRoleBindingSpecification(g Gomega, roleBinding *rbacv1.RoleBinding, llmIsvc *kservev1alpha1.LLMInferenceService) {
 	GinkgoHelper()
 
-	// Verify RoleBinding name, labels, and MaaS tier subjects
+	verifyRoleBindingMetadata(g, roleBinding, llmIsvc)
+	verifyMaaSTierSubjects(g, roleBinding.Subjects)
+	verifyRoleBindingRoleRef(g, roleBinding, llmIsvc)
+}
+
+// verifyRoleBindingSpecification validates RoleBinding matches MaaS template for the fixture "2"
+func verifyRoleBinding2Specification(g Gomega, roleBinding *rbacv1.RoleBinding, llmIsvc *kservev1alpha1.LLMInferenceService) {
+	GinkgoHelper()
+
+	verifyRoleBindingMetadata(g, roleBinding, llmIsvc)
+	verifyMaaSTierSubjects2(g, roleBinding.Subjects)
+	verifyRoleBindingRoleRef(g, roleBinding, llmIsvc)
+}
+
+func verifyRoleBindingMetadata(g Gomega, roleBinding *rbacv1.RoleBinding, llmIsvc *kservev1alpha1.LLMInferenceService) {
+	GinkgoHelper()
+
 	expectedName := utils.GetMaaSRoleBindingName(llmIsvc)
 	g.Expect(roleBinding.GetName()).To(Equal(expectedName))
 	g.Expect(roleBinding.GetLabels()).To(HaveKeyWithValue("app.kubernetes.io/managed-by", "odh-model-controller"))
-	verifyMaaSTierSubjects(g, roleBinding.Subjects)
+}
 
-	// Verify RoleRef points to correct Role
+func verifyRoleBindingRoleRef(g Gomega, roleBinding *rbacv1.RoleBinding, llmIsvc *kservev1alpha1.LLMInferenceService) {
+	GinkgoHelper()
+
 	expectedRoleName := utils.GetMaaSRoleName(llmIsvc)
 	g.Expect(roleBinding.RoleRef.Name).To(Equal(expectedRoleName))
 	g.Expect(roleBinding.RoleRef.Kind).To(Equal("Role"))
@@ -555,6 +573,28 @@ func verifyMaaSTierSubjects(g Gomega, subjects []rbacv1.Subject) {
 			Kind:      "Group",
 			APIGroup:  "rbac.authorization.k8s.io",
 			Name:      "system:serviceaccounts:maas-default-gateway-tier-premium",
+			Namespace: "",
+		},
+		{
+			Kind:      "Group",
+			APIGroup:  "rbac.authorization.k8s.io",
+			Name:      "system:serviceaccounts:maas-default-gateway-tier-enterprise",
+			Namespace: "",
+		},
+	}
+
+	g.Expect(subjects).To(HaveExactElements(expectedSubjects))
+}
+
+// verifyMaaSTierSubjects2 validates all three MaaS tier groups are present for the fixture "2"
+func verifyMaaSTierSubjects2(g Gomega, subjects []rbacv1.Subject) {
+	GinkgoHelper()
+
+	expectedSubjects := []rbacv1.Subject{
+		{
+			Kind:      "Group",
+			APIGroup:  "rbac.authorization.k8s.io",
+			Name:      "system:serviceaccounts:maas-default-gateway-tier-free",
 			Namespace: "",
 		},
 		{

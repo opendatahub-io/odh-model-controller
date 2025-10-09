@@ -31,7 +31,9 @@ import (
 )
 
 const (
-	TierAnnotationKey      = "alpha.maas.opendatahub.io/tiers"
+	TierAnnotationKey = "alpha.maas.opendatahub.io/tiers"
+
+	// TODO: Review if these constants can be moved to some configuration.
 	TierConfigMapName      = "tier-to-group-mapping"
 	DefaultTenantNamespace = "maas-api"
 	DefaultTenantName      = "maas-default-gateway"
@@ -46,6 +48,9 @@ type Tier struct {
 	Description string   `yaml:"description,omitempty"` // Human-readable description
 	Groups      []string `yaml:"groups"`                // List of groups that belong to this tier
 	Level       int      `yaml:"level,omitempty"`       // Level for importance (higher wins)
+
+	// TODO: This type was copied from maas-billing repository. By exporting the types in
+	// that repo, we should be able to re-use here.
 }
 
 type AnnotationNotFoundError struct{}
@@ -118,7 +123,12 @@ func (s *TierConfigLoader) DefinedGroups(ctx context.Context, log logr.Logger, l
 		}
 	} else {
 		for _, tierName := range requestedTiers {
-			groupNames = append(groupNames, s.ProjectedSAGroup(tierName))
+			for _, tierInConfig := range tiers {
+				if tierInConfig.Name == tierName {
+					groupNames = append(groupNames, s.ProjectedSAGroup(tierName))
+					break
+				}
+			}
 		}
 	}
 
