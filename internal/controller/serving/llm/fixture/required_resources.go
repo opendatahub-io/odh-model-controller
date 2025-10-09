@@ -34,9 +34,7 @@ import (
 func RequiredResources(ctx context.Context, c client.Client, ns string) {
 	pkgtest.CreateNamespaceIfNotExists(ctx, c, ns)
 	gomega.Expect(c.Create(ctx, InferenceServiceCfgMap(ns))).To(gomega.Succeed())
-	
-	// Setup default gateway namespace
-	pkgtest.CreateNamespaceIfNotExists(ctx, c, constants.DefaultGatewayNamespace)
+
 	// Setup global resources (GatewayClass and Gateway namespace and Gateway itself)
 	gomega.Expect(c.Create(ctx, defaultGatewayClass())).To(gomega.Succeed())
 	pkgtest.CreateNamespaceIfNotExists(ctx, c, constants.DefaultGatewayNamespace)

@@ -72,7 +72,6 @@ func CreateNamespaceIfNotExists(ctx context.Context, c client.Client, name strin
 		gomega.Succeed(),
 		gomega.WithTransform(errors.IsAlreadyExists, gomega.BeTrue()),
 	))
-	gomega.Expect(c.Create(ctx, ns)).To(gomega.Succeed())
 }
 
 // GenerateUniqueTestName generates a unique namespace name with prefix

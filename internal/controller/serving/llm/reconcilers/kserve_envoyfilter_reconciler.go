@@ -18,7 +18,6 @@ package reconcilers
 import (
 	"context"
 	"fmt"
-	"time"
 
 	"github.com/go-logr/logr"
 	kservev1alpha1 "github.com/kserve/kserve/pkg/apis/serving/v1alpha1"
@@ -38,12 +37,9 @@ import (
 
 var _ parentreconcilers.LLMSubResourceReconciler = (*KserveEnvoyFilterReconciler)(nil)
 
-const (
-	kuadrantAuthEnvoyFilterPrefix = "kuadrant-auth-"
-)
-
 type KserveEnvoyFilterReconciler struct {
 	client         client.Client
+	scheme         *runtime.Scheme
 	deltaProcessor processors.DeltaProcessor
 	detector       resources.EnvoyFilterDetector
 	templateLoader resources.EnvoyFilterTemplateLoader
@@ -53,6 +49,7 @@ type KserveEnvoyFilterReconciler struct {
 func NewKserveEnvoyFilterReconciler(client client.Client, scheme *runtime.Scheme) *KserveEnvoyFilterReconciler {
 	return &KserveEnvoyFilterReconciler{
 		client:         client,
+		scheme:         scheme,
 		deltaProcessor: processors.NewDeltaProcessor(),
 		detector:       resources.NewKServeEnvoyFilterDetector(client),
 		templateLoader: resources.NewKServeEnvoyFilterTemplateLoader(client),
@@ -103,6 +100,9 @@ func (r *KserveEnvoyFilterReconciler) reconcileGatewayEnvoyFilter(ctx context.Co
 }
 
 func (r *KserveEnvoyFilterReconciler) Delete(ctx context.Context, log logr.Logger, llmisvc *kservev1alpha1.LLMInferenceService) error {
+	log.V(1).Info("EnvoyFilter cleanup is handled by Gateway OwnerReference")
+	// Gateway OwnerReference handles cleanup automatically when Gateway is deleted
+	// EnvoyFilters persist as long as Gateway exists, even if LLMInferenceService is deleted
 	return nil
 }
 
@@ -160,7 +160,7 @@ func (r *KserveEnvoyFilterReconciler) gatewayEnvoyFilterProcessDelta(ctx context
 		if err != nil {
 			return fmt.Errorf("failed to get Gateway for EnvoyFilter %s: %w", desired.GetName(), err)
 		}
-		if err := controllerutil.SetControllerReference(gateway, desired, r.client.Scheme()); err != nil {
+		if err := controllerutil.SetControllerReference(gateway, desired, r.scheme); err != nil {
 			return fmt.Errorf("failed to set controller reference to Gateway for EnvoyFilter %s: %w", desired.GetName(), err)
 		}
 
@@ -168,17 +168,6 @@ func (r *KserveEnvoyFilterReconciler) gatewayEnvoyFilterProcessDelta(ctx context
 			return fmt.Errorf("failed to create Gateway EnvoyFilter %s: %w", desired.GetName(), err)
 		}
 
-		// Temporary workaround: RHCL does not yet support Authorino SSL without mTLS
-		// Delete Kuadrant EnvoyFilter after creating the Gateway EnvoyFilter
-		// to enforce precedence.
-
-		// This is to avoid race condition between Kuadrant EnvoyFilter and Gateway EnvoyFilter
-		// If the creation time is less than 1s between the two EnvoyFilters, the Gateway EnvoyFilter will be applied first.
-		time.Sleep(800 * time.Millisecond) 
-
-		if err := r.deleteKuadrantEnvoyFilter(ctx, log, gateway); err != nil {
-			return err
-		}
 	} else if delta.IsUpdated() {
 		log.V(1).Info("Delta found", "action", "update", "envoyfilter", existing.GetName())
 
@@ -186,32 +175,13 @@ func (r *KserveEnvoyFilterReconciler) gatewayEnvoyFilterProcessDelta(ctx context
 		if err != nil {
 			return fmt.Errorf("failed to get Gateway for EnvoyFilter %s: %w", desired.GetName(), err)
 		}
-		if err := controllerutil.SetControllerReference(gateway, desired, r.client.Scheme()); err != nil {
+		if err := controllerutil.SetControllerReference(gateway, desired, r.scheme); err != nil {
 			return fmt.Errorf("failed to set controller reference to Gateway for EnvoyFilter %s: %w", desired.GetName(), err)
 		}
 
 		if err := r.store.Update(ctx, desired); err != nil {
 			return fmt.Errorf("failed to update Gateway EnvoyFilter %s: %w", existing.GetName(), err)
 		}
-	}
-
-	return nil
-}
-
-func (r *KserveEnvoyFilterReconciler) deleteKuadrantEnvoyFilter(ctx context.Context, log logr.Logger, gateway *gatewayapiv1.Gateway) error {
-	envoyFilterName := kuadrantAuthEnvoyFilterPrefix + gateway.GetName()
-
-	log.V(1).Info("Attempting to delete Kuadrant EnvoyFilter", "name", envoyFilterName, "namespace", gateway.GetNamespace())
-
-	err := r.store.Remove(ctx, types.NamespacedName{
-		Name:      envoyFilterName,
-		Namespace: gateway.GetNamespace(),
-	})
-
-	if err != nil && !apierrors.IsNotFound(err) {
-		return fmt.Errorf("failed to delete Kuadrant EnvoyFilter %s: %w", envoyFilterName, err)
-	} else {
-		log.V(1).Info("Deleted Kuadrant EnvoyFilter", "name", envoyFilterName)
 	}
 
 	return nil

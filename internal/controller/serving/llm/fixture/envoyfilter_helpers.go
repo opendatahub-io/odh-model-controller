@@ -23,47 +23,21 @@ import (
 	"github.com/onsi/gomega"
 	istioclientv1alpha3 "istio.io/client-go/pkg/apis/networking/v1alpha3"
 	"k8s.io/apimachinery/pkg/api/errors"
-	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	"github.com/opendatahub-io/odh-model-controller/internal/controller/constants"
 )
 
-func getEnvoyFilterByName(ctx context.Context, c client.Client, namespace, envoyFilterName string) (*istioclientv1alpha3.EnvoyFilter, error) {
-	envoyFilter := &istioclientv1alpha3.EnvoyFilter{}
-
-	err := c.Get(ctx, types.NamespacedName{
-		Namespace: namespace,
-		Name:      envoyFilterName,
-	}, envoyFilter)
-
-	return envoyFilter, err
-}
-
-func GetGatewayEnvoyFilter(ctx context.Context, c client.Client, gatewayNamespace, gatewayName string) (*istioclientv1alpha3.EnvoyFilter, error) {
-	return getEnvoyFilterByName(ctx, c, gatewayNamespace, constants.GetGatewayEnvoyFilterName(gatewayName))
-}
-
-func WaitForGatewayEnvoyFilter(ctx context.Context, c client.Client, gatewayNamespace, gatewayName string) *istioclientv1alpha3.EnvoyFilter {
-	var gatewayEnvoyFilter *istioclientv1alpha3.EnvoyFilter
-	gomega.Eventually(func() error {
-		var err error
-		gatewayEnvoyFilter, err = GetGatewayEnvoyFilter(ctx, c, gatewayNamespace, gatewayName)
-		return err
-	}).WithContext(ctx).Should(gomega.Succeed())
-	return gatewayEnvoyFilter
-}
-
 func VerifyGatewayEnvoyFilterExists(ctx context.Context, c client.Client, gatewayNamespace, gatewayName string) {
 	gomega.Eventually(func() error {
-		_, err := GetGatewayEnvoyFilter(ctx, c, gatewayNamespace, gatewayName)
+		_, err := GetResourceByName(ctx, c, gatewayNamespace, constants.GetGatewayEnvoyFilterName(gatewayName), &istioclientv1alpha3.EnvoyFilter{})
 		return err
 	}).WithContext(ctx).Should(gomega.Succeed())
 }
 
 func VerifyGatewayEnvoyFilterNotExist(ctx context.Context, c client.Client, gatewayNamespace, gatewayName string) {
 	gomega.Eventually(func() error {
-		_, err := GetGatewayEnvoyFilter(ctx, c, gatewayNamespace, gatewayName)
+		_, err := GetResourceByName(ctx, c, gatewayNamespace, constants.GetGatewayEnvoyFilterName(gatewayName), &istioclientv1alpha3.EnvoyFilter{})
 		if err != nil {
 			if errors.IsNotFound(err) {
 				return nil
@@ -76,7 +50,7 @@ func VerifyGatewayEnvoyFilterNotExist(ctx context.Context, c client.Client, gate
 
 func VerifyGatewayEnvoyFilterOwnerRef(ctx context.Context, c client.Client, gatewayNamespace, gatewayName string) {
 	gomega.Eventually(func() error {
-		gatewayEnvoyFilter, err := GetGatewayEnvoyFilter(ctx, c, gatewayNamespace, gatewayName)
+		gatewayEnvoyFilter, err := GetResourceByName(ctx, c, gatewayNamespace, constants.GetGatewayEnvoyFilterName(gatewayName), &istioclientv1alpha3.EnvoyFilter{})
 		if err != nil {
 			return err
 		}
@@ -89,21 +63,9 @@ func VerifyGatewayEnvoyFilterOwnerRef(ctx context.Context, c client.Client, gate
 	}).WithContext(ctx).Should(gomega.Succeed())
 }
 
-func VerifyGatewayEnvoyFilterRecreated(ctx context.Context, c client.Client, gatewayNamespace, gatewayName string) {
-	gomega.Eventually(func() error {
-		_, err := GetGatewayEnvoyFilter(ctx, c, gatewayNamespace, gatewayName)
-		return err
-	}).WithContext(ctx).Should(gomega.Succeed())
-
-	gomega.Consistently(func() error {
-		_, err := GetGatewayEnvoyFilter(ctx, c, gatewayNamespace, gatewayName)
-		return err
-	}).WithContext(ctx).Should(gomega.Succeed())
-}
-
 func VerifyGatewayEnvoyFilterRestored(ctx context.Context, c client.Client, gatewayNamespace, gatewayName string, expectedTargetRefName string) {
 	gomega.Eventually(func() bool {
-		restored, err := GetGatewayEnvoyFilter(ctx, c, gatewayNamespace, gatewayName)
+		restored, err := GetResourceByName(ctx, c, gatewayNamespace, constants.GetGatewayEnvoyFilterName(gatewayName), &istioclientv1alpha3.EnvoyFilter{})
 		if err != nil {
 			return false
 		}

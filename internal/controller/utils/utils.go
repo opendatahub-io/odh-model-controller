@@ -481,7 +481,6 @@ func SetOpenshiftRouteTimeoutForIsvc(route *v1.Route, isvc *kservev1beta1.Infere
 	route.Annotations[constants.RouteTimeoutAnnotationKey] = fmt.Sprintf("%ds", timeout)
 }
 
-// GetEnvOr returns the value of the environment variable key if it exists, otherwise returns defaultValue
 func GetEnvOr(key, defaultValue string) string {
 	if env, defined := os.LookupEnv(key); defined {
 		return env
@@ -489,10 +488,8 @@ func GetEnvOr(key, defaultValue string) string {
 	return defaultValue
 }
 
-// GetAuthAudience returns the authentication audience from environment variable or default
 func GetAuthAudience(defaultAudience string) []string {
-	// aud := GetEnvOr("AUTH_AUDIENCE", defaultAudience)
-	aud := defaultAudience + "," + "https://rh-oidc.s3.us-east-1.amazonaws.com/27bd6cg0vs7nn08mue83fbof94dj4m9a"
+	aud := GetEnvOr("AUTH_AUDIENCE", defaultAudience)
 	audiences := strings.Split(aud, ",")
 	for i := range audiences {
 		audiences[i] = strings.TrimSpace(audiences[i])
@@ -500,7 +497,6 @@ func GetAuthAudience(defaultAudience string) []string {
 	return audiences
 }
 
-// GetInferenceServiceConfigMap retrieves the KServe inference service configuration ConfigMap
 func GetInferenceServiceConfigMap(ctx context.Context, cli client.Client) (*corev1.ConfigMap, error) {
 	controllerNs := os.Getenv("POD_NAMESPACE")
 	inferenceServiceConfigMap := &corev1.ConfigMap{}
@@ -514,7 +510,6 @@ func GetInferenceServiceConfigMap(ctx context.Context, cli client.Client) (*core
 	return inferenceServiceConfigMap, nil
 }
 
-// GetGatewayInfoFromConfigMap parses the gateway namespace and name from the inference service ConfigMap
 func GetGatewayInfoFromConfigMap(ctx context.Context, cli client.Client) (namespace, name string, err error) {
 	configMap, err := GetInferenceServiceConfigMap(ctx, cli)
 	if err != nil {

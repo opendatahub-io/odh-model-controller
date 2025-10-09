@@ -20,16 +20,18 @@ import (
 	"context"
 
 	kservev1alpha1 "github.com/kserve/kserve/pkg/apis/serving/v1alpha1"
+	kuadrantv1 "github.com/kuadrant/kuadrant-operator/api/v1"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
+	istioclientv1alpha3 "istio.io/client-go/pkg/apis/networking/v1alpha3"
 	rbacv1 "k8s.io/api/rbac/v1"
 	"k8s.io/apimachinery/pkg/types"
 	gatewayapiv1 "sigs.k8s.io/gateway-api/apis/v1"
 
 	"github.com/opendatahub-io/odh-model-controller/internal/controller/constants"
 	"github.com/opendatahub-io/odh-model-controller/internal/controller/serving/llm/fixture"
-	"github.com/opendatahub-io/odh-model-controller/internal/controller/utils"
 	pkgtest "github.com/opendatahub-io/odh-model-controller/internal/controller/testing"
+	"github.com/opendatahub-io/odh-model-controller/internal/controller/utils"
 	testutils "github.com/opendatahub-io/odh-model-controller/test/utils"
 )
 
@@ -51,8 +53,7 @@ var _ = Describe("LLMInferenceService Controller", func() {
 		customGatewayName = pkgtest.GenerateUniqueTestName("custom-gateway")
 		customHTTPRouteName = pkgtest.GenerateUniqueTestName("custom-httproute")
 		testNamespace := testutils.Namespaces.Create(ctx, envTest.Client)
-		testNs = testNamespace.Name		
-		
+		testNs = testNamespace.Name
 	})
 
 	Context("LLMInferenceService with Authentication", func() {
@@ -142,7 +143,7 @@ var _ = Describe("LLMInferenceService Controller", func() {
 				It("should reconcile and restore Gateway AuthPolicy when modified", func(ctx SpecContext) {
 					fixture.CreateBasicLLMInferenceService(ctx, envTest.Client, testNs, LLMInferenceServiceName, nil)
 
-					gatewayAuthPolicy := fixture.WaitForGatewayAuthPolicy(ctx, envTest.Client, constants.DefaultGatewayNamespace, constants.DefaultGatewayName)
+					gatewayAuthPolicy := fixture.WaitForResource(ctx, envTest.Client, constants.DefaultGatewayNamespace, constants.GetGatewayAuthPolicyName(constants.DefaultGatewayName), &kuadrantv1.AuthPolicy{})
 					originalTargetRef := gatewayAuthPolicy.Spec.TargetRef
 
 					gatewayAuthPolicy.Spec.TargetRef.Name = "modified-gateway"
@@ -154,10 +155,10 @@ var _ = Describe("LLMInferenceService Controller", func() {
 				It("should recreate Gateway AuthPolicy when deleted", func(ctx SpecContext) {
 					fixture.CreateBasicLLMInferenceService(ctx, envTest.Client, testNs, LLMInferenceServiceName, nil)
 
-					gatewayAuthPolicy := fixture.WaitForGatewayAuthPolicy(ctx, envTest.Client, constants.DefaultGatewayNamespace, constants.DefaultGatewayName)
+					gatewayAuthPolicy := fixture.WaitForResource(ctx, envTest.Client, constants.DefaultGatewayNamespace, constants.GetGatewayAuthPolicyName(constants.DefaultGatewayName), &kuadrantv1.AuthPolicy{})
 					Expect(envTest.Client.Delete(ctx, gatewayAuthPolicy)).Should(Succeed())
 
-					fixture.VerifyGatewayAuthPolicyRecreated(ctx, envTest.Client, constants.DefaultGatewayNamespace, constants.DefaultGatewayName)
+					fixture.VerifyResourceExists(ctx, envTest.Client, constants.DefaultGatewayNamespace, constants.GetGatewayAuthPolicyName(constants.DefaultGatewayName), &kuadrantv1.AuthPolicy{})
 				})
 
 				It("should restore custom Gateway AuthPolicy when modified", func(ctx SpecContext) {
@@ -179,7 +180,7 @@ var _ = Describe("LLMInferenceService Controller", func() {
 					)
 					Expect(envTest.Client.Create(ctx, llmisvc)).Should(Succeed())
 
-					gatewayAuthPolicy := fixture.WaitForGatewayAuthPolicy(ctx, envTest.Client, customGatewayNamespace, customGatewayName)
+					gatewayAuthPolicy := fixture.WaitForResource(ctx, envTest.Client, customGatewayNamespace, constants.GetGatewayAuthPolicyName(customGatewayName), &kuadrantv1.AuthPolicy{})
 
 					originalTargetRef := gatewayAuthPolicy.Spec.TargetRef
 
@@ -208,11 +209,11 @@ var _ = Describe("LLMInferenceService Controller", func() {
 					)
 					Expect(envTest.Client.Create(ctx, llmisvc)).Should(Succeed())
 
-					gatewayAuthPolicy := fixture.WaitForGatewayAuthPolicy(ctx, envTest.Client, customGatewayNamespace, customGatewayName)
+					gatewayAuthPolicy := fixture.WaitForResource(ctx, envTest.Client, customGatewayNamespace, constants.GetGatewayAuthPolicyName(customGatewayName), &kuadrantv1.AuthPolicy{})
 
 					Expect(envTest.Client.Delete(ctx, gatewayAuthPolicy)).Should(Succeed())
 
-					fixture.VerifyGatewayAuthPolicyRecreated(ctx, envTest.Client, customGatewayNamespace, customGatewayName)
+					fixture.VerifyResourceExists(ctx, envTest.Client, customGatewayNamespace, constants.GetGatewayAuthPolicyName(customGatewayName), &kuadrantv1.AuthPolicy{})
 				})
 			})
 
@@ -223,7 +224,8 @@ var _ = Describe("LLMInferenceService Controller", func() {
 
 					fixture.CreateHTTPRouteForLLMService(ctx, envTest.Client, testNs, LLMInferenceServiceName)
 
-					httpRouteAuthPolicy := fixture.WaitForHTTPRouteAuthPolicy(ctx, envTest.Client, testNs, LLMInferenceServiceName)
+					httpRouteName := constants.GetHTTPRouteName(LLMInferenceServiceName)
+					httpRouteAuthPolicy := fixture.WaitForResource(ctx, envTest.Client, testNs, constants.GetHTTPRouteAuthPolicyName(httpRouteName), &kuadrantv1.AuthPolicy{})
 					originalTargetRef := httpRouteAuthPolicy.Spec.TargetRef
 
 					httpRouteAuthPolicy.Spec.TargetRef.Name = "modified-httproute"
@@ -238,11 +240,12 @@ var _ = Describe("LLMInferenceService Controller", func() {
 
 					fixture.CreateHTTPRouteForLLMService(ctx, envTest.Client, testNs, LLMInferenceServiceName)
 
-					httpRouteAuthPolicy := fixture.WaitForHTTPRouteAuthPolicy(ctx, envTest.Client, testNs, LLMInferenceServiceName)
+					httpRouteName := constants.GetHTTPRouteName(LLMInferenceServiceName)
+					httpRouteAuthPolicy := fixture.WaitForResource(ctx, envTest.Client, testNs, constants.GetHTTPRouteAuthPolicyName(httpRouteName), &kuadrantv1.AuthPolicy{})
 
 					Expect(envTest.Client.Delete(ctx, httpRouteAuthPolicy)).Should(Succeed())
 
-					fixture.VerifyHTTPRouteAuthPolicyRecreated(ctx, envTest.Client, testNs, LLMInferenceServiceName)
+					fixture.VerifyResourceExists(ctx, envTest.Client, testNs, constants.GetHTTPRouteAuthPolicyName(httpRouteName), &kuadrantv1.AuthPolicy{})
 				})
 
 				It("should restore custom HTTPRoute AuthPolicy when modified", func(ctx SpecContext) {
@@ -326,7 +329,7 @@ var _ = Describe("LLMInferenceService Controller", func() {
 			It("should reconcile and restore default Gateway EnvoyFilter when modified", func(ctx SpecContext) {
 				fixture.CreateBasicLLMInferenceService(ctx, envTest.Client, testNs, LLMInferenceServiceName, nil)
 
-				gatewayEnvoyFilter := fixture.WaitForGatewayEnvoyFilter(ctx, envTest.Client, constants.DefaultGatewayNamespace, constants.DefaultGatewayName)
+				gatewayEnvoyFilter := fixture.WaitForResource(ctx, envTest.Client, constants.DefaultGatewayNamespace, constants.GetGatewayEnvoyFilterName(constants.DefaultGatewayName), &istioclientv1alpha3.EnvoyFilter{})
 
 				var originalTargetRefName string
 				if len(gatewayEnvoyFilter.Spec.TargetRefs) > 0 {
@@ -342,10 +345,10 @@ var _ = Describe("LLMInferenceService Controller", func() {
 			It("should recreate default Gateway EnvoyFilter when deleted", func(ctx SpecContext) {
 				fixture.CreateBasicLLMInferenceService(ctx, envTest.Client, testNs, LLMInferenceServiceName, nil)
 
-				gatewayEnvoyFilter := fixture.WaitForGatewayEnvoyFilter(ctx, envTest.Client, constants.DefaultGatewayNamespace, constants.DefaultGatewayName)
+				gatewayEnvoyFilter := fixture.WaitForResource(ctx, envTest.Client, constants.DefaultGatewayNamespace, constants.GetGatewayEnvoyFilterName(constants.DefaultGatewayName), &istioclientv1alpha3.EnvoyFilter{})
 				Expect(envTest.Client.Delete(ctx, gatewayEnvoyFilter)).Should(Succeed())
 
-				fixture.VerifyGatewayEnvoyFilterRecreated(ctx, envTest.Client, constants.DefaultGatewayNamespace, constants.DefaultGatewayName)
+				fixture.VerifyResourceExists(ctx, envTest.Client, constants.DefaultGatewayNamespace, constants.GetGatewayEnvoyFilterName(constants.DefaultGatewayName), &istioclientv1alpha3.EnvoyFilter{})
 			})
 
 			It("should restore custom Gateway EnvoyFilter when modified", func(ctx SpecContext) {
@@ -367,7 +370,7 @@ var _ = Describe("LLMInferenceService Controller", func() {
 				)
 				Expect(envTest.Client.Create(ctx, llmisvc)).Should(Succeed())
 
-				gatewayEnvoyFilter := fixture.WaitForGatewayEnvoyFilter(ctx, envTest.Client, customGatewayNamespace, customGatewayName)
+				gatewayEnvoyFilter := fixture.WaitForResource(ctx, envTest.Client, customGatewayNamespace, constants.GetGatewayEnvoyFilterName(customGatewayName), &istioclientv1alpha3.EnvoyFilter{})
 
 				var originalTargetRefName string
 				if len(gatewayEnvoyFilter.Spec.TargetRefs) > 0 {
@@ -397,15 +400,15 @@ var _ = Describe("LLMInferenceService Controller", func() {
 				)
 				Expect(envTest.Client.Create(ctx, llmisvc)).Should(Succeed())
 
-				gatewayEnvoyFilter := fixture.WaitForGatewayEnvoyFilter(ctx, envTest.Client, constants.DefaultGatewayNamespace, customGatewayName)
+				gatewayEnvoyFilter := fixture.WaitForResource(ctx, envTest.Client, constants.DefaultGatewayNamespace, constants.GetGatewayEnvoyFilterName(customGatewayName), &istioclientv1alpha3.EnvoyFilter{})
 
 				Expect(envTest.Client.Delete(ctx, gatewayEnvoyFilter)).Should(Succeed())
 
-				fixture.VerifyGatewayEnvoyFilterRecreated(ctx, envTest.Client, constants.DefaultGatewayNamespace, customGatewayName)
+				fixture.VerifyResourceExists(ctx, envTest.Client, constants.DefaultGatewayNamespace, constants.GetGatewayEnvoyFilterName(customGatewayName), &istioclientv1alpha3.EnvoyFilter{})
 			})
 		})
 	})
-	
+
 	Describe("Model-as-a-Service Integration", func() {
 		Describe("Role Reconciler", func() {
 			When("creating an LLMInferenceService", func() {
@@ -571,7 +574,7 @@ var _ = Describe("LLMInferenceService Controller", func() {
 			})
 		})
 	})
-	
+
 })
 
 // Helper Functions

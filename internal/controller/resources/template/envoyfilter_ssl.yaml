@@ -9,7 +9,7 @@ metadata:
     "app.kubernetes.io/part-of":    "llminferenceservice"
     "app.kubernetes.io/managed-by": "odh-model-controller"
 spec:
-  priority: 0
+  priority: -1
   configPatches:
     - applyTo: CLUSTER
       match:

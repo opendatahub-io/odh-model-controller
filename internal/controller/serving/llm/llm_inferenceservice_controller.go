@@ -65,6 +65,10 @@ func NewLLMInferenceServiceReconciler(client client.Client, scheme *runtime.Sche
 	if ok, err := utils.IsCrdAvailable(config, kuadrantv1.GroupVersion.String(), "AuthPolicy"); err == nil && ok {
 		subResourceReconcilers = append(subResourceReconcilers,
 			reconcilers.NewKserveAuthPolicyReconciler(client, scheme),
+		)
+	}
+	if ok, err := utils.IsCrdAvailable(config, istioclientv1alpha3.SchemeGroupVersion.String(), "EnvoyFilter"); err == nil && ok {
+		subResourceReconcilers = append(subResourceReconcilers,
 			reconcilers.NewKserveEnvoyFilterReconciler(client, scheme),
 		)
 	}
@@ -165,7 +169,7 @@ func (r *LLMInferenceServiceReconciler) SetupWithManager(mgr ctrl.Manager, setup
 					return utils.IsManagedByOpenDataHub(e.ObjectNew)
 				},
 				DeleteFunc: func(e event.DeleteEvent) bool {
-					return  utils.IsManagedByOpenDataHub(e.Object)
+					return utils.IsManagedByOpenDataHub(e.Object)
 				},
 			}))
 	}
