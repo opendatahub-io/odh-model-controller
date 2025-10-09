@@ -18,6 +18,7 @@ package reconcilers
 import (
 	"context"
 	"fmt"
+	"time"
 
 	"github.com/go-logr/logr"
 	kservev1alpha1 "github.com/kserve/kserve/pkg/apis/serving/v1alpha1"
@@ -170,6 +171,11 @@ func (r *KserveEnvoyFilterReconciler) gatewayEnvoyFilterProcessDelta(ctx context
 		// Temporary workaround: RHCL does not yet support Authorino SSL without mTLS
 		// Delete Kuadrant EnvoyFilter after creating the Gateway EnvoyFilter
 		// to enforce precedence.
+
+		// This is to avoid race condition between Kuadrant EnvoyFilter and Gateway EnvoyFilter
+		// If the creation time is less than 1s between the two EnvoyFilters, the Gateway EnvoyFilter will be applied first.
+		time.Sleep(800 * time.Millisecond) 
+
 		if err := r.deleteKuadrantEnvoyFilter(ctx, log, gateway); err != nil {
 			return err
 		}

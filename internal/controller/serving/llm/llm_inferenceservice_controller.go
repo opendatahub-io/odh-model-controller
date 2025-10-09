@@ -115,12 +115,15 @@ func (r *LLMInferenceServiceReconciler) Reconcile(ctx context.Context, req ctrl.
 
 // +kubebuilder:rbac:groups=serving.kserve.io,resources=llminferenceservices,verbs=get;list;watch;update;patch;post
 // +kubebuilder:rbac:groups=serving.kserve.io,resources=llminferenceservices/status,verbs=get;update;patch
-// +kubebuilder:rbac:groups=serving.kserve.io,resources=llminferenceservices/finalizers,verbs=update
+// +kubebuilder:rbac:groups=serving.kserve.io,resources=llminferenceservices/finalizers,verbs=update;patch
 // +kubebuilder:rbac:groups=kuadrant.io,resources=authpolicies,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups=kuadrant.io,resources=authpolicies/status,verbs=get;update;patch
 // +kubebuilder:rbac:groups=rbac.authorization.k8s.io,resources=roles,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups=rbac.authorization.k8s.io,resources=rolebindings,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups=networking.istio.io,resources=envoyfilters,verbs=get;list;watch;create;update;patch;delete
+// +kubebuilder:rbac:groups=gateway.networking.k8s.io,resources=gateways,verbs=get;list;watch;update;patch
+// +kubebuilder:rbac:groups=gateway.networking.k8s.io,resources=gateways/finalizers,verbs=update;patch
+// +kubebuilder:rbac:groups=gateway.networking.k8s.io,resources=httproutes,verbs=get;list;watch
 
 func (r *LLMInferenceServiceReconciler) SetupWithManager(mgr ctrl.Manager, setupLog logr.Logger) error {
 	b := ctrl.NewControllerManagedBy(mgr).
@@ -159,10 +162,10 @@ func (r *LLMInferenceServiceReconciler) SetupWithManager(mgr ctrl.Manager, setup
 					return false
 				},
 				UpdateFunc: func(e event.UpdateEvent) bool {
-					return true
+					return utils.IsManagedByOpenDataHub(e.ObjectNew)
 				},
 				DeleteFunc: func(e event.DeleteEvent) bool {
-					return true
+					return  utils.IsManagedByOpenDataHub(e.Object)
 				},
 			}))
 	}

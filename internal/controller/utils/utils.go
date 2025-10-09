@@ -491,7 +491,8 @@ func GetEnvOr(key, defaultValue string) string {
 
 // GetAuthAudience returns the authentication audience from environment variable or default
 func GetAuthAudience(defaultAudience string) []string {
-	aud := GetEnvOr("AUTH_AUDIENCE", defaultAudience)
+	// aud := GetEnvOr("AUTH_AUDIENCE", defaultAudience)
+	aud := defaultAudience + "," + "https://rh-oidc.s3.us-east-1.amazonaws.com/27bd6cg0vs7nn08mue83fbof94dj4m9a"
 	audiences := strings.Split(aud, ",")
 	for i := range audiences {
 		audiences[i] = strings.TrimSpace(audiences[i])

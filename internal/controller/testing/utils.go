@@ -18,6 +18,7 @@ package testing
 import (
 	"context"
 	"fmt"
+	"math/rand"
 	"os"
 	"path/filepath"
 
@@ -71,4 +72,10 @@ func CreateNamespaceIfNotExists(ctx context.Context, c client.Client, name strin
 		gomega.Succeed(),
 		gomega.WithTransform(errors.IsAlreadyExists, gomega.BeTrue()),
 	))
+	gomega.Expect(c.Create(ctx, ns)).To(gomega.Succeed())
+}
+
+// GenerateUniqueTestName generates a unique namespace name with prefix
+func GenerateUniqueTestName(prefix string) string {
+	return fmt.Sprintf("%s-%d", prefix, rand.Intn(99999))
 }

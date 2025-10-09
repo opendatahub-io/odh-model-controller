@@ -30,6 +30,7 @@ import (
 
 	igwapi "sigs.k8s.io/gateway-api-inference-extension/api/v1alpha2"
 	gatewayapiv1 "sigs.k8s.io/gateway-api/apis/v1"
+	istioclientv1alpha3 "istio.io/client-go/pkg/apis/networking/v1alpha3"
 )
 
 // NewEnvTest prepares k8s EnvTest with prereq
@@ -49,6 +50,7 @@ func NewEnvTest(options ...Option) *Config {
 		kuadrantv1.AddToScheme,
 		gatewayapiv1.Install,
 		igwapi.Install,
+		istioclientv1alpha3.AddToScheme,
 	)
 
 	return Configure(append(options, testCRDs, schemes)...)
