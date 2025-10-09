@@ -23,7 +23,6 @@ import (
 	"github.com/onsi/ginkgo/v2"
 	"github.com/onsi/gomega"
 	"k8s.io/client-go/rest"
-	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	llmcontroller "github.com/opendatahub-io/odh-model-controller/internal/controller/serving/llm"
 	pkgtest "github.com/opendatahub-io/odh-model-controller/internal/controller/testing"
@@ -65,9 +64,4 @@ func SetupTestEnv() *pkgtest.Client {
 	RequiredResources(ctx, envTest.Client, systemNs)
 
 	return envTest
-}
-
-// SetupTestNamespace creates a test namespace and required resources
-func SetupTestNamespace(ctx context.Context, c client.Client, namespace string) {
-	pkgtest.CreateNamespaceIfNotExists(ctx, c, namespace)
 }

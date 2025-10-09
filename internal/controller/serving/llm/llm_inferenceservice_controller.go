@@ -23,10 +23,7 @@ import (
 	"github.com/hashicorp/go-multierror"
 	kservev1alpha1 "github.com/kserve/kserve/pkg/apis/serving/v1alpha1"
 	kuadrantv1 "github.com/kuadrant/kuadrant-operator/api/v1"
-	"github.com/opendatahub-io/odh-model-controller/internal/controller/resources"
-	"github.com/opendatahub-io/odh-model-controller/internal/controller/serving/llm/reconcilers"
-	parentreconcilers "github.com/opendatahub-io/odh-model-controller/internal/controller/serving/reconcilers"
-	"github.com/opendatahub-io/odh-model-controller/internal/controller/utils"
+	v1 "k8s.io/api/rbac/v1"
 	apierrs "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/client-go/rest"
@@ -38,6 +35,11 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/log"
 	"sigs.k8s.io/controller-runtime/pkg/predicate"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
+
+	"github.com/opendatahub-io/odh-model-controller/internal/controller/resources"
+	"github.com/opendatahub-io/odh-model-controller/internal/controller/serving/llm/reconcilers"
+	parentreconcilers "github.com/opendatahub-io/odh-model-controller/internal/controller/serving/reconcilers"
+	"github.com/opendatahub-io/odh-model-controller/internal/controller/utils"
 )
 
 type LLMInferenceServiceReconciler struct {
@@ -47,8 +49,16 @@ type LLMInferenceServiceReconciler struct {
 	authPolicyMatcher      resources.AuthPolicyMatcher
 }
 
+var ownedBySelfPredicate = predicate.NewPredicateFuncs(func(o client.Object) bool {
+	return o.GetLabels()["app.kubernetes.io/managed-by"] == "odh-model-controller"
+})
+
 func NewLLMInferenceServiceReconciler(client client.Client, scheme *runtime.Scheme, config *rest.Config) *LLMInferenceServiceReconciler {
 	var subResourceReconcilers []parentreconcilers.LLMSubResourceReconciler
+	subResourceReconcilers = append(subResourceReconcilers,
+		parentreconcilers.NewLLMRoleReconciler(client),
+		parentreconcilers.NewLLMRoleBindingReconciler(client),
+	)
 
 	if ok, err := utils.IsCrdAvailable(config, kuadrantv1.GroupVersion.String(), "AuthPolicy"); err == nil && ok {
 		subResourceReconcilers = append(subResourceReconcilers, reconcilers.NewKserveAuthPolicyReconciler(client, scheme))
@@ -97,15 +107,19 @@ func (r *LLMInferenceServiceReconciler) Reconcile(ctx context.Context, req ctrl.
 	return ctrl.Result{}, nil
 }
 
-// +kubebuilder:rbac:groups=serving.kserve.io,resources=llminferenceservices,verbs=get;list;watch;update;patch
+// +kubebuilder:rbac:groups=serving.kserve.io,resources=llminferenceservices,verbs=get;list;watch;update;patch;post
 // +kubebuilder:rbac:groups=serving.kserve.io,resources=llminferenceservices/status,verbs=get;update;patch
 // +kubebuilder:rbac:groups=serving.kserve.io,resources=llminferenceservices/finalizers,verbs=update
 // +kubebuilder:rbac:groups=kuadrant.io,resources=authpolicies,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups=kuadrant.io,resources=authpolicies/status,verbs=get;update;patch
+// +kubebuilder:rbac:groups=rbac.authorization.k8s.io,resources=roles,verbs=get;list;watch;create;update;patch;delete
+// +kubebuilder:rbac:groups=rbac.authorization.k8s.io,resources=rolebindings,verbs=get;list;watch;create;update;patch;delete
 
 func (r *LLMInferenceServiceReconciler) SetupWithManager(mgr ctrl.Manager, setupLog logr.Logger) error {
 	b := ctrl.NewControllerManagedBy(mgr).
 		For(&kservev1alpha1.LLMInferenceService{}).
+		Owns(&v1.Role{}, ctrlbuilder.WithPredicates(ownedBySelfPredicate)).
+		Owns(&v1.RoleBinding{}, ctrlbuilder.WithPredicates(ownedBySelfPredicate)).
 		Named("llminferenceservice")
 
 	setupLog.Info("Setting up LLMInferenceService controller")

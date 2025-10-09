@@ -26,6 +26,7 @@ import (
 	gatewayapiv1 "sigs.k8s.io/gateway-api/apis/v1"
 
 	"github.com/opendatahub-io/odh-model-controller/internal/controller/constants"
+	"github.com/opendatahub-io/odh-model-controller/internal/controller/serving/reconcilers"
 	pkgtest "github.com/opendatahub-io/odh-model-controller/internal/controller/testing"
 )
 
@@ -42,6 +43,10 @@ func RequiredResources(ctx context.Context, c client.Client, ns string) {
 	gomega.Eventually(func() error {
 		return c.Create(ctx, defaultGateway())
 	}).Should(gomega.Succeed())
+
+	// Create tier configuration namespace and ConfigMap for MaaS tier testing
+	pkgtest.CreateNamespaceIfNotExists(ctx, c, reconcilers.DefaultTenantNamespace)
+	gomega.Expect(c.Create(ctx, tierConfigMap())).To(gomega.Succeed())
 }
 
 func InferenceServiceCfgMap(ns string) *corev1.ConfigMap {
@@ -102,6 +107,36 @@ func defaultGateway() *gatewayapiv1.Gateway {
 					Protocol: gatewayapiv1.HTTPProtocolType,
 				},
 			},
+		},
+	}
+}
+
+// tierConfigMap creates a ConfigMap with tier configuration for MaaS testing
+func tierConfigMap() *corev1.ConfigMap {
+	tiersYAML := `
+- name: free
+  description: Free tier for testing
+  level: 1
+  groups:
+  - system:authenticated
+- name: premium
+  description: Premium tier for testing
+  level: 10
+  groups:
+  - premium-users
+- name: enterprise
+  description: Enterprise tier for testing
+  level: 20
+  groups:
+  - enterprise-users
+`
+	return &corev1.ConfigMap{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      reconcilers.TierConfigMapName,
+			Namespace: reconcilers.DefaultTenantNamespace,
+		},
+		Data: map[string]string{
+			"tiers": tiersYAML,
 		},
 	}
 }

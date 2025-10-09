@@ -27,6 +27,7 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/discovery"
 	"k8s.io/client-go/rest"
+	"knative.dev/pkg/kmeta"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	"github.com/opendatahub-io/odh-model-controller/internal/controller/constants"
@@ -580,4 +581,14 @@ func MergeUserLabelsAndAnnotations(desired, existing client.Object) {
 		}
 		desired.SetAnnotations(desiredAnnotations)
 	}
+}
+
+// GetMaaSRoleName returns the name of the related Role resource for MaaS RBAC use cases
+func GetMaaSRoleName(llmisvc *kservev1alpha1.LLMInferenceService) string {
+	return kmeta.ChildName(llmisvc.Name, "-model-post-access")
+}
+
+// GetMaaSRoleBindingName returns the name of the related RoleBinding resource for MaaS RBAC use cases
+func GetMaaSRoleBindingName(llmisvc *kservev1alpha1.LLMInferenceService) string {
+	return kmeta.ChildName(llmisvc.Name, "-model-post-access-tier-binding")
 }

@@ -52,7 +52,7 @@ func NewKServePrometheusRoleBindingReconciler(client client.Client) *KserveProme
 }
 
 func (r *KservePrometheusRoleBindingReconciler) Reconcile(ctx context.Context, log logr.Logger, isvc *kservev1beta1.InferenceService) error {
-	log.V(1).Info("Verifying that the role binding to enable prometheus access exists")
+	log.V(1).Info("Verifying that the role binding to enable prometheus access exists", "name", isvc.Name, "namespace", isvc.Namespace)
 
 	// Create Desired resource
 	desiredResource := r.createDesiredResource(isvc)
@@ -71,8 +71,8 @@ func (r *KservePrometheusRoleBindingReconciler) Reconcile(ctx context.Context, l
 }
 
 func (r *KservePrometheusRoleBindingReconciler) Cleanup(ctx context.Context, log logr.Logger, isvcNs string) error {
-	log.V(1).Info("Deleting Prometheus RoleBinding object for target namespace")
-	return r.roleBindingHandler.DeleteRoleBinding(ctx, types.NamespacedName{Name: clusterPrometheusAccessRoleBinding, Namespace: isvcNs})
+	log.V(1).Info("Deleting Prometheus RoleBinding object for target namespace", "namespace", isvcNs)
+	return r.roleBindingHandler.DeleteRoleBinding(ctx, log, types.NamespacedName{Name: clusterPrometheusAccessRoleBinding, Namespace: isvcNs})
 }
 
 func (r *KservePrometheusRoleBindingReconciler) createDesiredResource(isvc *kservev1beta1.InferenceService) *v1.RoleBinding {
@@ -111,13 +111,13 @@ func (r *KservePrometheusRoleBindingReconciler) processDelta(ctx context.Context
 	}
 
 	if delta.IsAdded() {
-		log.V(1).Info("Delta found", "create", desiredRoleBinding.GetName())
+		log.V(1).Info("Delta found", "action", "create", "name", desiredRoleBinding.GetName(), "namespace", desiredRoleBinding.GetNamespace())
 		if err = r.client.Create(ctx, desiredRoleBinding); err != nil {
 			return err
 		}
 	}
 	if delta.IsUpdated() {
-		log.V(1).Info("Delta found", "update", existingRoleBinding.GetName())
+		log.V(1).Info("Delta found", "action", "update", "name", existingRoleBinding.GetName(), "namespace", existingRoleBinding.GetNamespace())
 		rp := existingRoleBinding.DeepCopy()
 		rp.RoleRef = desiredRoleBinding.RoleRef
 		rp.Subjects = desiredRoleBinding.Subjects
@@ -127,8 +127,11 @@ func (r *KservePrometheusRoleBindingReconciler) processDelta(ctx context.Context
 		}
 	}
 	if delta.IsRemoved() {
-		log.V(1).Info("Delta found", "delete", existingRoleBinding.GetName())
-		if err = r.client.Delete(ctx, existingRoleBinding); err != nil {
+		log.V(1).Info("Delta found", "action", "delete", "name", existingRoleBinding.GetName(), "namespace", existingRoleBinding.GetNamespace())
+		if err = r.roleBindingHandler.DeleteRoleBinding(ctx, log, types.NamespacedName{
+			Name:      existingRoleBinding.GetName(),
+			Namespace: existingRoleBinding.GetNamespace(),
+		}); err != nil {
 			return err
 		}
 	}
