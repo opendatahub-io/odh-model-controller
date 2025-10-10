@@ -199,15 +199,17 @@ func reconcileOpenDataHubSecrets() predicate.Predicate {
 	return predicate.Funcs{
 		CreateFunc: func(e event.CreateEvent) bool {
 			objectLabels := e.Object.GetLabels()
-			return checkOpenDataHubLabel(objectLabels) && !utils.IsRayTLSSecret(e.Object.GetName()) && e.Object.GetName() != constants.DefaultStorageConfig
+			// Prevent storage-config from triggering its own reconciliation on creation
+			return checkOpenDataHubLabel(objectLabels) && !utils.IsRayTLSSecret(e.Object.GetName())
 		},
 		DeleteFunc: func(e event.DeleteEvent) bool {
 			objectLabels := e.Object.GetLabels()
-			return checkOpenDataHubLabel(objectLabels) && !utils.IsRayTLSSecret(e.Object.GetName()) && e.Object.GetName() != constants.DefaultStorageConfig
+			return checkOpenDataHubLabel(objectLabels) && !utils.IsRayTLSSecret(e.Object.GetName())
 		},
 		UpdateFunc: func(e event.UpdateEvent) bool {
 			objectNewLabels := e.ObjectNew.GetLabels()
-			return checkOpenDataHubLabel(objectNewLabels) && !utils.IsRayTLSSecret(e.ObjectNew.GetName()) && e.ObjectNew.GetName() != constants.DefaultStorageConfig
+			// Prevent storage-config from triggering its own reconciliation on updates
+			return checkOpenDataHubLabel(objectNewLabels) && !utils.IsRayTLSSecret(e.ObjectNew.GetName())
 		},
 	}
 }
