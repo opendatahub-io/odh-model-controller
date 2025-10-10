@@ -65,11 +65,6 @@ var _ = Describe("ServingRuntime Controller (Multi Node Reconciler)", func() {
 	controllerNS := os.Getenv("POD_NAMESPACE")
 	_ = os.Setenv("MONITORING_NAMESPACE", "monitoring-ns")
 
-	BeforeEach(func() {
-		ns := &corev1.Namespace{}
-		Expect(k8sClient.Get(ctx, types.NamespacedName{Name: WorkingNamespace}, ns)).NotTo(HaveOccurred())
-	})
-
 	Context("when a non-multinode ServingRuntime created", func() {
 		It("should not create 'ray-tls' Secret in the testNs", func() {
 			testNamespace := testutils.Namespaces.Create(ctx, k8sClient)

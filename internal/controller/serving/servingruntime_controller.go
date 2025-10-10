@@ -113,7 +113,7 @@ func (r *ServingRuntimeReconciler) createRBIfDNE(ctx context.Context, exists boo
 	if !exists {
 		err := r.Create(ctx, desiredRB)
 		if err != nil {
-			logger.Error(err, "Failed to create Rolebinding"+RoleBindingName)
+			logger.Error(err, "Failed to create RoleBinding"+RoleBindingName)
 			return err
 		}
 		logger.Info("Created RoleBinding: " + RoleBindingName)
@@ -142,14 +142,7 @@ func (r *ServingRuntimeReconciler) createRBIfDNE(ctx context.Context, exists boo
 
 // monitoringThisNameSpace return true if this Namespace should be monitored by monitoring stack
 func (r *ServingRuntimeReconciler) monitoringThisNameSpace(ns string, monitoringNs string) bool {
-	if monitoringNs == "" {
-		return false
-	}
-	if ns == OpenshiftMonitoringNS || ns == monitoringNs {
-		return true
-	}
-	// Regular namespaces are handled separately in reconcileRoleBinding
-	return false
+	return ns == OpenshiftMonitoringNS || ns == monitoringNs
 }
 
 func (r *ServingRuntimeReconciler) reconcileRoleBinding(ctx context.Context, req ctrl.Request, monitoringNs string) error {
@@ -438,7 +431,7 @@ func (r *ServingRuntimeReconciler) SetupWithManager(mgr ctrl.Manager) error {
 				reconcileRequests := append([]reconcile.Request{}, reconcile.Request{NamespacedName: namespacedName})
 				return reconcileRequests
 			})).
-		// Watch for RoleBinding in monitoring enabled namespaces & a select few others
+		// Watch for RoleBinding in monitoring enabled namespaces and select few others
 		Watches(&k8srbacv1.RoleBinding{},
 			handler.EnqueueRequestsFromMapFunc(func(ctx context.Context, o client.Object) []reconcile.Request {
 				logger := log.FromContext(ctx)

@@ -172,6 +172,7 @@ var _ = Describe("Secret Controller (StorageConfig controller)", func() {
 			expectedStorageConfigSecret := &corev1.Secret{}
 			err = convertToStructuredResource(storageconfigCertEncodedPath, expectedStorageConfigSecret)
 			Expect(err).NotTo(HaveOccurred())
+
 			Expect(compareSecrets(storageconfigSecret, expectedStorageConfigSecret)).Should(BeTrue())
 
 			By("updating odh-kserve-custom-ca-bundle configmap")
