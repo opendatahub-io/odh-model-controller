@@ -62,7 +62,6 @@ type InferenceServiceReconciler struct {
 	MeshDisabled                   bool
 	ModelRegistryEnabled           bool
 	modelRegistrySkipTls           bool
-	mmISVCReconciler               *reconcilers.ModelMeshInferenceServiceReconciler
 	kserveServerlessISVCReconciler *reconcilers.KserveServerlessInferenceServiceReconciler
 	kserveRawISVCReconciler        *reconcilers.KserveRawInferenceServiceReconciler
 }
@@ -76,7 +75,6 @@ func NewInferenceServiceReconciler(setupLog logr.Logger, client client.Client, s
 		MeshDisabled:                   meshDisabled,
 		ModelRegistryEnabled:           modelRegistryReconcileEnabled,
 		modelRegistrySkipTls:           modelRegistrySkipTls,
-		mmISVCReconciler:               reconcilers.NewModelMeshInferenceServiceReconciler(client),
 		kserveServerlessISVCReconciler: reconcilers.NewKServeServerlessInferenceServiceReconciler(client, clientReader, kClient),
 		kserveRawISVCReconciler:        reconcilers.NewKServeRawInferenceServiceReconciler(client),
 		bearerToken:                    bearerToken,
@@ -130,8 +128,8 @@ func (r *InferenceServiceReconciler) ReconcileServing(ctx context.Context, req c
 	err := r.Client.Get(ctx, req.NamespacedName, isvc)
 	if err != nil && apierrs.IsNotFound(err) {
 		logger.Info("Stop InferenceService reconciliation")
-		// InferenceService not found, so we check for any other inference services that might be using Kserve/ModelMesh
-		// If none are found, we delete the common namespace-scoped resources that were created for Kserve/ModelMesh.
+		// InferenceService not found, so we check for any other inference services that might be using Kserve
+		// If none are found, we delete the common namespace-scoped resources that were created for Kserve.
 		if err1 := r.DeleteResourcesIfNoIsvcExists(ctx, logger, req.Namespace); err1 != nil {
 			logger.Error(err1, "Unable to clean up resources")
 			return ctrl.Result{}, err1
@@ -179,15 +177,12 @@ func (r *InferenceServiceReconciler) ReconcileServing(ctx context.Context, req c
 		return reconcile.Result{}, deleteErrors.ErrorOrNil()
 	}
 
-	// Check what deployment mode is used by the InferenceService. We have differing reconciliation logic for Kserve and ModelMesh
+	// Check what deployment mode is used by the InferenceService. We have differing reconciliation logic for Kserve
 	IsvcDeploymentMode, err := utils.GetDeploymentModeForKServeResource(ctx, r.Client, isvc.GetAnnotations())
 	if err != nil {
 		return ctrl.Result{}, err
 	}
 	switch IsvcDeploymentMode {
-	case constants.ModelMesh:
-		logger.Info("Reconciling InferenceService for ModelMesh")
-		err = r.mmISVCReconciler.Reconcile(ctx, logger, isvc)
 	case constants.Serverless:
 		logger.Info("Reconciling InferenceService for Kserve in mode Serverless")
 		err = r.kserveServerlessISVCReconciler.Reconcile(ctx, logger, isvc)
@@ -365,7 +360,6 @@ func (r *InferenceServiceReconciler) DeleteResourcesIfNoIsvcExists(ctx context.C
 
 	var existingServerlessIsvcs []kservev1beta1.InferenceService
 	var existingRawIsvcs []kservev1beta1.InferenceService
-	var existingModelMeshIsvcs []kservev1beta1.InferenceService
 	for _, isvc := range inferenceServiceList.Items {
 		isvcDeploymentMode, err := utils.GetDeploymentModeForKServeResource(ctx, r.Client, isvc.GetAnnotations())
 		if err != nil {
@@ -379,10 +373,6 @@ func (r *InferenceServiceReconciler) DeleteResourcesIfNoIsvcExists(ctx context.C
 		case constants.RawDeployment:
 			if isvc.GetDeletionTimestamp() == nil {
 				existingRawIsvcs = append(existingRawIsvcs, isvc)
-			}
-		case constants.ModelMesh:
-			if isvc.GetDeletionTimestamp() == nil {
-				existingModelMeshIsvcs = append(existingModelMeshIsvcs, isvc)
 			}
 		default:
 			return fmt.Errorf("Unknown deployment mode for InferenceService: %v", isvc)
@@ -402,12 +392,6 @@ func (r *InferenceServiceReconciler) DeleteResourcesIfNoIsvcExists(ctx context.C
 	if len(existingRawIsvcs) == 0 {
 		log.V(1).Info("Triggering RawDeployment Cleanup for Namespace: " + namespace)
 		if err := r.kserveRawISVCReconciler.CleanupNamespaceIfNoRawKserveIsvcExists(ctx, log, namespace); err != nil {
-			return err
-		}
-	}
-	if len(existingModelMeshIsvcs) == 0 {
-		log.V(1).Info("Triggering ModelMesh Cleanup for Namespace: " + namespace)
-		if err := r.mmISVCReconciler.DeleteModelMeshResourcesIfNoMMIsvcExists(ctx, log, namespace); err != nil {
 			return err
 		}
 	}

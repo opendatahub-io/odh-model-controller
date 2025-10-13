@@ -138,9 +138,6 @@ func main() {
 	}
 
 	kserveState := os.Getenv("KSERVE_STATE")
-	modelMeshState := os.Getenv("MODELMESH_STATE")
-	setupLog.Info("Installation status of Serving Components",
-		"kserve-state", kserveState, "modelmesh-state", modelMeshState)
 
 	kserveWithMeshEnabled, kserveWithMeshEnabledErr := utils.VerifyIfComponentIsEnabled(
 		context.Background(), mgr.GetClient(), utils.KServeWithServiceMeshComponent)
@@ -154,7 +151,7 @@ func main() {
 		kubeClient,
 		cfg,
 		kserveWithMeshEnabled,
-		kserveState, modelMeshState); err != nil {
+		kserveState); err != nil {
 		os.Exit(1)
 	}
 	// +kubebuilder:scaffold:builder
@@ -330,7 +327,7 @@ func setupWebhooks(mgr ctrl.Manager, setupLog logr.Logger, kserveWithMeshEnabled
 
 func setupReconcilers(mgr ctrl.Manager, setupLog logr.Logger,
 	kubeClient kubernetes.Interface, cfg *rest.Config, kserveWithMeshEnabled bool,
-	kserveState string, _ string) error {
+	kserveState string) error {
 	if err := setupInferenceServiceReconciler(mgr, kubeClient, cfg); err != nil {
 		setupLog.Error(err, "unable to create controller", "controller", "InferenceService")
 		return err

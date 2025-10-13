@@ -38,22 +38,23 @@ const (
 	KserveGroupAnnotation            = "serving.kserve.io/inferenceservice"
 	RhoaiObservabilityLabel          = "monitoring.opendatahub.io/scrape"
 
-	EnableAuthODHAnnotation   = "security.opendatahub.io/enable-auth"
-	LabelAuthGroup            = "security.opendatahub.io/authorization-group"
-	LabelEnableAuth           = "enable-auth"
+	EnableAuthODHAnnotation = "security.opendatahub.io/enable-auth"
+	LabelAuthGroup          = "security.opendatahub.io/authorization-group"
+	LabelEnableAuth         = "enable-auth"
+	// TODO can be potentially removed
 	LabelEnableRoute          = "enable-route"
 	LabelEnableKserveRawRoute = "exposed"
 
+	// TODO can be potentially removed
 	CapabilityServiceMeshAuthorization = "CapabilityServiceMeshAuthorization"
 
-	ModelMeshServiceAccountName = "modelmesh-serving-sa"
-	KserveServiceAccountName    = "default"
+	KserveServiceAccountName = "default"
 )
 
 // InferenceService container names
 const (
-	// TO-DO this will be replaced by upstream constants when 0.15 is released
 	// WorkerContainerName is for worker node container
+	// TO-DO this will be replaced by upstream constants when 0.15 is released
 	WorkerContainerName = "worker-container"
 )
 
@@ -61,7 +62,6 @@ const (
 var (
 	Serverless    KServeDeploymentMode = "Serverless"
 	RawDeployment KServeDeploymentMode = "RawDeployment"
-	ModelMesh     KServeDeploymentMode = "ModelMesh"
 )
 
 // model registry

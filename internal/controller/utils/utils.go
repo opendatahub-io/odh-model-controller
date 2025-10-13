@@ -51,8 +51,6 @@ func GetDeploymentModeForKServeResource(ctx context.Context, cli client.Client, 
 	value, exists := annotations[KServeDeploymentModeAnnotation]
 	if exists {
 		switch value {
-		case string(constants.ModelMesh):
-			return constants.ModelMesh, nil
 		case string(constants.Serverless):
 			return constants.Serverless, nil
 		case string(constants.RawDeployment):
@@ -77,8 +75,6 @@ func GetDeploymentModeForKServeResource(ctx context.Context, cli client.Client, 
 		}
 		defaultDeploymentMode := deployData["defaultDeploymentMode"]
 		switch defaultDeploymentMode {
-		case string(constants.ModelMesh):
-			return constants.ModelMesh, nil
 		case string(constants.Serverless):
 			return constants.Serverless, nil
 		case string(constants.RawDeployment):
