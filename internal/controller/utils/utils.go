@@ -584,3 +584,21 @@ func GetMaaSRoleName(llmisvc *kservev1alpha1.LLMInferenceService) string {
 func GetMaaSRoleBindingName(llmisvc *kservev1alpha1.LLMInferenceService) string {
 	return kmeta.ChildName(llmisvc.Name, "-model-post-access-tier-binding")
 }
+
+func IsManagedResource(owner client.Object, resource client.Object) bool {
+	if resource.GetLabels()["app.kubernetes.io/managed-by"] != "odh-model-controller" {
+		return false
+	}
+
+	for _, ownerRef := range resource.GetOwnerReferences() {
+		if ownerRef.APIVersion == owner.GetObjectKind().GroupVersionKind().GroupVersion().String() &&
+			ownerRef.Kind == owner.GetObjectKind().GroupVersionKind().Kind &&
+			ownerRef.Name == owner.GetName() &&
+			ownerRef.UID == owner.GetUID() &&
+			ownerRef.Controller != nil && *ownerRef.Controller {
+			return true
+		}
+	}
+
+	return false
+}

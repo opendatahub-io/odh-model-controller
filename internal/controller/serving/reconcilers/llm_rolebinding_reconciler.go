@@ -55,28 +55,27 @@ func NewLLMRoleBindingReconciler(client client.Client) *LLMRoleBindingReconciler
 func (r *LLMRoleBindingReconciler) Reconcile(ctx context.Context, log logr.Logger, llmisvc *kservev1alpha1.LLMInferenceService) error {
 	log.V(1).Info("Reconciling tier binding", "name", llmisvc.Name, "namespace", llmisvc.Namespace)
 
-	// If we don't have the annotation, we should delete the role and rolebinding - opt out
-	// TODO: at this point in the reconcile we don't know if annotation existed before or not
-	// But what if the model was created using plain manifests?
-	// What if the role/rolebinding was created manually and the names match?
-
-	var desiredResource *v1.RoleBinding
-	annotations := llmisvc.GetAnnotations()
-	if annotations != nil {
-		if _, found := annotations[TierAnnotationKey]; found {
-			desiredResource = r.createDesiredResource(ctx, log, llmisvc)
-		}
-	}
-
 	existingResource, err := r.getExistingResource(ctx, log, llmisvc)
 	if err != nil {
 		return err
 	}
 
+	if existingResource != nil && !utils.IsManagedResource(llmisvc, existingResource) {
+		return nil
+	}
+
+	desiredResource := r.createDesiredResource(ctx, log, llmisvc)
+
 	return r.processDelta(ctx, log, desiredResource, existingResource)
 }
 
 func (r *LLMRoleBindingReconciler) createDesiredResource(ctx context.Context, log logr.Logger, llmisvc *kservev1alpha1.LLMInferenceService) *v1.RoleBinding {
+	if annotations := llmisvc.GetAnnotations(); annotations == nil {
+		return nil
+	} else if _, found := annotations[TierAnnotationKey]; !found {
+		return nil
+	}
+
 	subjects := r.getTierSubjects(ctx, log, llmisvc)
 
 	desiredRoleBinding := &v1.RoleBinding{
