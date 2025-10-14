@@ -60,38 +60,38 @@ func WaitForResource[T client.Object](ctx context.Context, c client.Client, name
 	return obj
 }
 
+func CheckResourceExists[T client.Object](ctx context.Context, c client.Client, namespace, name string, obj T) error {
+	_, err := GetResourceByName(ctx, c, namespace, name, obj)
+	return err
+}
+
 func VerifyResourceExists[T client.Object](ctx context.Context, c client.Client, namespace, name string, obj T) {
 	gomega.Eventually(func() error {
-		_, err := GetResourceByName(ctx, c, namespace, name, obj)
-		return err
+		return CheckResourceExists(ctx, c, namespace, name, obj)
 	}).WithContext(ctx).Should(gomega.Succeed())
 
 	gomega.Consistently(func() error {
-		_, err := GetResourceByName(ctx, c, namespace, name, obj)
-		return err
+		return CheckResourceExists(ctx, c, namespace, name, obj)
 	}).WithContext(ctx).Should(gomega.Succeed())
+}
+
+func CheckResourceNotFound[T client.Object](ctx context.Context, c client.Client, namespace, name string, obj T) error {
+	_, err := GetResourceByName(ctx, c, namespace, name, obj)
+	if err != nil {
+		if errors.IsNotFound(err) {
+			return nil
+		}
+		return err
+	}
+	return fmt.Errorf("resource still exists, expected it to be deleted")
 }
 
 func VerifyResourceNotExist[T client.Object](ctx context.Context, c client.Client, namespace, name string, obj T) {
 	gomega.Eventually(func() error {
-		_, err := GetResourceByName(ctx, c, namespace, name, obj)
-		if err != nil {
-			if errors.IsNotFound(err) {
-				return nil
-			}
-			return err
-		}
-		return fmt.Errorf("resource still exists, expected it to be deleted")
+		return CheckResourceNotFound(ctx, c, namespace, name, obj)
 	}).WithContext(ctx).Should(gomega.Succeed())
 
 	gomega.Consistently(func() error {
-		_, err := GetResourceByName(ctx, c, namespace, name, obj)
-		if err != nil {
-			if errors.IsNotFound(err) {
-				return nil
-			}
-			return err
-		}
-		return fmt.Errorf("resource still exists, expected it to be deleted")
+		return CheckResourceNotFound(ctx, c, namespace, name, obj)
 	}).WithContext(ctx).Should(gomega.Succeed())
 }
