@@ -22,7 +22,6 @@ import (
 
 	kuadrantv1 "github.com/kuadrant/kuadrant-operator/api/v1"
 	"github.com/onsi/gomega"
-	"k8s.io/apimachinery/pkg/api/errors"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	gatewayapiv1 "sigs.k8s.io/gateway-api/apis/v1"
 
@@ -66,10 +65,8 @@ func VerifyHTTPRouteAuthPolicyOwnerRef(ctx context.Context, c client.Client, tes
 }
 
 func VerifyHTTPRouteAuthPolicyExists(ctx context.Context, c client.Client, testNs string, llmisvcName string) {
-	gomega.Eventually(func() error {
-		_, err := getHTTPRouteAuthPolicy(ctx, c, testNs, llmisvcName)
-		return err
-	}).WithContext(ctx).Should(gomega.Succeed())
+	httpRouteName := constants.GetHTTPRouteName(llmisvcName)
+	VerifyResourceExists(ctx, c, testNs, constants.GetHTTPRouteAuthPolicyName(httpRouteName), &kuadrantv1.AuthPolicy{})
 }
 
 func VerifyCustomHTTPRouteAuthPolicyExists(ctx context.Context, c client.Client, testNs string, llmisvcName string, httpRouteName string) {
@@ -87,16 +84,8 @@ func VerifyCustomHTTPRouteAuthPolicyExists(ctx context.Context, c client.Client,
 }
 
 func VerifyHTTPRouteAuthPolicyNotExist(ctx context.Context, c client.Client, testNs string, llmisvcName string) {
-	gomega.Eventually(func() error {
-		_, err := getHTTPRouteAuthPolicy(ctx, c, testNs, llmisvcName)
-		if err != nil {
-			if errors.IsNotFound(err) {
-				return nil
-			}
-			return err
-		}
-		return fmt.Errorf("HTTPRoute AuthPolicy still exists, expected it to be deleted")
-	}).WithContext(ctx).Should(gomega.Succeed())
+	httpRouteName := constants.GetHTTPRouteName(llmisvcName)
+	VerifyResourceNotExist(ctx, c, testNs, constants.GetHTTPRouteAuthPolicyName(httpRouteName), &kuadrantv1.AuthPolicy{})
 }
 
 func VerifyGatewayAuthPolicyRestored(ctx context.Context, c client.Client, gatewayNamespace, gatewayName string, expectedTargetRefName gatewayapiv1.ObjectName) {

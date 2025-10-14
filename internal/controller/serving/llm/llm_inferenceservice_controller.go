@@ -37,6 +37,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/predicate"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
+	"github.com/opendatahub-io/odh-model-controller/internal/controller/constants"
 	"github.com/opendatahub-io/odh-model-controller/internal/controller/resources"
 	"github.com/opendatahub-io/odh-model-controller/internal/controller/serving/llm/reconcilers"
 	parentreconcilers "github.com/opendatahub-io/odh-model-controller/internal/controller/serving/reconcilers"
@@ -62,12 +63,12 @@ func NewLLMInferenceServiceReconciler(client client.Client, scheme *runtime.Sche
 		parentreconcilers.NewLLMRoleBindingReconciler(client),
 	)
 
-	if ok, err := utils.IsCrdAvailable(config, kuadrantv1.GroupVersion.String(), "AuthPolicy"); err == nil && ok {
+	if ok, err := utils.IsCrdAvailable(config, kuadrantv1.GroupVersion.String(), constants.AuthPolicyKind); err == nil && ok {
 		subResourceReconcilers = append(subResourceReconcilers,
 			reconcilers.NewKserveAuthPolicyReconciler(client, scheme),
 		)
 	}
-	if ok, err := utils.IsCrdAvailable(config, istioclientv1alpha3.SchemeGroupVersion.String(), "EnvoyFilter"); err == nil && ok {
+	if ok, err := utils.IsCrdAvailable(config, istioclientv1alpha3.SchemeGroupVersion.String(), constants.EnvoyFilterKind); err == nil && ok {
 		subResourceReconcilers = append(subResourceReconcilers,
 			reconcilers.NewKserveEnvoyFilterReconciler(client, scheme),
 		)

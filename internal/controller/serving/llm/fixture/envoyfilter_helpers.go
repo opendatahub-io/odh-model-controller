@@ -18,34 +18,20 @@ package fixture
 
 import (
 	"context"
-	"fmt"
 
 	"github.com/onsi/gomega"
 	istioclientv1alpha3 "istio.io/client-go/pkg/apis/networking/v1alpha3"
-	"k8s.io/apimachinery/pkg/api/errors"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	"github.com/opendatahub-io/odh-model-controller/internal/controller/constants"
 )
 
 func VerifyGatewayEnvoyFilterExists(ctx context.Context, c client.Client, gatewayNamespace, gatewayName string) {
-	gomega.Eventually(func() error {
-		_, err := GetResourceByName(ctx, c, gatewayNamespace, constants.GetGatewayEnvoyFilterName(gatewayName), &istioclientv1alpha3.EnvoyFilter{})
-		return err
-	}).WithContext(ctx).Should(gomega.Succeed())
+	VerifyResourceExists(ctx, c, gatewayNamespace, constants.GetGatewayEnvoyFilterName(gatewayName), &istioclientv1alpha3.EnvoyFilter{})
 }
 
 func VerifyGatewayEnvoyFilterNotExist(ctx context.Context, c client.Client, gatewayNamespace, gatewayName string) {
-	gomega.Eventually(func() error {
-		_, err := GetResourceByName(ctx, c, gatewayNamespace, constants.GetGatewayEnvoyFilterName(gatewayName), &istioclientv1alpha3.EnvoyFilter{})
-		if err != nil {
-			if errors.IsNotFound(err) {
-				return nil
-			}
-			return err
-		}
-		return fmt.Errorf("Gateway EnvoyFilter still exists, expected it to be deleted")
-	}).WithContext(ctx).Should(gomega.Succeed())
+	VerifyResourceNotExist(ctx, c, gatewayNamespace, constants.GetGatewayEnvoyFilterName(gatewayName), &istioclientv1alpha3.EnvoyFilter{})
 }
 
 func VerifyGatewayEnvoyFilterOwnerRef(ctx context.Context, c client.Client, gatewayNamespace, gatewayName string) {

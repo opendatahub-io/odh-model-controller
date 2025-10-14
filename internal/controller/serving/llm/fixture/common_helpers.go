@@ -2,11 +2,13 @@ package fixture
 
 import (
 	"context"
+	"fmt"
 
 	kservev1alpha1 "github.com/kserve/kserve/pkg/apis/serving/v1alpha1"
 	"github.com/onsi/gomega"
 
 	"github.com/opendatahub-io/odh-model-controller/internal/controller/constants"
+	"k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	gatewayapiv1 "sigs.k8s.io/gateway-api/apis/v1"
@@ -67,5 +69,29 @@ func VerifyResourceExists[T client.Object](ctx context.Context, c client.Client,
 	gomega.Consistently(func() error {
 		_, err := GetResourceByName(ctx, c, namespace, name, obj)
 		return err
+	}).WithContext(ctx).Should(gomega.Succeed())
+}
+
+func VerifyResourceNotExist[T client.Object](ctx context.Context, c client.Client, namespace, name string, obj T) {
+	gomega.Eventually(func() error {
+		_, err := GetResourceByName(ctx, c, namespace, name, obj)
+		if err != nil {
+			if errors.IsNotFound(err) {
+				return nil
+			}
+			return err
+		}
+		return fmt.Errorf("resource still exists, expected it to be deleted")
+	}).WithContext(ctx).Should(gomega.Succeed())
+
+	gomega.Consistently(func() error {
+		_, err := GetResourceByName(ctx, c, namespace, name, obj)
+		if err != nil {
+			if errors.IsNotFound(err) {
+				return nil
+			}
+			return err
+		}
+		return fmt.Errorf("resource still exists, expected it to be deleted")
 	}).WithContext(ctx).Should(gomega.Succeed())
 }
