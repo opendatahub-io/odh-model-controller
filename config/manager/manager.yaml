@@ -76,30 +76,6 @@ spec:
             valueFrom:
               fieldRef:
                 fieldPath: metadata.namespace
-          - name: AUTH_AUDIENCE
-            valueFrom:
-              configMapKeyRef:
-                name: auth-refs
-                key: AUTH_AUDIENCE
-                optional: true
-          - name: AUTHORINO_LABEL
-            valueFrom:
-              configMapKeyRef:
-                name: auth-refs
-                key: AUTHORINO_LABEL
-                optional: true
-          - name: CONTROL_PLANE_NAME
-            valueFrom:
-              configMapKeyRef:
-                name: service-mesh-refs
-                key: CONTROL_PLANE_NAME
-                optional: true
-          - name: MESH_NAMESPACE
-            valueFrom:
-              configMapKeyRef:
-                name: service-mesh-refs
-                key: MESH_NAMESPACE
-                optional: true
           - name: NIM_STATE
             value: replace
           - name: KSERVE_STATE

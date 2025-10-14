@@ -29,8 +29,6 @@ import (
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	admissionv1 "k8s.io/api/admission/v1"
-	corev1 "k8s.io/api/core/v1"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	apimachineryruntime "k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/client-go/rest"
 	ctrl "sigs.k8s.io/controller-runtime"
@@ -106,16 +104,6 @@ var _ = BeforeSuite(func() {
 	k8sClient, err = client.New(cfg, client.Options{Scheme: scheme})
 	Expect(err).NotTo(HaveOccurred())
 	Expect(k8sClient).NotTo(BeNil())
-
-	// Create istio-system namespace
-	_, meshNamespace := utils.GetIstioControlPlaneName(ctx, k8sClient)
-	istioNamespace := &corev1.Namespace{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:      meshNamespace,
-			Namespace: meshNamespace,
-		},
-	}
-	Expect(k8sClient.Create(ctx, istioNamespace)).Should(Succeed())
 
 	// start webhook server using Manager.
 	webhookInstallOptions := &testEnv.WebhookInstallOptions

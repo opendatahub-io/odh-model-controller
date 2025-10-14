@@ -25,6 +25,7 @@ resources:
 # if you do not want those helpers be installed with your Project.
 #- account_editor_role.yaml
 #- account_viewer_role.yaml
-# The following RBAC configurations are for Authorino
+# The following RBAC configurations are need for token
+# TODO: verify if it's needed for kube-rbac-proxy, otherwise remove them
 - auth_proxy_role.yaml
 - auth_proxy_role_binding.yaml
