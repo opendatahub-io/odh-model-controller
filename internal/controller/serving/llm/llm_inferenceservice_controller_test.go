@@ -25,11 +25,14 @@ import (
 	. "github.com/onsi/gomega"
 	istioclientv1alpha3 "istio.io/client-go/pkg/apis/networking/v1alpha3"
 	rbacv1 "k8s.io/api/rbac/v1"
+	"k8s.io/apimachinery/pkg/api/errors"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	gatewayapiv1 "sigs.k8s.io/gateway-api/apis/v1"
 
 	"github.com/opendatahub-io/odh-model-controller/internal/controller/constants"
 	"github.com/opendatahub-io/odh-model-controller/internal/controller/serving/llm/fixture"
+	"github.com/opendatahub-io/odh-model-controller/internal/controller/serving/reconcilers"
 	pkgtest "github.com/opendatahub-io/odh-model-controller/internal/controller/testing"
 	"github.com/opendatahub-io/odh-model-controller/internal/controller/utils"
 	testutils "github.com/opendatahub-io/odh-model-controller/test/utils"
@@ -412,9 +415,7 @@ var _ = Describe("LLMInferenceService Controller", func() {
 	Describe("Model-as-a-Service Integration", func() {
 		Describe("Role Reconciler", func() {
 			When("creating an LLMInferenceService", func() {
-				It("should create a Role with correct specifications and proper owner references", func() {
-					ctx := context.Background()
-
+				It("should create a Role with correct specifications and proper owner references", func(ctx SpecContext) {
 					// Create LLMInferenceService
 					llmisvc := createLLMInferenceService(testNs, "test-llm-service", LLMServicePath1)
 					Expect(envTest.Create(ctx, llmisvc)).Should(Succeed())
@@ -434,9 +435,7 @@ var _ = Describe("LLMInferenceService Controller", func() {
 			})
 
 			When("Role is manually modified", func() {
-				It("should reconcile back to desired state", func() {
-					ctx := context.Background()
-
+				It("should reconcile back to desired state", func(ctx SpecContext) {
 					// Create LLMInferenceService with Role
 					llmisvc := createLLMInferenceService(testNs, "test-llm-service", LLMServicePath1)
 					Expect(envTest.Create(ctx, llmisvc)).Should(Succeed())
@@ -468,10 +467,8 @@ var _ = Describe("LLMInferenceService Controller", func() {
 			})
 
 			When("multiple LLMInferenceServices exist", func() {
-				It("should create individual Roles with correct specifications", func() {
-					ctx := context.Background()
-
-					// Create multiple LLMInferenceServices in same namespace
+				It("should create individual Roles with correct specifications", func(ctx SpecContext) {
+					// Create multiple LLMInferenceServices in the same namespace
 					llmisvc1 := createLLMInferenceService(testNs, "test-llm-service-1", LLMServicePath1)
 					llmisvc1.Name = "test-llm-service-1"
 					Expect(envTest.Create(ctx, llmisvc1)).Should(Succeed())
@@ -489,6 +486,68 @@ var _ = Describe("LLMInferenceService Controller", func() {
 
 					role2 := waitForRole(testNs, role2Name)
 					verifyRoleSpecification(role2, llmisvc2)
+				})
+			})
+
+			When("tier annotation is removed", func() {
+				It("should delete existing managed Role", func(ctx SpecContext) {
+					// Create LLMInferenceService with tier annotation and wait for Role to be created
+					llmisvc := createLLMInferenceService(testNs, "test-llm-service", LLMServicePath1)
+					Expect(envTest.Create(ctx, llmisvc)).Should(Succeed())
+
+					roleName := utils.GetMaaSRoleName(llmisvc)
+					waitForRole(testNs, roleName)
+
+					// Remove tier annotation and verify Role is deleted
+					delete(llmisvc.Annotations, reconcilers.TierAnnotationKey)
+					Expect(envTest.Update(ctx, llmisvc)).Should(Succeed())
+
+					// Verify Role is deleted
+					Eventually(func() error {
+						deletedRole := &rbacv1.Role{}
+						return envTest.Get(ctx, types.NamespacedName{
+							Name:      roleName,
+							Namespace: testNs,
+						}, deletedRole)
+					}).Should(And(
+						Not(Succeed()),
+						WithTransform(errors.IsNotFound, BeTrue()),
+					))
+				})
+
+				It("should not delete existing unmanaged Role", func(ctx SpecContext) {
+					// Create an LLMInferenceService with tier annotation, and an unmanaged Role
+					llmisvc := createLLMInferenceService(testNs, "test-llm-service", LLMServicePath1)
+
+					unmanagedRole := &rbacv1.Role{
+						ObjectMeta: metav1.ObjectMeta{
+							Name:      utils.GetMaaSRoleName(llmisvc),
+							Namespace: testNs,
+						},
+						Rules: []rbacv1.PolicyRule{
+							{
+								APIGroups:     []string{"serving.kserve.io"},
+								Resources:     []string{"llminferenceservices"},
+								ResourceNames: []string{llmisvc.Name},
+								Verbs:         []string{"post"},
+							},
+						},
+					}
+
+					Expect(envTest.Create(ctx, unmanagedRole)).Should(Succeed())
+					Expect(envTest.Create(ctx, llmisvc)).Should(Succeed())
+
+					delete(llmisvc.Annotations, reconcilers.TierAnnotationKey)
+					Expect(envTest.Update(ctx, llmisvc)).Should(Succeed())
+
+					// Verify unmanaged Role is not deleted
+					Consistently(func() error {
+						role := &rbacv1.Role{}
+						return envTest.Get(ctx, types.NamespacedName{
+							Name:      unmanagedRole.Name,
+							Namespace: testNs,
+						}, role)
+					}).Should(Succeed())
 				})
 			})
 		})
@@ -570,6 +629,72 @@ var _ = Describe("LLMInferenceService Controller", func() {
 
 					roleBinding2 := waitForRoleBinding(testNs, roleBinding2Name)
 					verifyRoleBinding2Specification(Default, roleBinding2, llmisvc2)
+				})
+			})
+
+			When("tier annotation is removed", func() {
+				It("should delete existing managed RoleBinding", func(ctx SpecContext) {
+					// Create LLMInferenceService with tier annotation and wait for its RoleBinding to be created
+					llmisvc := createLLMInferenceService(testNs, "test-llm-service", LLMServicePath1)
+					Expect(envTest.Create(ctx, llmisvc)).Should(Succeed())
+
+					roleBindingName := utils.GetMaaSRoleBindingName(llmisvc)
+					waitForRoleBinding(testNs, roleBindingName)
+
+					// Remove tier annotation and check the RoleBinding is deleted
+					delete(llmisvc.Annotations, reconcilers.TierAnnotationKey)
+					Expect(envTest.Update(ctx, llmisvc)).Should(Succeed())
+
+					Eventually(func() error {
+						deletedRoleBinding := &rbacv1.RoleBinding{}
+						return envTest.Get(ctx, types.NamespacedName{
+							Name:      roleBindingName,
+							Namespace: testNs,
+						}, deletedRoleBinding)
+					}).Should(And(
+						Not(Succeed()),
+						WithTransform(errors.IsNotFound, BeTrue()),
+					))
+				})
+
+				It("should not delete existing unmanaged RoleBinding", func(ctx SpecContext) {
+					// Create LLMInferenceService with tier annotation and an unmanaged RoleBinding
+					llmisvc := createLLMInferenceService(testNs, "test-llm-service", LLMServicePath1)
+
+					unmanagedRoleBinding := &rbacv1.RoleBinding{
+						ObjectMeta: metav1.ObjectMeta{
+							Name:      utils.GetMaaSRoleBindingName(llmisvc),
+							Namespace: testNs,
+						},
+						Subjects: []rbacv1.Subject{
+							{
+								Kind:      "Group",
+								APIGroup:  "rbac.authorization.k8s.io",
+								Name:      "system:serviceaccounts:maas-default-gateway-tier-free",
+								Namespace: "",
+							},
+						},
+						RoleRef: rbacv1.RoleRef{
+							Kind:     "Role",
+							Name:     utils.GetMaaSRoleName(llmisvc),
+							APIGroup: "rbac.authorization.k8s.io",
+						},
+					}
+
+					Expect(envTest.Create(ctx, unmanagedRoleBinding)).Should(Succeed())
+					Expect(envTest.Create(ctx, llmisvc)).Should(Succeed())
+
+					// Remove tier annotation and verify unmanaged RoleBinding is not deleted
+					delete(llmisvc.Annotations, reconcilers.TierAnnotationKey)
+					Expect(envTest.Update(ctx, llmisvc)).Should(Succeed())
+
+					Consistently(func() error {
+						rb := &rbacv1.RoleBinding{}
+						return envTest.Get(ctx, types.NamespacedName{
+							Name:      unmanagedRoleBinding.Name,
+							Namespace: testNs,
+						}, rb)
+					}).Should(Succeed())
 				})
 			})
 		})

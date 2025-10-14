@@ -24,6 +24,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	k8stypes "k8s.io/apimachinery/pkg/types"
+	"knative.dev/pkg/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 	"sigs.k8s.io/controller-runtime/pkg/log"
 
@@ -43,7 +44,7 @@ var _ = Describe("LLMRoleBindingReconciler", func() {
 
 	Describe("createDesiredResource", func() {
 		When("no annotation is present", func() {
-			It("should create a RoleBinding with no subjects", func(ctx SpecContext) {
+			It("should not create a RoleBinding", func(ctx SpecContext) {
 				llmisvc := &kservev1alpha1.LLMInferenceService{
 					ObjectMeta: metav1.ObjectMeta{
 						Name:      "test-llm",
@@ -55,8 +56,7 @@ var _ = Describe("LLMRoleBindingReconciler", func() {
 				reconciler := NewLLMRoleBindingReconciler(client)
 
 				roleBinding := reconciler.createDesiredResource(ctx, log.Log, llmisvc)
-
-				Expect(roleBinding.Subjects).To(BeEmpty())
+				Expect(roleBinding).To(BeNil())
 			})
 		})
 
@@ -264,6 +264,7 @@ var _ = Describe("LLMRoleBindingReconciler", func() {
 					ObjectMeta: metav1.ObjectMeta{
 						Name:      "test-llm",
 						Namespace: "test-namespace",
+						UID:       "test-uid",
 					},
 					Spec: kservev1alpha1.LLMInferenceServiceSpec{},
 				}
@@ -272,6 +273,18 @@ var _ = Describe("LLMRoleBindingReconciler", func() {
 					ObjectMeta: metav1.ObjectMeta{
 						Name:      utils.GetMaaSRoleBindingName(llmisvc),
 						Namespace: "test-namespace",
+						Labels: map[string]string{
+							"app.kubernetes.io/managed-by": "odh-model-controller",
+						},
+						OwnerReferences: []metav1.OwnerReference{
+							{
+								APIVersion: llmisvc.APIVersion,
+								Kind:       llmisvc.Kind,
+								Name:       llmisvc.Name,
+								UID:        llmisvc.UID,
+								Controller: ptr.Bool(true),
+							},
+						},
 					},
 					Subjects: []v1.Subject{
 						{
