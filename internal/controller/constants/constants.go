@@ -165,6 +165,7 @@ const (
 	AuthPolicyGroup         = "kuadrant.io"
 	AuthPolicyVersion       = "v1"
 	AuthPolicyKind          = "AuthPolicy"
+	EnvoyFilterKind         = "EnvoyFilter"
 	EnvoyFilterNameSuffix   = "-authn-ssl"
 	HTTPRouteNameSuffix     = "-kserve-route"
 	KubernetesAudience      = "https://kubernetes.default.svc"

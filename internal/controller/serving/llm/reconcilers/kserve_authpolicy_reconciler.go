@@ -41,6 +41,7 @@ var _ parentreconcilers.LLMSubResourceReconciler = (*KserveAuthPolicyReconciler)
 
 type KserveAuthPolicyReconciler struct {
 	client         client.Client
+	scheme         *runtime.Scheme
 	deltaProcessor processors.DeltaProcessor
 	detector       resources.AuthPolicyDetector
 	templateLoader resources.AuthPolicyTemplateLoader
@@ -51,6 +52,7 @@ type KserveAuthPolicyReconciler struct {
 func NewKserveAuthPolicyReconciler(client client.Client, scheme *runtime.Scheme) *KserveAuthPolicyReconciler {
 	return &KserveAuthPolicyReconciler{
 		client:         client,
+		scheme:         scheme,
 		deltaProcessor: processors.NewDeltaProcessor(),
 		detector:       resources.NewKServeAuthPolicyDetector(client),
 		templateLoader: resources.NewKServeAuthPolicyTemplateLoader(client),
@@ -314,7 +316,7 @@ func (r *KserveAuthPolicyReconciler) gatewayAuthPolicyProcessDelta(ctx context.C
 		if err != nil {
 			return fmt.Errorf("failed to get Gateway for AuthPolicy %s: %w", desired.GetName(), err)
 		}
-		if err := controllerutil.SetControllerReference(gateway, desired, r.client.Scheme()); err != nil {
+		if err := controllerutil.SetControllerReference(gateway, desired, r.scheme); err != nil {
 			return fmt.Errorf("failed to set controller reference to Gateway for AuthPolicy %s: %w", desired.GetName(), err)
 		}
 
@@ -328,7 +330,7 @@ func (r *KserveAuthPolicyReconciler) gatewayAuthPolicyProcessDelta(ctx context.C
 		if err != nil {
 			return fmt.Errorf("failed to get Gateway for AuthPolicy %s: %w", desired.GetName(), err)
 		}
-		if err := controllerutil.SetControllerReference(gateway, desired, r.client.Scheme()); err != nil {
+		if err := controllerutil.SetControllerReference(gateway, desired, r.scheme); err != nil {
 			return fmt.Errorf("failed to set controller reference to Gateway for AuthPolicy %s: %w", desired.GetName(), err)
 		}
 
@@ -376,7 +378,7 @@ func (r *KserveAuthPolicyReconciler) httpRouteAuthPolicyProcessDelta(ctx context
 	if delta.IsAdded() {
 		log.V(1).Info("Creating AuthPolicy for Anonymous access", "authpolicy", desired.GetName())
 
-		if err := controllerutil.SetControllerReference(llmisvc, desired, r.client.Scheme()); err != nil {
+		if err := controllerutil.SetControllerReference(llmisvc, desired, r.scheme); err != nil {
 			return fmt.Errorf("failed to set controller reference for HTTPRoute AuthPolicy %s: %w", desired.GetName(), err)
 		}
 
@@ -386,7 +388,7 @@ func (r *KserveAuthPolicyReconciler) httpRouteAuthPolicyProcessDelta(ctx context
 	} else if delta.IsUpdated() {
 		log.V(1).Info("Updating AuthPolicy for Anonymous access", "authpolicy", existing.GetName())
 
-		if err := controllerutil.SetControllerReference(llmisvc, desired, r.client.Scheme()); err != nil {
+		if err := controllerutil.SetControllerReference(llmisvc, desired, r.scheme); err != nil {
 			return fmt.Errorf("failed to set controller reference for HTTPRoute AuthPolicy %s: %w", desired.GetName(), err)
 		}
 
