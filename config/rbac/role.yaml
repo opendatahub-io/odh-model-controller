@@ -53,6 +53,14 @@ rules:
   - update
   - watch
 - apiGroups:
+  - config.openshift.io
+  resources:
+  - authentications
+  verbs:
+  - get
+  - list
+  - watch
+- apiGroups:
   - datasciencecluster.opendatahub.io
   resources:
   - datascienceclusters

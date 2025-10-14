@@ -6,6 +6,7 @@ import (
 	kservev1beta1 "github.com/kserve/kserve/pkg/apis/serving/v1beta1"
 	authorinov1beta2 "github.com/kuadrant/authorino/api/v1beta2"
 	kuadrantv1 "github.com/kuadrant/kuadrant-operator/api/v1"
+	ocpconfigv1 "github.com/openshift/api/config/v1"
 	routev1 "github.com/openshift/api/route/v1"
 	templatev1 "github.com/openshift/api/template/v1"
 	monitoringv1 "github.com/prometheus-operator/prometheus-operator/pkg/apis/monitoring/v1"
@@ -49,6 +50,7 @@ func RegisterSchemes(s *runtime.Scheme) {
 	utilruntime.Must(kedaapi.AddToScheme(s))
 	utilruntime.Must(gatewayapiv1.Install(s))
 	utilruntime.Must(istioclientv1alpha3.AddToScheme(s))
+	utilruntime.Must(ocpconfigv1.AddToScheme(s))
 
 	// The following are related to Service Mesh, uncomment this and other
 	// similar blocks to use with Service Mesh

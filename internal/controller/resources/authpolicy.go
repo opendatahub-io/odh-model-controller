@@ -111,7 +111,7 @@ func (k *kserveAuthPolicyTemplateLoader) loadUserDefinedTemplates(ctx context.Co
 	authPolicies := make([]*kuadrantv1.AuthPolicy, 0, len(gateways))
 
 	for _, gateway := range gateways {
-		authPolicy, err := k.renderUserDefinedTemplate(gateway.Namespace, gateway.Name)
+		authPolicy, err := k.renderUserDefinedTemplate(ctx, gateway.Namespace, gateway.Name)
 		if err != nil {
 			return nil, fmt.Errorf("failed to render AuthPolicy for gateway %s/%s: %w", gateway.Namespace, gateway.Name, err)
 		}
@@ -121,13 +121,13 @@ func (k *kserveAuthPolicyTemplateLoader) loadUserDefinedTemplates(ctx context.Co
 	return authPolicies, nil
 }
 
-func (k *kserveAuthPolicyTemplateLoader) renderUserDefinedTemplate(gatewayNamespace, gatewayName string) (*kuadrantv1.AuthPolicy, error) {
+func (k *kserveAuthPolicyTemplateLoader) renderUserDefinedTemplate(ctx context.Context, gatewayNamespace, gatewayName string) (*kuadrantv1.AuthPolicy, error) {
 	tmpl, err := template.New("authpolicy").Parse(string(authPolicyTemplateUserDefined))
 	if err != nil {
 		return nil, fmt.Errorf("failed to parse AuthPolicy template: %w", err)
 	}
 
-	audiences := controllerutils.GetAuthAudience(constants.KubernetesAudience)
+	audiences := controllerutils.GetAuthAudience(ctx, k.client, constants.KubernetesAudience)
 	audiencesJSON, err := json.Marshal(audiences)
 	if err != nil {
 		return nil, fmt.Errorf("failed to marshal audiences %v to JSON: %w", audiences, err)
