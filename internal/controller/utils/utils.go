@@ -13,13 +13,13 @@ import (
 	kservev1alpha1 "github.com/kserve/kserve/pkg/apis/serving/v1alpha1"
 	kservev1beta1 "github.com/kserve/kserve/pkg/apis/serving/v1beta1"
 	"github.com/kuadrant/authorino/pkg/log"
+	ocpconfigv1 "github.com/openshift/api/config/v1"
 	operatorv1 "github.com/openshift/api/operator/v1"
 	v1 "github.com/openshift/api/route/v1"
 	"github.com/pkg/errors"
 	v1beta12 "istio.io/api/security/v1beta1"
 	"istio.io/client-go/pkg/apis/security/v1beta1"
 	corev1 "k8s.io/api/core/v1"
-	apierr "k8s.io/apimachinery/pkg/api/errors"
 	apierrs "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -348,7 +348,7 @@ func GetAvailableResourcesForApi(config *rest.Config, groupVersion string) (*met
 
 		var getGvResourcesErr error
 		gvResources, getGvResourcesErr = discoveryClient.ServerResourcesForGroupVersion(groupVersion)
-		if getGvResourcesErr != nil && !apierr.IsNotFound(getGvResourcesErr) {
+		if getGvResourcesErr != nil && !apierrs.IsNotFound(getGvResourcesErr) {
 			return nil, getGvResourcesErr
 		}
 
@@ -488,13 +488,26 @@ func GetEnvOr(key, defaultValue string) string {
 	return defaultValue
 }
 
-func GetAuthAudience(defaultAudience string) []string {
-	aud := GetEnvOr("AUTH_AUDIENCE", defaultAudience)
-	audiences := strings.Split(aud, ",")
-	for i := range audiences {
-		audiences[i] = strings.TrimSpace(audiences[i])
+func GetAuthAudience(ctx context.Context, client client.Client, defaultAudience string) []string {
+	// 1. Check environment variable first (explicit configuration)
+	if aud := os.Getenv("AUTH_AUDIENCE"); aud != "" {
+		audiences := strings.Split(aud, ",")
+		for i := range audiences {
+			audiences[i] = strings.TrimSpace(audiences[i])
+		}
+		return audiences
 	}
-	return audiences
+
+	// 2. Discover Authentication cluster object for ROSA (auto-detection)
+	authConfig := &ocpconfigv1.Authentication{}
+	if err := client.Get(ctx, types.NamespacedName{Name: "cluster"}, authConfig); err == nil {
+		if authConfig.Spec.ServiceAccountIssuer != "" {
+			return []string{authConfig.Spec.ServiceAccountIssuer}
+		}
+	}
+
+	// 3. Use default
+	return []string{defaultAudience}
 }
 
 func GetInferenceServiceConfigMap(ctx context.Context, cli client.Client) (*corev1.ConfigMap, error) {

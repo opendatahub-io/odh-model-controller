@@ -22,6 +22,7 @@ import (
 	kuadrantv1 "github.com/kuadrant/kuadrant-operator/api/v1"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
+	ocpconfigv1 "github.com/openshift/api/config/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	v1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -126,11 +127,12 @@ var _ = Describe("AuthPolicyTemplateLoader", func() {
 	Context("Template loading", func() {
 		var loader resources.AuthPolicyTemplateLoader
 		var dummyLLMISvc kservev1alpha1.LLMInferenceService
-
+		var fakeClient client.Client
 		BeforeEach(func() {
 			scheme := runtime.NewScheme()
 			Expect(kservev1alpha1.AddToScheme(scheme)).To(Succeed())
-			fakeClient := fake.NewClientBuilder().WithScheme(scheme).Build()
+			Expect(ocpconfigv1.AddToScheme(scheme)).To(Succeed())
+			fakeClient = fake.NewClientBuilder().WithScheme(scheme).Build()
 			loader = resources.NewKServeAuthPolicyTemplateLoader(fakeClient)
 
 			dummyLLMISvc = kservev1alpha1.LLMInferenceService{
@@ -196,6 +198,34 @@ var _ = Describe("AuthPolicyTemplateLoader", func() {
 			Expect(authPolicies[0].Name).To(ContainSubstring("authn"))
 			Expect(string(authPolicies[0].Spec.TargetRef.Kind)).To(Equal("Gateway"))
 			Expect(authPolicies[0].Spec.AuthScheme.Authentication["kubernetes-user"].KubernetesTokenReview.Audiences).To(ContainElement("http://test.com"))
+		})
+
+		It("should use serviceAccountIssuer from Authentication cluster object (ROSA) for Audience", func(ctx SpecContext) {
+			testIssuer := "https://test.com/23c734st3pn7l167mq97d0ot8848lgrl"
+			ocpAuthentication := &ocpconfigv1.Authentication{
+				ObjectMeta: v1.ObjectMeta{
+					Name: "cluster",
+				},
+				Spec: ocpconfigv1.AuthenticationSpec{
+					ServiceAccountIssuer: testIssuer,
+				},
+			}
+
+			err := fakeClient.Create(ctx, ocpAuthentication)
+			Expect(err).ToNot(HaveOccurred())
+
+			authPolicies, err := loader.Load(
+				ctx,
+				constants.UserDefined,
+				&dummyLLMISvc)
+
+			Expect(err).ToNot(HaveOccurred())
+			Expect(authPolicies).ToNot(BeNil())
+			Expect(authPolicies).ToNot(BeEmpty())
+
+			Expect(authPolicies[0].Name).To(ContainSubstring("authn"))
+			Expect(string(authPolicies[0].Spec.TargetRef.Kind)).To(Equal("Gateway"))
+			Expect(authPolicies[0].Spec.AuthScheme.Authentication["kubernetes-user"].KubernetesTokenReview.Audiences).To(ConsistOf(testIssuer))
 		})
 	})
 })
