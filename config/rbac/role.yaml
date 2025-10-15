@@ -53,6 +53,14 @@ rules:
   - update
   - watch
 - apiGroups:
+  - config.openshift.io
+  resources:
+  - authentications
+  verbs:
+  - get
+  - list
+  - watch
+- apiGroups:
   - datasciencecluster.opendatahub.io
   resources:
   - datascienceclusters
@@ -78,6 +86,32 @@ rules:
   - list
   - watch
 - apiGroups:
+  - gateway.networking.k8s.io
+  resources:
+  - gateways/finalizers
+  verbs:
+  - patch
+  - update
+- apiGroups:
+  - gateway.networking.k8s.io
+  resources:
+  - httproutes
+  verbs:
+  - get
+  - list
+  - watch
+- apiGroups:
+  - gateway.networking.k8s.io
+  - networking.istio.io
+  resources:
+  - gateways
+  verbs:
+  - get
+  - list
+  - patch
+  - update
+  - watch
+- apiGroups:
   - keda.sh
   resources:
   - triggerauthentications
@@ -89,6 +123,26 @@ rules:
   - patch
   - update
   - watch
+- apiGroups:
+  - kuadrant.io
+  resources:
+  - authpolicies
+  verbs:
+  - create
+  - delete
+  - get
+  - list
+  - patch
+  - update
+  - watch
+- apiGroups:
+  - kuadrant.io
+  resources:
+  - authpolicies/status
+  verbs:
+  - get
+  - patch
+  - update
 - apiGroups:
   - maistra.io
   resources:
@@ -143,16 +197,7 @@ rules:
 - apiGroups:
   - networking.istio.io
   resources:
-  - gateways
-  verbs:
-  - get
-  - list
-  - patch
-  - update
-  - watch
-- apiGroups:
-  - networking.istio.io
-  resources:
+  - envoyfilters
   - virtualservices
   - virtualservices/finalizers
   verbs:
@@ -288,6 +333,32 @@ rules:
   - patch
   - update
   - watch
+- apiGroups:
+  - serving.kserve.io
+  resources:
+  - llminferenceservices
+  verbs:
+  - get
+  - list
+  - patch
+  - post
+  - update
+  - watch
+- apiGroups:
+  - serving.kserve.io
+  resources:
+  - llminferenceservices/finalizers
+  verbs:
+  - patch
+  - update
+- apiGroups:
+  - serving.kserve.io
+  resources:
+  - llminferenceservices/status
+  verbs:
+  - get
+  - patch
+  - update
 - apiGroups:
   - serving.kserve.io
   resources:

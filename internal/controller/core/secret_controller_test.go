@@ -45,13 +45,13 @@ var _ = Describe("Secret Controller (StorageConfig controller)", func() {
 			Expect(err).NotTo(HaveOccurred())
 			Expect(k8sClient.Create(ctx, dataconnectionHttpsStringSecret)).Should(Succeed())
 
-			storegeconfigSecret, err := waitForSecret(k8sClient, WorkingNamespace, constants.DefaultStorageConfig, 30, 1*time.Second)
+			storegeconfigSecret, err := waitForStorageConfigWithEntries(k8sClient, WorkingNamespace, 2, 30, 1*time.Second)
 			Expect(err).NotTo(HaveOccurred())
 
 			expectedStorageConfigSecret := &corev1.Secret{}
 			err = convertToStructuredResource(storageconfigEncodedPath, expectedStorageConfigSecret)
 			Expect(err).NotTo(HaveOccurred())
-			Expect(compareSecrets(storegeconfigSecret, expectedStorageConfigSecret)).Should((BeTrue()))
+			Expect(compareSecrets(storegeconfigSecret, expectedStorageConfigSecret)).Should(BeTrue())
 		})
 	})
 
@@ -74,9 +74,8 @@ var _ = Describe("Secret Controller (StorageConfig controller)", func() {
 			Expect(k8sClient.Delete(ctx, dataconnectionHttpStringSecret)).Should(Succeed())
 			Expect(k8sClient.Delete(ctx, dataconnectionHttpsStringSecret)).Should(Succeed())
 
-			_, err = waitForSecret(k8sClient, WorkingNamespace, constants.DefaultStorageConfig, 30, 3*time.Second)
-			Expect(err).To(HaveOccurred())
-			Expect(err).To(BeAssignableToTypeOf(&apierrs.StatusError{}))
+			err = waitForSecretDeletion(k8sClient, WorkingNamespace, constants.DefaultStorageConfig, 30, 1*time.Second)
+			Expect(err).NotTo(HaveOccurred())
 		})
 
 		It("should not delete existing storage-config secret if the secret does not have 'opendatahub.io/managed=true' label", func() {
@@ -137,7 +136,7 @@ var _ = Describe("Secret Controller (StorageConfig controller)", func() {
 			expectedStorageConfigSecret := &corev1.Secret{}
 			err = convertToStructuredResource(storageconfigEncodedUnmanagedPath, expectedStorageConfigSecret)
 			Expect(err).NotTo(HaveOccurred())
-			Expect(compareSecrets(storageconfigSecret, expectedStorageConfigSecret)).Should((BeTrue()))
+			Expect(compareSecrets(storageconfigSecret, expectedStorageConfigSecret)).Should(BeTrue())
 		})
 	})
 
@@ -167,12 +166,13 @@ var _ = Describe("Secret Controller (StorageConfig controller)", func() {
 			Expect(k8sClient.Create(ctx, dataconnectionHttpsStringSecret)).Should(Succeed())
 
 			// Check storage-config secret
-			storageconfigSecret, err := waitForSecret(k8sClient, WorkingNamespace, constants.DefaultStorageConfig, 30, 1*time.Second)
+			storageconfigSecret, err := waitForStorageConfigWithEntries(k8sClient, WorkingNamespace, 2, 30, 1*time.Second)
 			Expect(err).NotTo(HaveOccurred())
 			expectedStorageConfigSecret := &corev1.Secret{}
 			err = convertToStructuredResource(storageconfigCertEncodedPath, expectedStorageConfigSecret)
 			Expect(err).NotTo(HaveOccurred())
-			Expect(compareSecrets(storageconfigSecret, expectedStorageConfigSecret)).Should((BeTrue()))
+
+			Expect(compareSecrets(storageconfigSecret, expectedStorageConfigSecret)).Should(BeTrue())
 
 			By("updating odh-kserve-custom-ca-bundle configmap")
 			updatedOdhtrustedcacertConfigMap := &corev1.ConfigMap{}
@@ -191,7 +191,7 @@ var _ = Describe("Secret Controller (StorageConfig controller)", func() {
 			err = convertToStructuredResource(storageconfigCertEncodedUpdatedPath, expectedUpdatedStorageConfigSecret)
 			Expect(err).NotTo(HaveOccurred())
 
-			Expect(compareSecrets(updatedStorageconfigSecret, expectedUpdatedStorageConfigSecret)).Should((BeTrue()))
+			Expect(compareSecrets(updatedStorageconfigSecret, expectedUpdatedStorageConfigSecret)).Should(BeTrue())
 		})
 	})
 })
@@ -245,7 +245,6 @@ func updateSecretLabel(cli client.Client, namespace, secretName string, labelKey
 
 // nolint:unparam
 func waitForSecret(cli client.Client, namespace string, secretName string, maxTries int, delay time.Duration) (*corev1.Secret, error) {
-	time.Sleep(delay)
 	ctx := context.Background()
 	secret := &corev1.Secret{}
 	var err error
@@ -257,9 +256,48 @@ func waitForSecret(cli client.Client, namespace string, secretName string, maxTr
 		if !apierrs.IsNotFound(err) {
 			return nil, fmt.Errorf("failed to get secret %s/%s: %v", namespace, secretName, err)
 		}
+		// Sleep between retries
+		time.Sleep(delay)
 	}
-	time.Sleep(1 * time.Second)
 	return nil, err
+}
+
+// waitForStorageConfigWithEntries waits for storage-config secret to exist and have the expected number of data entries
+func waitForStorageConfigWithEntries(cli client.Client, namespace string, expectedEntries int, maxTries int, delay time.Duration) (*corev1.Secret, error) {
+	ctx := context.Background()
+	secret := &corev1.Secret{}
+	var err error
+	for try := 1; try <= maxTries; try++ {
+		err = cli.Get(ctx, client.ObjectKey{Namespace: namespace, Name: constants.DefaultStorageConfig}, secret)
+		if err == nil && len(secret.Data) == expectedEntries {
+			return secret, nil
+		}
+		if err != nil && !apierrs.IsNotFound(err) {
+			return nil, fmt.Errorf("failed to get secret %s/%s: %v", namespace, constants.DefaultStorageConfig, err)
+		}
+		// Sleep between retries
+		time.Sleep(delay)
+	}
+	return nil, fmt.Errorf("storage-config secret does not have expected %d entries after %d tries", expectedEntries, maxTries)
+}
+
+// waitForSecretDeletion waits for a secret to be deleted (not found)
+func waitForSecretDeletion(cli client.Client, namespace string, secretName string, maxTries int, delay time.Duration) error {
+	ctx := context.Background()
+	secret := &corev1.Secret{}
+	var err error
+	for try := 1; try <= maxTries; try++ {
+		err = cli.Get(ctx, client.ObjectKey{Namespace: namespace, Name: secretName}, secret)
+		if apierrs.IsNotFound(err) {
+			return nil // Secret is deleted, success
+		}
+		if err != nil {
+			return fmt.Errorf("unexpected error checking secret %s/%s: %v", namespace, secretName, err)
+		}
+		// Secret still exists, wait and try again
+		time.Sleep(delay)
+	}
+	return fmt.Errorf("secret %s/%s was not deleted after %d tries", namespace, secretName, maxTries)
 }
 
 // compareSecrets checks if two Secret data are equal, if not return false

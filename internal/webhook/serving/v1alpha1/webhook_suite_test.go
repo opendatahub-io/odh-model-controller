@@ -21,6 +21,7 @@ import (
 	"crypto/tls"
 	"fmt"
 	"net"
+	"os"
 	"path/filepath"
 	"runtime"
 	"testing"
@@ -67,11 +68,16 @@ var _ = BeforeSuite(func() {
 
 	ctx, cancel = context.WithCancel(context.TODO())
 
+	// Set POD_NAMESPACE environment variable for tests
+	// This is required by GetInferenceServiceConfigMap which reads this env var
+	Expect(os.Setenv("POD_NAMESPACE", "default")).To(Succeed())
+
 	By("bootstrapping test environment")
 	testEnv = &envtest.Environment{
 		CRDDirectoryPaths: []string{
 			filepath.Join("..", "..", "..", "..", "config", "crd", "bases"),
-			filepath.Join("..", "..", "..", "..", "config", "crd", "external")},
+			filepath.Join("..", "..", "..", "..", "config", "crd", "external"),
+			filepath.Join("..", "..", "..", "..", "test", "crds")},
 		ErrorIfCRDPathMissing: true,
 
 		// The BinaryAssetsDirectory is only required if you want to run the tests directly
@@ -120,6 +126,9 @@ var _ = BeforeSuite(func() {
 	Expect(err).NotTo(HaveOccurred())
 
 	err = SetupInferenceGraphWebhookWithManager(mgr)
+	Expect(err).NotTo(HaveOccurred())
+
+	err = SetupLLMInferenceServiceWebhookWithManager(mgr)
 	Expect(err).NotTo(HaveOccurred())
 
 	// +kubebuilder:scaffold:webhook

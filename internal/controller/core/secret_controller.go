@@ -53,8 +53,7 @@ type SecretReconciler struct {
 // +kubebuilder:rbac:groups=core,resources=secrets,verbs=get;list;watch;create;update;patch;delete
 
 // newStorageSecret takes a list of data connection secrets and generates a single storage config secret
-// https://github.com/kserve/modelmesh-serving/blob/main/docs/predictors/setup-storage.md
-func newStorageSecret(dataConnectionSecretsList *corev1.SecretList, odhCustomCertData string, kserveCustomCertData string) *corev1.Secret {
+func newStorageSecret(dataConnectionSecretsList *corev1.SecretList, kserveCustomCertData string) *corev1.Secret {
 	desiredSecret := &corev1.Secret{}
 	desiredSecret.Data = map[string][]byte{}
 	dataConnectionElement := map[string]string{}
@@ -64,18 +63,8 @@ func newStorageSecret(dataConnectionSecretsList *corev1.SecretList, odhCustomCer
 		dataConnectionElement["access_key_id"] = string(secret.Data["AWS_ACCESS_KEY_ID"])
 		dataConnectionElement["secret_access_key"] = string(secret.Data["AWS_SECRET_ACCESS_KEY"])
 		dataConnectionElement["endpoint_url"] = string(secret.Data["AWS_S3_ENDPOINT"])
-		// We add both "default_bucket" and "bucket" because kserve and modelmesh expect different keys for the same value
-		// Once upstream has reconciled to one common key, we should remove the other one.
-		dataConnectionElement["default_bucket"] = string(secret.Data["AWS_S3_BUCKET"])
 		dataConnectionElement["bucket"] = string(secret.Data["AWS_S3_BUCKET"])
 		dataConnectionElement["region"] = string(secret.Data["AWS_DEFAULT_REGION"])
-
-		// Add only the custom certificates found in the odh-trusted-ca-bundle configmap, if any, to the model mesh 'certificate' field
-		if odhCustomCertData != "" && strings.HasPrefix(string(secret.Data["AWS_S3_ENDPOINT"]), "https://") {
-			dataConnectionElement["certificate"] = odhCustomCertData
-		} else {
-			delete(dataConnectionElement, "certificate")
-		}
 
 		// If any certificates are present in the odh-kserve-custom-ca-bundle configmap, set it as the 'cabundle_configmap' field
 		if kserveCustomCertData != "" && strings.HasPrefix(string(secret.Data["AWS_S3_ENDPOINT"]), "https://") {
@@ -99,7 +88,7 @@ func CompareStorageSecrets(s1 corev1.Secret, s2 corev1.Secret) bool {
 // reconcileSecret grabs all data connection secrets in the triggering namespace and
 // creates/updates the storage config secret
 func (r *SecretReconciler) reconcileSecret(secret *corev1.Secret,
-	ctx context.Context, newStorageSecret func(dataConnectionSecretsList *corev1.SecretList, odhCustomCertData string, kserveCustomCertData string) *corev1.Secret) error {
+	ctx context.Context, newStorageSecret func(dataConnectionSecretsList *corev1.SecretList, kserveCustomCertData string) *corev1.Secret) error {
 	// Initialize logger format
 	logger := log.FromContext(ctx)
 
@@ -122,23 +111,6 @@ func (r *SecretReconciler) reconcileSecret(secret *corev1.Secret,
 		return nil
 	}
 
-	// Fetch all custom certs included in the odh-trusted-ca-bundle configmap
-	odhCustomCertData := ""
-	odhGlobalCertConfigMap := &corev1.ConfigMap{}
-	err = r.Get(ctx, types.NamespacedName{
-		Name:      constants.ODHGlobalCertConfigMapName,
-		Namespace: secret.Namespace,
-	}, odhGlobalCertConfigMap)
-	if err != nil {
-		if apierrs.IsNotFound(err) {
-			logger.Info("unable to fetch the ODH Global Cert ConfigMap", "error", err)
-		} else {
-			return err
-		}
-	} else {
-		odhCustomCertData = strings.TrimSpace(odhGlobalCertConfigMap.Data[constants.ODHCustomCACertFileName])
-	}
-
 	// Fetch all certs included in the odh-kserve-custom-ca-bundle configmap
 	kserveCustomCertData := ""
 	kserveCertConfigMap := &corev1.ConfigMap{}
@@ -157,7 +129,7 @@ func (r *SecretReconciler) reconcileSecret(secret *corev1.Secret,
 	}
 
 	// Generate desire Storage Config Secret
-	desiredStorageSecret := newStorageSecret(dataConnectionSecretsList, odhCustomCertData, kserveCustomCertData)
+	desiredStorageSecret := newStorageSecret(dataConnectionSecretsList, kserveCustomCertData)
 	desiredStorageSecret.Name = storageSecretName
 	desiredStorageSecret.Namespace = secret.Namespace
 	desiredStorageSecret.Labels = map[string]string{}
@@ -227,6 +199,7 @@ func reconcileOpenDataHubSecrets() predicate.Predicate {
 	return predicate.Funcs{
 		CreateFunc: func(e event.CreateEvent) bool {
 			objectLabels := e.Object.GetLabels()
+			// Prevent storage-config from triggering its own reconciliation on creation
 			return checkOpenDataHubLabel(objectLabels) && !utils.IsRayTLSSecret(e.Object.GetName())
 		},
 		DeleteFunc: func(e event.DeleteEvent) bool {
@@ -235,6 +208,7 @@ func reconcileOpenDataHubSecrets() predicate.Predicate {
 		},
 		UpdateFunc: func(e event.UpdateEvent) bool {
 			objectNewLabels := e.ObjectNew.GetLabels()
+			// Prevent storage-config from triggering its own reconciliation on updates
 			return checkOpenDataHubLabel(objectNewLabels) && !utils.IsRayTLSSecret(e.ObjectNew.GetName())
 		},
 	}

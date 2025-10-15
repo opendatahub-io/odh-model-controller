@@ -104,8 +104,6 @@ spec:
             value: replace
           - name: KSERVE_STATE
             value: replace
-          - name: MODELMESH_STATE
-            value: replace
           - name: MODELREGISTRY_STATE
             value: replace
         livenessProbe:

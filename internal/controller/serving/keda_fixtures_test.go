@@ -33,7 +33,7 @@ func makeKedaTestISVC(namespace, name string, enableKedaMetrics bool) *kservev1b
 					ModelFormat: kservev1beta1.ModelFormat{Name: "onnx"},
 					Runtime:     ptr.To("kserve-ovms"),
 					PredictorExtensionSpec: kservev1beta1.PredictorExtensionSpec{
-						StorageURI: ptr.To("s3://modelmesh-example-models/onnx/mnist-8"),
+						StorageURI: ptr.To("s3://test-example-models/onnx/mnist-8"),
 					},
 				},
 			},
