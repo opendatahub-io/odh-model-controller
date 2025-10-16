@@ -6,7 +6,6 @@ labels:
       app.kubernetes.io/part-of: odh-dashboard
     includeSelectors: true
 resources:
-  - ovms-mm-template.yaml
   - caikit-tgis-template.yaml
   - ovms-kserve-template.yaml
   - vllm-cuda-template.yaml
@@ -14,6 +13,7 @@ resources:
   - vllm-rocm-template.yaml
   - vllm-gaudi-template.yaml
   - vllm-cpu-template.yaml
-  - vllm-spyre-template.yaml
+  - vllm-spyre-x86-template.yaml
+  - vllm-spyre-s390x-template.yaml
   - caikit-standalone-template.yaml
   - hf-detector-template.yaml

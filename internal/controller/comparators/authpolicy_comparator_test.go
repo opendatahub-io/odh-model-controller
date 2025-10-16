@@ -87,28 +87,6 @@ func createAuthPolicyWithoutLabels() *kuadrantv1.AuthPolicy {
 	}
 }
 
-func createAuthPolicyWithAnnotations(annotations map[string]string) *kuadrantv1.AuthPolicy {
-	return &kuadrantv1.AuthPolicy{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:      "test-authn",
-			Namespace: "test-ns",
-			Labels: map[string]string{
-				"app": "test",
-			},
-			Annotations: annotations,
-		},
-		Spec: kuadrantv1.AuthPolicySpec{
-			TargetRef: gwapiv1alpha2.LocalPolicyTargetReferenceWithSectionName{
-				LocalPolicyTargetReference: gwapiv1alpha2.LocalPolicyTargetReference{
-					Group: "gateway.networking.k8s.io",
-					Kind:  "HTTPRoute",
-					Name:  "test-route",
-				},
-			},
-		},
-	}
-}
-
 func TestAuthPolicyComparator(t *testing.T) {
 	comparator := comparators.GetAuthPolicyComparator()
 
@@ -147,50 +125,6 @@ func TestAuthPolicyComparator(t *testing.T) {
 			deployed:  createAuthPolicy("test"),
 			requested: createAuthPolicyWithExtraLabels("test"),
 			expected:  false,
-		},
-		{
-			name: "policies with identical annotations should return true",
-			deployed: createAuthPolicyWithAnnotations(map[string]string{
-				"example.com/annotation": "value1",
-				"test.io/config":         "enabled",
-			}),
-			requested: createAuthPolicyWithAnnotations(map[string]string{
-				"example.com/annotation": "value1",
-				"test.io/config":         "enabled",
-			}),
-			expected: true,
-		},
-		{
-			name: "policies with different annotation values should return false",
-			deployed: createAuthPolicyWithAnnotations(map[string]string{
-				"example.com/annotation": "value1",
-			}),
-			requested: createAuthPolicyWithAnnotations(map[string]string{
-				"example.com/annotation": "value2",
-			}),
-			expected: false,
-		},
-		{
-			name: "deployed with extra annotations - DeepDerivative checks if requested is subset of deployed",
-			deployed: createAuthPolicyWithAnnotations(map[string]string{
-				"example.com/annotation":             "value1",
-				"kubectl.kubernetes.io/last-applied": "...",
-			}),
-			requested: createAuthPolicyWithAnnotations(map[string]string{
-				"example.com/annotation": "value1",
-			}),
-			expected: true,
-		},
-		{
-			name: "requested with extra annotations - deployed cannot contain all requested fields",
-			deployed: createAuthPolicyWithAnnotations(map[string]string{
-				"example.com/annotation": "value1",
-			}),
-			requested: createAuthPolicyWithAnnotations(map[string]string{
-				"example.com/annotation":             "value1",
-				"kubectl.kubernetes.io/last-applied": "...",
-			}),
-			expected: false,
 		},
 	}
 

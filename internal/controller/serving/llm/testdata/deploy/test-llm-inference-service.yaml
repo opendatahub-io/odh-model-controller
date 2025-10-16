@@ -1,0 +1,11 @@
+apiVersion: serving.kserve.io/v1alpha1
+kind: LLMInferenceService
+metadata:
+  name: test-llm-service
+  namespace: default
+  annotations:
+    alpha.maas.opendatahub.io/tiers: '[]'
+spec:
+  model:
+    name: "test-model"
+    uri: s3://test-bucket/test-model

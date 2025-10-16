@@ -19,6 +19,10 @@ patches:
         matchExpressions:
         - key: serving.kserve.io/inferenceservice
           operator: Exists
+    - name: validating.llmisvc.odh-model-controller.opendatahub.io
+      clientConfig:
+        service:
+          name: odh-model-controller-webhook-service
     - name: validating.nim.account.odh-model-controller.opendatahub.io
       clientConfig:
         service:

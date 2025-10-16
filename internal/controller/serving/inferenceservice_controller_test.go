@@ -54,7 +54,6 @@ import (
 	maistrav1 "maistra.io/api/core/v1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
-	"github.com/opendatahub-io/odh-model-controller/internal/controller/comparators"
 	"github.com/opendatahub-io/odh-model-controller/internal/controller/constants"
 	"github.com/opendatahub-io/odh-model-controller/internal/controller/utils"
 	. "github.com/opendatahub-io/odh-model-controller/test/matchers"
@@ -389,17 +388,25 @@ var _ = Describe("InferenceService Controller", func() {
 				isvcName = inferenceService.Name
 
 				// Update the URL of the InferenceService to indicate it is ready.
-				deployedInferenceService := &kservev1beta1.InferenceService{}
-				err = k8sClient.Get(ctx, types.NamespacedName{Name: inferenceService.Name, Namespace: testNs}, deployedInferenceService)
-				Expect(err).NotTo(HaveOccurred())
-
 				newAddress := &duckv1.Addressable{
 					URL: apis.HTTPS("example-onnx-mnist-default.test.com"),
 				}
-				deployedInferenceService.Status.Address = newAddress
 
-				err = k8sClient.Status().Update(ctx, deployedInferenceService)
-				Expect(err).NotTo(HaveOccurred())
+				Eventually(func() error {
+					// Get latest version of InferenceService
+					deployedInferenceService := &kservev1beta1.InferenceService{}
+					err := k8sClient.Get(ctx, types.NamespacedName{Name: inferenceService.Name, Namespace: testNs}, deployedInferenceService)
+					if err != nil {
+						return err
+					}
+
+					// Create a copy and update status
+					updatedISVC := deployedInferenceService.DeepCopy()
+					updatedISVC.Status.Address = newAddress
+
+					// Use Patch instead of Update to reduce conflicts
+					return k8sClient.Status().Patch(ctx, updatedISVC, client.MergeFrom(deployedInferenceService))
+				}, timeout, interval).Should(Succeed())
 
 				// Verify that the certificate secret is created in the istio-system namespace.
 				Eventually(func() error {
@@ -448,7 +455,10 @@ var _ = Describe("InferenceService Controller", func() {
 					_, meshNamespace := utils.GetIstioControlPlaneName(ctx, k8sClient)
 					destSecret := &corev1.Secret{}
 					Eventually(func() error {
-						Expect(k8sClient.Get(ctx, client.ObjectKey{Namespace: meshNamespace, Name: fmt.Sprintf("%s-%s", deployedInferenceService.Name, deployedInferenceService.Namespace)}, destSecret)).Should(Succeed())
+						err := k8sClient.Get(ctx, client.ObjectKey{Namespace: meshNamespace, Name: fmt.Sprintf("%s-%s", deployedInferenceService.Name, deployedInferenceService.Namespace)}, destSecret)
+						if err != nil {
+							return err
+						}
 						if string(destSecret.Data["tls.crt"]) != updatedDataString {
 							return fmt.Errorf("destSecret is not updated yet")
 						}
@@ -489,105 +499,6 @@ var _ = Describe("InferenceService Controller", func() {
 			})
 		})
 
-	})
-
-	Describe("Openshift ModelMesh integrations", func() {
-
-		When("creating a ServiceRuntime & InferenceService with 'enable-route' enabled", func() {
-
-			BeforeEach(func() {
-				ctx := context.Background()
-
-				servingRuntime1 := &kservev1alpha1.ServingRuntime{}
-				err := testutils.ConvertToStructuredResource(ServingRuntimePath1, servingRuntime1)
-				Expect(err).NotTo(HaveOccurred())
-				Expect(k8sClient.Create(ctx, servingRuntime1)).Should(Succeed())
-
-				servingRuntime2 := &kservev1alpha1.ServingRuntime{}
-				err = testutils.ConvertToStructuredResource(ServingRuntimePath2, servingRuntime2)
-				Expect(err).NotTo(HaveOccurred())
-				Expect(k8sClient.Create(ctx, servingRuntime2)).Should(Succeed())
-			})
-
-			It("when InferenceService specifies a runtime, should create a Route to expose the traffic externally", func() {
-				inferenceService := &kservev1beta1.InferenceService{}
-				err := testutils.ConvertToStructuredResource(InferenceService1, inferenceService)
-				Expect(err).NotTo(HaveOccurred())
-				Expect(k8sClient.Create(ctx, inferenceService)).Should(Succeed())
-
-				By("By checking that the controller has created the Route")
-
-				route := &routev1.Route{}
-				Eventually(func() error {
-					key := types.NamespacedName{Name: inferenceService.Name, Namespace: inferenceService.Namespace}
-					return k8sClient.Get(ctx, key, route)
-				}, timeout, interval).ShouldNot(HaveOccurred())
-
-				expectedRoute := &routev1.Route{}
-				err = testutils.ConvertToStructuredResource(ExpectedRoutePath, expectedRoute)
-				Expect(err).NotTo(HaveOccurred())
-
-				Expect(comparators.GetMMRouteComparator()(route, expectedRoute)).Should(BeTrue())
-			})
-
-			It("when InferenceService does not specifies a runtime, should automatically pick a runtime and create a Route", func() {
-				inferenceService := &kservev1beta1.InferenceService{}
-				err := testutils.ConvertToStructuredResource(InferenceServiceNoRuntime, inferenceService)
-				Expect(err).NotTo(HaveOccurred())
-				Expect(k8sClient.Create(ctx, inferenceService)).Should(Succeed())
-
-				route := &routev1.Route{}
-				Eventually(func() error {
-					key := types.NamespacedName{Name: inferenceService.Name, Namespace: inferenceService.Namespace}
-					return k8sClient.Get(ctx, key, route)
-				}, timeout, interval).ShouldNot(HaveOccurred())
-
-				expectedRoute := &routev1.Route{}
-				err = testutils.ConvertToStructuredResource(ExpectedRouteNoRuntimePath, expectedRoute)
-				Expect(err).NotTo(HaveOccurred())
-
-				Expect(comparators.GetMMRouteComparator()(route, expectedRoute)).Should(BeTrue())
-			})
-
-			It("Should create a Route with custom timeout to expose the traffic externally", func() {
-				By("Creating an inference service with a timeout value defined in the component spec")
-				inferenceService := &kservev1beta1.InferenceService{}
-				err := testutils.ConvertToStructuredResource(InferenceService2, inferenceService)
-				Expect(err).NotTo(HaveOccurred())
-				Expect(k8sClient.Create(ctx, inferenceService)).Should(Succeed())
-
-				// Checking that the controller has created the Route with the haproxy.router.openshift.io/timeout annotation added
-				Eventually(func() error {
-					return checkRouteTimeout(types.NamespacedName{Name: inferenceService.Name, Namespace: inferenceService.Namespace}, "135s")
-				}, timeout, interval).Should(Succeed())
-
-				By("Updating an existing inference service with the haproxy.router.openshift.io/timeout annotation")
-				deployedInferenceService := &kservev1beta1.InferenceService{}
-				err = k8sClient.Get(ctx, types.NamespacedName{Name: inferenceService.Name, Namespace: inferenceService.Namespace}, deployedInferenceService)
-				Expect(err).NotTo(HaveOccurred())
-				deployedInferenceService.Annotations[constants.RouteTimeoutAnnotationKey] = "1m"
-				err = k8sClient.Update(ctx, deployedInferenceService)
-				Expect(err).NotTo(HaveOccurred())
-
-				// Checking that the controller has created the Route with the updated haproxy.router.openshift.io/timeout annotation added
-				Eventually(func() error {
-					return checkRouteTimeout(types.NamespacedName{Name: inferenceService.Name, Namespace: inferenceService.Namespace}, "1m")
-				}, timeout, interval).Should(Succeed())
-			})
-
-			It("Should create a Route with default timeout to expose the traffic externally", func() {
-				By("Creating an inference service with no timeout value defined in the component spec")
-				inferenceService := &kservev1beta1.InferenceService{}
-				err := testutils.ConvertToStructuredResource(InferenceService3, inferenceService)
-				Expect(err).NotTo(HaveOccurred())
-				Expect(k8sClient.Create(ctx, inferenceService)).Should(Succeed())
-
-				// Checking that the controller has created the Route with the haproxy.router.openshift.io/timeout annotation added
-				Eventually(func() error {
-					return checkRouteTimeout(types.NamespacedName{Name: inferenceService.Name, Namespace: inferenceService.Namespace}, "90s")
-				}, timeout, interval).Should(Succeed())
-			})
-		})
 	})
 
 	Describe("Mesh reconciler", func() {

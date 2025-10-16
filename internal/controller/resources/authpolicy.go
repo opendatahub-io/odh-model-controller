@@ -28,10 +28,11 @@ import (
 	kservev1alpha1 "github.com/kserve/kserve/pkg/apis/serving/v1alpha1"
 	kuadrantv1 "github.com/kuadrant/kuadrant-operator/api/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
-	"k8s.io/apimachinery/pkg/runtime"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/util/retry"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	gatewayapiv1 "sigs.k8s.io/gateway-api/apis/v1"
 	"sigs.k8s.io/yaml"
 
 	"github.com/opendatahub-io/odh-model-controller/internal/controller/constants"
@@ -51,6 +52,11 @@ type AuthPolicyStore interface {
 	Remove(ctx context.Context, key types.NamespacedName) error
 	Create(ctx context.Context, authPolicy *kuadrantv1.AuthPolicy) error
 	Update(ctx context.Context, authPolicy *kuadrantv1.AuthPolicy) error
+}
+
+type AuthPolicyMatcher interface {
+	FindLLMServiceFromHTTPRouteAuthPolicy(authPolicy *kuadrantv1.AuthPolicy) (types.NamespacedName, bool)
+	FindLLMServiceFromGatewayAuthPolicy(ctx context.Context, authPolicy *kuadrantv1.AuthPolicy) ([]types.NamespacedName, error)
 }
 
 //go:embed template/authpolicy_llm_isvc_userdefined.yaml
@@ -80,13 +86,11 @@ func (k *kserveAuthPolicyDetector) Detect(_ context.Context, annotations map[str
 
 type kserveAuthPolicyTemplateLoader struct {
 	client client.Client
-	scheme *runtime.Scheme
 }
 
-func NewKServeAuthPolicyTemplateLoader(client client.Client, scheme *runtime.Scheme) AuthPolicyTemplateLoader {
+func NewKServeAuthPolicyTemplateLoader(client client.Client) AuthPolicyTemplateLoader {
 	return &kserveAuthPolicyTemplateLoader{
 		client: client,
-		scheme: scheme,
 	}
 }
 
@@ -108,7 +112,7 @@ func (k *kserveAuthPolicyTemplateLoader) loadUserDefinedTemplates(ctx context.Co
 	authPolicies := make([]*kuadrantv1.AuthPolicy, 0, len(gateways))
 
 	for _, gateway := range gateways {
-		authPolicy, err := k.renderUserDefinedTemplate(gateway.Namespace, gateway.Name)
+		authPolicy, err := k.renderUserDefinedTemplate(ctx, gateway.Namespace, gateway.Name)
 		if err != nil {
 			return nil, fmt.Errorf("failed to render AuthPolicy for gateway %s/%s: %w", gateway.Namespace, gateway.Name, err)
 		}
@@ -118,13 +122,13 @@ func (k *kserveAuthPolicyTemplateLoader) loadUserDefinedTemplates(ctx context.Co
 	return authPolicies, nil
 }
 
-func (k *kserveAuthPolicyTemplateLoader) renderUserDefinedTemplate(gatewayNamespace, gatewayName string) (*kuadrantv1.AuthPolicy, error) {
+func (k *kserveAuthPolicyTemplateLoader) renderUserDefinedTemplate(ctx context.Context, gatewayNamespace, gatewayName string) (*kuadrantv1.AuthPolicy, error) {
 	tmpl, err := template.New("authpolicy").Parse(string(authPolicyTemplateUserDefined))
 	if err != nil {
 		return nil, fmt.Errorf("failed to parse AuthPolicy template: %w", err)
 	}
 
-	audiences := controllerutils.GetAuthAudience(constants.KubernetesAudience)
+	audiences := controllerutils.GetAuthAudience(ctx, k.client, constants.KubernetesAudience)
 	audiencesJSON, err := json.Marshal(audiences)
 	if err != nil {
 		return nil, fmt.Errorf("failed to marshal audiences %v to JSON: %w", audiences, err)
@@ -158,6 +162,22 @@ func (k *kserveAuthPolicyTemplateLoader) renderUserDefinedTemplate(gatewayNamesp
 }
 
 func (k *kserveAuthPolicyTemplateLoader) loadAnonymousTemplate(llmisvc *kservev1alpha1.LLMInferenceService) ([]*kuadrantv1.AuthPolicy, error) {
+	httpRoutes := k.getHTTPRouteInfo(llmisvc)
+
+	authPolicies := make([]*kuadrantv1.AuthPolicy, 0, len(httpRoutes))
+
+	for _, route := range httpRoutes {
+		authPolicy, err := k.renderAnonymousTemplate(llmisvc, route.Name)
+		if err != nil {
+			return nil, fmt.Errorf("failed to render AuthPolicy for HTTPRoute %s: %w", route.Name, err)
+		}
+		authPolicies = append(authPolicies, authPolicy)
+	}
+
+	return authPolicies, nil
+}
+
+func (k *kserveAuthPolicyTemplateLoader) renderAnonymousTemplate(llmisvc *kservev1alpha1.LLMInferenceService, httpRouteName string) (*kuadrantv1.AuthPolicy, error) {
 	tmpl, err := template.New("authpolicy").Parse(string(authPolicyTemplateAnonymous))
 	if err != nil {
 		return nil, fmt.Errorf("failed to parse AuthPolicy anonymous template: %w", err)
@@ -166,11 +186,13 @@ func (k *kserveAuthPolicyTemplateLoader) loadAnonymousTemplate(llmisvc *kservev1
 	templateData := struct {
 		Name          string
 		Namespace     string
+		LLMISvcName   string
 		HTTPRouteName string
 	}{
-		Name:          constants.GetAuthPolicyName(llmisvc.Name),
+		Name:          constants.GetHTTPRouteAuthPolicyName(httpRouteName),
 		Namespace:     llmisvc.Namespace,
-		HTTPRouteName: constants.GetHTTPRouteName(llmisvc.Name),
+		LLMISvcName:   llmisvc.Name,
+		HTTPRouteName: httpRouteName,
 	}
 
 	var builder strings.Builder
@@ -183,19 +205,43 @@ func (k *kserveAuthPolicyTemplateLoader) loadAnonymousTemplate(llmisvc *kservev1
 		return nil, fmt.Errorf("failed to unmarshal AuthPolicy anonymous YAML: %w", err)
 	}
 
-	return []*kuadrantv1.AuthPolicy{authPolicy}, nil
+	return authPolicy, nil
 }
 
-// getGatewayInfo returns gateway list with fallback logic
+// getHTTPRouteInfo returns HTTPRoute list with fallback logic
+func (k *kserveAuthPolicyTemplateLoader) getHTTPRouteInfo(llmisvc *kservev1alpha1.LLMInferenceService) []struct{ Name string } {
+	var httpRoutes []struct{ Name string }
+
+	if llmisvc.Spec.Router != nil && llmisvc.Spec.Router.Route != nil && llmisvc.Spec.Router.Route.HTTP != nil && llmisvc.Spec.Router.Route.HTTP.HasRefs() {
+		for _, ref := range llmisvc.Spec.Router.Route.HTTP.Refs {
+			httpRoutes = append(httpRoutes, struct{ Name string }{
+				Name: ref.Name,
+			})
+		}
+		return httpRoutes
+	}
+
+	// Fallback to default naming convention
+	httpRoutes = append(httpRoutes, struct{ Name string }{
+		Name: constants.GetHTTPRouteName(llmisvc.Name),
+	})
+
+	return httpRoutes
+}
+
+// getGatewayInfo returns gateway list with fallback logic, filtering out gateways with opendatahub.io/managed: false
 func (k *kserveAuthPolicyTemplateLoader) getGatewayInfo(ctx context.Context, log logr.Logger, llmisvc *kservev1alpha1.LLMInferenceService) []struct{ Namespace, Name string } {
 	var gateways []struct{ Namespace, Name string }
 
-	if llmisvc.Spec.Router != nil && llmisvc.Spec.Router.Gateway != nil && len(llmisvc.Spec.Router.Gateway.Refs) > 0 {
+	if llmisvc.Spec.Router != nil && llmisvc.Spec.Router.Gateway != nil && llmisvc.Spec.Router.Gateway.HasRefs() {
 		for _, ref := range llmisvc.Spec.Router.Gateway.Refs {
-			gateways = append(gateways, struct{ Namespace, Name string }{
-				Namespace: string(ref.Namespace),
-				Name:      string(ref.Name),
-			})
+			// Check if the gateway should be managed
+			if k.isGatewayManaged(ctx, log, string(ref.Namespace), string(ref.Name)) {
+				gateways = append(gateways, struct{ Namespace, Name string }{
+					Namespace: string(ref.Namespace),
+					Name:      string(ref.Name),
+				})
+			}
 		}
 		return gateways
 	}
@@ -213,12 +259,54 @@ func (k *kserveAuthPolicyTemplateLoader) getGatewayInfo(ctx context.Context, log
 		fallbackName = constants.DefaultGatewayName
 	}
 
-	gateways = append(gateways, struct{ Namespace, Name string }{
-		Namespace: fallbackNamespace,
-		Name:      fallbackName,
-	})
+	// Check if the fallback gateway should be managed
+	if k.isGatewayManaged(ctx, log, fallbackNamespace, fallbackName) {
+		gateways = append(gateways, struct{ Namespace, Name string }{
+			Namespace: fallbackNamespace,
+			Name:      fallbackName,
+		})
+	}
 
 	return gateways
+}
+
+// isGatewayManaged checks if a gateway should be managed by checking the opendatahub.io/managed annotation
+func (k *kserveAuthPolicyTemplateLoader) isGatewayManaged(ctx context.Context, log logr.Logger, namespace, name string) bool {
+	gateway := &gatewayapiv1.Gateway{}
+	err := k.client.Get(ctx, types.NamespacedName{
+		Namespace: namespace,
+		Name:      name,
+	}, gateway)
+
+	if err != nil {
+		if apierrors.IsNotFound(err) {
+			log.Info("Gateway not found, skipping",
+				"namespace", namespace,
+				"name", name)
+			return false
+		}
+		log.Error(err, "Failed to get gateway, including it by default",
+			"namespace", namespace,
+			"name", name)
+		// Include gateway by default if we can't fetch it
+		return true
+	}
+
+	// Check for opendatahub.io/managed annotation
+	if annotations := gateway.GetAnnotations(); annotations != nil {
+		if managed, exists := annotations[constants.GatewayManagedAnnotation]; exists {
+			if strings.EqualFold(strings.TrimSpace(managed), "false") {
+				log.Info("Gateway has opendatahub.io/managed=false annotation, excluding from authpolicy creation",
+					"namespace", namespace,
+					"name", name)
+				return false
+			}
+		}
+	}
+	log.Info("Gateway is managed by default",
+		"namespace", namespace,
+		"name", name)
+	return true
 }
 
 type clientAuthPolicyStore struct {
@@ -275,4 +363,84 @@ func (c *clientAuthPolicyStore) Update(ctx context.Context, authPolicy *kuadrant
 		authPolicy.SetResourceVersion(current.GetResourceVersion())
 		return c.client.Update(ctx, authPolicy)
 	})
+}
+
+type kserveAuthPolicyMatcher struct {
+	client client.Client
+}
+
+func NewKServeAuthPolicyMatcher(client client.Client) AuthPolicyMatcher {
+	return &kserveAuthPolicyMatcher{
+		client: client,
+	}
+}
+
+func (k *kserveAuthPolicyMatcher) FindLLMServiceFromHTTPRouteAuthPolicy(authPolicy *kuadrantv1.AuthPolicy) (types.NamespacedName, bool) {
+	for _, ownerRef := range authPolicy.OwnerReferences {
+		if ownerRef.Kind == "LLMInferenceService" {
+			return types.NamespacedName{
+				Name:      ownerRef.Name,
+				Namespace: authPolicy.Namespace,
+			}, true
+		}
+	}
+
+	httpRouteName := string(authPolicy.Spec.TargetRef.Name)
+	if strings.HasSuffix(httpRouteName, constants.HTTPRouteNameSuffix) {
+		llmisvcName := strings.TrimSuffix(httpRouteName, constants.HTTPRouteNameSuffix)
+		return types.NamespacedName{
+			Name:      llmisvcName,
+			Namespace: authPolicy.Namespace,
+		}, true
+	}
+
+	return types.NamespacedName{}, false
+}
+
+func (k *kserveAuthPolicyMatcher) FindLLMServiceFromGatewayAuthPolicy(ctx context.Context, authPolicy *kuadrantv1.AuthPolicy) ([]types.NamespacedName, error) {
+	gatewayNamespace, gatewayName, err := controllerutils.GetGatewayInfoFromConfigMap(ctx, k.client)
+	if err != nil {
+		// Fallback to default gateway values when ConfigMap is not available
+		gatewayNamespace = constants.DefaultGatewayNamespace
+		gatewayName = constants.DefaultGatewayName
+	}
+
+	var matchedServices []types.NamespacedName
+	listNamespace := metav1.NamespaceAll
+	continueToken := ""
+	for {
+		llmSvcList := &kservev1alpha1.LLMInferenceServiceList{}
+		if err := k.client.List(ctx, llmSvcList, &client.ListOptions{Namespace: listNamespace, Continue: continueToken}); err != nil {
+			return nil, err
+		}
+
+		for _, llmSvc := range llmSvcList.Items {
+			if k.isGatewayMatchedWithInfo(&llmSvc, authPolicy, gatewayNamespace, gatewayName) {
+				matchedServices = append(matchedServices, types.NamespacedName{
+					Name:      llmSvc.Name,
+					Namespace: llmSvc.Namespace,
+				})
+			}
+		}
+
+		if llmSvcList.Continue == "" {
+			break
+		}
+		continueToken = llmSvcList.Continue
+	}
+
+	return matchedServices, nil
+}
+
+func (k *kserveAuthPolicyMatcher) isGatewayMatchedWithInfo(llmSvc *kservev1alpha1.LLMInferenceService, authPolicy *kuadrantv1.AuthPolicy, gatewayNamespace, gatewayName string) bool {
+	if llmSvc.Spec.Router == nil || llmSvc.Spec.Router.Gateway == nil || !llmSvc.Spec.Router.Gateway.HasRefs() {
+		return authPolicy.Namespace == gatewayNamespace && string(authPolicy.Spec.TargetRef.Name) == gatewayName
+	}
+
+	for _, ref := range llmSvc.Spec.Router.Gateway.Refs {
+		if string(ref.Name) == string(authPolicy.Spec.TargetRef.Name) && string(ref.Namespace) == authPolicy.Namespace {
+			return true
+		}
+	}
+	return false
 }

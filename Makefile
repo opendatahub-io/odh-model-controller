@@ -79,23 +79,6 @@ manifests: manifests-update controller-gen ## Generate WebhookConfiguration, Clu
 	# Any customization needed, apply to a patch in the kustomize.yaml file on webhooks
 	$(CONTROLLER_GEN) rbac:roleName=odh-model-controller-role,headerFile="hack/manifests_boilerplate.yaml.txt" crd webhook paths="./..." output:crd:artifacts:config=config/crd/bases
 
-# TODO: Evaluate if this is still needed
-external-manifests:
-	go get github.com/kserve/modelmesh-serving
-	$(CONTROLLER_GEN) crd \
-		paths=${GOPATH}/pkg/mod/github.com/kserve/modelmesh-serving@v0.8.0/apis/serving/v1alpha1 \
-		output:crd:artifacts:config=config/crd/external
-
-	go get github.com/openshift/api
-	$(CONTROLLER_GEN) crd \
-		paths=${GOPATH}/pkg/mod/github.com/openshift/api@v3.9.0+incompatible/route/v1 \
-		output:crd:artifacts:config=config/crd/external
-# go get maistra.io/api/core/v1
-# $(CONTROLLER_GEN) crd \
-# 	paths=${GOPATH}/pkg/mod/maistra.io/api \
-# 	output:crd:artifacts:config=config/crd/external
-## https://raw.githubusercontent.com/maistra/api/maistra-2.2/manifests/maistra.io_servicemeshmembers.yaml
-
 .PHONY: generate
 generate: controller-gen ## Generate code containing DeepCopy, DeepCopyInto, and DeepCopyObject method implementations.
 	$(CONTROLLER_GEN) object:headerFile="hack/boilerplate.go.txt" paths="./..."

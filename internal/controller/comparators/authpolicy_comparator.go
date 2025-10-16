@@ -27,7 +27,6 @@ func GetAuthPolicyComparator() ResourceComparator {
 		desiredAP := desired.(*kuadrantv1.AuthPolicy)
 
 		return equality.Semantic.DeepDerivative(desiredAP.Spec, currentAP.Spec) &&
-			equality.Semantic.DeepDerivative(desiredAP.GetLabels(), currentAP.GetLabels()) &&
-			equality.Semantic.DeepDerivative(desiredAP.GetAnnotations(), currentAP.GetAnnotations())
+			equality.Semantic.DeepDerivative(desiredAP.GetLabels(), currentAP.GetLabels())
 	}
 }

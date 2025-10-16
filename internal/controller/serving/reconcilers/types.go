@@ -52,6 +52,16 @@ func (r *NoResourceRemoval) Cleanup(_ context.Context, _ logr.Logger, _ string) 
 	return nil
 }
 
+type LLMNoResourceRemoval struct{}
+
+func (r *LLMNoResourceRemoval) Delete(_ context.Context, _ logr.Logger, _ *kservev1alpha1.LLMInferenceService) error {
+	return nil
+}
+
+func (r *LLMNoResourceRemoval) Cleanup(_ context.Context, _ logr.Logger, _ string) error {
+	return nil
+}
+
 type SingleResourcePerNamespace struct{}
 
 func (r *SingleResourcePerNamespace) Delete(_ context.Context, _ logr.Logger, _ *kservev1beta1.InferenceService) error {
