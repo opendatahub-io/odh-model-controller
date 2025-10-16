@@ -115,6 +115,11 @@ const (
 	RouteTimeoutAnnotationKey = "haproxy.router.openshift.io/timeout"
 )
 
+// Gateway management
+const (
+	GatewayManagedAnnotation = "opendatahub.io/managed"
+)
+
 // Events
 const (
 	// AuthUnavailable is logged in an Event when an InferenceGraph is configured to
