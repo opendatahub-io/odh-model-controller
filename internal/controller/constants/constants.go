@@ -15,13 +15,18 @@ limitations under the License.
 
 package constants
 
-import "time"
+import (
+	"time"
+
+	"knative.dev/pkg/kmeta"
+)
 
 type KServeDeploymentMode string
 
 const (
 	InferenceServiceKind             = "InferenceService"
 	InferenceServiceODHFinalizerName = "odh.inferenceservice.finalizers"
+	InferenceServiceConfigMapName    = "inferenceservice-config"
 
 	ServiceMeshMemberRollName        = "default"
 	ServiceMeshMemberName            = "default"
@@ -33,22 +38,23 @@ const (
 	KserveGroupAnnotation            = "serving.kserve.io/inferenceservice"
 	RhoaiObservabilityLabel          = "monitoring.opendatahub.io/scrape"
 
-	EnableAuthODHAnnotation   = "security.opendatahub.io/enable-auth"
-	LabelAuthGroup            = "security.opendatahub.io/authorization-group"
-	LabelEnableAuth           = "enable-auth"
+	EnableAuthODHAnnotation = "security.opendatahub.io/enable-auth"
+	LabelAuthGroup          = "security.opendatahub.io/authorization-group"
+	LabelEnableAuth         = "enable-auth"
+	// TODO can be potentially removed
 	LabelEnableRoute          = "enable-route"
 	LabelEnableKserveRawRoute = "exposed"
 
+	// TODO can be potentially removed
 	CapabilityServiceMeshAuthorization = "CapabilityServiceMeshAuthorization"
 
-	ModelMeshServiceAccountName = "modelmesh-serving-sa"
-	KserveServiceAccountName    = "default"
+	KserveServiceAccountName = "default"
 )
 
 // InferenceService container names
 const (
-	// TO-DO this will be replaced by upstream constants when 0.15 is released
 	// WorkerContainerName is for worker node container
+	// TO-DO this will be replaced by upstream constants when 0.15 is released
 	WorkerContainerName = "worker-container"
 )
 
@@ -56,7 +62,6 @@ const (
 var (
 	Serverless    KServeDeploymentMode = "Serverless"
 	RawDeployment KServeDeploymentMode = "RawDeployment"
-	ModelMesh     KServeDeploymentMode = "ModelMesh"
 )
 
 // model registry
@@ -145,3 +150,45 @@ const (
 
 // Default timeout value for Openshift routes
 const DefaultOpenshiftRouteTimeout int64 = 30
+
+type AuthType string
+
+const (
+	UserDefined AuthType = "userdefined"
+	Anonymous   AuthType = "anonymous"
+)
+
+const (
+	AuthAudience            = "AUTH_AUDIENCE"
+	AuthorinoLabel          = "AUTHORINO_LABEL"
+	AuthPolicyNameSuffix    = "-authn"
+	AuthPolicyGroup         = "kuadrant.io"
+	AuthPolicyVersion       = "v1"
+	AuthPolicyKind          = "AuthPolicy"
+	EnvoyFilterKind         = "EnvoyFilter"
+	EnvoyFilterNameSuffix   = "-authn-ssl"
+	HTTPRouteNameSuffix     = "-kserve-route"
+	KubernetesAudience      = "https://kubernetes.default.svc"
+	DefaultGatewayName      = "openshift-ai-inference"
+	DefaultGatewayNamespace = "openshift-ingress"
+)
+
+func GetHTTPRouteAuthPolicyName(httpRouteName string) string {
+	return kmeta.ChildName(httpRouteName, AuthPolicyNameSuffix)
+}
+
+func GetGatewayAuthPolicyName(gatewayName string) string {
+	return kmeta.ChildName(gatewayName, AuthPolicyNameSuffix)
+}
+
+func GetGatewayEnvoyFilterName(gatewayName string) string {
+	return kmeta.ChildName(gatewayName, EnvoyFilterNameSuffix)
+}
+
+func GetHTTPRouteName(llmisvcName string) string {
+	return kmeta.ChildName(llmisvcName, HTTPRouteNameSuffix)
+}
+
+func GetAuthPolicyGroupVersion() string {
+	return AuthPolicyGroup + "/" + AuthPolicyVersion
+}

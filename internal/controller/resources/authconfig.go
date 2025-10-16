@@ -36,13 +36,9 @@ import (
 	"github.com/opendatahub-io/odh-model-controller/internal/controller/utils"
 )
 
-type AuthType string
-
 const (
-	UserDefined    AuthType = "userdefined"
-	Anonymous      AuthType = "anonymous"
-	AuthAudience            = "AUTH_AUDIENCE"
-	AuthorinoLabel          = "AUTHORINO_LABEL"
+	AuthAudience   = "AUTH_AUDIENCE"
+	AuthorinoLabel = "AUTHORINO_LABEL"
 )
 
 type InferenceEndpointsHostExtractor interface {
@@ -50,11 +46,11 @@ type InferenceEndpointsHostExtractor interface {
 }
 
 type AuthConfigTemplateLoader interface {
-	Load(ctx context.Context, authType AuthType, protectedResource client.Object) (authorinov1beta2.AuthConfig, error)
+	Load(ctx context.Context, authType constants.AuthType, protectedResource client.Object) (authorinov1beta2.AuthConfig, error)
 }
 
 type AuthTypeDetector interface {
-	Detect(ctx context.Context, annotations map[string]string) AuthType
+	Detect(ctx context.Context, annotations map[string]string) constants.AuthType
 }
 
 type AuthConfigStore interface {
@@ -80,7 +76,7 @@ func NewStaticTemplateLoader() AuthConfigTemplateLoader {
 	return &staticTemplateLoader{}
 }
 
-func (s *staticTemplateLoader) Load(_ context.Context, authType AuthType, protectedResource client.Object) (authorinov1beta2.AuthConfig, error) {
+func (s *staticTemplateLoader) Load(_ context.Context, authType constants.AuthType, protectedResource client.Object) (authorinov1beta2.AuthConfig, error) {
 	authConfig := authorinov1beta2.AuthConfig{}
 
 	authKey, authVal, err := getAuthorinoLabel()
@@ -95,7 +91,7 @@ func (s *staticTemplateLoader) Load(_ context.Context, authType AuthType, protec
 		"ResourceName":   protectedResource.GetName(),
 	}
 	template := authConfigTemplateAnonymous
-	if authType == UserDefined {
+	if authType == constants.UserDefined {
 		template = authConfigTemplateUserDefined
 
 		if _, isIg := protectedResource.(*v1alpha1.InferenceGraph); isIg {
@@ -140,7 +136,7 @@ func NewConfigMapTemplateLoader(client client.Client, fallback AuthConfigTemplat
 	}
 }
 
-func (c *configMapTemplateLoader) Load(ctx context.Context, authType AuthType, protectedResource client.Object) (authorinov1beta2.AuthConfig, error) {
+func (c *configMapTemplateLoader) Load(ctx context.Context, authType constants.AuthType, protectedResource client.Object) (authorinov1beta2.AuthConfig, error) {
 	// TODO: check "authconfig-template" CM in key.Namespace to see if there is a "spec" to use, construct a AuthConfig object
 	// https://issues.redhat.com/browse/RHOAIENG-847
 
@@ -207,17 +203,17 @@ func NewKServeAuthTypeDetector(client client.Client) AuthTypeDetector {
 	}
 }
 
-func (k *kserveAuthTypeDetector) Detect(_ context.Context, annotations map[string]string) AuthType {
+func (k *kserveAuthTypeDetector) Detect(_ context.Context, annotations map[string]string) constants.AuthType {
 	if value, exist := annotations[constants.EnableAuthODHAnnotation]; exist {
 		if strings.ToLower(value) == "true" {
-			return UserDefined
+			return constants.UserDefined
 		}
 	} else { // backward compat
 		if strings.ToLower(annotations[constants.LabelEnableAuth]) == "true" {
-			return UserDefined
+			return constants.UserDefined
 		}
 	}
-	return Anonymous
+	return constants.Anonymous
 }
 
 type kserveInferenceEndpointsHostExtractor struct {

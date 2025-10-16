@@ -1,0 +1,39 @@
+apiVersion: kuadrant.io/v1
+kind: AuthPolicy
+metadata:
+  name: {{.Name}}
+  namespace: {{.GatewayNamespace}}
+  labels:    
+    "app.kubernetes.io/name":       "llminferenceservice-auth"
+    "app.kubernetes.io/component":  "llminferenceservice-policies"
+    "app.kubernetes.io/part-of":    "llminferenceservice"
+    "app.kubernetes.io/managed-by": "odh-model-controller"
+spec:
+  targetRef:
+    group: gateway.networking.k8s.io
+    kind: Gateway
+    name: {{.GatewayName}}
+  rules:
+    authentication:
+      kubernetes-user:
+        kubernetesTokenReview:
+          audiences: {{.AudiencesJSON}}
+    authorization:
+      inference-access:
+        kubernetesSubjectAccessReview:
+          user:
+            expression: auth.identity.user.username
+          authorizationGroups:
+            expression: auth.identity.user.groups
+          resourceAttributes:
+            group:
+              value: serving.kserve.io
+            resource:
+              value: llminferenceservices
+            namespace:
+              expression: request.path.split("/")[1]
+            name:
+              expression: request.path.split("/")[2]
+            verb:
+              value: get
+        priority: 1

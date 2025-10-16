@@ -26,6 +26,7 @@ import (
 	"github.com/go-logr/logr"
 	// Import all Kubernetes client auth plugins (e.g. Azure, GCP, OIDC, etc.)
 	// to ensure that exec-entrypoint and run can make use of them.
+
 	templatev1client "github.com/openshift/client-go/template/clientset/versioned"
 	istiov1beta1 "istio.io/client-go/pkg/apis/security/v1beta1"
 	corev1 "k8s.io/api/core/v1"
@@ -48,6 +49,7 @@ import (
 	corecontroller "github.com/opendatahub-io/odh-model-controller/internal/controller/core"
 	"github.com/opendatahub-io/odh-model-controller/internal/controller/nim"
 	servingcontroller "github.com/opendatahub-io/odh-model-controller/internal/controller/serving"
+	llmcontroller "github.com/opendatahub-io/odh-model-controller/internal/controller/serving/llm"
 	"github.com/opendatahub-io/odh-model-controller/internal/controller/utils"
 
 	webhookcorev1 "github.com/opendatahub-io/odh-model-controller/internal/webhook/core/v1"
@@ -137,9 +139,6 @@ func main() {
 	}
 
 	kserveState := os.Getenv("KSERVE_STATE")
-	modelMeshState := os.Getenv("MODELMESH_STATE")
-	setupLog.Info("Installation status of Serving Components",
-		"kserve-state", kserveState, "modelmesh-state", modelMeshState)
 
 	kserveWithMeshEnabled, kserveWithMeshEnabledErr := utils.VerifyIfComponentIsEnabled(
 		context.Background(), mgr.GetClient(), utils.KServeWithServiceMeshComponent)
@@ -153,7 +152,7 @@ func main() {
 		kubeClient,
 		cfg,
 		kserveWithMeshEnabled,
-		kserveState, modelMeshState); err != nil {
+		kserveState); err != nil {
 		os.Exit(1)
 	}
 	// +kubebuilder:scaffold:builder
@@ -303,6 +302,7 @@ func setupWebhooks(mgr ctrl.Manager, setupLog logr.Logger, kserveWithMeshEnabled
 		{"NIMAccount", webhooknimv1.SetupAccountWebhookWithManager},
 		{"InferenceService", webhookservingv1beta1.SetupInferenceServiceWebhookWithManager},
 		{"InferenceGraph", webhookservingv1alpha1.SetupInferenceGraphWebhookWithManager},
+		{"LLMInferenceService", webhookservingv1alpha1.SetupLLMInferenceServiceWebhookWithManager},
 	}
 
 	for _, webhook := range webhookSetups {
@@ -328,7 +328,7 @@ func setupWebhooks(mgr ctrl.Manager, setupLog logr.Logger, kserveWithMeshEnabled
 
 func setupReconcilers(mgr ctrl.Manager, setupLog logr.Logger,
 	kubeClient kubernetes.Interface, cfg *rest.Config, kserveWithMeshEnabled bool,
-	kserveState string, _ string) error {
+	kserveState string) error {
 	if err := setupInferenceServiceReconciler(mgr, kubeClient, cfg); err != nil {
 		setupLog.Error(err, "unable to create controller", "controller", "InferenceService")
 		return err
@@ -347,6 +347,10 @@ func setupReconcilers(mgr ctrl.Manager, setupLog logr.Logger,
 	}
 	if err := setupServingRuntimeReconciler(mgr); err != nil {
 		setupLog.Error(err, "unable to create controller", "controller", "ServingRuntime")
+		return err
+	}
+	if err := setupLLMInferenceServiceReconciler(mgr, cfg); err != nil {
+		setupLog.Error(err, "unable to create controller", "controller", "LLMInferenceService")
 		return err
 	}
 
@@ -412,4 +416,12 @@ func setupServingRuntimeReconciler(mgr ctrl.Manager) error {
 
 func setupInferenceGraphReconciler(mgr ctrl.Manager, isServerlessMode bool) error {
 	return servingcontroller.NewInferenceGraphReconciler(mgr).SetupWithManager(mgr, isServerlessMode)
+}
+
+func setupLLMInferenceServiceReconciler(mgr ctrl.Manager, cfg *rest.Config) error {
+	return llmcontroller.NewLLMInferenceServiceReconciler(
+		mgr.GetClient(),
+		mgr.GetScheme(),
+		cfg,
+	).SetupWithManager(mgr, setupLog)
 }

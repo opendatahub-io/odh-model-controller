@@ -1,0 +1,46 @@
+apiVersion: networking.istio.io/v1alpha3
+kind: EnvoyFilter
+metadata:
+  name: {{.Name}}
+  namespace: {{.GatewayNamespace}}
+  labels:
+    "app.kubernetes.io/name":       "llminferenceservice-auth"
+    "app.kubernetes.io/component":  "llminferenceservice-policies"
+    "app.kubernetes.io/part-of":    "llminferenceservice"
+    "app.kubernetes.io/managed-by": "odh-model-controller"
+spec:
+  priority: -1
+  configPatches:
+    - applyTo: CLUSTER
+      match:
+        cluster:
+          service: authorino-authorino-authorization.kuadrant-system.svc.cluster.local
+      patch:
+        operation: ADD
+        value:
+          name: kuadrant-auth-service
+          type: STRICT_DNS
+          connect_timeout: 1s
+          lb_policy: ROUND_ROBIN
+          http2_protocol_options: {}
+          load_assignment:
+            cluster_name: kuadrant-auth-service
+            endpoints:
+              - lb_endpoints:
+                  - endpoint:
+                      address:
+                        socket_address:
+                          address: authorino-authorino-authorization.kuadrant-system.svc.cluster.local
+                          port_value: 50051
+          transport_socket:
+            name: envoy.transport_sockets.tls
+            typed_config:
+              "@type": type.googleapis.com/envoy.extensions.transport_sockets.tls.v3.UpstreamTlsContext
+              common_tls_context:
+                validation_context:
+                  trusted_ca:
+                    filename: /var/run/secrets/kubernetes.io/serviceaccount/service-ca.crt
+  targetRefs:
+  - group: gateway.networking.k8s.io
+    kind: Gateway
+    name: {{.GatewayName}}

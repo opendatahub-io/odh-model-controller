@@ -1,0 +1,22 @@
+apiVersion: kuadrant.io/v1
+kind: AuthPolicy
+metadata:
+  name: {{.Name}}
+  namespace: {{.Namespace}}
+  labels:
+    "app.kubernetes.io/name":       {{.LLMISvcName}}
+    "app.kubernetes.io/component":  "llminferenceservice-policies"
+    "app.kubernetes.io/part-of":    "llminferenceservice"
+    "app.kubernetes.io/managed-by": "odh-model-controller"
+spec:
+  targetRef:
+    group: "gateway.networking.k8s.io"
+    kind: "HTTPRoute"
+    name: {{.HTTPRouteName}}
+  rules:
+    authentication:
+      public:
+        anonymous: {}
+        metrics: false
+        priority: 0
+

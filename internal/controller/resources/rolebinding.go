@@ -28,7 +28,7 @@ import (
 
 type RoleBindingHandler interface {
 	FetchRoleBinding(ctx context.Context, log logr.Logger, key types.NamespacedName) (*v1.RoleBinding, error)
-	DeleteRoleBinding(ctx context.Context, key types.NamespacedName) error
+	DeleteRoleBinding(ctx context.Context, log logr.Logger, key types.NamespacedName) error
 }
 
 type roleBindingHandler struct {
@@ -45,24 +45,26 @@ func (r *roleBindingHandler) FetchRoleBinding(ctx context.Context, log logr.Logg
 	roleBinding := &v1.RoleBinding{}
 	err := r.client.Get(ctx, key, roleBinding)
 	if err != nil && errors.IsNotFound(err) {
-		log.V(1).Info("RoleBinding not found.")
+		log.V(1).Info("RoleBinding not found", "name", key.Name, "namespace", key.Namespace)
 		return nil, nil
 	} else if err != nil {
 		return nil, err
 	}
-	log.V(1).Info("Successfully fetch deployed RoleBinding")
+	log.V(1).Info("Successfully fetched deployed RoleBinding", "name", key.Name, "namespace", key.Namespace)
 	return roleBinding, nil
 }
 
-func (r *roleBindingHandler) DeleteRoleBinding(ctx context.Context, key types.NamespacedName) error {
+func (r *roleBindingHandler) DeleteRoleBinding(ctx context.Context, log logr.Logger, key types.NamespacedName) error {
 	roleBinding := &v1.RoleBinding{}
 	err := r.client.Get(ctx, key, roleBinding)
 	if err != nil {
 		if errors.IsNotFound(err) {
+			log.V(1).Info("RoleBinding already deleted", "name", key.Name, "namespace", key.Namespace)
 			return nil
 		}
 		return err
 	}
+	log.V(1).Info("Deleting RoleBinding", "name", key.Name, "namespace", key.Namespace)
 	if err = r.client.Delete(ctx, roleBinding); err != nil {
 		return fmt.Errorf("failed to delete RoleBinding: %w", err)
 	}
