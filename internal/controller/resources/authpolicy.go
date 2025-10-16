@@ -21,11 +21,13 @@ import (
 	_ "embed"
 	"encoding/json"
 	"fmt"
+	"os"
 	"strings"
 	"text/template"
 
 	"github.com/go-logr/logr"
 	kservev1alpha1 "github.com/kserve/kserve/pkg/apis/serving/v1alpha1"
+	"github.com/kserve/kserve/pkg/controller/llmisvc"
 	kuadrantv1 "github.com/kuadrant/kuadrant-operator/api/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -230,11 +232,35 @@ func (k *kserveAuthPolicyTemplateLoader) getHTTPRouteInfo(llmisvc *kservev1alpha
 }
 
 // getGatewayInfo returns gateway list with fallback logic, filtering out gateways with opendatahub.io/managed: false
-func (k *kserveAuthPolicyTemplateLoader) getGatewayInfo(ctx context.Context, log logr.Logger, llmisvc *kservev1alpha1.LLMInferenceService) []struct{ Namespace, Name string } {
+func (k *kserveAuthPolicyTemplateLoader) getGatewayInfo(ctx context.Context, log logr.Logger, llmSvc *kservev1alpha1.LLMInferenceService) []struct{ Namespace, Name string } {
 	var gateways []struct{ Namespace, Name string }
 
-	if llmisvc.Spec.Router != nil && llmisvc.Spec.Router.Gateway != nil && llmisvc.Spec.Router.Gateway.HasRefs() {
-		for _, ref := range llmisvc.Spec.Router.Gateway.Refs {
+	// TODO: Reuse logic in Kserve, currently private and not very reusable.
+	specs := make([]kservev1alpha1.LLMInferenceServiceSpec, 0, 1)
+	for _, ref := range llmSvc.Spec.BaseRefs {
+		cfg, err := k.getConfig(ctx, llmSvc, ref.Name)
+		if err != nil {
+			log.Error(err, "failed to fetch configuration", "ref", ref.Name)
+			continue
+		}
+		if cfg != nil {
+			specs = append(specs, cfg.Spec)
+		}
+	}
+	// Append the service's own spec last so it takes precedence
+	specs = append(specs, llmSvc.Spec)
+
+	spec, err := llmisvc.MergeSpecs(ctx, specs...)
+	if err != nil {
+		log.Error(err, "failed to merge specs")
+		return nil
+	}
+	// Do not override spec
+	llmSvc = llmSvc.DeepCopy()
+	llmSvc.Spec = spec
+
+	if llmSvc.Spec.Router != nil && llmSvc.Spec.Router.Gateway != nil && llmSvc.Spec.Router.Gateway.HasRefs() {
+		for _, ref := range llmSvc.Spec.Router.Gateway.Refs {
 			// Check if the gateway should be managed
 			if k.isGatewayManaged(ctx, log, string(ref.Namespace), string(ref.Name)) {
 				gateways = append(gateways, struct{ Namespace, Name string }{
@@ -307,6 +333,28 @@ func (k *kserveAuthPolicyTemplateLoader) isGatewayManaged(ctx context.Context, l
 		"namespace", namespace,
 		"name", name)
 	return true
+}
+
+// getConfig retrieves kserveapis.LLMInferenceServiceConfig with the given name from either the kserveapis.LLMInferenceService
+// namespace or from the SystemNamespace (e.g. 'kserve'), prioritizing the former.
+// TODO: Reuse logic in Kserve, currently private and not very reusable.
+func (k *kserveAuthPolicyTemplateLoader) getConfig(ctx context.Context, llmSvc *kservev1alpha1.LLMInferenceService, name string) (*kservev1alpha1.LLMInferenceServiceConfig, error) {
+	cfg := &kservev1alpha1.LLMInferenceServiceConfig{}
+	if err := k.client.Get(ctx, client.ObjectKey{Name: name, Namespace: llmSvc.Namespace}, cfg); err != nil {
+		if apierrors.IsNotFound(err) {
+			systemNamespace := os.Getenv("POD_NAMESPACE")
+			if systemNamespace == "" {
+				return nil, nil
+			}
+			cfg = &kservev1alpha1.LLMInferenceServiceConfig{}
+			if err := k.client.Get(ctx, client.ObjectKey{Name: name, Namespace: systemNamespace}, cfg); err != nil {
+				return nil, fmt.Errorf("failed to get LLMInferenceServiceConfig %q from namespaces [%q, %q]: %w", name, llmSvc.Namespace, systemNamespace, err)
+			}
+			return cfg, nil
+		}
+		return nil, fmt.Errorf("failed to get LLMInferenceServiceConfig %s/%s: %w", llmSvc.Namespace, name, err)
+	}
+	return cfg, nil
 }
 
 type clientAuthPolicyStore struct {
