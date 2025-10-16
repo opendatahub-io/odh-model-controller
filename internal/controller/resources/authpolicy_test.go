@@ -133,7 +133,7 @@ var _ = Describe("AuthPolicyTemplateLoader", func() {
 			scheme := runtime.NewScheme()
 			Expect(kservev1alpha1.AddToScheme(scheme)).To(Succeed())
 			Expect(ocpconfigv1.AddToScheme(scheme)).To(Succeed())
-			Expect(gwapiv1alpha2.AddToScheme(scheme)).To(Succeed())
+			Expect(gwapiv1alpha2.Install(scheme)).To(Succeed())
 			fakeClient = fake.NewClientBuilder().WithScheme(scheme).Build()
 			loader = resources.NewKServeAuthPolicyTemplateLoader(fakeClient)
 
@@ -240,8 +240,8 @@ var _ = Describe("AuthPolicyTemplateLoader", func() {
 			scheme = runtime.NewScheme()
 			Expect(kservev1alpha1.AddToScheme(scheme)).To(Succeed())
 			Expect(ocpconfigv1.AddToScheme(scheme)).To(Succeed())
-			Expect(gwapiv1alpha2.AddToScheme(scheme)).To(Succeed())
-			Expect(gatewayapiv1.AddToScheme(scheme)).To(Succeed())
+			Expect(gwapiv1alpha2.Install(scheme)).To(Succeed())
+			Expect(gatewayapiv1.Install(scheme)).To(Succeed())
 		})
 
 		It("should exclude gateway with opendatahub.io/managed=false annotation", func(ctx SpecContext) {
