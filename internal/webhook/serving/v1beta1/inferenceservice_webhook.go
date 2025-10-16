@@ -32,7 +32,6 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/webhook/admission"
 
 	"github.com/opendatahub-io/odh-model-controller/internal/controller/utils"
-	"github.com/opendatahub-io/odh-model-controller/internal/webhook/serving"
 )
 
 // nolint:unused
@@ -71,29 +70,20 @@ func (v *InferenceServiceCustomValidator) ValidateCreate(ctx context.Context, ob
 	logger := inferenceservicelog.WithValues("namespace", inferenceservice.Namespace, "isvc", inferenceservice.GetName())
 	logger.Info("Validation for InferenceService upon creation")
 
-	protectedNamespaces := make([]string, 3)
-	// hardcoding for now since there is no plan to install knative on other namespaces
-	protectedNamespaces[0] = "knative-serving"
-	_, meshNamespace := utils.GetIstioControlPlaneName(ctx, v.client)
-	protectedNamespaces[1] = meshNamespace
-
 	appNamespace, err := utils.GetApplicationNamespace(ctx, v.client)
 	if err != nil {
 		return nil, err
 	}
-	protectedNamespaces[2] = appNamespace
 
-	logger.Info("Filtering protected namespaces", "namespaces", protectedNamespaces)
-	for _, ns := range protectedNamespaces {
-		if inferenceservice.Namespace == ns {
-			logger.V(1).Info("Namespace is protected, the InferenceService will not be created")
-			return nil, errors.NewInvalid(
-				schema.GroupKind{Group: inferenceservice.GroupVersionKind().Group, Kind: inferenceservice.Kind},
-				inferenceservice.GetName(),
-				field.ErrorList{
-					field.Invalid(field.NewPath("metadata").Child("namespace"), inferenceservice.GetNamespace(), "specified namespace is protected"),
-				})
-		}
+	logger.Info("Checking if namespace is protected", "namespace", inferenceservice.Namespace, "protectedNamespace", appNamespace)
+	if inferenceservice.Namespace == appNamespace {
+		logger.V(1).Info("Namespace is protected, the InferenceService will not be created")
+		return nil, errors.NewInvalid(
+			schema.GroupKind{Group: inferenceservice.GroupVersionKind().Group, Kind: inferenceservice.Kind},
+			inferenceservice.GetName(),
+			field.ErrorList{
+				field.Invalid(field.NewPath("metadata").Child("namespace"), inferenceservice.GetNamespace(), "specified namespace is protected"),
+			})
 	}
 
 	logger.Info("Namespace is not protected")
@@ -152,11 +142,6 @@ func (d *InferenceServiceCustomDefaulter) Default(ctx context.Context, obj runti
 	}
 	logger := inferenceservicelog.WithValues("name", inferenceservice.GetName())
 	logger.Info("Defaulting for InferenceService", "name", inferenceservice.GetName())
-
-	err := serving.ApplyDefaultServerlessAnnotations(ctx, d.client, inferenceservice.GetName(), &inferenceservice.ObjectMeta, logger)
-	if err != nil {
-		return err
-	}
 
 	return nil
 }

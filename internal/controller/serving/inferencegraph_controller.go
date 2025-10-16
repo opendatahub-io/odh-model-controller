@@ -99,7 +99,7 @@ func (r *InferenceGraphReconciler) reconcileAuthConfig(ctx context.Context, logg
 		logger.V(1).Info("Skipping AuthConfig reconciliation, authorization is not enabled")
 
 		authType := r.detector.Detect(ctx, ig.GetAnnotations())
-		if authType == resources.UserDefined {
+		if authType == constants.UserDefined {
 			// Raise an event that the IG wants auth enabled, but the auth stack is missing
 			r.Recorder.Eventf(ig, v1.EventTypeWarning, constants.AuthUnavailable, "InferenceGraph %s is requiring auth, but the auth stack is not available", ig.GetName())
 		}

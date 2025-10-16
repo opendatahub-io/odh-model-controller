@@ -5,7 +5,7 @@
 ## Description
 
 The controller will watch the Predictor custom resource events to
-extend the KServe modelmesh-serving controller behavior with the following
+extend the KServe controller behavior with the following
 capabilities:
 
 - Openshift ingress controller integration.

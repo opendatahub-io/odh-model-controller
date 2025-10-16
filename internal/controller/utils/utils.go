@@ -13,13 +13,13 @@ import (
 	kservev1alpha1 "github.com/kserve/kserve/pkg/apis/serving/v1alpha1"
 	kservev1beta1 "github.com/kserve/kserve/pkg/apis/serving/v1beta1"
 	"github.com/kuadrant/authorino/pkg/log"
+	ocpconfigv1 "github.com/openshift/api/config/v1"
 	operatorv1 "github.com/openshift/api/operator/v1"
 	v1 "github.com/openshift/api/route/v1"
 	"github.com/pkg/errors"
 	v1beta12 "istio.io/api/security/v1beta1"
 	"istio.io/client-go/pkg/apis/security/v1beta1"
 	corev1 "k8s.io/api/core/v1"
-	apierr "k8s.io/apimachinery/pkg/api/errors"
 	apierrs "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -27,6 +27,7 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/discovery"
 	"k8s.io/client-go/rest"
+	"knative.dev/pkg/kmeta"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	"github.com/opendatahub-io/odh-model-controller/internal/controller/constants"
@@ -50,25 +51,23 @@ func GetDeploymentModeForKServeResource(ctx context.Context, cli client.Client, 
 	value, exists := annotations[KServeDeploymentModeAnnotation]
 	if exists {
 		switch value {
-		case string(constants.ModelMesh):
-			return constants.ModelMesh, nil
 		case string(constants.Serverless):
 			return constants.Serverless, nil
 		case string(constants.RawDeployment):
 			return constants.RawDeployment, nil
+		// TODO: Remove temporary alias mapping ("Standard"→RawDeployment, "Knative"→Serverless) post-RHOAI 3.0, with code refactor for new deployment modes.
+		case "Standard":
+			return constants.RawDeployment, nil
+		case "Knative":
+			return constants.Serverless, nil
 		default:
 			return "", fmt.Errorf("the deployment mode '%s' of the KServe resource is invalid", value)
 		}
 	} else {
 		// There is no explicit deployment mode using an annotation, determine the default from configmap
-		controllerNs := os.Getenv("POD_NAMESPACE")
-		inferenceServiceConfigMap := &corev1.ConfigMap{}
-		err := cli.Get(ctx, client.ObjectKey{
-			Namespace: controllerNs,
-			Name:      KserveConfigMapName,
-		}, inferenceServiceConfigMap)
+		inferenceServiceConfigMap, err := GetInferenceServiceConfigMap(ctx, cli)
 		if err != nil {
-			return "", fmt.Errorf("error getting configmap 'inferenceservice-config'. %w", err)
+			return "", err
 		}
 		var deployData map[string]interface{}
 		if err = json.Unmarshal([]byte(inferenceServiceConfigMap.Data["deploy"]), &deployData); err != nil {
@@ -76,12 +75,15 @@ func GetDeploymentModeForKServeResource(ctx context.Context, cli client.Client, 
 		}
 		defaultDeploymentMode := deployData["defaultDeploymentMode"]
 		switch defaultDeploymentMode {
-		case string(constants.ModelMesh):
-			return constants.ModelMesh, nil
 		case string(constants.Serverless):
 			return constants.Serverless, nil
 		case string(constants.RawDeployment):
 			return constants.RawDeployment, nil
+		// TODO: Remove temporary alias mapping ("Standard"→RawDeployment, "Knative"→Serverless) post-RHOAI 3.0, with code refactor for new deployment modes.
+		case "Standard":
+			return constants.RawDeployment, nil
+		case "Knative":
+			return constants.Serverless, nil
 		default:
 			return "", fmt.Errorf("the deployment mode '%s' of the Inference Service is invalid", defaultDeploymentMode)
 		}
@@ -346,7 +348,7 @@ func GetAvailableResourcesForApi(config *rest.Config, groupVersion string) (*met
 
 		var getGvResourcesErr error
 		gvResources, getGvResourcesErr = discoveryClient.ServerResourcesForGroupVersion(groupVersion)
-		if getGvResourcesErr != nil && !apierr.IsNotFound(getGvResourcesErr) {
+		if getGvResourcesErr != nil && !apierrs.IsNotFound(getGvResourcesErr) {
 			return nil, getGvResourcesErr
 		}
 
@@ -477,4 +479,139 @@ func SetOpenshiftRouteTimeoutForIsvc(route *v1.Route, isvc *kservev1beta1.Infere
 	}
 
 	route.Annotations[constants.RouteTimeoutAnnotationKey] = fmt.Sprintf("%ds", timeout)
+}
+
+func GetEnvOr(key, defaultValue string) string {
+	if env, defined := os.LookupEnv(key); defined {
+		return env
+	}
+	return defaultValue
+}
+
+func GetAuthAudience(ctx context.Context, client client.Client, defaultAudience string) []string {
+	// 1. Check environment variable first (explicit configuration)
+	if aud := os.Getenv("AUTH_AUDIENCE"); aud != "" {
+		audiences := strings.Split(aud, ",")
+		for i := range audiences {
+			audiences[i] = strings.TrimSpace(audiences[i])
+		}
+		return audiences
+	}
+
+	// 2. Discover Authentication cluster object for ROSA (auto-detection)
+	authConfig := &ocpconfigv1.Authentication{}
+	if err := client.Get(ctx, types.NamespacedName{Name: "cluster"}, authConfig); err == nil {
+		if authConfig.Spec.ServiceAccountIssuer != "" {
+			return []string{authConfig.Spec.ServiceAccountIssuer}
+		}
+	}
+
+	// 3. Use default
+	return []string{defaultAudience}
+}
+
+func GetInferenceServiceConfigMap(ctx context.Context, cli client.Client) (*corev1.ConfigMap, error) {
+	controllerNs := os.Getenv("POD_NAMESPACE")
+	inferenceServiceConfigMap := &corev1.ConfigMap{}
+	err := cli.Get(ctx, client.ObjectKey{
+		Namespace: controllerNs,
+		Name:      KserveConfigMapName,
+	}, inferenceServiceConfigMap)
+	if err != nil {
+		return nil, fmt.Errorf("error getting configmap 'inferenceservice-config'. %w", err)
+	}
+	return inferenceServiceConfigMap, nil
+}
+
+func GetGatewayInfoFromConfigMap(ctx context.Context, cli client.Client) (namespace, name string, err error) {
+	configMap, err := GetInferenceServiceConfigMap(ctx, cli)
+	if err != nil {
+		return "", "", err
+	}
+
+	if ingressData := configMap.Data["ingress"]; ingressData != "" {
+		var config map[string]any
+		if json.Unmarshal([]byte(ingressData), &config) == nil {
+			if gateway, ok := config["kserveIngressGateway"].(string); ok {
+				if parts := strings.Split(gateway, "/"); len(parts) == 2 {
+					return parts[0], parts[1], nil
+				}
+			}
+		}
+	}
+
+	return "", "", fmt.Errorf("failed to parse gateway info from configmap")
+}
+
+func IsManagedByOpenDataHub(obj client.Object) bool {
+	if labels := obj.GetLabels(); labels != nil {
+		if labels["app.kubernetes.io/managed-by"] != "odh-model-controller" {
+			return false
+		}
+
+		if managedValue, exists := labels["opendatahub.io/managed"]; exists && managedValue == "false" {
+			return false
+		}
+
+		return true
+	}
+	return false
+}
+
+// MergeUserLabelsAndAnnotations merges user-added labels and annotations from existing resource
+// into desired resource while preserving template-defined values
+func MergeUserLabelsAndAnnotations(desired, existing client.Object) {
+	if existing.GetLabels() != nil {
+		if desired.GetLabels() == nil {
+			desired.SetLabels(make(map[string]string))
+		}
+		desiredLabels := desired.GetLabels()
+		for k, v := range existing.GetLabels() {
+			if _, exists := desiredLabels[k]; !exists {
+				desiredLabels[k] = v
+			}
+		}
+		desired.SetLabels(desiredLabels)
+	}
+
+	if existing.GetAnnotations() != nil {
+		if desired.GetAnnotations() == nil {
+			desired.SetAnnotations(make(map[string]string))
+		}
+		desiredAnnotations := desired.GetAnnotations()
+		for k, v := range existing.GetAnnotations() {
+			if _, exists := desiredAnnotations[k]; !exists {
+				desiredAnnotations[k] = v
+			}
+		}
+		desired.SetAnnotations(desiredAnnotations)
+	}
+}
+
+// GetMaaSRoleName returns the name of the related Role resource for MaaS RBAC use cases
+func GetMaaSRoleName(llmisvc *kservev1alpha1.LLMInferenceService) string {
+	return kmeta.ChildName(llmisvc.Name, "-model-post-access")
+}
+
+// GetMaaSRoleBindingName returns the name of the related RoleBinding resource for MaaS RBAC use cases
+func GetMaaSRoleBindingName(llmisvc *kservev1alpha1.LLMInferenceService) string {
+	return kmeta.ChildName(llmisvc.Name, "-model-post-access-tier-binding")
+}
+
+func IsManagedResource(owner client.Object, resource client.Object) bool {
+	if resource.GetLabels()["app.kubernetes.io/managed-by"] != "odh-model-controller" {
+		return false
+	}
+
+	for _, ownerRef := range resource.GetOwnerReferences() {
+		if ownerRef.APIVersion == owner.GetObjectKind().GroupVersionKind().GroupVersion().String() &&
+			ownerRef.Kind == owner.GetObjectKind().GroupVersionKind().Kind &&
+			ownerRef.Name == owner.GetName() &&
+			ownerRef.UID == owner.GetUID() &&
+			ownerRef.Controller != nil && *ownerRef.Controller {
+			return true
+		}
+	}
+
+	return false
 }
