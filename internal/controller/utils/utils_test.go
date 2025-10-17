@@ -3,12 +3,13 @@ package utils
 import (
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
+	"github.com/opendatahub-io/odh-model-controller/internal/controller/constants"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
-var _ = Describe("IsManagedByOpenDataHub", func() {
-	It("should return true for managed resources with correct labels", func() {
+var _ = Describe("IsManagedByOdhController", func() {
+	It("should return true when managed-by label is set correctly", func() {
 		obj := &corev1.ConfigMap{
 			ObjectMeta: metav1.ObjectMeta{
 				Name:      "test-resource",
@@ -18,21 +19,7 @@ var _ = Describe("IsManagedByOpenDataHub", func() {
 				},
 			},
 		}
-		Expect(IsManagedByOpenDataHub(obj)).To(BeTrue())
-	})
-
-	It("should return true for managed resources with opendatahub.io/managed=true", func() {
-		obj := &corev1.ConfigMap{
-			ObjectMeta: metav1.ObjectMeta{
-				Name:      "test-resource",
-				Namespace: "test-ns",
-				Labels: map[string]string{
-					"app.kubernetes.io/managed-by": "odh-model-controller",
-					"opendatahub.io/managed":       "true",
-				},
-			},
-		}
-		Expect(IsManagedByOpenDataHub(obj)).To(BeTrue())
+		Expect(IsManagedByOdhController(obj)).To(BeTrue())
 	})
 
 	It("should return false when managed-by label is missing", func() {
@@ -45,7 +32,7 @@ var _ = Describe("IsManagedByOpenDataHub", func() {
 				},
 			},
 		}
-		Expect(IsManagedByOpenDataHub(obj)).To(BeFalse())
+		Expect(IsManagedByOdhController(obj)).To(BeFalse())
 	})
 
 	It("should return false when managed-by label has wrong value", func() {
@@ -58,17 +45,212 @@ var _ = Describe("IsManagedByOpenDataHub", func() {
 				},
 			},
 		}
-		Expect(IsManagedByOpenDataHub(obj)).To(BeFalse())
+		Expect(IsManagedByOdhController(obj)).To(BeFalse())
 	})
 
-	It("should return false when opendatahub.io/managed is explicitly false (opt-out)", func() {
+	It("should return false when labels are nil", func() {
+		obj := &corev1.ConfigMap{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      "test-resource",
+				Namespace: "test-ns",
+			},
+		}
+		Expect(IsManagedByOdhController(obj)).To(BeFalse())
+	})
+
+	It("should return false when labels are empty", func() {
+		obj := &corev1.ConfigMap{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      "test-resource",
+				Namespace: "test-ns",
+				Labels:    map[string]string{},
+			},
+		}
+		Expect(IsManagedByOdhController(obj)).To(BeFalse())
+	})
+})
+
+var _ = Describe("IsExplicitlyUnmanaged", func() {
+	It("should return true when label is 'false'", func() {
+		obj := &corev1.ConfigMap{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      "test-resource",
+				Namespace: "test-ns",
+				Labels: map[string]string{
+					constants.ODHManagedLabel: "false",
+				},
+			},
+		}
+		Expect(IsExplicitlyUnmanaged(obj)).To(BeTrue())
+	})
+
+	It("should return false when label is 'true'", func() {
+		obj := &corev1.ConfigMap{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      "test-resource",
+				Namespace: "test-ns",
+				Labels: map[string]string{
+					constants.ODHManagedLabel: "true",
+				},
+			},
+		}
+		Expect(IsExplicitlyUnmanaged(obj)).To(BeFalse())
+	})
+
+	It("should return true when label is 'FALSE' (case insensitive)", func() {
+		obj := &corev1.ConfigMap{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      "test-resource",
+				Namespace: "test-ns",
+				Labels: map[string]string{
+					constants.ODHManagedLabel: "FALSE",
+				},
+			},
+		}
+		Expect(IsExplicitlyUnmanaged(obj)).To(BeTrue())
+	})
+
+	It("should return false when label is 'TRUE' (case insensitive)", func() {
+		obj := &corev1.ConfigMap{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      "test-resource",
+				Namespace: "test-ns",
+				Labels: map[string]string{
+					constants.ODHManagedLabel: "TRUE",
+				},
+			},
+		}
+		Expect(IsExplicitlyUnmanaged(obj)).To(BeFalse())
+	})
+
+	It("should return true when label is '  false  ' (with whitespace)", func() {
+		obj := &corev1.ConfigMap{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      "test-resource",
+				Namespace: "test-ns",
+				Labels: map[string]string{
+					constants.ODHManagedLabel: "  false  ",
+				},
+			},
+		}
+		Expect(IsExplicitlyUnmanaged(obj)).To(BeTrue())
+	})
+
+	It("should return false when label doesn't exist", func() {
+		obj := &corev1.ConfigMap{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      "test-resource",
+				Namespace: "test-ns",
+				Labels: map[string]string{
+					"some-other-label": "value",
+				},
+			},
+		}
+		Expect(IsExplicitlyUnmanaged(obj)).To(BeFalse())
+	})
+
+	It("should return false when labels are nil", func() {
+		obj := &corev1.ConfigMap{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      "test-resource",
+				Namespace: "test-ns",
+			},
+		}
+		Expect(IsExplicitlyUnmanaged(obj)).To(BeFalse())
+	})
+
+	It("should return false when label has invalid value", func() {
+		obj := &corev1.ConfigMap{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      "test-resource",
+				Namespace: "test-ns",
+				Labels: map[string]string{
+					constants.ODHManagedLabel: "invalid-value",
+				},
+			},
+		}
+		Expect(IsExplicitlyUnmanaged(obj)).To(BeFalse())
+	})
+})
+
+var _ = Describe("IsManagedByOpenDataHub", func() {
+	It("should return true for resources with managed-by label and without opendatahub.io/managed label", func() {
 		obj := &corev1.ConfigMap{
 			ObjectMeta: metav1.ObjectMeta{
 				Name:      "test-resource",
 				Namespace: "test-ns",
 				Labels: map[string]string{
 					"app.kubernetes.io/managed-by": "odh-model-controller",
-					"opendatahub.io/managed":       "false",
+					"some-label":                   "value",
+				},
+			},
+		}
+		Expect(IsManagedByOpenDataHub(obj)).To(BeTrue())
+	})
+
+	It("should return true when managed-by label exists and opendatahub.io/managed is true", func() {
+		obj := &corev1.ConfigMap{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      "test-resource",
+				Namespace: "test-ns",
+				Labels: map[string]string{
+					"app.kubernetes.io/managed-by": "odh-model-controller",
+					constants.ODHManagedLabel:      "true",
+				},
+			},
+		}
+		Expect(IsManagedByOpenDataHub(obj)).To(BeTrue())
+	})
+
+	It("should return false when opendatahub.io/managed is false even if managed-by label exists (opt-out)", func() {
+		obj := &corev1.ConfigMap{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      "test-resource",
+				Namespace: "test-ns",
+				Labels: map[string]string{
+					"app.kubernetes.io/managed-by": "odh-model-controller",
+					constants.ODHManagedLabel:      "false",
+				},
+			},
+		}
+		Expect(IsManagedByOpenDataHub(obj)).To(BeFalse())
+	})
+
+	It("should return false when opendatahub.io/managed is FALSE (case insensitive)", func() {
+		obj := &corev1.ConfigMap{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      "test-resource",
+				Namespace: "test-ns",
+				Labels: map[string]string{
+					"app.kubernetes.io/managed-by": "odh-model-controller",
+					constants.ODHManagedLabel:      "FALSE",
+				},
+			},
+		}
+		Expect(IsManagedByOpenDataHub(obj)).To(BeFalse())
+	})
+
+	It("should return false when opendatahub.io/managed is '  false  ' (with whitespace)", func() {
+		obj := &corev1.ConfigMap{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      "test-resource",
+				Namespace: "test-ns",
+				Labels: map[string]string{
+					"app.kubernetes.io/managed-by": "odh-model-controller",
+					constants.ODHManagedLabel:      "  false  ",
+				},
+			},
+		}
+		Expect(IsManagedByOpenDataHub(obj)).To(BeFalse())
+	})
+
+	It("should return false when managed-by label is missing", func() {
+		obj := &corev1.ConfigMap{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      "test-resource",
+				Namespace: "test-ns",
+				Labels: map[string]string{
+					"some-label": "value",
 				},
 			},
 		}
@@ -91,6 +273,19 @@ var _ = Describe("IsManagedByOpenDataHub", func() {
 				Name:      "test-resource",
 				Namespace: "test-ns",
 				Labels:    map[string]string{},
+			},
+		}
+		Expect(IsManagedByOpenDataHub(obj)).To(BeFalse())
+	})
+
+	It("should return false when managed-by label has wrong value", func() {
+		obj := &corev1.ConfigMap{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      "test-resource",
+				Namespace: "test-ns",
+				Labels: map[string]string{
+					"app.kubernetes.io/managed-by": "other-controller",
+				},
 			},
 		}
 		Expect(IsManagedByOpenDataHub(obj)).To(BeFalse())

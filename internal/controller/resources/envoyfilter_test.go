@@ -28,6 +28,7 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
+	gatewayapiv1 "sigs.k8s.io/gateway-api/apis/v1"
 
 	"github.com/opendatahub-io/odh-model-controller/internal/controller/constants"
 	"github.com/opendatahub-io/odh-model-controller/internal/controller/resources"
@@ -129,7 +130,17 @@ var _ = Describe("EnvoyFilterTemplateLoader", func() {
 		BeforeEach(func() {
 			scheme := runtime.NewScheme()
 			Expect(kservev1alpha1.AddToScheme(scheme)).To(Succeed())
-			fakeClient := fake.NewClientBuilder().WithScheme(scheme).Build()
+			Expect(gatewayapiv1.Install(scheme)).To(Succeed())
+
+			// Create default gateway that tests expect
+			defaultGateway := &gatewayapiv1.Gateway{
+				ObjectMeta: v1.ObjectMeta{
+					Name:      "openshift-ai-inference",
+					Namespace: "openshift-ingress",
+				},
+			}
+
+			fakeClient := fake.NewClientBuilder().WithScheme(scheme).WithObjects(defaultGateway).Build()
 			loader = resources.NewKServeEnvoyFilterTemplateLoader(fakeClient)
 
 			dummyLLMISvc = kservev1alpha1.LLMInferenceService{

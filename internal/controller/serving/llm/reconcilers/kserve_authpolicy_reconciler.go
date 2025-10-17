@@ -267,13 +267,8 @@ func (r *KserveAuthPolicyReconciler) getGatewayFromAuthPolicy(ctx context.Contex
 	gatewayNamespace := authPolicy.GetNamespace()
 
 	gateway := &gatewayapiv1.Gateway{}
-	err := r.client.Get(ctx, types.NamespacedName{
-		Name:      gatewayName,
-		Namespace: gatewayNamespace,
-	}, gateway)
-
-	if err != nil {
-		return nil, fmt.Errorf("failed to get gateway %s/%s: %w", gatewayNamespace, gatewayName, err)
+	if err := utils.GetResource(ctx, r.client, gatewayNamespace, gatewayName, gateway); err != nil {
+		return nil, fmt.Errorf("failed to get Gateway %s/%s: %w", gatewayNamespace, gatewayName, err)
 	}
 
 	return gateway, nil
@@ -287,12 +282,7 @@ func (r *KserveAuthPolicyReconciler) getHTTPRouteFromAuthPolicy(ctx context.Cont
 	routeName := string(authPolicy.Spec.TargetRef.Name)
 	routeNamespace := authPolicy.GetNamespace()
 	httpRoute := &gatewayapiv1.HTTPRoute{}
-	err := r.client.Get(ctx, types.NamespacedName{
-		Name:      routeName,
-		Namespace: routeNamespace,
-	}, httpRoute)
-
-	if err != nil {
+	if err := utils.GetResource(ctx, r.client, routeNamespace, routeName, httpRoute); err != nil {
 		return nil, fmt.Errorf("failed to get HTTPRoute %s/%s: %w", routeNamespace, routeName, err)
 	}
 

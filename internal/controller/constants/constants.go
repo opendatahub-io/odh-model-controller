@@ -28,25 +28,14 @@ const (
 	InferenceServiceODHFinalizerName = "odh.inferenceservice.finalizers"
 	InferenceServiceConfigMapName    = "inferenceservice-config"
 
-	ServiceMeshMemberRollName        = "default"
-	ServiceMeshMemberName            = "default"
-	IstioIngressService              = "istio-ingressgateway"
-	IstioIngressServiceHTTPPortName  = "http2"
-	IstioIngressServiceHTTPSPortName = "https"
-	IstioSidecarInjectAnnotationName = "sidecar.istio.io/inject"
-	KserveNetworkVisibility          = "networking.kserve.io/visibility"
-	KserveGroupAnnotation            = "serving.kserve.io/inferenceservice"
-	RhoaiObservabilityLabel          = "monitoring.opendatahub.io/scrape"
+	KserveNetworkVisibility = "networking.kserve.io/visibility"
+	KserveGroupAnnotation   = "serving.kserve.io/inferenceservice"
+	RhoaiObservabilityLabel = "monitoring.opendatahub.io/scrape"
 
+	ODHManagedLabel         = "opendatahub.io/managed"
 	EnableAuthODHAnnotation = "security.opendatahub.io/enable-auth"
-	LabelAuthGroup          = "security.opendatahub.io/authorization-group"
-	LabelEnableAuth         = "enable-auth"
-	// TODO can be potentially removed
-	LabelEnableRoute          = "enable-route"
-	LabelEnableKserveRawRoute = "exposed"
 
-	// TODO can be potentially removed
-	CapabilityServiceMeshAuthorization = "CapabilityServiceMeshAuthorization"
+	LabelEnableKserveRawRoute = "exposed"
 
 	KserveServiceAccountName = "default"
 )
@@ -60,7 +49,6 @@ const (
 
 // isvc modes
 var (
-	Serverless    KServeDeploymentMode = "Serverless"
 	RawDeployment KServeDeploymentMode = "RawDeployment"
 )
 
@@ -159,7 +147,6 @@ const (
 )
 
 const (
-	AuthAudience            = "AUTH_AUDIENCE"
 	AuthorinoLabel          = "AUTHORINO_LABEL"
 	AuthPolicyNameSuffix    = "-authn"
 	AuthPolicyGroup         = "kuadrant.io"

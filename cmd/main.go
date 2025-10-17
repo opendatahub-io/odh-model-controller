@@ -28,7 +28,6 @@ import (
 	// to ensure that exec-entrypoint and run can make use of them.
 
 	templatev1client "github.com/openshift/client-go/template/clientset/versioned"
-	istiov1beta1 "istio.io/client-go/pkg/apis/security/v1beta1"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -54,7 +53,6 @@ import (
 
 	webhookcorev1 "github.com/opendatahub-io/odh-model-controller/internal/webhook/core/v1"
 	webhooknimv1 "github.com/opendatahub-io/odh-model-controller/internal/webhook/nim/v1"
-	webhookservingv1 "github.com/opendatahub-io/odh-model-controller/internal/webhook/serving/v1"
 	webhookservingv1alpha1 "github.com/opendatahub-io/odh-model-controller/internal/webhook/serving/v1alpha1"
 	webhookservingv1beta1 "github.com/opendatahub-io/odh-model-controller/internal/webhook/serving/v1beta1"
 	// +kubebuilder:scaffold:imports
@@ -138,25 +136,11 @@ func main() {
 		os.Exit(1)
 	}
 
-	kserveState := os.Getenv("KSERVE_STATE")
-
-	kserveWithMeshEnabled, kserveWithMeshEnabledErr := utils.VerifyIfComponentIsEnabled(
-		context.Background(), mgr.GetClient(), utils.KServeWithServiceMeshComponent)
-	if kserveWithMeshEnabledErr != nil {
-		setupLog.Error(kserveWithMeshEnabledErr, "could not determine if kserve have service mesh enabled")
-	}
-
-	if err := setupReconcilers(
-		mgr,
-		setupLog,
-		kubeClient,
-		cfg,
-		kserveWithMeshEnabled,
-		kserveState); err != nil {
+	if err := setupReconcilers(mgr, setupLog, cfg); err != nil {
 		os.Exit(1)
 	}
 	// +kubebuilder:scaffold:builder
-	if err := setupWebhooks(mgr, setupLog, kserveWithMeshEnabled); err != nil {
+	if err := setupWebhooks(mgr, setupLog); err != nil {
 		os.Exit(1)
 	}
 
@@ -262,9 +246,7 @@ func createManager(cfg *rest.Config, metricsAddr, probeAddr string,
 		// after the manager stops then its usage might be unsafe.
 		// LeaderElectionReleaseOnCancel: true,
 		Client: client.Options{
-			Cache: &client.CacheOptions{
-				DisableFor: []client.Object{&istiov1beta1.AuthorizationPolicy{}},
-			},
+			Cache: &client.CacheOptions{},
 		},
 		Cache: cache.Options{
 			ByObject: map[client.Object]cache.ByObject{
@@ -288,7 +270,7 @@ func createManager(cfg *rest.Config, metricsAddr, probeAddr string,
 	return mgr
 }
 
-func setupWebhooks(mgr ctrl.Manager, setupLog logr.Logger, kserveWithMeshEnabled bool) error {
+func setupWebhooks(mgr ctrl.Manager, setupLog logr.Logger) error {
 	if os.Getenv(enableWebhooksEnv) == "false" {
 		setupLog.Info("Webhooks are disabled via environment variable.")
 		return nil
@@ -305,31 +287,18 @@ func setupWebhooks(mgr ctrl.Manager, setupLog logr.Logger, kserveWithMeshEnabled
 		{"LLMInferenceService", webhookservingv1alpha1.SetupLLMInferenceServiceWebhookWithManager},
 	}
 
-	for _, webhook := range webhookSetups {
-		if err := webhook.setupFn(mgr); err != nil {
-			setupLog.Error(err, "unable to create webhook", "webhook", webhook.name)
+	for _, webhookSetup := range webhookSetups {
+		if err := webhookSetup.setupFn(mgr); err != nil {
+			setupLog.Error(err, "unable to create webhookSetup", "webhookSetup", webhookSetup.name)
 			return err
 		}
-	}
-
-	// Handle Knative Service webhook setup conditionally
-	if kserveWithMeshEnabled {
-		if err := webhookservingv1.SetupServiceWebhookWithManager(mgr); err != nil {
-			setupLog.Error(err, "unable to create webhook", "webhook", "Knative Service")
-			return err
-		}
-	} else {
-		setupLog.Info("Skipping setup of Knative Service validating/mutating Webhook, " +
-			"because KServe Serverless setup seems to be disabled.")
 	}
 
 	return nil
 }
 
-func setupReconcilers(mgr ctrl.Manager, setupLog logr.Logger,
-	kubeClient kubernetes.Interface, cfg *rest.Config, kserveWithMeshEnabled bool,
-	kserveState string) error {
-	if err := setupInferenceServiceReconciler(mgr, kubeClient, cfg); err != nil {
+func setupReconcilers(mgr ctrl.Manager, setupLog logr.Logger, cfg *rest.Config) error {
+	if err := setupInferenceServiceReconciler(mgr, cfg); err != nil {
 		setupLog.Error(err, "unable to create controller", "controller", "InferenceService")
 		return err
 	}
@@ -354,18 +323,10 @@ func setupReconcilers(mgr ctrl.Manager, setupLog logr.Logger,
 		return err
 	}
 
-	if kserveState == managedState {
-		if err := setupInferenceGraphReconciler(mgr, kserveWithMeshEnabled); err != nil {
-			setupLog.Error(err, "unable to create controller", "controller", "InferenceGraph")
-			return err
-		}
-	} else {
-		setupLog.Info("kserve state is not managed, skipping controller", "controller", "InferenceGraph")
-	}
 	return nil
 }
 
-func setupInferenceServiceReconciler(mgr ctrl.Manager, kubeClient kubernetes.Interface, cfg *rest.Config) error {
+func setupInferenceServiceReconciler(mgr ctrl.Manager, cfg *rest.Config) error {
 	enableMRInferenceServiceReconcile := false
 
 	mrState := os.Getenv("MODELREGISTRY_STATE")
@@ -378,12 +339,9 @@ func setupInferenceServiceReconciler(mgr ctrl.Manager, kubeClient kubernetes.Int
 		mgr.GetClient(),
 		mgr.GetScheme(),
 		mgr.GetAPIReader(),
-		kubeClient,
-		getEnvAsBool("MESH_DISABLED", false),
 		enableMRInferenceServiceReconcile,
 		getEnvAsBool("MR_SKIP_TLS_VERIFY", false),
-		cfg.BearerToken,
-	)).SetupWithManager(mgr, setupLog)
+		cfg.BearerToken)).SetupWithManager(mgr, setupLog)
 }
 
 func setupSecretReconciler(mgr ctrl.Manager) error {
@@ -412,10 +370,6 @@ func setupServingRuntimeReconciler(mgr ctrl.Manager) error {
 		Client: mgr.GetClient(),
 		Scheme: mgr.GetScheme(),
 	}).SetupWithManager(mgr)
-}
-
-func setupInferenceGraphReconciler(mgr ctrl.Manager, isServerlessMode bool) error {
-	return servingcontroller.NewInferenceGraphReconciler(mgr).SetupWithManager(mgr, isServerlessMode)
 }
 
 func setupLLMInferenceServiceReconciler(mgr ctrl.Manager, cfg *rest.Config) error {

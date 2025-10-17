@@ -94,8 +94,7 @@ vet: ## Run go vet against code.
 .PHONY: test
 test: manifests generate fmt vet envtest ## Run tests.
 	KUBEBUILDER_ASSETS="$(shell $(ENVTEST) use $(ENVTEST_K8S_VERSION) --bin-dir $(LOCALBIN) -p path)" POD_NAMESPACE=default \
-		MESH_NAMESPACE=istio-system CONTROL_PLANE_NAME=istio-system go test $$(go list ./... | grep -v /e2e) \
-		-coverprofile cover.out -coverpkg=./...
+		go test $$(go list ./... | grep -v /e2e) -coverprofile cover.out -coverpkg=./...
 
 # TODO(user): To use a different cluster than Kind for e2e tests, modify the setup under 'tests/e2e'.
 # The default setup assumes Kind is pre-installed and builds/loads the Manager Docker image locally.
