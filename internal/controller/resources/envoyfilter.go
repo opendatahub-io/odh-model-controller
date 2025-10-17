@@ -25,16 +25,16 @@ import (
 
 	"github.com/go-logr/logr"
 	kservev1alpha1 "github.com/kserve/kserve/pkg/apis/serving/v1alpha1"
+	"github.com/opendatahub-io/odh-model-controller/internal/controller/constants"
+	controllerutils "github.com/opendatahub-io/odh-model-controller/internal/controller/utils"
 	istioclientv1alpha3 "istio.io/client-go/pkg/apis/networking/v1alpha3"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/util/retry"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	gatewayapiv1 "sigs.k8s.io/gateway-api/apis/v1"
 	"sigs.k8s.io/yaml"
-
-	"github.com/opendatahub-io/odh-model-controller/internal/controller/constants"
-	controllerutils "github.com/opendatahub-io/odh-model-controller/internal/controller/utils"
 )
 
 type EnvoyFilterDetector interface {
@@ -134,16 +134,20 @@ func (k *kserveEnvoyFilterTemplateLoader) renderSSLTemplate(gatewayNamespace, ga
 	return envoyFilter, nil
 }
 
-// getGatewayInfo returns gateway list with fallback logic
+// getGatewayInfo returns gateway list with fallback logic, filtering out gateways with opendatahub.io/managed: false
 func (k *kserveEnvoyFilterTemplateLoader) getGatewayInfo(ctx context.Context, log logr.Logger, llmisvc *kservev1alpha1.LLMInferenceService) []struct{ Namespace, Name string } {
 	var gateways []struct{ Namespace, Name string }
 
 	if llmisvc.Spec.Router != nil && llmisvc.Spec.Router.Gateway != nil && llmisvc.Spec.Router.Gateway.HasRefs() {
 		for _, ref := range llmisvc.Spec.Router.Gateway.Refs {
-			gateways = append(gateways, struct{ Namespace, Name string }{
-				Namespace: string(ref.Namespace),
-				Name:      string(ref.Name),
-			})
+			// Check if the gateway exists and should be managed
+			gateway := &gatewayapiv1.Gateway{}
+			if err := controllerutils.GetResource(ctx, k.client, string(ref.Namespace), string(ref.Name), gateway); err == nil && !controllerutils.IsExplicitlyUnmanaged(gateway) {
+				gateways = append(gateways, struct{ Namespace, Name string }{
+					Namespace: string(ref.Namespace),
+					Name:      string(ref.Name),
+				})
+			}
 		}
 		return gateways
 	}
@@ -161,10 +165,14 @@ func (k *kserveEnvoyFilterTemplateLoader) getGatewayInfo(ctx context.Context, lo
 		fallbackName = constants.DefaultGatewayName
 	}
 
-	gateways = append(gateways, struct{ Namespace, Name string }{
-		Namespace: fallbackNamespace,
-		Name:      fallbackName,
-	})
+	// Check if the fallback gateway exists and should be managed
+	gateway := &gatewayapiv1.Gateway{}
+	if err := controllerutils.GetResource(ctx, k.client, fallbackNamespace, fallbackName, gateway); err == nil && !controllerutils.IsExplicitlyUnmanaged(gateway) {
+		gateways = append(gateways, struct{ Namespace, Name string }{
+			Namespace: fallbackNamespace,
+			Name:      fallbackName,
+		})
+	}
 
 	return gateways
 }
@@ -213,10 +221,7 @@ func (c *clientEnvoyFilterStore) Create(ctx context.Context, envoyFilter *istioc
 func (c *clientEnvoyFilterStore) Update(ctx context.Context, envoyFilter *istioclientv1alpha3.EnvoyFilter) error {
 	return retry.RetryOnConflict(retry.DefaultRetry, func() error {
 		current := &istioclientv1alpha3.EnvoyFilter{}
-		if err := c.client.Get(ctx, types.NamespacedName{
-			Name:      envoyFilter.GetName(),
-			Namespace: envoyFilter.GetNamespace(),
-		}, current); err != nil {
+		if err := controllerutils.GetResource(ctx, c.client, envoyFilter.GetNamespace(), envoyFilter.GetName(), current); err != nil {
 			return err
 		}
 

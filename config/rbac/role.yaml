@@ -41,18 +41,6 @@ rules:
   - create
   - patch
 - apiGroups:
-  - authorino.kuadrant.io
-  resources:
-  - authconfigs
-  verbs:
-  - create
-  - delete
-  - get
-  - list
-  - patch
-  - update
-  - watch
-- apiGroups:
   - config.openshift.io
   resources:
   - authentications
@@ -88,6 +76,16 @@ rules:
 - apiGroups:
   - gateway.networking.k8s.io
   resources:
+  - gateways
+  verbs:
+  - get
+  - list
+  - patch
+  - update
+  - watch
+- apiGroups:
+  - gateway.networking.k8s.io
+  resources:
   - gateways/finalizers
   verbs:
   - patch
@@ -99,17 +97,6 @@ rules:
   verbs:
   - get
   - list
-  - watch
-- apiGroups:
-  - gateway.networking.k8s.io
-  - networking.istio.io
-  resources:
-  - gateways
-  verbs:
-  - get
-  - list
-  - patch
-  - update
   - watch
 - apiGroups:
   - keda.sh
@@ -144,35 +131,6 @@ rules:
   - patch
   - update
 - apiGroups:
-  - maistra.io
-  resources:
-  - servicemeshcontrolplanes
-  verbs:
-  - get
-  - list
-  - use
-  - watch
-- apiGroups:
-  - maistra.io
-  resources:
-  - servicemeshmemberrolls
-  verbs:
-  - get
-  - list
-  - watch
-- apiGroups:
-  - maistra.io
-  resources:
-  - servicemeshmembers
-  verbs:
-  - create
-  - delete
-  - get
-  - list
-  - patch
-  - update
-  - watch
-- apiGroups:
   - metrics.k8s.io
   resources:
   - nodes
@@ -198,8 +156,6 @@ rules:
   - networking.istio.io
   resources:
   - envoyfilters
-  - virtualservices
-  - virtualservices/finalizers
   verbs:
   - create
   - delete
@@ -278,28 +234,10 @@ rules:
   verbs:
   - create
 - apiGroups:
-  - security.istio.io
-  resources:
-  - authorizationpolicies
-  verbs:
-  - get
-  - list
-- apiGroups:
-  - security.istio.io
-  resources:
-  - peerauthentications
-  verbs:
-  - create
-  - delete
-  - get
-  - list
-  - patch
-  - update
-  - watch
-- apiGroups:
   - serving.kserve.io
   resources:
   - inferencegraphs
+  - llminferenceserviceconfigs
   verbs:
   - get
   - list
@@ -367,18 +305,6 @@ rules:
   - create
   - get
   - list
-  - update
-  - watch
-- apiGroups:
-  - telemetry.istio.io
-  resources:
-  - telemetries
-  verbs:
-  - create
-  - delete
-  - get
-  - list
-  - patch
   - update
   - watch
 - apiGroups:

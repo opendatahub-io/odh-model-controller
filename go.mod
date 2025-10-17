@@ -10,7 +10,6 @@ require (
 	github.com/hashicorp/go-multierror v1.1.1
 	github.com/kedacore/keda/v2 v2.16.1
 	github.com/kserve/kserve v0.15.0
-	github.com/kuadrant/authorino v0.20.0
 	github.com/kuadrant/kuadrant-operator v1.2.0
 	github.com/kubeflow/model-registry v0.2.19
 	github.com/onsi/ginkgo/v2 v2.23.4
@@ -20,7 +19,6 @@ require (
 	github.com/pkg/errors v0.9.1
 	github.com/prometheus-operator/prometheus-operator/pkg/apis/monitoring v0.76.2
 	github.com/stretchr/testify v1.10.0
-	github.com/tidwall/gjson v1.18.0
 	go.uber.org/zap v1.27.0
 	google.golang.org/protobuf v1.36.6
 	istio.io/api v1.26.4
@@ -32,8 +30,6 @@ require (
 	k8s.io/client-go v0.33.1
 	k8s.io/utils v0.0.0-20250321185631-1f6e0b77f77e
 	knative.dev/pkg v0.0.0-20250117084104-c43477f0052b
-	knative.dev/serving v0.44.0
-	maistra.io/api v0.0.0-20240319144440-ffa91c765143
 	sigs.k8s.io/controller-runtime v0.20.4
 	sigs.k8s.io/gateway-api v1.2.1
 	sigs.k8s.io/gateway-api-inference-extension v0.3.0
@@ -96,6 +92,7 @@ require (
 	github.com/jmespath/go-jmespath v0.4.1-0.20220621161143-b0104c826a24 // indirect
 	github.com/josharian/intern v1.0.0 // indirect
 	github.com/json-iterator/go v1.1.12 // indirect
+	github.com/kuadrant/authorino v0.20.0 // indirect
 	github.com/kuadrant/dns-operator v0.10.0 // indirect
 	github.com/kuadrant/policy-machinery v0.6.4 // indirect
 	github.com/leodido/go-urn v1.4.0 // indirect
@@ -118,8 +115,6 @@ require (
 	github.com/spiffe/go-spiffe/v2 v2.5.0 // indirect
 	github.com/stoewer/go-strcase v1.3.0 // indirect
 	github.com/telepresenceio/watchable v0.0.0-20220726211108-9bb86f92afa7 // indirect
-	github.com/tidwall/match v1.1.1 // indirect
-	github.com/tidwall/pretty v1.2.1 // indirect
 	github.com/x448/float16 v0.8.4 // indirect
 	github.com/zeebo/errs v1.4.0 // indirect
 	go.opencensus.io v0.24.0 // indirect
@@ -161,9 +156,11 @@ require (
 	k8s.io/klog/v2 v2.130.1 // indirect
 	k8s.io/kube-openapi v0.0.0-20250318190949-c8a335a9a2ff // indirect
 	knative.dev/networking v0.0.0-20250117155906-67d1c274ba6a // indirect
+	knative.dev/serving v0.44.0 // indirect
 	sigs.k8s.io/apiserver-network-proxy/konnectivity-client v0.31.2 // indirect
 	sigs.k8s.io/external-dns v0.14.0 // indirect
 	sigs.k8s.io/json v0.0.0-20241014173422-cfa47c3a1cc8 // indirect
+	sigs.k8s.io/lws v0.6.2 // indirect
 	sigs.k8s.io/randfill v1.0.0 // indirect
 	sigs.k8s.io/structured-merge-diff/v4 v4.7.0 // indirect
 )

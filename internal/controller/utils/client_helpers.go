@@ -1,4 +1,5 @@
 /*
+Copyright 2025.
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -13,20 +14,20 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package comparators
+package utils
 
 import (
-	"reflect"
+	"context"
 
-	authorinov1beta2 "github.com/kuadrant/authorino/api/v1beta2"
+	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
-func GetAuthConfigComparator() ResourceComparator {
-	return func(deployed client.Object, requested client.Object) bool {
-		deployedAC := deployed.(*authorinov1beta2.AuthConfig)
-		requestedAC := requested.(*authorinov1beta2.AuthConfig)
-		return reflect.DeepEqual(deployedAC.Spec, requestedAC.Spec) &&
-			reflect.DeepEqual(deployedAC.Labels, requestedAC.Labels)
-	}
+// GetResource is a generic helper to get a Kubernetes resource by namespace and name.
+// It simplifies the common pattern of fetching resources using client.Get.
+func GetResource[T client.Object](ctx context.Context, c client.Client, namespace, name string, obj T) error {
+	return c.Get(ctx, types.NamespacedName{
+		Namespace: namespace,
+		Name:      name,
+	}, obj)
 }

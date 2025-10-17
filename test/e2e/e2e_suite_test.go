@@ -29,15 +29,11 @@ import (
 	. "github.com/onsi/gomega"
 	routev1 "github.com/openshift/api/route/v1"
 	monitoringv1 "github.com/prometheus-operator/prometheus-operator/pkg/apis/monitoring/v1"
-	virtualservicev1 "istio.io/client-go/pkg/apis/networking/v1alpha3"
-	istiosecurityv1beta1 "istio.io/client-go/pkg/apis/security/v1beta1"
-	telemetryv1alpha1 "istio.io/client-go/pkg/apis/telemetry/v1alpha1"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
 	k8sclient "k8s.io/client-go/kubernetes"
 	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
-	maistrav1 "maistra.io/api/core/v1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	clientconfig "sigs.k8s.io/controller-runtime/pkg/client/config"
 )
@@ -185,12 +181,8 @@ var _ = BeforeSuite(func() {
 	utilruntime.Must(kservev1alpha1.AddToScheme(scheme))
 	utilruntime.Must(kservev1beta1.AddToScheme(scheme))
 	utilruntime.Must(routev1.AddToScheme(scheme))
-	utilruntime.Must(virtualservicev1.AddToScheme(scheme))
-	utilruntime.Must(maistrav1.AddToScheme(scheme))
 	utilruntime.Must(monitoringv1.AddToScheme(scheme))
 	utilruntime.Must(corev1.AddToScheme(scheme))
-	utilruntime.Must(istiosecurityv1beta1.AddToScheme(scheme))
-	utilruntime.Must(telemetryv1alpha1.AddToScheme(scheme))
 })
 
 // Cleanup resources to not contaminate between tests

@@ -89,7 +89,7 @@ var _ = Describe("Secret Controller (StorageConfig controller)", func() {
 			Expect(err).NotTo(HaveOccurred())
 			Expect(k8sClient.Create(ctx, dataconnectionHttpsStringSecret)).Should(Succeed())
 
-			_, err = waitForSecret(k8sClient, WorkingNamespace, constants.DefaultStorageConfig, 30, 1*time.Second)
+			_, err = waitForStorageConfigWithEntries(k8sClient, WorkingNamespace, 2, 30, 1*time.Second)
 			Expect(err).NotTo(HaveOccurred())
 
 			By("updating storage-config label opendatahub.io/managed: false")

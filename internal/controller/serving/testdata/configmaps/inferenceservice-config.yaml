@@ -14,7 +14,7 @@ data:
     }
   deploy: |-
     {
-      "defaultDeploymentMode": "Serverless"
+      "defaultDeploymentMode": "RawDeployment"
     }
   storageInitializer: |-
     {

@@ -30,7 +30,7 @@ import (
 	"github.com/opendatahub-io/odh-model-controller/internal/controller/comparators"
 	"github.com/opendatahub-io/odh-model-controller/internal/controller/processors"
 	"github.com/opendatahub-io/odh-model-controller/internal/controller/resources"
-	"github.com/opendatahub-io/odh-model-controller/internal/controller/utils"
+	controllerutils "github.com/opendatahub-io/odh-model-controller/internal/controller/utils"
 )
 
 var _ LLMSubResourceReconciler = (*LLMRoleBindingReconciler)(nil)
@@ -60,7 +60,7 @@ func (r *LLMRoleBindingReconciler) Reconcile(ctx context.Context, log logr.Logge
 		return err
 	}
 
-	if existingResource != nil && !utils.IsManagedResource(llmisvc, existingResource) {
+	if existingResource != nil && !controllerutils.IsManagedResource(llmisvc, existingResource) {
 		return nil
 	}
 
@@ -80,7 +80,7 @@ func (r *LLMRoleBindingReconciler) createDesiredResource(ctx context.Context, lo
 
 	desiredRoleBinding := &v1.RoleBinding{
 		ObjectMeta: metav1.ObjectMeta{
-			Name:      utils.GetMaaSRoleBindingName(llmisvc),
+			Name:      controllerutils.GetMaaSRoleBindingName(llmisvc),
 			Namespace: llmisvc.Namespace,
 			Labels: map[string]string{
 				"app.kubernetes.io/managed-by": "odh-model-controller",
@@ -89,7 +89,7 @@ func (r *LLMRoleBindingReconciler) createDesiredResource(ctx context.Context, lo
 		Subjects: subjects,
 		RoleRef: v1.RoleRef{
 			Kind:     "Role",
-			Name:     utils.GetMaaSRoleName(llmisvc),
+			Name:     controllerutils.GetMaaSRoleName(llmisvc),
 			APIGroup: "rbac.authorization.k8s.io",
 		},
 	}
@@ -130,7 +130,7 @@ func (r *LLMRoleBindingReconciler) getTierSubjects(ctx context.Context, log logr
 }
 
 func (r *LLMRoleBindingReconciler) getExistingResource(ctx context.Context, log logr.Logger, llmisvc *kservev1alpha1.LLMInferenceService) (*v1.RoleBinding, error) {
-	return r.roleBindingHandler.FetchRoleBinding(ctx, log, machineryTypes.NamespacedName{Name: utils.GetMaaSRoleBindingName(llmisvc), Namespace: llmisvc.Namespace})
+	return r.roleBindingHandler.FetchRoleBinding(ctx, log, machineryTypes.NamespacedName{Name: controllerutils.GetMaaSRoleBindingName(llmisvc), Namespace: llmisvc.Namespace})
 }
 
 func (r *LLMRoleBindingReconciler) processDelta(ctx context.Context, log logr.Logger, desiredRoleBinding *v1.RoleBinding, existingRoleBinding *v1.RoleBinding) (err error) {
