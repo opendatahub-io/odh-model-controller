@@ -432,8 +432,6 @@ func GetNimServingRuntimeTemplate(scheme *runtime.Scheme) (*v1alpha1.ServingRunt
 				Annotations: map[string]string{
 					"prometheus.io/path": "/metrics",
 					"prometheus.io/port": "8000",
-					// TODO: verify inside the nim channel
-					"serving.knative.dev/progress-deadline": "30m",
 				},
 				Containers: []corev1.Container{
 					{Env: []corev1.EnvVar{
