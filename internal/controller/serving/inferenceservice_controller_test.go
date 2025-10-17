@@ -184,14 +184,24 @@ var _ = Describe("InferenceService Controller", func() {
 				inferenceService.SetNamespace(testNs)
 				Expect(k8sClient.Create(ctx, inferenceService)).Should(Succeed())
 				// Update inference service status with url to create the route
-				deployedInferenceService := &kservev1beta1.InferenceService{}
-				err = k8sClient.Get(ctx, types.NamespacedName{Name: inferenceService.Name, Namespace: inferenceService.Namespace}, deployedInferenceService)
-				Expect(err).NotTo(HaveOccurred())
 				url, err := apis.ParseURL("https://example-onnx-mnist-timeout-default.test.com")
 				Expect(err).NotTo(HaveOccurred())
-				deployedInferenceService.Status.URL = url
-				err = k8sClient.Status().Update(ctx, deployedInferenceService)
-				Expect(err).NotTo(HaveOccurred())
+
+				Eventually(func() error {
+					// Get latest version of InferenceService
+					deployedInferenceService := &kservev1beta1.InferenceService{}
+					err := k8sClient.Get(ctx, types.NamespacedName{Name: inferenceService.Name, Namespace: inferenceService.Namespace}, deployedInferenceService)
+					if err != nil {
+						return err
+					}
+
+					// Create a copy and update status
+					updatedISVC := deployedInferenceService.DeepCopy()
+					updatedISVC.Status.URL = url
+
+					// Use Patch instead of Update to reduce conflicts
+					return k8sClient.Status().Patch(ctx, updatedISVC, client.MergeFrom(deployedInferenceService))
+				}, timeout, interval).Should(Succeed())
 
 				// Checking that the controller has created the Route with the haproxy.router.openshift.io/timeout annotation added
 				Eventually(func() error {
