@@ -21,7 +21,6 @@ import (
 
 	"github.com/go-logr/logr"
 	"github.com/hashicorp/go-multierror"
-	"github.com/kuadrant/authorino/pkg/log"
 	corev1 "k8s.io/api/core/v1"
 	rbacv1 "k8s.io/api/rbac/v1"
 	"k8s.io/apimachinery/pkg/api/equality"
@@ -80,7 +79,7 @@ func (k *KserveKEDAReconciler) Reconcile(ctx context.Context, log logr.Logger, i
 	log = log.WithName("KserveKEDAReconciler")
 	log.V(2).Info("Reconciling InferenceService", "InferenceService", isvc)
 
-	if !hasPrometheusExternalAutoscalingMetric(isvc) {
+	if !hasPrometheusExternalAutoscalingMetric(isvc, log) {
 		log.V(1).Info("No Prometheus external autoscaling metric found, KEDA resources not required by this InferenceService. Ensuring InferenceService is removed from owner references.")
 
 		// When Prometheus autoscaling is not used, we remove the InferenceService as owner reference from
@@ -135,7 +134,7 @@ func (k *KserveKEDAReconciler) maybeCleanupNamespace(ctx context.Context, log lo
 		return err
 	}
 	for _, isvc := range inferenceServiceList.Items {
-		if hasPrometheusExternalAutoscalingMetric(&isvc) {
+		if hasPrometheusExternalAutoscalingMetric(&isvc, log) {
 			// There are still InferenceServices with Prometheus autoscaling configured, nothing to remove.
 			return nil
 		}
@@ -543,7 +542,7 @@ func (k *KserveKEDAReconciler) removeOwnerReferenceFromObject(
 	return nil
 }
 
-func hasPrometheusExternalAutoscalingMetric(isvc *kservev1beta1.InferenceService) bool {
+func hasPrometheusExternalAutoscalingMetric(isvc *kservev1beta1.InferenceService, log logr.Logger) bool {
 	log.V(1).Info("hasPrometheusExternalAutoscalingMetric", "autoscaling", isvc.Spec.Predictor.AutoScaling)
 	if isvc.Spec.Predictor.AutoScaling == nil {
 		return false

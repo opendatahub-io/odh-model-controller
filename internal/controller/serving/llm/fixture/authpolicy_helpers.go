@@ -20,12 +20,12 @@ import (
 	"context"
 	"fmt"
 
+	"github.com/opendatahub-io/odh-model-controller/internal/controller/constants"
+
 	kuadrantv1 "github.com/kuadrant/kuadrant-operator/api/v1"
 	"github.com/onsi/gomega"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	gatewayapiv1 "sigs.k8s.io/gateway-api/apis/v1"
-
-	"github.com/opendatahub-io/odh-model-controller/internal/controller/constants"
 )
 
 func getHTTPRouteAuthPolicy(ctx context.Context, c client.Client, llmisvcNamespace, llmisvcName string) (*kuadrantv1.AuthPolicy, error) {

@@ -26,18 +26,13 @@ import (
 
 	kservev1alpha1 "github.com/kserve/kserve/pkg/apis/serving/v1alpha1"
 	kservev1beta1 "github.com/kserve/kserve/pkg/apis/serving/v1beta1"
-	authorinov1beta2 "github.com/kuadrant/authorino/api/v1beta2"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	routev1 "github.com/openshift/api/route/v1"
 	monitoringv1 "github.com/prometheus-operator/prometheus-operator/pkg/apis/monitoring/v1"
-	istioclientv1beta1 "istio.io/client-go/pkg/apis/networking/v1beta1"
-	istiov1beta1 "istio.io/client-go/pkg/apis/security/v1beta1"
 	corev1 "k8s.io/api/core/v1"
 	k8srbacv1 "k8s.io/api/rbac/v1"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	k8sLabels "k8s.io/apimachinery/pkg/labels"
-	"k8s.io/client-go/kubernetes"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/cache"
 	metricsserver "sigs.k8s.io/controller-runtime/pkg/metrics/server"
@@ -73,9 +68,6 @@ const (
 	KserveInferenceServicePath2     = "./testdata/deploy/kserve-openvino-inference-service-custom-timeout.yaml"
 	KserveInferenceServicePath3     = "./testdata/deploy/kserve-openvino-inference-service-default-timeout.yaml"
 	InferenceServiceConfigPath1     = "./testdata/configmaps/inferenceservice-config.yaml"
-	DSCIWithAuthorization           = "./testdata/dsci-with-authorino-enabled.yaml"
-	DSCIWithoutAuthorization        = "./testdata/dsci-with-authorino-missing.yaml"
-	KServeAuthorizationPolicy       = "./testdata/kserve-authorization-policy.yaml"
 	odhtrustedcabundleConfigMapPath = "./testdata/configmaps/odh-trusted-ca-bundle-configmap.yaml"
 	timeout                         = time.Second * 20
 	interval                        = time.Millisecond * 10
@@ -121,25 +113,10 @@ var _ = BeforeSuite(func() {
 	Expect(err).NotTo(HaveOccurred())
 	Expect(k8sClient).NotTo(BeNil())
 
-	kubeClient, kubeClientErr := kubernetes.NewForConfig(cfg)
-	Expect(kubeClientErr).NotTo(HaveOccurred())
-
-	// Create istio-system namespace
-	_, meshNamespace := utils.GetIstioControlPlaneName(ctx, k8sClient)
-	istioNamespace := &corev1.Namespace{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:      meshNamespace,
-			Namespace: meshNamespace,
-		},
-	}
-	Expect(k8sClient.Create(ctx, istioNamespace)).Should(Succeed())
-
 	mgr, err := ctrl.NewManager(cfg, ctrl.Options{
 		Scheme: scheme.Scheme,
 		Client: client.Options{
-			Cache: &client.CacheOptions{
-				DisableFor: []client.Object{&istiov1beta1.AuthorizationPolicy{}},
-			},
+			Cache: &client.CacheOptions{},
 		},
 		Cache: cache.Options{
 			ByObject: map[client.Object]cache.ByObject{
@@ -159,8 +136,6 @@ var _ = BeforeSuite(func() {
 		mgr.GetClient(),
 		mgr.GetScheme(),
 		mgr.GetAPIReader(),
-		kubeClient,
-		false,
 		true,
 		false,
 		"",
@@ -173,7 +148,7 @@ var _ = BeforeSuite(func() {
 	}).SetupWithManager(mgr)
 	Expect(err).NotTo(HaveOccurred())
 
-	err = NewInferenceGraphReconciler(mgr).SetupWithManager(mgr, true)
+	err = NewInferenceGraphReconciler(mgr).SetupWithManager(mgr)
 	Expect(err).NotTo(HaveOccurred())
 
 	go func() {
@@ -194,8 +169,6 @@ var _ = AfterSuite(func() {
 var _ = AfterEach(func() {
 	cleanUp := func(namespace string, cli client.Client) {
 		inNamespace := client.InNamespace(namespace)
-		_, meshNamespace := utils.GetIstioControlPlaneName(ctx, cli)
-		istioNamespace := client.InNamespace(meshNamespace)
 		Expect(cli.DeleteAllOf(context.TODO(), &kservev1alpha1.ServingRuntime{}, inNamespace)).ToNot(HaveOccurred())
 		Expect(cli.DeleteAllOf(context.TODO(), &kservev1beta1.InferenceService{}, inNamespace)).ToNot(HaveOccurred())
 		Expect(cli.DeleteAllOf(context.TODO(), &routev1.Route{}, inNamespace)).ToNot(HaveOccurred())
@@ -203,10 +176,8 @@ var _ = AfterEach(func() {
 		Expect(cli.DeleteAllOf(context.TODO(), &k8srbacv1.Role{}, inNamespace)).ToNot(HaveOccurred())
 		Expect(cli.DeleteAllOf(context.TODO(), &k8srbacv1.RoleBinding{}, inNamespace)).ToNot(HaveOccurred())
 		Expect(cli.DeleteAllOf(context.TODO(), &corev1.Secret{}, inNamespace)).ToNot(HaveOccurred())
-		Expect(cli.DeleteAllOf(context.TODO(), &authorinov1beta2.AuthConfig{}, inNamespace)).ToNot(HaveOccurred())
 		Expect(cli.DeleteAllOf(context.TODO(), &corev1.ConfigMap{}, inNamespace)).ToNot(HaveOccurred())
 		Expect(cli.DeleteAllOf(context.TODO(), &corev1.Service{}, inNamespace)).ToNot(HaveOccurred())
-		Expect(cli.DeleteAllOf(context.TODO(), &istioclientv1beta1.Gateway{}, istioNamespace)).ToNot(HaveOccurred())
 	}
 	cleanUp(WorkingNamespace, k8sClient)
 	for _, ns := range testutils.Namespaces.All() {

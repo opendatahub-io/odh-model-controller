@@ -36,7 +36,7 @@ import (
 	"github.com/opendatahub-io/odh-model-controller/internal/controller/serving/llm/fixture"
 	"github.com/opendatahub-io/odh-model-controller/internal/controller/serving/reconcilers"
 	pkgtest "github.com/opendatahub-io/odh-model-controller/internal/controller/testing"
-	"github.com/opendatahub-io/odh-model-controller/internal/controller/utils"
+	controllerutils "github.com/opendatahub-io/odh-model-controller/internal/controller/utils"
 	testutils "github.com/opendatahub-io/odh-model-controller/test/utils"
 )
 
@@ -423,7 +423,7 @@ var _ = Describe("LLMInferenceService Controller", func() {
 					Expect(envTest.Create(ctx, llmisvc)).Should(Succeed())
 
 					// Wait for Role to be created and verify its specification
-					role := waitForRole(testNs, utils.GetMaaSRoleName(llmisvc))
+					role := waitForRole(testNs, controllerutils.GetMaaSRoleName(llmisvc))
 					verifyRoleSpecification(role, llmisvc)
 
 					// Verify owner reference
@@ -442,7 +442,7 @@ var _ = Describe("LLMInferenceService Controller", func() {
 					llmisvc := createLLMInferenceService(testNs, "test-llm-service", LLMServicePath1)
 					Expect(envTest.Create(ctx, llmisvc)).Should(Succeed())
 
-					roleName := utils.GetMaaSRoleName(llmisvc)
+					roleName := controllerutils.GetMaaSRoleName(llmisvc)
 					role := waitForRole(testNs, roleName)
 
 					// Manually modify Role (change verb from "post" to "get")
@@ -480,8 +480,8 @@ var _ = Describe("LLMInferenceService Controller", func() {
 					Expect(envTest.Create(ctx, llmisvc2)).Should(Succeed())
 
 					// Verify each has its own Role with correct resource names
-					role1Name := utils.GetMaaSRoleName(llmisvc1)
-					role2Name := utils.GetMaaSRoleName(llmisvc2)
+					role1Name := controllerutils.GetMaaSRoleName(llmisvc1)
+					role2Name := controllerutils.GetMaaSRoleName(llmisvc2)
 
 					role1 := waitForRole(testNs, role1Name)
 					verifyRoleSpecification(role1, llmisvc1)
@@ -497,7 +497,7 @@ var _ = Describe("LLMInferenceService Controller", func() {
 					llmisvc := createLLMInferenceService(testNs, "test-llm-service", LLMServicePath1)
 					Expect(envTest.Create(ctx, llmisvc)).Should(Succeed())
 
-					roleName := utils.GetMaaSRoleName(llmisvc)
+					roleName := controllerutils.GetMaaSRoleName(llmisvc)
 					waitForRole(testNs, roleName)
 
 					// Remove tier annotation and verify Role is deleted
@@ -523,7 +523,7 @@ var _ = Describe("LLMInferenceService Controller", func() {
 
 					unmanagedRole := &rbacv1.Role{
 						ObjectMeta: metav1.ObjectMeta{
-							Name:      utils.GetMaaSRoleName(llmisvc),
+							Name:      controllerutils.GetMaaSRoleName(llmisvc),
 							Namespace: testNs,
 						},
 						Rules: []rbacv1.PolicyRule{
@@ -562,7 +562,7 @@ var _ = Describe("LLMInferenceService Controller", func() {
 					Expect(envTest.Create(ctx, llmisvc)).Should(Succeed())
 
 					// Wait for RoleBinding to be created and verify its specification
-					roleBindingName := utils.GetMaaSRoleBindingName(llmisvc)
+					roleBindingName := controllerutils.GetMaaSRoleBindingName(llmisvc)
 					roleBinding := waitForRoleBinding(testNs, roleBindingName)
 					verifyRoleBindingSpecification(Default, roleBinding, llmisvc)
 
@@ -582,7 +582,7 @@ var _ = Describe("LLMInferenceService Controller", func() {
 					llmisvc := createLLMInferenceService(testNs, "test-llm-service", LLMServicePath1)
 					Expect(envTest.Create(ctx, llmisvc)).Should(Succeed())
 
-					roleBindingName := utils.GetMaaSRoleBindingName(llmisvc)
+					roleBindingName := controllerutils.GetMaaSRoleBindingName(llmisvc)
 					roleBinding := waitForRoleBinding(testNs, roleBindingName)
 
 					// Manually modify RoleBinding subjects (remove a MaaS tier)
@@ -623,8 +623,8 @@ var _ = Describe("LLMInferenceService Controller", func() {
 					Expect(envTest.Create(ctx, llmisvc2)).Should(Succeed())
 
 					// Verify each has its own RoleBinding with correct Role reference
-					roleBinding1Name := utils.GetMaaSRoleBindingName(llmisvc1)
-					roleBinding2Name := utils.GetMaaSRoleBindingName(llmisvc2)
+					roleBinding1Name := controllerutils.GetMaaSRoleBindingName(llmisvc1)
+					roleBinding2Name := controllerutils.GetMaaSRoleBindingName(llmisvc2)
 
 					roleBinding1 := waitForRoleBinding(testNs, roleBinding1Name)
 					verifyRoleBindingSpecification(Default, roleBinding1, llmisvc1)
@@ -640,7 +640,7 @@ var _ = Describe("LLMInferenceService Controller", func() {
 					llmisvc := createLLMInferenceService(testNs, "test-llm-service", LLMServicePath1)
 					Expect(envTest.Create(ctx, llmisvc)).Should(Succeed())
 
-					roleBindingName := utils.GetMaaSRoleBindingName(llmisvc)
+					roleBindingName := controllerutils.GetMaaSRoleBindingName(llmisvc)
 					waitForRoleBinding(testNs, roleBindingName)
 
 					// Remove tier annotation and check the RoleBinding is deleted
@@ -665,7 +665,7 @@ var _ = Describe("LLMInferenceService Controller", func() {
 
 					unmanagedRoleBinding := &rbacv1.RoleBinding{
 						ObjectMeta: metav1.ObjectMeta{
-							Name:      utils.GetMaaSRoleBindingName(llmisvc),
+							Name:      controllerutils.GetMaaSRoleBindingName(llmisvc),
 							Namespace: testNs,
 						},
 						Subjects: []rbacv1.Subject{
@@ -678,7 +678,7 @@ var _ = Describe("LLMInferenceService Controller", func() {
 						},
 						RoleRef: rbacv1.RoleRef{
 							Kind:     "Role",
-							Name:     utils.GetMaaSRoleName(llmisvc),
+							Name:     controllerutils.GetMaaSRoleName(llmisvc),
 							APIGroup: "rbac.authorization.k8s.io",
 						},
 					}
@@ -737,7 +737,7 @@ func verifyRoleSpecification(role *rbacv1.Role, llmIsvc *kservev1alpha1.LLMInfer
 	GinkgoHelper()
 
 	// Verify Role name
-	expectedName := utils.GetMaaSRoleName(llmIsvc)
+	expectedName := controllerutils.GetMaaSRoleName(llmIsvc)
 	Expect(role.GetName()).To(Equal(expectedName))
 
 	// Verify Role labels
@@ -791,7 +791,7 @@ func verifyRoleBinding2Specification(g Gomega, roleBinding *rbacv1.RoleBinding, 
 func verifyRoleBindingMetadata(g Gomega, roleBinding *rbacv1.RoleBinding, llmIsvc *kservev1alpha1.LLMInferenceService) {
 	GinkgoHelper()
 
-	expectedName := utils.GetMaaSRoleBindingName(llmIsvc)
+	expectedName := controllerutils.GetMaaSRoleBindingName(llmIsvc)
 	g.Expect(roleBinding.GetName()).To(Equal(expectedName))
 	g.Expect(roleBinding.GetLabels()).To(HaveKeyWithValue("app.kubernetes.io/managed-by", "odh-model-controller"))
 }
@@ -799,7 +799,7 @@ func verifyRoleBindingMetadata(g Gomega, roleBinding *rbacv1.RoleBinding, llmIsv
 func verifyRoleBindingRoleRef(g Gomega, roleBinding *rbacv1.RoleBinding, llmIsvc *kservev1alpha1.LLMInferenceService) {
 	GinkgoHelper()
 
-	expectedRoleName := utils.GetMaaSRoleName(llmIsvc)
+	expectedRoleName := controllerutils.GetMaaSRoleName(llmIsvc)
 	g.Expect(roleBinding.RoleRef.Name).To(Equal(expectedRoleName))
 	g.Expect(roleBinding.RoleRef.Kind).To(Equal("Role"))
 	g.Expect(roleBinding.RoleRef.APIGroup).To(Equal("rbac.authorization.k8s.io"))
