@@ -134,7 +134,17 @@ var _ = Describe("AuthPolicyTemplateLoader", func() {
 			Expect(kservev1alpha1.AddToScheme(scheme)).To(Succeed())
 			Expect(ocpconfigv1.AddToScheme(scheme)).To(Succeed())
 			Expect(gwapiv1alpha2.Install(scheme)).To(Succeed())
-			fakeClient = fake.NewClientBuilder().WithScheme(scheme).Build()
+			Expect(gatewayapiv1.Install(scheme)).To(Succeed())
+
+			// Create default gateway that tests expect
+			defaultGateway := &gatewayapiv1.Gateway{
+				ObjectMeta: v1.ObjectMeta{
+					Name:      "openshift-ai-inference",
+					Namespace: "openshift-ingress",
+				},
+			}
+
+			fakeClient = fake.NewClientBuilder().WithScheme(scheme).WithObjects(defaultGateway).Build()
 			loader = resources.NewKServeAuthPolicyTemplateLoader(fakeClient)
 
 			dummyLLMISvc = kservev1alpha1.LLMInferenceService{
@@ -244,13 +254,13 @@ var _ = Describe("AuthPolicyTemplateLoader", func() {
 			Expect(gatewayapiv1.Install(scheme)).To(Succeed())
 		})
 
-		It("should exclude gateway with opendatahub.io/managed=false annotation", func(ctx SpecContext) {
+		It("should exclude gateway with opendatahub.io/managed=false label", func(ctx SpecContext) {
 			gateway := &gatewayapiv1.Gateway{
 				ObjectMeta: v1.ObjectMeta{
 					Name:      "test-gateway",
 					Namespace: "test-gateway-ns",
-					Annotations: map[string]string{
-						constants.GatewayManagedAnnotation: "false",
+					Labels: map[string]string{
+						constants.ODHManagedLabel: "false",
 					},
 				},
 			}
