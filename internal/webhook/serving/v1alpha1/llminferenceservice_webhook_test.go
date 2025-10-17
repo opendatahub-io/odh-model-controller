@@ -23,6 +23,7 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	k8sErrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	"github.com/opendatahub-io/odh-model-controller/internal/controller/serving/reconcilers"
 
@@ -85,6 +86,12 @@ var _ = Describe("LLMInferenceService Webhook", func() {
 					},
 				}
 				Expect(k8sClient.Create(ctx, tierConfigMap)).Should(Succeed())
+
+				// Wait for ConfigMap to be available for reading to avoid race conditions
+				Eventually(func() error {
+					cm := &corev1.ConfigMap{}
+					return k8sClient.Get(ctx, client.ObjectKeyFromObject(tierConfigMap), cm)
+				}).Should(Succeed())
 			})
 
 			AfterEach(func() {
@@ -179,6 +186,12 @@ var _ = Describe("LLMInferenceService Webhook", func() {
 				Expect(k8sClient.Create(ctx, tierConfigMap)).Should(Succeed())
 				defer func() { _ = k8sClient.Delete(ctx, tierConfigMap) }()
 
+				// Wait for ConfigMap to be available for reading to avoid race conditions
+				Eventually(func() error {
+					cm := &corev1.ConfigMap{}
+					return k8sClient.Get(ctx, client.ObjectKeyFromObject(tierConfigMap), cm)
+				}).Should(Succeed())
+
 				llmisvc := &kservev1alpha1.LLMInferenceService{
 					ObjectMeta: metav1.ObjectMeta{
 						Name:      "test-llm-invalid-tier",
@@ -221,6 +234,12 @@ var _ = Describe("LLMInferenceService Webhook", func() {
 					},
 				}
 				Expect(k8sClient.Create(ctx, tierConfigMap)).Should(Succeed())
+
+				// Wait for ConfigMap to be available for reading to avoid race conditions
+				Eventually(func() error {
+					cm := &corev1.ConfigMap{}
+					return k8sClient.Get(ctx, client.ObjectKeyFromObject(tierConfigMap), cm)
+				}).Should(Succeed())
 			})
 
 			AfterEach(func() {
