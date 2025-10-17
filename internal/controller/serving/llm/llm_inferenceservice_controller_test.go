@@ -18,12 +18,14 @@ package llm_test
 
 import (
 	"context"
+	"os"
 
 	kservev1alpha1 "github.com/kserve/kserve/pkg/apis/serving/v1alpha1"
 	kuadrantv1 "github.com/kuadrant/kuadrant-operator/api/v1"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	istioclientv1alpha3 "istio.io/client-go/pkg/apis/networking/v1alpha3"
+	corev1 "k8s.io/api/core/v1"
 	rbacv1 "k8s.io/api/rbac/v1"
 	"k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -852,3 +854,405 @@ func verifyMaaSTierSubjects2(g Gomega, subjects []rbacv1.Subject) {
 
 	g.Expect(subjects).To(HaveExactElements(expectedSubjects))
 }
+
+var _ = Describe("BaseRefs and Spec Merging", func() {
+	var testNs string
+
+	BeforeEach(func() {
+		ctx := context.Background()
+		testNamespace := testutils.Namespaces.Create(ctx, envTest.Client)
+		testNs = testNamespace.Name
+	})
+
+	Context("LLMInferenceServiceConfig retrieval", func() {
+		It("should retrieve LLMInferenceServiceConfig from service namespace and create AuthPolicy for referenced gateway", func(ctx SpecContext) {
+			customGatewayName := pkgtest.GenerateUniqueTestName("config-gateway")
+			customGatewayNamespace := testNs
+
+			// Create a custom gateway referenced by the config
+			customGateway := fixture.Gateway(customGatewayName,
+				fixture.InNamespace[*gatewayapiv1.Gateway](customGatewayNamespace),
+				fixture.WithClassName(GatewayClassName),
+				fixture.WithListener(gatewayapiv1.HTTPProtocolType),
+			)
+			Expect(envTest.Client.Create(ctx, customGateway)).Should(Succeed())
+
+			// Create LLMInferenceServiceConfig with a gateway reference
+			config := fixture.LLMInferenceServiceConfig("test-config",
+				fixture.InNamespace[*kservev1alpha1.LLMInferenceServiceConfig](testNs),
+			)
+			config.Spec.Router = &kservev1alpha1.RouterSpec{
+				Gateway: &kservev1alpha1.GatewaySpec{
+					Refs: []kservev1alpha1.UntypedObjectReference{
+						{
+							Name:      gatewayapiv1.ObjectName(customGatewayName),
+							Namespace: gatewayapiv1.Namespace(customGatewayNamespace),
+						},
+					},
+				},
+			}
+			Expect(envTest.Client.Create(ctx, config)).Should(Succeed())
+
+			// Create LLMInferenceService with BaseRefs
+			llmisvc := fixture.LLMInferenceService(LLMInferenceServiceName,
+				fixture.InNamespace[*kservev1alpha1.LLMInferenceService](testNs),
+				fixture.WithBaseRefs(corev1.LocalObjectReference{Name: "test-config"}),
+			)
+			Expect(envTest.Client.Create(ctx, llmisvc)).Should(Succeed())
+
+			// Verify AuthPolicy is created for the gateway from the config
+			fixture.VerifyGatewayAuthPolicyOwnerRef(ctx, envTest.Client, customGatewayNamespace, customGatewayName)
+		})
+
+		It("should retrieve LLMInferenceServiceConfig from system namespace when not found in service namespace", func(ctx SpecContext) {
+			customGatewayName := pkgtest.GenerateUniqueTestName("system-gateway")
+
+			// Create system namespace
+			systemNs := testutils.Namespaces.Create(ctx, envTest.Client)
+			systemNamespace := systemNs.Name
+
+			// Set POD_NAMESPACE env var
+			_ = os.Setenv("POD_NAMESPACE", systemNamespace)
+			defer func() {
+				_ = os.Unsetenv("POD_NAMESPACE")
+			}()
+
+			// Create a custom gateway in the system namespace
+			customGateway := fixture.Gateway(customGatewayName,
+				fixture.InNamespace[*gatewayapiv1.Gateway](systemNamespace),
+				fixture.WithClassName(GatewayClassName),
+				fixture.WithListener(gatewayapiv1.HTTPProtocolType),
+			)
+			Expect(envTest.Client.Create(ctx, customGateway)).Should(Succeed())
+
+			// Create LLMInferenceServiceConfig in system namespace
+			config := fixture.LLMInferenceServiceConfig("system-config",
+				fixture.InNamespace[*kservev1alpha1.LLMInferenceServiceConfig](systemNamespace),
+			)
+			config.Spec.Router = &kservev1alpha1.RouterSpec{
+				Gateway: &kservev1alpha1.GatewaySpec{
+					Refs: []kservev1alpha1.UntypedObjectReference{
+						{
+							Name:      gatewayapiv1.ObjectName(customGatewayName),
+							Namespace: gatewayapiv1.Namespace(systemNamespace),
+						},
+					},
+				},
+			}
+			Expect(envTest.Client.Create(ctx, config)).Should(Succeed())
+
+			// Create LLMInferenceService with BaseRefs in a different namespace
+			llmisvc := fixture.LLMInferenceService(LLMInferenceServiceName,
+				fixture.InNamespace[*kservev1alpha1.LLMInferenceService](testNs),
+				fixture.WithBaseRefs(corev1.LocalObjectReference{Name: "system-config"}),
+			)
+			Expect(envTest.Client.Create(ctx, llmisvc)).Should(Succeed())
+
+			// Verify AuthPolicy is created for the gateway from the system config
+			fixture.VerifyGatewayAuthPolicyOwnerRef(ctx, envTest.Client, systemNamespace, customGatewayName)
+		})
+
+		It("should prioritize service namespace config over system namespace config", func(ctx SpecContext) {
+			serviceGatewayName := pkgtest.GenerateUniqueTestName("service-gateway")
+			systemGatewayName := pkgtest.GenerateUniqueTestName("system-gateway")
+
+			// Create system namespace
+			systemNs := testutils.Namespaces.Create(ctx, envTest.Client)
+			systemNamespace := systemNs.Name
+
+			// Set POD_NAMESPACE env var
+			_ = os.Setenv("POD_NAMESPACE", systemNamespace)
+			defer func() {
+				_ = os.Unsetenv("POD_NAMESPACE")
+			}()
+
+			// Create gateways in both namespaces
+			serviceGateway := fixture.Gateway(serviceGatewayName,
+				fixture.InNamespace[*gatewayapiv1.Gateway](testNs),
+				fixture.WithClassName(GatewayClassName),
+				fixture.WithListener(gatewayapiv1.HTTPProtocolType),
+			)
+			Expect(envTest.Client.Create(ctx, serviceGateway)).Should(Succeed())
+
+			systemGateway := fixture.Gateway(systemGatewayName,
+				fixture.InNamespace[*gatewayapiv1.Gateway](systemNamespace),
+				fixture.WithClassName(GatewayClassName),
+				fixture.WithListener(gatewayapiv1.HTTPProtocolType),
+			)
+			Expect(envTest.Client.Create(ctx, systemGateway)).Should(Succeed())
+
+			// Create configs in both namespaces with same name
+			serviceConfig := fixture.LLMInferenceServiceConfig("shared-config",
+				fixture.InNamespace[*kservev1alpha1.LLMInferenceServiceConfig](testNs),
+			)
+			serviceConfig.Spec.Router = &kservev1alpha1.RouterSpec{
+				Gateway: &kservev1alpha1.GatewaySpec{
+					Refs: []kservev1alpha1.UntypedObjectReference{
+						{
+							Name:      gatewayapiv1.ObjectName(serviceGatewayName),
+							Namespace: gatewayapiv1.Namespace(testNs),
+						},
+					},
+				},
+			}
+			Expect(envTest.Client.Create(ctx, serviceConfig)).Should(Succeed())
+
+			systemConfig := fixture.LLMInferenceServiceConfig("shared-config",
+				fixture.InNamespace[*kservev1alpha1.LLMInferenceServiceConfig](systemNamespace),
+			)
+			systemConfig.Spec.Router = &kservev1alpha1.RouterSpec{
+				Gateway: &kservev1alpha1.GatewaySpec{
+					Refs: []kservev1alpha1.UntypedObjectReference{
+						{
+							Name:      gatewayapiv1.ObjectName(systemGatewayName),
+							Namespace: gatewayapiv1.Namespace(systemNamespace),
+						},
+					},
+				},
+			}
+			Expect(envTest.Client.Create(ctx, systemConfig)).Should(Succeed())
+
+			// Create LLMInferenceService with BaseRefs
+			llmisvc := fixture.LLMInferenceService(LLMInferenceServiceName,
+				fixture.InNamespace[*kservev1alpha1.LLMInferenceService](testNs),
+				fixture.WithBaseRefs(corev1.LocalObjectReference{Name: "shared-config"}),
+			)
+			Expect(envTest.Client.Create(ctx, llmisvc)).Should(Succeed())
+
+			// Verify AuthPolicy is created for the service namespace gateway, not the system one
+			fixture.VerifyGatewayAuthPolicyOwnerRef(ctx, envTest.Client, testNs, serviceGatewayName)
+
+			// Verify AuthPolicy is NOT created for the system namespace gateway
+			Eventually(func() error {
+				authPolicy := &kuadrantv1.AuthPolicy{}
+				return envTest.Client.Get(ctx, types.NamespacedName{
+					Name:      constants.GetGatewayAuthPolicyName(systemGatewayName),
+					Namespace: systemNamespace,
+				}, authPolicy)
+			}).Should(And(
+				Not(Succeed()),
+				WithTransform(errors.IsNotFound, BeTrue()),
+			))
+		})
+
+		It("should handle config not found when POD_NAMESPACE is not set", func(ctx SpecContext) {
+			// Do not set POD_NAMESPACE env var, so getConfig returns (nil, nil) when config is not found
+
+			// Create LLMInferenceService with BaseRefs pointing to non-existent config
+			llmisvc := fixture.LLMInferenceService(LLMInferenceServiceName,
+				fixture.InNamespace[*kservev1alpha1.LLMInferenceService](testNs),
+				fixture.WithBaseRefs(corev1.LocalObjectReference{Name: "missing-config"}),
+			)
+			Expect(envTest.Client.Create(ctx, llmisvc)).Should(Succeed())
+
+			// When POD_NAMESPACE is not set and config is not found in service namespace,
+			// getConfig returns (nil, nil) - no error, so reconciliation continues with just the service's own spec
+			// This should create AuthPolicy for the default gateway
+			fixture.VerifyGatewayAuthPolicyOwnerRef(ctx, envTest.Client, constants.DefaultGatewayNamespace, constants.DefaultGatewayName)
+		})
+	})
+
+	Context("Multiple BaseRefs and Spec Merging", func() {
+		It("should merge multiple config specs from BaseRefs and use the merged spec for AuthPolicy creation", func(ctx SpecContext) {
+			gateway1Name := pkgtest.GenerateUniqueTestName("gateway1")
+
+			// Create a gateway
+			gateway1 := fixture.Gateway(gateway1Name,
+				fixture.InNamespace[*gatewayapiv1.Gateway](testNs),
+				fixture.WithClassName(GatewayClassName),
+				fixture.WithListener(gatewayapiv1.HTTPProtocolType),
+			)
+			Expect(envTest.Client.Create(ctx, gateway1)).Should(Succeed())
+
+			// Create first config with gateway reference
+			config1 := fixture.LLMInferenceServiceConfig("config1",
+				fixture.InNamespace[*kservev1alpha1.LLMInferenceServiceConfig](testNs),
+			)
+			config1.Spec.Router = &kservev1alpha1.RouterSpec{
+				Gateway: &kservev1alpha1.GatewaySpec{
+					Refs: []kservev1alpha1.UntypedObjectReference{
+						{
+							Name:      gatewayapiv1.ObjectName(gateway1Name),
+							Namespace: gatewayapiv1.Namespace(testNs),
+						},
+					},
+				},
+			}
+			Expect(envTest.Client.Create(ctx, config1)).Should(Succeed())
+
+			// Create second config (will be merged but config1 gateway takes precedence)
+			config2 := fixture.LLMInferenceServiceConfig("config2",
+				fixture.InNamespace[*kservev1alpha1.LLMInferenceServiceConfig](testNs),
+			)
+			Expect(envTest.Client.Create(ctx, config2)).Should(Succeed())
+
+			// Create LLMInferenceService with multiple BaseRefs
+			llmisvc := fixture.LLMInferenceService(LLMInferenceServiceName,
+				fixture.InNamespace[*kservev1alpha1.LLMInferenceService](testNs),
+				fixture.WithBaseRefs(
+					corev1.LocalObjectReference{Name: "config1"},
+					corev1.LocalObjectReference{Name: "config2"},
+				),
+			)
+			Expect(envTest.Client.Create(ctx, llmisvc)).Should(Succeed())
+
+			// Verify AuthPolicy is created for gateway from config1
+			fixture.VerifyGatewayAuthPolicyOwnerRef(ctx, envTest.Client, testNs, gateway1Name)
+		})
+
+		It("should allow service spec to override config specs", func(ctx SpecContext) {
+			configGatewayName := pkgtest.GenerateUniqueTestName("config-gateway")
+			serviceGatewayName := pkgtest.GenerateUniqueTestName("service-gateway")
+
+			// Create gateways
+			configGateway := fixture.Gateway(configGatewayName,
+				fixture.InNamespace[*gatewayapiv1.Gateway](testNs),
+				fixture.WithClassName(GatewayClassName),
+				fixture.WithListener(gatewayapiv1.HTTPProtocolType),
+			)
+			Expect(envTest.Client.Create(ctx, configGateway)).Should(Succeed())
+
+			serviceGateway := fixture.Gateway(serviceGatewayName,
+				fixture.InNamespace[*gatewayapiv1.Gateway](testNs),
+				fixture.WithClassName(GatewayClassName),
+				fixture.WithListener(gatewayapiv1.HTTPProtocolType),
+			)
+			Expect(envTest.Client.Create(ctx, serviceGateway)).Should(Succeed())
+
+			// Create config with gateway reference
+			config := fixture.LLMInferenceServiceConfig("test-config",
+				fixture.InNamespace[*kservev1alpha1.LLMInferenceServiceConfig](testNs),
+			)
+			config.Spec.Router = &kservev1alpha1.RouterSpec{
+				Gateway: &kservev1alpha1.GatewaySpec{
+					Refs: []kservev1alpha1.UntypedObjectReference{
+						{
+							Name:      gatewayapiv1.ObjectName(configGatewayName),
+							Namespace: gatewayapiv1.Namespace(testNs),
+						},
+					},
+				},
+			}
+			Expect(envTest.Client.Create(ctx, config)).Should(Succeed())
+
+			// Create LLMInferenceService with BaseRefs but also with its own gateway spec
+			llmisvc := fixture.LLMInferenceService(LLMInferenceServiceName,
+				fixture.InNamespace[*kservev1alpha1.LLMInferenceService](testNs),
+				fixture.WithBaseRefs(corev1.LocalObjectReference{Name: "test-config"}),
+				fixture.WithGatewayRefs(kservev1alpha1.UntypedObjectReference{
+					Name:      gatewayapiv1.ObjectName(serviceGatewayName),
+					Namespace: gatewayapiv1.Namespace(testNs),
+				}),
+			)
+			Expect(envTest.Client.Create(ctx, llmisvc)).Should(Succeed())
+
+			// Verify AuthPolicy is created for the service's gateway, not the config's
+			fixture.VerifyGatewayAuthPolicyOwnerRef(ctx, envTest.Client, testNs, serviceGatewayName)
+
+			// Verify AuthPolicy is NOT created for the config gateway
+			Eventually(func() error {
+				authPolicy := &kuadrantv1.AuthPolicy{}
+				return envTest.Client.Get(ctx, types.NamespacedName{
+					Name:      constants.GetGatewayAuthPolicyName(configGatewayName),
+					Namespace: testNs,
+				}, authPolicy)
+			}).Should(And(
+				Not(Succeed()),
+				WithTransform(errors.IsNotFound, BeTrue()),
+			))
+		})
+
+		It("should handle config fetch failures gracefully and continue with available configs", func(ctx SpecContext) {
+			gatewayName := pkgtest.GenerateUniqueTestName("gateway")
+
+			// Create a gateway
+			gateway := fixture.Gateway(gatewayName,
+				fixture.InNamespace[*gatewayapiv1.Gateway](testNs),
+				fixture.WithClassName(GatewayClassName),
+				fixture.WithListener(gatewayapiv1.HTTPProtocolType),
+			)
+			Expect(envTest.Client.Create(ctx, gateway)).Should(Succeed())
+
+			// Create only config2, config1 will fail to fetch
+			config2 := fixture.LLMInferenceServiceConfig("config2",
+				fixture.InNamespace[*kservev1alpha1.LLMInferenceServiceConfig](testNs),
+			)
+			config2.Spec.Router = &kservev1alpha1.RouterSpec{
+				Gateway: &kservev1alpha1.GatewaySpec{
+					Refs: []kservev1alpha1.UntypedObjectReference{
+						{
+							Name:      gatewayapiv1.ObjectName(gatewayName),
+							Namespace: gatewayapiv1.Namespace(testNs),
+						},
+					},
+				},
+			}
+			Expect(envTest.Client.Create(ctx, config2)).Should(Succeed())
+
+			// Create LLMInferenceService with BaseRefs including a non-existent config
+			llmisvc := fixture.LLMInferenceService(LLMInferenceServiceName,
+				fixture.InNamespace[*kservev1alpha1.LLMInferenceService](testNs),
+				fixture.WithBaseRefs(
+					corev1.LocalObjectReference{Name: "config1"}, // Will fail
+					corev1.LocalObjectReference{Name: "config2"}, // Will succeed
+				),
+			)
+			Expect(envTest.Client.Create(ctx, llmisvc)).Should(Succeed())
+
+			// Verify AuthPolicy is still created for the gateway from config2
+			fixture.VerifyGatewayAuthPolicyOwnerRef(ctx, envTest.Client, testNs, gatewayName)
+		})
+	})
+
+	Context("Gateway filtering with BaseRefs", func() {
+		It("should exclude gateway with managed=false annotation when using BaseRefs", func(ctx SpecContext) {
+			unmanagedGatewayName := pkgtest.GenerateUniqueTestName("unmanaged-gateway")
+
+			// Create an unmanaged gateway
+			unmanagedGateway := fixture.Gateway(unmanagedGatewayName,
+				fixture.InNamespace[*gatewayapiv1.Gateway](testNs),
+				fixture.WithClassName(GatewayClassName),
+				fixture.WithListener(gatewayapiv1.HTTPProtocolType),
+			)
+			unmanagedGateway.Annotations = map[string]string{
+				constants.GatewayManagedAnnotation: "false",
+			}
+			Expect(envTest.Client.Create(ctx, unmanagedGateway)).Should(Succeed())
+
+			// Create config with reference to unmanaged gateway
+			config := fixture.LLMInferenceServiceConfig("test-config",
+				fixture.InNamespace[*kservev1alpha1.LLMInferenceServiceConfig](testNs),
+			)
+			config.Spec.Router = &kservev1alpha1.RouterSpec{
+				Gateway: &kservev1alpha1.GatewaySpec{
+					Refs: []kservev1alpha1.UntypedObjectReference{
+						{
+							Name:      gatewayapiv1.ObjectName(unmanagedGatewayName),
+							Namespace: gatewayapiv1.Namespace(testNs),
+						},
+					},
+				},
+			}
+			Expect(envTest.Client.Create(ctx, config)).Should(Succeed())
+
+			// Create LLMInferenceService with BaseRefs
+			llmisvc := fixture.LLMInferenceService(LLMInferenceServiceName,
+				fixture.InNamespace[*kservev1alpha1.LLMInferenceService](testNs),
+				fixture.WithBaseRefs(corev1.LocalObjectReference{Name: "test-config"}),
+			)
+			Expect(envTest.Client.Create(ctx, llmisvc)).Should(Succeed())
+
+			// Verify NO AuthPolicy is created for the unmanaged gateway
+			Consistently(func() error {
+				authPolicy := &kuadrantv1.AuthPolicy{}
+				return envTest.Client.Get(ctx, types.NamespacedName{
+					Name:      constants.GetGatewayAuthPolicyName(unmanagedGatewayName),
+					Namespace: testNs,
+				}, authPolicy)
+			}).Should(And(
+				Not(Succeed()),
+				WithTransform(errors.IsNotFound, BeTrue()),
+			))
+		})
+	})
+})
