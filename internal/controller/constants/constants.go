@@ -32,6 +32,7 @@ const (
 	KserveGroupAnnotation   = "serving.kserve.io/inferenceservice"
 	RhoaiObservabilityLabel = "monitoring.opendatahub.io/scrape"
 
+	ODHManagedLabel         = "opendatahub.io/managed"
 	EnableAuthODHAnnotation = "security.opendatahub.io/enable-auth"
 
 	LabelEnableKserveRawRoute = "exposed"
@@ -100,11 +101,6 @@ const (
 const (
 	ServingCertAnnotationKey  = "service.beta.openshift.io/serving-cert-secret-name"
 	RouteTimeoutAnnotationKey = "haproxy.router.openshift.io/timeout"
-)
-
-// Gateway management
-const (
-	GatewayManagedAnnotation = "opendatahub.io/managed"
 )
 
 // Events

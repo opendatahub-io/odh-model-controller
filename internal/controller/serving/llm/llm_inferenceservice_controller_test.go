@@ -1205,7 +1205,7 @@ var _ = Describe("BaseRefs and Spec Merging", func() {
 	})
 
 	Context("Gateway filtering with BaseRefs", func() {
-		It("should exclude gateway with managed=false annotation when using BaseRefs", func(ctx SpecContext) {
+		It("should exclude gateway with managed=false label when using BaseRefs", func(ctx SpecContext) {
 			unmanagedGatewayName := pkgtest.GenerateUniqueTestName("unmanaged-gateway")
 
 			// Create an unmanaged gateway
@@ -1214,8 +1214,8 @@ var _ = Describe("BaseRefs and Spec Merging", func() {
 				fixture.WithClassName(GatewayClassName),
 				fixture.WithListener(gatewayapiv1.HTTPProtocolType),
 			)
-			unmanagedGateway.Annotations = map[string]string{
-				constants.GatewayManagedAnnotation: "false",
+			unmanagedGateway.Labels = map[string]string{
+				constants.ODHManagedLabel: "false",
 			}
 			Expect(envTest.Client.Create(ctx, unmanagedGateway)).Should(Succeed())
 

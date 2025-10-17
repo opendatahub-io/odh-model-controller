@@ -320,21 +320,6 @@ func GetGatewayInfoFromConfigMap(ctx context.Context, cli client.Client) (namesp
 	return "", "", fmt.Errorf("failed to parse gateway info from configmap")
 }
 
-func IsManagedByOpenDataHub(obj client.Object) bool {
-	if labels := obj.GetLabels(); labels != nil {
-		if labels["app.kubernetes.io/managed-by"] != "odh-model-controller" {
-			return false
-		}
-
-		if managedValue, exists := labels["opendatahub.io/managed"]; exists && managedValue == "false" {
-			return false
-		}
-
-		return true
-	}
-	return false
-}
-
 // MergeUserLabelsAndAnnotations merges user-added labels and annotations from existing resource
 // into desired resource while preserving template-defined values
 func MergeUserLabelsAndAnnotations(desired, existing client.Object) {
@@ -375,8 +360,34 @@ func GetMaaSRoleBindingName(llmisvc *kservev1alpha1.LLMInferenceService) string 
 	return kmeta.ChildName(llmisvc.Name, "-model-post-access-tier-binding")
 }
 
+func IsManagedByOdhController(obj client.Object) bool {
+	if labels := obj.GetLabels(); labels != nil {
+		return labels["app.kubernetes.io/managed-by"] == "odh-model-controller"
+	}
+	return false
+}
+
+// IsExplicitlyUnmanaged checks if "opendatahub.io/managed" label is explicitly set to "false"
+func IsExplicitlyUnmanaged(obj client.Object) bool {
+	if labels := obj.GetLabels(); labels != nil {
+		if managedValue, ok := labels["opendatahub.io/managed"]; ok {
+			return strings.EqualFold(strings.TrimSpace(managedValue), "false")
+		}
+	}
+	return false
+}
+
+// IsManagedByOpenDataHub checks if a resource should be managed by checking "opendatahub.io/managed" label (true/false) or falling back to IsManagedByOdhController
+func IsManagedByOpenDataHub(obj client.Object) bool {
+	if IsExplicitlyUnmanaged(obj) {
+		return false
+	}
+	return IsManagedByOdhController(obj)
+}
+
+// IsManagedResource checks if a resource is managed by verifying both the managed-by label and owner reference
 func IsManagedResource(owner client.Object, resource client.Object) bool {
-	if resource.GetLabels()["app.kubernetes.io/managed-by"] != "odh-model-controller" {
+	if !IsManagedByOdhController(resource) {
 		return false
 	}
 

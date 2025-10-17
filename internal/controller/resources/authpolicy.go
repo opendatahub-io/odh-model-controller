@@ -230,13 +230,14 @@ func (k *kserveAuthPolicyTemplateLoader) getHTTPRouteInfo(llmisvc *kservev1alpha
 }
 
 // getGatewayInfo returns gateway list with fallback logic, filtering out gateways with opendatahub.io/managed: false
-func (k *kserveAuthPolicyTemplateLoader) getGatewayInfo(ctx context.Context, log logr.Logger, llmSvc *kservev1alpha1.LLMInferenceService) []struct{ Namespace, Name string } {
+func (k *kserveAuthPolicyTemplateLoader) getGatewayInfo(ctx context.Context, log logr.Logger, llmisvc *kservev1alpha1.LLMInferenceService) []struct{ Namespace, Name string } {
 	var gateways []struct{ Namespace, Name string }
 
-	if llmSvc.Spec.Router != nil && llmSvc.Spec.Router.Gateway != nil && llmSvc.Spec.Router.Gateway.HasRefs() {
-		for _, ref := range llmSvc.Spec.Router.Gateway.Refs {
-			// Check if the gateway should be managed
-			if k.isGatewayManaged(ctx, log, string(ref.Namespace), string(ref.Name)) {
+	if llmisvc.Spec.Router != nil && llmisvc.Spec.Router.Gateway != nil && llmisvc.Spec.Router.Gateway.HasRefs() {
+		for _, ref := range llmisvc.Spec.Router.Gateway.Refs {
+			// Check if the gateway exists and should be managed
+			gateway := &gatewayapiv1.Gateway{}
+			if err := controllerutils.GetResource(ctx, k.client, string(ref.Namespace), string(ref.Name), gateway); err == nil && !controllerutils.IsExplicitlyUnmanaged(gateway) {
 				gateways = append(gateways, struct{ Namespace, Name string }{
 					Namespace: string(ref.Namespace),
 					Name:      string(ref.Name),
@@ -259,8 +260,9 @@ func (k *kserveAuthPolicyTemplateLoader) getGatewayInfo(ctx context.Context, log
 		fallbackName = constants.DefaultGatewayName
 	}
 
-	// Check if the fallback gateway should be managed
-	if k.isGatewayManaged(ctx, log, fallbackNamespace, fallbackName) {
+	// Check if the fallback gateway exists and should be managed
+	gateway := &gatewayapiv1.Gateway{}
+	if err := controllerutils.GetResource(ctx, k.client, fallbackNamespace, fallbackName, gateway); err == nil && !controllerutils.IsExplicitlyUnmanaged(gateway) {
 		gateways = append(gateways, struct{ Namespace, Name string }{
 			Namespace: fallbackNamespace,
 			Name:      fallbackName,
@@ -268,45 +270,6 @@ func (k *kserveAuthPolicyTemplateLoader) getGatewayInfo(ctx context.Context, log
 	}
 
 	return gateways
-}
-
-// isGatewayManaged checks if a gateway should be managed by checking the opendatahub.io/managed annotation
-func (k *kserveAuthPolicyTemplateLoader) isGatewayManaged(ctx context.Context, log logr.Logger, namespace, name string) bool {
-	gateway := &gatewayapiv1.Gateway{}
-	err := k.client.Get(ctx, types.NamespacedName{
-		Namespace: namespace,
-		Name:      name,
-	}, gateway)
-
-	if err != nil {
-		if apierrors.IsNotFound(err) {
-			log.Info("Gateway not found, skipping",
-				"namespace", namespace,
-				"name", name)
-			return false
-		}
-		log.Error(err, "Failed to get gateway, including it by default",
-			"namespace", namespace,
-			"name", name)
-		// Include gateway by default if we can't fetch it
-		return true
-	}
-
-	// Check for opendatahub.io/managed annotation
-	if annotations := gateway.GetAnnotations(); annotations != nil {
-		if managed, exists := annotations[constants.GatewayManagedAnnotation]; exists {
-			if strings.EqualFold(strings.TrimSpace(managed), "false") {
-				log.Info("Gateway has opendatahub.io/managed=false annotation, excluding from authpolicy creation",
-					"namespace", namespace,
-					"name", name)
-				return false
-			}
-		}
-	}
-	log.Info("Gateway is managed by default",
-		"namespace", namespace,
-		"name", name)
-	return true
 }
 
 type clientAuthPolicyStore struct {
@@ -353,10 +316,7 @@ func (c *clientAuthPolicyStore) Create(ctx context.Context, authPolicy *kuadrant
 func (c *clientAuthPolicyStore) Update(ctx context.Context, authPolicy *kuadrantv1.AuthPolicy) error {
 	return retry.RetryOnConflict(retry.DefaultRetry, func() error {
 		current := &kuadrantv1.AuthPolicy{}
-		if err := c.client.Get(ctx, types.NamespacedName{
-			Name:      authPolicy.GetName(),
-			Namespace: authPolicy.GetNamespace(),
-		}, current); err != nil {
+		if err := controllerutils.GetResource(ctx, c.client, authPolicy.GetNamespace(), authPolicy.GetName(), current); err != nil {
 			return err
 		}
 
