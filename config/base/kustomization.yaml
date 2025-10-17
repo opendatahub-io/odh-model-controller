@@ -38,17 +38,6 @@ replacements:
       kind: ConfigMap
       version: v1
       name: odh-model-controller-parameters
-      fieldPath: data.caikit-standalone-image
-    targets:
-      - select:
-          kind: Template
-          name: caikit-standalone-serving-template
-        fieldPaths:
-          - objects.0.spec.containers.0.image
-  - source:
-      kind: ConfigMap
-      version: v1
-      name: odh-model-controller-parameters
       fieldPath: data.guardrails-detector-huggingface-runtime-image
     targets:
       - select:
@@ -126,11 +115,22 @@ replacements:
       kind: ConfigMap
       version: v1
       name: odh-model-controller-parameters
-      fieldPath: data.vllm-spyre-image
+      fieldPath: data.vllm-spyre-x86-image
     targets:
       - select:
           kind: Template
-          name: vllm-spyre-runtime-template
+          name: vllm-spyre-x86-runtime-template
+        fieldPaths:
+          - objects.0.spec.containers.0.image
+  - source:
+      kind: ConfigMap
+      version: v1
+      name: odh-model-controller-parameters
+      fieldPath: data.vllm-spyre-s390x-image
+    targets:
+      - select:
+          kind: Template
+          name: vllm-spyre-s390x-runtime-template
         fieldPaths:
           - objects.0.spec.containers.0.image
   - source:

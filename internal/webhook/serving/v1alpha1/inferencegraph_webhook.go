@@ -32,8 +32,6 @@ import (
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
 	"sigs.k8s.io/controller-runtime/pkg/webhook"
 	"sigs.k8s.io/controller-runtime/pkg/webhook/admission"
-
-	"github.com/opendatahub-io/odh-model-controller/internal/webhook/serving"
 )
 
 // nolint:unused
@@ -70,11 +68,6 @@ func (d *InferenceGraphCustomDefaulter) Default(ctx context.Context, obj runtime
 	}
 	logger := inferencegraphlog.WithValues("name", inferencegraph.GetName())
 	logger.Info("Defaulting for InferenceGraph")
-
-	err := serving.ApplyDefaultServerlessAnnotations(ctx, d.client, inferencegraph.GetName(), &inferencegraph.ObjectMeta, logger)
-	if err != nil {
-		return err
-	}
 
 	return nil
 }

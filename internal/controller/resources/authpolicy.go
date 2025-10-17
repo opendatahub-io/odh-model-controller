@@ -32,6 +32,7 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/util/retry"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	gatewayapiv1 "sigs.k8s.io/gateway-api/apis/v1"
 	"sigs.k8s.io/yaml"
 
 	"github.com/opendatahub-io/odh-model-controller/internal/controller/constants"
@@ -228,16 +229,20 @@ func (k *kserveAuthPolicyTemplateLoader) getHTTPRouteInfo(llmisvc *kservev1alpha
 	return httpRoutes
 }
 
-// getGatewayInfo returns gateway list with fallback logic
+// getGatewayInfo returns gateway list with fallback logic, filtering out gateways with opendatahub.io/managed: false
 func (k *kserveAuthPolicyTemplateLoader) getGatewayInfo(ctx context.Context, log logr.Logger, llmisvc *kservev1alpha1.LLMInferenceService) []struct{ Namespace, Name string } {
 	var gateways []struct{ Namespace, Name string }
 
 	if llmisvc.Spec.Router != nil && llmisvc.Spec.Router.Gateway != nil && llmisvc.Spec.Router.Gateway.HasRefs() {
 		for _, ref := range llmisvc.Spec.Router.Gateway.Refs {
-			gateways = append(gateways, struct{ Namespace, Name string }{
-				Namespace: string(ref.Namespace),
-				Name:      string(ref.Name),
-			})
+			// Check if the gateway exists and should be managed
+			gateway := &gatewayapiv1.Gateway{}
+			if err := controllerutils.GetResource(ctx, k.client, string(ref.Namespace), string(ref.Name), gateway); err == nil && !controllerutils.IsExplicitlyUnmanaged(gateway) {
+				gateways = append(gateways, struct{ Namespace, Name string }{
+					Namespace: string(ref.Namespace),
+					Name:      string(ref.Name),
+				})
+			}
 		}
 		return gateways
 	}
@@ -255,10 +260,14 @@ func (k *kserveAuthPolicyTemplateLoader) getGatewayInfo(ctx context.Context, log
 		fallbackName = constants.DefaultGatewayName
 	}
 
-	gateways = append(gateways, struct{ Namespace, Name string }{
-		Namespace: fallbackNamespace,
-		Name:      fallbackName,
-	})
+	// Check if the fallback gateway exists and should be managed
+	gateway := &gatewayapiv1.Gateway{}
+	if err := controllerutils.GetResource(ctx, k.client, fallbackNamespace, fallbackName, gateway); err == nil && !controllerutils.IsExplicitlyUnmanaged(gateway) {
+		gateways = append(gateways, struct{ Namespace, Name string }{
+			Namespace: fallbackNamespace,
+			Name:      fallbackName,
+		})
+	}
 
 	return gateways
 }
@@ -307,10 +316,7 @@ func (c *clientAuthPolicyStore) Create(ctx context.Context, authPolicy *kuadrant
 func (c *clientAuthPolicyStore) Update(ctx context.Context, authPolicy *kuadrantv1.AuthPolicy) error {
 	return retry.RetryOnConflict(retry.DefaultRetry, func() error {
 		current := &kuadrantv1.AuthPolicy{}
-		if err := c.client.Get(ctx, types.NamespacedName{
-			Name:      authPolicy.GetName(),
-			Namespace: authPolicy.GetNamespace(),
-		}, current); err != nil {
+		if err := controllerutils.GetResource(ctx, c.client, authPolicy.GetNamespace(), authPolicy.GetName(), current); err != nil {
 			return err
 		}
 

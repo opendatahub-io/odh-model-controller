@@ -18,10 +18,13 @@ package llm
 
 import (
 	"context"
+	"fmt"
+	"os"
 
 	"github.com/go-logr/logr"
 	"github.com/hashicorp/go-multierror"
 	kservev1alpha1 "github.com/kserve/kserve/pkg/apis/serving/v1alpha1"
+	kservellmisvc "github.com/kserve/kserve/pkg/controller/llmisvc"
 	kuadrantv1 "github.com/kuadrant/kuadrant-operator/api/v1"
 	istioclientv1alpha3 "istio.io/client-go/pkg/apis/networking/v1alpha3"
 	v1 "k8s.io/api/rbac/v1"
@@ -109,6 +112,30 @@ func (r *LLMInferenceServiceReconciler) Reconcile(ctx context.Context, req ctrl.
 		return ctrl.Result{}, nil
 	}
 
+	// TODO: Reuse logic in Kserve, currently private and not very reusable.
+	specs := make([]kservev1alpha1.LLMInferenceServiceSpec, 0, 1)
+	for _, ref := range llmisvc.Spec.BaseRefs {
+		cfg, err := r.getConfig(ctx, llmisvc, ref.Name)
+		if err != nil {
+			logger.Error(err, "Failed to fetch the config")
+			return ctrl.Result{}, fmt.Errorf("failed to get config: %w", err)
+		}
+		if cfg != nil {
+			specs = append(specs, cfg.Spec)
+		}
+	}
+	// Append the service's own spec last so it takes precedence
+	specs = append(specs, llmisvc.Spec)
+
+	spec, err := kservellmisvc.MergeSpecs(ctx, specs...)
+	if err != nil {
+		logger.Error(err, "Failed to merge specs")
+		return ctrl.Result{}, fmt.Errorf("failed to merge specs: %w", err)
+	}
+	// Do not override spec
+	llmisvc = llmisvc.DeepCopy()
+	llmisvc.Spec = spec
+
 	if err := r.reconcileSubResources(ctx, logger, llmisvc); err != nil {
 		logger.Error(err, "Failed to reconcile LLMInferenceService sub-resources")
 		return ctrl.Result{}, err
@@ -121,6 +148,7 @@ func (r *LLMInferenceServiceReconciler) Reconcile(ctx context.Context, req ctrl.
 // +kubebuilder:rbac:groups=serving.kserve.io,resources=llminferenceservices,verbs=get;list;watch;update;patch;post
 // +kubebuilder:rbac:groups=serving.kserve.io,resources=llminferenceservices/status,verbs=get;update;patch
 // +kubebuilder:rbac:groups=serving.kserve.io,resources=llminferenceservices/finalizers,verbs=update;patch
+// +kubebuilder:rbac:groups=serving.kserve.io,resources=llminferenceserviceconfigs,verbs=get;list;watch
 // +kubebuilder:rbac:groups=kuadrant.io,resources=authpolicies,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups=kuadrant.io,resources=authpolicies/status,verbs=get;update;patch
 // +kubebuilder:rbac:groups=rbac.authorization.k8s.io,resources=roles,verbs=get;list;watch;create;update;patch;delete
@@ -279,4 +307,26 @@ func (r *LLMInferenceServiceReconciler) DeleteResourcesIfNoLLMIsvcExists(ctx con
 	}
 
 	return nil
+}
+
+// getConfig retrieves kserveapis.LLMInferenceServiceConfig with the given name from either the kserveapis.LLMInferenceService
+// namespace or from the SystemNamespace (e.g. 'kserve'), prioritizing the former.
+// TODO: Reuse logic in Kserve, currently private and not very reusable.
+func (k *LLMInferenceServiceReconciler) getConfig(ctx context.Context, llmisvc *kservev1alpha1.LLMInferenceService, name string) (*kservev1alpha1.LLMInferenceServiceConfig, error) {
+	cfg := &kservev1alpha1.LLMInferenceServiceConfig{}
+	if err := k.Client.Get(ctx, client.ObjectKey{Name: name, Namespace: llmisvc.Namespace}, cfg); err != nil {
+		if apierrs.IsNotFound(err) {
+			systemNamespace := os.Getenv("POD_NAMESPACE")
+			if systemNamespace == "" {
+				return nil, nil
+			}
+			cfg = &kservev1alpha1.LLMInferenceServiceConfig{}
+			if err := k.Client.Get(ctx, client.ObjectKey{Name: name, Namespace: systemNamespace}, cfg); err != nil {
+				return nil, fmt.Errorf("failed to get LLMInferenceServiceConfig %q from namespaces [%q, %q]: %w", name, llmisvc.Namespace, systemNamespace, err)
+			}
+			return cfg, nil
+		}
+		return nil, fmt.Errorf("failed to get LLMInferenceServiceConfig %s/%s: %w", llmisvc.Namespace, name, err)
+	}
+	return cfg, nil
 }

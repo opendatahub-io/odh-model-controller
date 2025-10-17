@@ -6,24 +6,24 @@ metadata:
     opendatahub.io/ootb: 'true'
   annotations:
     description: vLLM ServingRuntime to support IBM Spyre
-    openshift.io/display-name: vLLM Spyre AI Accelerator ServingRuntime for KServe
+    openshift.io/display-name: vLLM Spyre s390x ServingRuntime for KServe
     openshift.io/provider-display-name: Red Hat, Inc.
     tags: rhods,rhoai,kserve,servingruntime
-    template.openshift.io/documentation-url: https://github.com/opendatahub-io/vllm
-    template.openshift.io/long-description: This template defines resources needed to deploy vLLM Spyre AI Accelerator ServingRuntime with KServe in Red Hat OpenShift AI
+    template.openshift.io/documentation-url: https://github.com/vllm-project/vllm-spyre
+    template.openshift.io/long-description: This template defines resources needed to deploy vLLM Spyre AI Accelerator ServingRuntime with KServe in Red Hat OpenShift AI (s390x architecture only)
     opendatahub.io/modelServingSupport: '["single"]'
     opendatahub.io/apiProtocol: 'REST'
     opendatahub.io/model-type: '["generative"]'
-  name: vllm-spyre-runtime-template
+  name: vllm-spyre-s390x-runtime-template
 objects:
   - apiVersion: serving.kserve.io/v1alpha1
     kind: ServingRuntime
     metadata:
-      name: vllm-spyre-runtime
+      name: vllm-spyre-s390x-runtime
       annotations:
-        openshift.io/display-name: vLLM Spyre AI Accelerator ServingRuntime for KServe
-        opendatahub.io/recommended-accelerators: '["ibm.com/aiu_pf"]'
-        opendatahub.io/runtime-version: 'v0.10.1.1'
+        openshift.io/display-name: vLLM Spyre s390x ServingRuntime for KServe
+        opendatahub.io/recommended-accelerators: '["ibm.com/spyre_pf"]'
+        opendatahub.io/runtime-version: 'v0.10.2.0'
       labels:
         opendatahub.io/dashboard: 'true'
     spec:
@@ -31,10 +31,17 @@ objects:
         prometheus.io/path: /metrics
         prometheus.io/port: '8080'
       containers:
-        - args:
+        - image: $(vllm-spyre-s390x-image)
+          name: kserve-container
+          command:
+            - python3
+            - '-m'
+            - vllm_tgis_adapter
+          args:
             - /mnt/models
             - '--port=8000'
             - '--served-model-name={{.Name}}'
+            - '--grpc-port=8033'
           env:
             - name: HF_HOME
               value: /tmp/hf_home
@@ -54,8 +61,6 @@ objects:
               value: '1024'
             - name: VLLM_SPYRE_WARMUP_NEW_TOKENS
               value: '256'
-          image: $(vllm-spyre-image)
-          name: kserve-container
           ports:
             - containerPort: 8000
               protocol: TCP

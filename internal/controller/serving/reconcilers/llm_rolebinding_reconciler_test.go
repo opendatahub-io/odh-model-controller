@@ -28,7 +28,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 	"sigs.k8s.io/controller-runtime/pkg/log"
 
-	"github.com/opendatahub-io/odh-model-controller/internal/controller/utils"
+	controllerutils "github.com/opendatahub-io/odh-model-controller/internal/controller/utils"
 )
 
 var _ = Describe("LLMRoleBindingReconciler", func() {
@@ -39,7 +39,7 @@ var _ = Describe("LLMRoleBindingReconciler", func() {
 		Expect(kservev1alpha1.AddToScheme(scheme)).To(Succeed())
 		Expect(v1.AddToScheme(scheme)).To(Succeed())
 		Expect(corev1.AddToScheme(scheme)).To(Succeed())
-		utils.RegisterSchemes(scheme)
+		controllerutils.RegisterSchemes(scheme)
 	})
 
 	Describe("createDesiredResource", func() {
@@ -217,7 +217,7 @@ var _ = Describe("LLMRoleBindingReconciler", func() {
 
 				roleBinding := &v1.RoleBinding{}
 				err = client.Get(ctx, k8stypes.NamespacedName{
-					Name:      utils.GetMaaSRoleBindingName(llmisvc),
+					Name:      controllerutils.GetMaaSRoleBindingName(llmisvc),
 					Namespace: "test-namespace",
 				}, roleBinding)
 				Expect(err).NotTo(HaveOccurred())
@@ -271,7 +271,7 @@ var _ = Describe("LLMRoleBindingReconciler", func() {
 
 				existingRoleBinding := &v1.RoleBinding{
 					ObjectMeta: metav1.ObjectMeta{
-						Name:      utils.GetMaaSRoleBindingName(llmisvc),
+						Name:      controllerutils.GetMaaSRoleBindingName(llmisvc),
 						Namespace: "test-namespace",
 						Labels: map[string]string{
 							"app.kubernetes.io/managed-by": "odh-model-controller",
@@ -295,7 +295,7 @@ var _ = Describe("LLMRoleBindingReconciler", func() {
 					},
 					RoleRef: v1.RoleRef{
 						Kind:     "Role",
-						Name:     utils.GetMaaSRoleName(llmisvc),
+						Name:     controllerutils.GetMaaSRoleName(llmisvc),
 						APIGroup: "rbac.authorization.k8s.io",
 					},
 				}
@@ -312,7 +312,7 @@ var _ = Describe("LLMRoleBindingReconciler", func() {
 
 				roleBinding := &v1.RoleBinding{}
 				err = client.Get(ctx, k8stypes.NamespacedName{
-					Name:      utils.GetMaaSRoleBindingName(llmisvc),
+					Name:      controllerutils.GetMaaSRoleBindingName(llmisvc),
 					Namespace: "test-namespace",
 				}, roleBinding)
 				Expect(err).To(HaveOccurred())
