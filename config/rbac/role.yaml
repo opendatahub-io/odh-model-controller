@@ -300,6 +300,7 @@ rules:
   - serving.kserve.io
   resources:
   - inferencegraphs
+  - llminferenceserviceconfigs
   verbs:
   - get
   - list
