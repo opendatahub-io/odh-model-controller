@@ -33,6 +33,7 @@ import (
 	"github.com/opendatahub-io/odh-model-controller/internal/controller/processors"
 	"github.com/opendatahub-io/odh-model-controller/internal/controller/resources"
 	parentreconcilers "github.com/opendatahub-io/odh-model-controller/internal/controller/serving/reconcilers"
+	"github.com/opendatahub-io/odh-model-controller/internal/controller/utils"
 )
 
 var _ parentreconcilers.LLMSubResourceReconciler = (*KserveEnvoyFilterReconciler)(nil)
@@ -131,13 +132,8 @@ func (r *KserveEnvoyFilterReconciler) getGatewayFromEnvoyFilter(ctx context.Cont
 	gatewayNamespace := envoyFilter.GetNamespace()
 
 	gateway := &gatewayapiv1.Gateway{}
-	err := r.client.Get(ctx, types.NamespacedName{
-		Name:      gatewayName,
-		Namespace: gatewayNamespace,
-	}, gateway)
-
-	if err != nil {
-		return nil, fmt.Errorf("failed to get gateway %s/%s: %w", gatewayNamespace, gatewayName, err)
+	if err := utils.GetResource(ctx, r.client, gatewayNamespace, gatewayName, gateway); err != nil {
+		return nil, fmt.Errorf("failed to get Gateway %s/%s: %w", gatewayNamespace, gatewayName, err)
 	}
 
 	return gateway, nil

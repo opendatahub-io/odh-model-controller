@@ -19,11 +19,11 @@ package fixture
 import (
 	"context"
 
+	"github.com/opendatahub-io/odh-model-controller/internal/controller/constants"
+
 	"github.com/onsi/gomega"
 	istioclientv1alpha3 "istio.io/client-go/pkg/apis/networking/v1alpha3"
 	"sigs.k8s.io/controller-runtime/pkg/client"
-
-	"github.com/opendatahub-io/odh-model-controller/internal/controller/constants"
 )
 
 func VerifyGatewayEnvoyFilterExists(ctx context.Context, c client.Client, gatewayNamespace, gatewayName string) {
