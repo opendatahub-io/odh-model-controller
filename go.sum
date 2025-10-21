@@ -262,8 +262,8 @@ github.com/open-telemetry/opentelemetry-operator v0.113.0 h1:EoN3SLwF9dP5Ou7gFcf
 github.com/open-telemetry/opentelemetry-operator v0.113.0/go.mod h1:eQ8W+MxP+q5Tewf5Cx1vNXvRynjP9JNgrBbUO7TqjXQ=
 github.com/opencontainers/go-digest v1.0.0 h1:apOUWs51W5PlhuyGyz9FCeeBIOUDA/6nW8Oi/yOhh5U=
 github.com/opencontainers/go-digest v1.0.0/go.mod h1:0JzlMkj0TRzQZfJkVvzbP0HBR3IKzErnv2BNG4W4MAM=
-github.com/opendatahub-io/kserve v0.0.0-20250929192938-907f0f3addeb h1:K4BOk2FnCqc1XAnab9T4xmZHgrcGBB2JNgaETvDXTi0=
-github.com/opendatahub-io/kserve v0.0.0-20250929192938-907f0f3addeb/go.mod h1:xEBltVyT4Y1Ec15kqbvsJFlFOtnhz1QAC1Vls3JLV/w=
+github.com/opendatahub-io/kserve v0.0.0-20251021185421-35e0bedc2fdc h1:a8ThqeekuuyE95h/m0aBIeNDppmVhqJ6JXUO7ywM/NI=
+github.com/opendatahub-io/kserve v0.0.0-20251021185421-35e0bedc2fdc/go.mod h1:xEBltVyT4Y1Ec15kqbvsJFlFOtnhz1QAC1Vls3JLV/w=
 github.com/openshift/api v0.0.0-20250102185430-d6d8306a24ec h1:VEDRGJmiYeN0V0xW1aI9wfzEMgaMZOVasy3FzEz27Lo=
 github.com/openshift/api v0.0.0-20250102185430-d6d8306a24ec/go.mod h1:Shkl4HanLwDiiBzakv+con/aMGnVE2MAGvoKp5oyYUo=
 github.com/openshift/client-go v0.0.0-20250102190827-c8a353937472 h1:q+cBicZm2joFKS9HukPQHlNIXJbBlgPNG/V1ZlDMOZM=
