@@ -1,26 +1,28 @@
 # This NetworkPolicy allows ingress traffic
-# with Pods running on namespaces labeled with 'metrics: enabled'. Only Pods on those
-# namespaces are able to gathering data from the metrics endpoint.
+# with Pods running on namespaces labeled with 'metrics: enabled' or 'network.openshift.io/policy-group: monitoring'.
+# Only Pods on those namespaces are able to gathering data from the metrics endpoint.
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:
   labels:
     app.kubernetes.io/name: odh-model-controller
     app.kubernetes.io/managed-by: kustomize
-  name: allow-metrics-traffic
-  namespace: system
+  name: odh-model-controller-allow-metrics-traffic
+  namespace: opendatahub
 spec:
   podSelector:
     matchLabels:
-      control-plane: controller-manager
+      control-plane: odh-model-controller
   policyTypes:
     - Ingress
   ingress:
-    # This allows ingress traffic from any namespace with the label metrics: enabled
     - from:
       - namespaceSelector:
           matchLabels:
-            metrics: enabled  # Only from namespaces with this label
+            metrics: enabled
+      - namespaceSelector:
+          matchLabels:
+            network.openshift.io/policy-group: monitoring
       ports:
         - port: 8443
           protocol: TCP
