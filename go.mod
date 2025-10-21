@@ -171,4 +171,4 @@ replace sigs.k8s.io/controller-runtime => sigs.k8s.io/controller-runtime v0.19.1
 
 // Use ODH release branch instead
 // odh-v3.0
-replace github.com/kserve/kserve => github.com/opendatahub-io/kserve v0.0.0-20251021162428-6e762fd2a2a5
+replace github.com/kserve/kserve => github.com/opendatahub-io/kserve v0.0.0-20251021185421-35e0bedc2fdc
