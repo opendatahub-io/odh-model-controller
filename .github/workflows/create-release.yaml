@@ -252,7 +252,7 @@ jobs:
 
             echo "#### Expected Actions" >> $GITHUB_STEP_SUMMARY
             echo "1. **Tag Created**: \`${{ github.event.inputs.tag_name }}\`" >> $GITHUB_STEP_SUMMARY
-            echo "2. **Release Created**: \`${{ github.event.inputs.tag_name }}\` with changelog from \`${{ steps.fetch-tag.outputs.old_tag }}\`" >> $GITHUB_STEP_SUMMARY
+            echo "2. **Release Created**: \`${{ github.event.inputs.tag_name }}\` with changelog from \`${{ needs.fetch-tag.outputs.old_tag }}\`" >> $GITHUB_STEP_SUMMARY
             echo "3. **Branch Created**: \`chore/bump-odh-tag-${{ github.event.inputs.next_odh_tag }}\`" >> $GITHUB_STEP_SUMMARY
             echo "4. **PR Created**: Against \`${{ github.ref_name }}\` branch" >> $GITHUB_STEP_SUMMARY
             echo "" >> $GITHUB_STEP_SUMMARY
