@@ -224,13 +224,15 @@ jobs:
 
           **Automated by:** Release workflow for ${{ github.event.inputs.tag_name }}"
 
-          PR_URL=$(gh pr create \
+          PR_JSON=$(gh pr create \
             --title "chore(konflux): Bump ODH release tag to ${{ github.event.inputs.next_odh_tag }}" \
             --body "$PR_BODY" \
             --base "${{ github.ref_name }}" \
-            --head "$BRANCH_NAME")
+            --head "$BRANCH_NAME" \
+            --json number,url)
 
-          PR_NUMBER=$(echo "$PR_URL" | grep -oE '[0-9]+$')
+          PR_NUMBER=$(echo "$PR_JSON" | jq -r '.number')
+          PR_URL=$(echo "$PR_JSON" | jq -r '.url')
 
           echo "pr_url=$PR_URL" >> $GITHUB_OUTPUT
           echo "pr_number=$PR_NUMBER" >> $GITHUB_OUTPUT
