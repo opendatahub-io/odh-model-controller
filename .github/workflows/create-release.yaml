@@ -99,8 +99,6 @@ jobs:
   update-params-env:
     runs-on: ubuntu-latest
     needs: validate-and-fetch-tag
-    outputs:
-      param_env: ${{ steps.read_params_env.outputs.params_env }}
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
