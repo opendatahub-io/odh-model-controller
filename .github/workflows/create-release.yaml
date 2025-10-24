@@ -81,16 +81,16 @@ jobs:
       - name: Check if tag exists
         id: check_tag
         run: |
-         import sys
-         import subprocess
-         tag_name = "${{ github.event.inputs.tag_name }}"
-         command = ['git', 'tag', '-l', tag_name]
-         output = subprocess.check_output(command, stderr=subprocess.STDOUT)
-         if output.decode() != "":
-           print(f"Error: Tag '{tag_name}' already exists.", file=sys.stderr)
-           sys.exit(1)
-         else:
-           print(f"Tag '{tag_name}' does not exists.")
+          import sys
+          import subprocess
+          tag_name = "${{ github.event.inputs.tag_name }}"
+          command = ['git', 'tag', '-l', tag_name]
+          output = subprocess.check_output(command, stderr=subprocess.STDOUT)
+          if output.decode() != "":
+            print(f"Error: Tag '{tag_name}' already exists.", file=sys.stderr)
+            sys.exit(1)
+          else:
+            print(f"Tag '{tag_name}' does not exists.")
 
         shell: python
         continue-on-error: false
