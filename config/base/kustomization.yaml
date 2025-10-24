@@ -16,28 +16,6 @@ replacements:
       kind: ConfigMap
       version: v1
       name: odh-model-controller-parameters
-      fieldPath: data.tgis-image
-    targets:
-      - select:
-          kind: Template
-          name: caikit-tgis-serving-template
-        fieldPaths:
-          - objects.0.spec.containers.0.image
-  - source:
-      kind: ConfigMap
-      version: v1
-      name: odh-model-controller-parameters
-      fieldPath: data.caikit-tgis-image
-    targets:
-      - select:
-          kind: Template
-          name: caikit-tgis-serving-template
-        fieldPaths:
-          - objects.0.spec.containers.1.image
-  - source:
-      kind: ConfigMap
-      version: v1
-      name: odh-model-controller-parameters
       fieldPath: data.guardrails-detector-huggingface-runtime-image
     targets:
       - select:

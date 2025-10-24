@@ -6,7 +6,6 @@ labels:
       app.kubernetes.io/part-of: odh-dashboard
     includeSelectors: true
 resources:
-  - caikit-tgis-template.yaml
   - ovms-kserve-template.yaml
   - vllm-cuda-template.yaml
   - vllm-multinode-template.yaml
