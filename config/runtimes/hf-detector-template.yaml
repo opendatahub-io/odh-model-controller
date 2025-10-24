@@ -27,7 +27,7 @@ objects:
         opendatahub.io/dashboard: 'true'
     spec:
       annotations:
-        prometheus.io/port: '8080'
+        prometheus.io/port: '8000'
         prometheus.io/path: '/metrics'
       multiModel: false
       supportedModelFormats:
@@ -49,6 +49,10 @@ objects:
               value: /mnt/models
             - name: HF_HOME
               value: /tmp/hf_home
+            - name: DETECTOR_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.name
           ports:
             - containerPort: 8000
               protocol: TCP
