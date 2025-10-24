@@ -49,6 +49,10 @@ objects:
               value: /mnt/models
             - name: HF_HOME
               value: /tmp/hf_home
+            - name: DETECTOR_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.name
           ports:
             - containerPort: 8000
               protocol: TCP
