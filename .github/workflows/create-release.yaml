@@ -90,7 +90,7 @@ jobs:
             print(f"Error: Tag '{tag_name}' already exists.", file=sys.stderr)
             sys.exit(1)
           else:
-            print(f"Tag '{tag_name}' does not exists.")
+            print(f"Tag '{tag_name}' does not exist.")
 
         shell: python
         continue-on-error: false
