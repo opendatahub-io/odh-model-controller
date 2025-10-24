@@ -33,6 +33,7 @@ jobs:
     runs-on: ubuntu-latest
     outputs:
       old_tag: ${{ steps.get_tag.outputs.old_tag_name }}
+      tag_exists: ${{ steps.check_tag.outputs.tag_exists }}
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -83,14 +84,19 @@ jobs:
         run: |
           import sys
           import subprocess
+          import os
           tag_name = "${{ github.event.inputs.tag_name }}"
           command = ['git', 'tag', '-l', tag_name]
           output = subprocess.check_output(command, stderr=subprocess.STDOUT)
           if output.decode() != "":
-            print(f"Error: Tag '{tag_name}' already exists.", file=sys.stderr)
-            sys.exit(1)
+            print(f"::warning::Tag '{tag_name}' already exists, will skip creation")
+            # Output for downstream steps to check
+            with open(os.environ['GITHUB_OUTPUT'], 'a') as f:
+              f.write(f"tag_exists=true\n")
           else:
-            print(f"Tag '{tag_name}' does not exist.")
+            print(f"Tag '{tag_name}' does not exist, will create it")
+            with open(os.environ['GITHUB_OUTPUT'], 'a') as f:
+              f.write(f"tag_exists=false\n")
 
         shell: python
         continue-on-error: false
@@ -118,10 +124,15 @@ jobs:
 
       - name: Create Tag
         id: create_tag
-        if: ${{ github.event.inputs.dry_run != 'true' }}
+        if: ${{ github.event.inputs.dry_run != 'true' && needs.validate-and-fetch-tag.outputs.tag_exists != 'true' }}
         run: |
           git tag -a ${{ github.event.inputs.tag_name }} -m "Prepare for ODH release ${{ github.event.inputs.tag_name }}"
           git push origin ${{ github.event.inputs.tag_name }}
+
+      - name: Skip tag creation - already exists
+        if: ${{ github.event.inputs.dry_run != 'true' && needs.validate-and-fetch-tag.outputs.tag_exists == 'true' }}
+        run: |
+          echo "::notice::Tag ${{ github.event.inputs.tag_name }} already exists, skipping creation"
 
       - name: Dry run - Tag would be created
         if: ${{ github.event.inputs.dry_run == 'true' }}
@@ -138,8 +149,22 @@ jobs:
         with:
           ref: ${{ github.ref }}
 
-      - name: Create Release
+      - name: Check if release exists
+        id: check_release
         if: ${{ github.event.inputs.dry_run != 'true' }}
+        run: |
+          if gh release view "${{ github.event.inputs.tag_name }}" >/dev/null 2>&1; then
+            echo "release_exists=true" >> $GITHUB_OUTPUT
+            echo "::warning::Release already exists for tag ${{ github.event.inputs.tag_name }}, skipping creation"
+          else
+            echo "release_exists=false" >> $GITHUB_OUTPUT
+            echo "::notice::Release does not exist, will create it"
+          fi
+        env:
+          GH_TOKEN: ${{ github.token }}
+
+      - name: Create Release
+        if: ${{ github.event.inputs.dry_run != 'true' && steps.check_release.outputs.release_exists != 'true' }}
         uses: softprops/action-gh-release@v2
         with:
           token: ${{ github.token }}
@@ -174,8 +199,21 @@ jobs:
       - name: Create branch for ODH tag update
         run: |
           BRANCH_NAME="chore/bump-odh-tag-${{ github.event.inputs.next_odh_tag }}"
-          git checkout -b "$BRANCH_NAME"
           echo "BRANCH_NAME=$BRANCH_NAME" >> $GITHUB_ENV
+
+          # Check if branch exists locally
+          if git show-ref --verify --quiet refs/heads/$BRANCH_NAME 2>/dev/null; then
+            echo "::notice::Branch $BRANCH_NAME already exists locally, checking out"
+            git checkout $BRANCH_NAME
+          # Check if branch exists on remote
+          elif git ls-remote --heads origin $BRANCH_NAME | grep -q $BRANCH_NAME; then
+            echo "::notice::Branch $BRANCH_NAME exists on remote, fetching and checking out"
+            git fetch origin $BRANCH_NAME
+            git checkout -b $BRANCH_NAME origin/$BRANCH_NAME
+          else
+            echo "::notice::Creating new branch $BRANCH_NAME"
+            git checkout -b "$BRANCH_NAME"
+          fi
 
       - name: Update odh-model-controller-push.yaml with next ODH tag
         run: |
@@ -199,7 +237,9 @@ jobs:
 
           # Check if there are any changes to commit
           if [[ -z "$(git status --porcelain)" ]]; then
-            echo "No changes to commit. Exiting."
+            echo "No changes to commit."
+            CURRENT_VERSION=$(grep -oP 'odh-model-controller:\K(odh-v[0-9.]+)' .tekton/odh-model-controller-push.yaml | head -1)
+            echo "::notice::File already has target version: $CURRENT_VERSION"
             echo "has_changes=false" >> $GITHUB_OUTPUT
             echo "pr_url=" >> $GITHUB_OUTPUT
             echo "pr_number=" >> $GITHUB_OUTPUT
@@ -221,27 +261,36 @@ jobs:
           git commit -m "chore(konflux): Bump ODH release tag to ${{ github.event.inputs.next_odh_tag }}"
           git push origin "$BRANCH_NAME"
 
-          # Create PR with multi-line body
-          PR_BODY="This PR updates the ODH release tag in the Konflux build configuration from \`${{ github.event.inputs.tag_name }}\` to \`${{ github.event.inputs.next_odh_tag }}\` for the next development cycle.
+          # Check if PR already exists for this branch
+          EXISTING_PR=$(gh pr list --head "$BRANCH_NAME" --base "${{ github.ref_name }}" --state open --json number,url --jq '.[0] | select(. != null)' 2>/dev/null || echo "")
 
-          **Changes:**
-          - Updated \`.tekton/odh-model-controller-push.yaml\` with the new ODH tag
+          if [[ -n "$EXISTING_PR" ]]; then
+            PR_NUMBER=$(echo "$EXISTING_PR" | jq -r '.number')
+            PR_URL=$(echo "$EXISTING_PR" | jq -r '.url')
+            echo "::notice::PR #$PR_NUMBER already exists for branch $BRANCH_NAME: $PR_URL"
+          else
+            # Create PR with multi-line body
+            PR_BODY="This PR updates the ODH release tag in the Konflux build configuration from \`${{ github.event.inputs.tag_name }}\` to \`${{ github.event.inputs.next_odh_tag }}\` for the next development cycle.
 
-          **Automated by:** Release workflow for ${{ github.event.inputs.tag_name }}"
+            **Changes:**
+            - Updated \`.tekton/odh-model-controller-push.yaml\` with the new ODH tag
 
-          PR_JSON=$(gh pr create \
-            --title "chore(konflux): Bump ODH release tag to ${{ github.event.inputs.next_odh_tag }}" \
-            --body "$PR_BODY" \
-            --base "${{ github.ref_name }}" \
-            --head "$BRANCH_NAME" \
-            --json number,url)
+            **Automated by:** Release workflow for ${{ github.event.inputs.tag_name }}"
 
-          PR_NUMBER=$(echo "$PR_JSON" | jq -r '.number')
-          PR_URL=$(echo "$PR_JSON" | jq -r '.url')
+            PR_JSON=$(gh pr create \
+              --title "chore(konflux): Bump ODH release tag to ${{ github.event.inputs.next_odh_tag }}" \
+              --body "$PR_BODY" \
+              --base "${{ github.ref_name }}" \
+              --head "$BRANCH_NAME" \
+              --json number,url)
+
+            PR_NUMBER=$(echo "$PR_JSON" | jq -r '.number')
+            PR_URL=$(echo "$PR_JSON" | jq -r '.url')
+            echo "::notice::PR created successfully: $PR_URL"
+          fi
 
           echo "pr_url=$PR_URL" >> $GITHUB_OUTPUT
           echo "pr_number=$PR_NUMBER" >> $GITHUB_OUTPUT
-          echo "::notice::PR created successfully: $PR_URL"
 
       - name: Create workflow summary
         if: always()
