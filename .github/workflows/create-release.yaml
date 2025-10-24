@@ -11,6 +11,11 @@ on:
         description: 'Next development cycle tag: (e.g., odh-v2.36)'
         required: true
         type: string
+      dry_run:
+        description: 'Dry run (show changes without creating tag/release/PR)'
+        required: false
+        type: boolean
+        default: false
     #
     # Note: This workflow assumes the release tag and image tags are in sync.
     #       'tag_name' is used to create the release and as the value to find in konflux files.
@@ -21,26 +26,55 @@ permissions:
   contents: write
   packages: write
   pull-requests: write
-  
+
 jobs:
-  fetch-tag:
+  validate-and-fetch-tag:
+    name: Validate Inputs and Fetch Previous Tag
     runs-on: ubuntu-latest
     outputs:
       old_tag: ${{ steps.get_tag.outputs.old_tag_name }}
+      tag_exists: ${{ steps.check_tag.outputs.tag_exists }}
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
         with:
           ref: ${{ github.ref }}
           fetch-depth: 0
-      
+
+      - name: Validate tag formats and workflow mode
+        run: |
+          if [[ "${{ github.event.inputs.dry_run }}" == "true" ]]; then
+            echo "::warning::🧪 DRY RUN MODE ENABLED - No tags, releases, or PRs will be created"
+            echo "::notice::This is a preview run. Re-run without dry_run to execute the workflow."
+          else
+            echo "::notice::✅ PRODUCTION MODE - Tags, releases, and PRs will be created"
+          fi
+
+          if [[ ! "${{ github.event.inputs.tag_name }}" =~ ^odh-v[0-9]+\.[0-9]+ ]]; then
+            echo "::error::Invalid current tag format. Expected format: odh-vX.Y (e.g., odh-v2.35)"
+            exit 1
+          fi
+
+          if [[ ! "${{ github.event.inputs.next_odh_tag }}" =~ ^odh-v[0-9]+\.[0-9]+ ]]; then
+            echo "::error::Invalid next tag format. Expected format: odh-vX.Y (e.g., odh-v2.36)"
+            exit 1
+          fi
+
+          # Ensure next tag is different from current tag
+          if [[ "${{ github.event.inputs.next_odh_tag }}" == "${{ github.event.inputs.tag_name }}" ]]; then
+            echo "::error::Next tag must be different from current tag"
+            exit 1
+          fi
+
+          echo "::notice::✅ Tag validation passed"
+
       - name: Get latest tag
         id: get_tag
         run: |
           echo "old_tag_name=$(git for-each-ref --sort=creatordate --format '%(refname)' refs/tags  | awk -F'/' '{print $3}' | tail -n1)" >> $GITHUB_OUTPUT
       - name: print tag
         id: print_tag
-        run: | 
+        run: |
           echo "Old Tag=${{ steps.get_tag.outputs.old_tag_name }}"
           echo "NEW_TAG=${{ github.event.inputs.tag_name }}" >> $GITHUB_ENV
           echo "$(basename ${{ github.ref }})"
@@ -48,34 +82,38 @@ jobs:
       - name: Check if tag exists
         id: check_tag
         run: |
-         import sys
-         import subprocess
-         tag_name = "${{ github.event.inputs.tag_name }}"
-         command = ['git', 'tag', '-l', tag_name]
-         output = subprocess.check_output(command, stderr=subprocess.STDOUT)
-         if output.decode() != "":
-           print(f"Error: Tag '{tag_name}' already exists.", file=sys.stderr)
-           sys.exit(1)
-         else:
-           print(f"Tag '{tag_name}' does not exists.")
-        
+          import sys
+          import subprocess
+          import os
+          tag_name = "${{ github.event.inputs.tag_name }}"
+          command = ['git', 'tag', '-l', tag_name]
+          output = subprocess.check_output(command, stderr=subprocess.STDOUT)
+          if output.decode() != "":
+            print(f"::warning::Tag '{tag_name}' already exists, will skip creation")
+            # Output for downstream steps to check
+            with open(os.environ['GITHUB_OUTPUT'], 'a') as f:
+              f.write(f"tag_exists=true\n")
+          else:
+            print(f"Tag '{tag_name}' does not exist, will create it")
+            with open(os.environ['GITHUB_OUTPUT'], 'a') as f:
+              f.write(f"tag_exists=false\n")
+
         shell: python
         continue-on-error: false
 
 #this works only if params.env contains image:tag_version_number
   update-params-env:
     runs-on: ubuntu-latest
-    needs: fetch-tag
-    outputs:
-      param_env: ${{ steps.read_params_env.outputs.params_env }}
+    needs: validate-and-fetch-tag
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
         with:
           ref: ${{ github.ref }}
-              
+          token: ${{ secrets.GITHUB_TOKEN }}
+
       - name: Update params.env with new release version
-        run: | 
+        run: |
           sed -i 's|odh-model-controller:fast|odh-model-controller:${{ github.event.inputs.tag_name }}|gm' config/base/params.env
       - name: Commit changes
         run: |
@@ -86,13 +124,24 @@ jobs:
 
       - name: Create Tag
         id: create_tag
+        if: ${{ github.event.inputs.dry_run != 'true' && needs.validate-and-fetch-tag.outputs.tag_exists != 'true' }}
         run: |
           git tag -a ${{ github.event.inputs.tag_name }} -m "Prepare for ODH release ${{ github.event.inputs.tag_name }}"
           git push origin ${{ github.event.inputs.tag_name }}
 
+      - name: Skip tag creation - already exists
+        if: ${{ github.event.inputs.dry_run != 'true' && needs.validate-and-fetch-tag.outputs.tag_exists == 'true' }}
+        run: |
+          echo "::notice::Tag ${{ github.event.inputs.tag_name }} already exists, skipping creation"
+
+      - name: Dry run - Tag would be created
+        if: ${{ github.event.inputs.dry_run == 'true' }}
+        run: |
+          echo "::notice::DRY RUN: Would create tag ${{ github.event.inputs.tag_name }}"
+
   changelog:
     name: Changelog
-    needs: [fetch-tag,update-params-env]
+    needs: [validate-and-fetch-tag, update-params-env]
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
@@ -100,7 +149,22 @@ jobs:
         with:
           ref: ${{ github.ref }}
 
+      - name: Check if release exists
+        id: check_release
+        if: ${{ github.event.inputs.dry_run != 'true' }}
+        run: |
+          if gh release view "${{ github.event.inputs.tag_name }}" >/dev/null 2>&1; then
+            echo "release_exists=true" >> $GITHUB_OUTPUT
+            echo "::warning::Release already exists for tag ${{ github.event.inputs.tag_name }}, skipping creation"
+          else
+            echo "release_exists=false" >> $GITHUB_OUTPUT
+            echo "::notice::Release does not exist, will create it"
+          fi
+        env:
+          GH_TOKEN: ${{ github.token }}
+
       - name: Create Release
+        if: ${{ github.event.inputs.dry_run != 'true' && steps.check_release.outputs.release_exists != 'true' }}
         uses: softprops/action-gh-release@v2
         with:
           token: ${{ github.token }}
@@ -111,43 +175,183 @@ jobs:
           files: bin/*
           generate_release_notes: true
           name: ${{ github.event.inputs.tag_name }}
-  
-  # This job updates the ODH tag in the specified file and commits the change
-  bump-odh-tag: 
+
+      - name: Dry run - Release would be created
+        if: ${{ github.event.inputs.dry_run == 'true' }}
+        run: |
+          echo "::notice::DRY RUN: Would create release for ${{ github.event.inputs.tag_name }}"
+
+  # This job updates the ODH tag in the specified file and creates a PR
+  bump-odh-tag:
     name: Bump ODH Tag for Next Release
     runs-on: ubuntu-latest
-    needs: [fetch-tag, update-params-env, changelog]
+    needs: [validate-and-fetch-tag, update-params-env, changelog]
     permissions:
-      contents: write # Re-adding to ensure write permission.
+      contents: write
+      pull-requests: write
+    env:
+      GH_TOKEN: ${{ github.token }}
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
         with:
-          ref: ${{ github.ref }} # This will resolve the detached HEAD issue that code rabbit brought up.
-      
+          ref: ${{ github.ref }}
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Create branch for ODH tag update
+        run: |
+          BRANCH_NAME="chore/bump-odh-tag-${{ github.event.inputs.next_odh_tag }}"
+          echo "BRANCH_NAME=$BRANCH_NAME" >> $GITHUB_ENV
+
+          # Check if branch exists locally
+          if git show-ref --verify --quiet refs/heads/$BRANCH_NAME 2>/dev/null; then
+            echo "::notice::Branch $BRANCH_NAME already exists locally, checking out"
+            git checkout $BRANCH_NAME
+          # Check if branch exists on remote
+          elif git ls-remote --heads origin $BRANCH_NAME | grep -q $BRANCH_NAME; then
+            echo "::notice::Branch $BRANCH_NAME exists on remote, fetching and checking out"
+            git fetch origin $BRANCH_NAME
+            git checkout -b $BRANCH_NAME origin/$BRANCH_NAME
+          else
+            echo "::notice::Creating new branch $BRANCH_NAME"
+            git checkout -b "$BRANCH_NAME"
+          fi
+
       - name: Update odh-model-controller-push.yaml with next ODH tag
         run: |
           CURRENT_TAG="${{ github.event.inputs.tag_name }}"
           NEXT_TAG="${{ github.event.inputs.next_odh_tag }}"
-          
+
           echo "Updating ODH tag from $CURRENT_TAG to $NEXT_TAG..."
-          
+
           # Using sed to replace the current ODH tag with the next one,
           # anchored to the image name to prevent over-matching.
           sed -i "s|odh-model-controller:${CURRENT_TAG}|odh-model-controller:${NEXT_TAG}|g" .tekton/odh-model-controller-push.yaml
 
           echo "Update complete."
-          
-      - name: Commit and Push Changes
+
+      - name: Create PR for tag update
+        id: create_pr
         run: |
           git config --global user.email "github-actions@github.com"
           git config --global user.name "GitHub Actions"
           git add .tekton/odh-model-controller-push.yaml
-          
+
           # Check if there are any changes to commit
-          if [[ -z "$(git status --porcelain)" ]]; then 
-            echo "No changes to commit. Exiting."
-          else
-            git commit -m "chore(konflux): Bump ODH release tag to ${{ github.event.inputs.next_odh_tag }}"
-            git push
+          if [[ -z "$(git status --porcelain)" ]]; then
+            echo "No changes to commit."
+            CURRENT_VERSION=$(grep -oP 'odh-model-controller:\K(odh-v[0-9.]+)' .tekton/odh-model-controller-push.yaml | head -1)
+            echo "::notice::File already has target version: $CURRENT_VERSION"
+            echo "has_changes=false" >> $GITHUB_OUTPUT
+            echo "pr_url=" >> $GITHUB_OUTPUT
+            echo "pr_number=" >> $GITHUB_OUTPUT
+            exit 0
           fi
+
+          echo "has_changes=true" >> $GITHUB_OUTPUT
+
+          # Dry run mode - show changes without creating PR
+          if [[ "${{ github.event.inputs.dry_run }}" == "true" ]]; then
+            echo "::notice::DRY RUN MODE - Changes that would be made:"
+            git diff --cached
+            echo "dry_run=true" >> $GITHUB_OUTPUT
+            echo "pr_url=" >> $GITHUB_OUTPUT
+            echo "pr_number=" >> $GITHUB_OUTPUT
+            exit 0
+          fi
+
+          git commit -m "chore(konflux): Bump ODH release tag to ${{ github.event.inputs.next_odh_tag }}"
+          git push origin "$BRANCH_NAME"
+
+          # Check if PR already exists for this branch
+          EXISTING_PR=$(gh pr list --head "$BRANCH_NAME" --base "${{ github.ref_name }}" --state open --json number,url --jq '.[0] | select(. != null)' 2>/dev/null || echo "")
+
+          if [[ -n "$EXISTING_PR" ]]; then
+            PR_NUMBER=$(echo "$EXISTING_PR" | jq -r '.number')
+            PR_URL=$(echo "$EXISTING_PR" | jq -r '.url')
+            echo "::notice::PR #$PR_NUMBER already exists for branch $BRANCH_NAME: $PR_URL"
+          else
+            # Create PR with multi-line body
+            PR_BODY="This PR updates the ODH release tag in the Konflux build configuration from \`${{ github.event.inputs.tag_name }}\` to \`${{ github.event.inputs.next_odh_tag }}\` for the next development cycle.
+
+            **Changes:**
+            - Updated \`.tekton/odh-model-controller-push.yaml\` with the new ODH tag
+
+            **Automated by:** Release workflow for ${{ github.event.inputs.tag_name }}"
+
+            PR_JSON=$(gh pr create \
+              --title "chore(konflux): Bump ODH release tag to ${{ github.event.inputs.next_odh_tag }}" \
+              --body "$PR_BODY" \
+              --base "${{ github.ref_name }}" \
+              --head "$BRANCH_NAME" \
+              --json number,url)
+
+            PR_NUMBER=$(echo "$PR_JSON" | jq -r '.number')
+            PR_URL=$(echo "$PR_JSON" | jq -r '.url')
+            echo "::notice::PR created successfully: $PR_URL"
+          fi
+
+          echo "pr_url=$PR_URL" >> $GITHUB_OUTPUT
+          echo "pr_number=$PR_NUMBER" >> $GITHUB_OUTPUT
+
+      - name: Create workflow summary
+        if: always()
+        run: |
+          echo "## Workflow Summary" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+
+          if [[ "${{ steps.create_pr.outputs.has_changes }}" != "true" ]]; then
+            echo "### ⚠️ No Changes Detected" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "The specified current tag was not found in the Tekton file, or the file already has the next tag." >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "**Possible reasons:**" >> $GITHUB_STEP_SUMMARY
+            echo "- Current tag \`${{ github.event.inputs.tag_name }}\` doesn't exist in \`.tekton/odh-model-controller-push.yaml\`" >> $GITHUB_STEP_SUMMARY
+            echo "- File already has next tag \`${{ github.event.inputs.next_odh_tag }}\`" >> $GITHUB_STEP_SUMMARY
+          elif [[ "${{ github.event.inputs.dry_run }}" == "true" ]]; then
+            echo "### 🧪 Dry Run Mode - Preview of Changes" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "✅ **Validation passed** - Ready to run without dry-run mode" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+
+            echo "#### Expected Actions" >> $GITHUB_STEP_SUMMARY
+            echo "1. **Tag Created**: \`${{ github.event.inputs.tag_name }}\`" >> $GITHUB_STEP_SUMMARY
+            echo "2. **Release Created**: \`${{ github.event.inputs.tag_name }}\` with changelog from \`${{ needs.validate-and-fetch-tag.outputs.old_tag }}\`" >> $GITHUB_STEP_SUMMARY
+            echo "3. **Branch Created**: \`chore/bump-odh-tag-${{ github.event.inputs.next_odh_tag }}\`" >> $GITHUB_STEP_SUMMARY
+            echo "4. **PR Created**: Against \`${{ github.ref_name }}\` branch" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+
+            echo "#### PR Details" >> $GITHUB_STEP_SUMMARY
+            echo "**Title**: \`chore(konflux): Bump ODH release tag to ${{ github.event.inputs.next_odh_tag }}\`" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "**Body**:" >> $GITHUB_STEP_SUMMARY
+            echo "> This PR updates the ODH release tag in the Konflux build configuration from \`${{ github.event.inputs.tag_name }}\` to \`${{ github.event.inputs.next_odh_tag }}\` for the next development cycle." >> $GITHUB_STEP_SUMMARY
+            echo ">" >> $GITHUB_STEP_SUMMARY
+            echo "> **Changes:**" >> $GITHUB_STEP_SUMMARY
+            echo "> - Updated \`.tekton/odh-model-controller-push.yaml\` with the new ODH tag" >> $GITHUB_STEP_SUMMARY
+            echo ">" >> $GITHUB_STEP_SUMMARY
+            echo "> **Automated by:** Release workflow for ${{ github.event.inputs.tag_name }}" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+
+            echo "#### File Changes" >> $GITHUB_STEP_SUMMARY
+            echo "\`\`\`diff" >> $GITHUB_STEP_SUMMARY
+            git diff --cached >> $GITHUB_STEP_SUMMARY || echo "No diff available" >> $GITHUB_STEP_SUMMARY
+            echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
+          else
+            echo "### ✅ Release Workflow Completed" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "#### Actions Completed" >> $GITHUB_STEP_SUMMARY
+            echo "1. ✅ **Tag Created**: [\`${{ github.event.inputs.tag_name }}\`](${{ github.server_url }}/${{ github.repository }}/releases/tag/${{ github.event.inputs.tag_name }})" >> $GITHUB_STEP_SUMMARY
+            echo "2. ✅ **Release Created**: [View Release](${{ github.server_url }}/${{ github.repository }}/releases/tag/${{ github.event.inputs.tag_name }})" >> $GITHUB_STEP_SUMMARY
+            echo "3. ✅ **File Updated**: [\`.tekton/odh-model-controller-push.yaml\`](${{ steps.create_pr.outputs.pr_url }}/files) (\`${{ github.event.inputs.tag_name }}\` → \`${{ github.event.inputs.next_odh_tag }}\`)" >> $GITHUB_STEP_SUMMARY
+            echo "4. ✅ **PR Created**: [#${{ steps.create_pr.outputs.pr_number }}](${{ steps.create_pr.outputs.pr_url }}) - [View Changes](${{ steps.create_pr.outputs.pr_url }}/files)" >> $GITHUB_STEP_SUMMARY
+          fi
+
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "---" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### Workflow Inputs" >> $GITHUB_STEP_SUMMARY
+          echo "- **Current Tag**: \`${{ github.event.inputs.tag_name }}\`" >> $GITHUB_STEP_SUMMARY
+          echo "- **Next Tag**: \`${{ github.event.inputs.next_odh_tag }}\`" >> $GITHUB_STEP_SUMMARY
+          echo "- **Dry Run**: \`${{ github.event.inputs.dry_run }}\`" >> $GITHUB_STEP_SUMMARY
+          echo "- **Base Branch**: \`${{ github.ref_name }}\`" >> $GITHUB_STEP_SUMMARY
