@@ -35,8 +35,8 @@ objects:
           name: kserve-container
           command:
             - /bin/bash
-            - -lc
-            - exec python3 -m vllm.entrypoints.openai.api_server "$@"
+            - -c
+            - source /etc/profile.d/ibm-aiu-setup.sh && exec python3 -m vllm.entrypoints.openai.api_server "$@"
             - --
           args:
             - '--model=/mnt/models'
@@ -45,8 +45,6 @@ objects:
           env:
             - name: HF_HOME
               value: /tmp/hf_home
-            - name: FLEX_COMPUTE
-              value: SENTIENT
             - name: FLEX_DEVICE
               value: VF
             - name: TOKENIZERS_PARALLELISM
@@ -55,6 +53,12 @@ objects:
               value: error
             - name: TORCH_SENDNN_LOG
               value: CRITICAL
+            - name: VLLM_SPYRE_USE_CB
+              value: "1"
+            - name: VLLM_SPYRE_REQUIRE_PRECOMPILED_DECODERS
+              value: "1"
+            - name: TORCH_SENDNN_CACHE_ENABLE
+              value: "1"
           ports:
             - containerPort: 8000
               protocol: TCP
