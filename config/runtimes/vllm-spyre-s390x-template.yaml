@@ -36,7 +36,7 @@ objects:
           command:
             - /bin/bash
             - -c
-            - source /etc/profile.d/ibm-aiu-setup.sh && exec python3 -m vllm.entrypoints.openai.api_server "$@"
+            - source /etc/profile.d/ibm-aiu-setup.sh && exec python3 -m vllm_tgis_adapter "$@"
           args:
             - '--model=/mnt/models'
             - '--port=8000'
