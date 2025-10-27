@@ -37,7 +37,6 @@ objects:
             - /bin/bash
             - -c
             - source /etc/profile.d/ibm-aiu-setup.sh && exec python3 -m vllm.entrypoints.openai.api_server "$@"
-            - --
           args:
             - '--model=/mnt/models'
             - '--port=8000'
