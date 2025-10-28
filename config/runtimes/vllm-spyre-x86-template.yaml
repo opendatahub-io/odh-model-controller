@@ -34,7 +34,7 @@ objects:
         - image: $(vllm-spyre-x86-image)
           name: kserve-container
           args:
-            - /mnt/models
+            - '--model=/mnt/models'
             - '--port=8000'
             - '--served-model-name={{.Name}}'
           env:
