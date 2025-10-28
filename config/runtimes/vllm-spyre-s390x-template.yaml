@@ -22,7 +22,7 @@ objects:
       name: vllm-spyre-s390x-runtime
       annotations:
         openshift.io/display-name: vLLM Spyre s390x ServingRuntime for KServe
-        opendatahub.io/recommended-accelerators: '["ibm.com/spyre_pf"]'
+        opendatahub.io/recommended-accelerators: '["ibm.com/spyre_vf"]'
         opendatahub.io/runtime-version: 'v0.10.2.0'
       labels:
         opendatahub.io/dashboard: 'true'
@@ -34,37 +34,43 @@ objects:
         - image: $(vllm-spyre-s390x-image)
           name: kserve-container
           command:
-            - python3
-            - '-m'
-            - vllm_tgis_adapter
+            - /bin/bash
+            - -c
+            - source /etc/profile.d/ibm-aiu-setup.sh && exec python3 -m vllm.entrypoints.openai.api_server "$@"
+            - --
           args:
-            - /mnt/models
+            - '--model=/mnt/models'
             - '--port=8000'
             - '--served-model-name={{.Name}}'
-            - '--grpc-port=8033'
           env:
             - name: HF_HOME
               value: /tmp/hf_home
-            - name: FLEX_COMPUTE
-              value: SENTIENT
             - name: FLEX_DEVICE
-              value: PF
+              value: VF
             - name: TOKENIZERS_PARALLELISM
               value: 'false'
             - name: DTLOG_LEVEL
               value: error
             - name: TORCH_SENDNN_LOG
               value: CRITICAL
-            - name: VLLM_SPYRE_WARMUP_BATCH_SIZES
-              value: '4'
-            - name: VLLM_SPYRE_WARMUP_PROMPT_LENS
-              value: '1024'
-            - name: VLLM_SPYRE_WARMUP_NEW_TOKENS
-              value: '256'
+            - name: VLLM_SPYRE_USE_CB
+              value: "1"
+            - name: VLLM_SPYRE_REQUIRE_PRECOMPILED_DECODERS
+              value: "1"
+            - name: TORCH_SENDNN_CACHE_ENABLE
+              value: "1"
           ports:
             - containerPort: 8000
               protocol: TCP
+          volumeMounts:
+            - name: shm
+              mountPath: /dev/shm
       multiModel: false
       supportedModelFormats:
         - autoSelect: true
           name: vLLM
+      volumes:
+        - name: shm
+          emptyDir:
+            medium: Memory
+            sizeLimit: 2Gi
