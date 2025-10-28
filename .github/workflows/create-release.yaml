@@ -337,7 +337,7 @@ jobs:
             echo "#### Actions Completed" >> $GITHUB_STEP_SUMMARY
             echo "1. ✅ **Tag Created**: [\`${{ github.event.inputs.tag_name }}\`](${{ github.server_url }}/${{ github.repository }}/releases/tag/${{ github.event.inputs.tag_name }})" >> $GITHUB_STEP_SUMMARY
             echo "2. ✅ **Release Created**: [View Release](${{ github.server_url }}/${{ github.repository }}/releases/tag/${{ github.event.inputs.tag_name }})" >> $GITHUB_STEP_SUMMARY
-            echo "3. ✅ **File Updated**: [\.tekton/odh-model-controller-push.yaml](${{ steps.create_pr.outputs.pr_url }}/files) (\`${{ github.event.inputs.tag_name }}\` → \`${{ github.event.inputs.next_odh_tag }}\`)" >> $GITHUB_STEP_SUMMARY
+            echo "3. ✅ **File Updated**: [.tekton/odh-model-controller-push.yaml](${{ steps.create_pr.outputs.pr_url }}/files) (\`${{ github.event.inputs.tag_name }}\` → \`${{ github.event.inputs.next_odh_tag }}\`)" >> $GITHUB_STEP_SUMMARY
             echo "4. ✅ **PR Created**: [#${{ steps.create_pr.outputs.pr_number }}](${{ steps.create_pr.outputs.pr_url }}) - [View Changes](${{ steps.create_pr.outputs.pr_url }}/files)" >> $GITHUB_STEP_SUMMARY
           fi
 
