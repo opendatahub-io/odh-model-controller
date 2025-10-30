@@ -154,7 +154,7 @@ jobs:
             echo "::warning::Release already exists for tag ${{ github.event.inputs.tag_name }}, skipping creation"
           else
             echo "release_exists=false" >> $GITHUB_OUTPUT
-            echo "::notice::Release does not exist, will create it"
+            echo "::notice::Release does not exist, will create release for ${{ github.event.inputs.tag_name }}"
           fi
         env:
           GH_TOKEN: ${{ github.token }}
@@ -170,15 +170,6 @@ jobs:
           files: bin/*
           generate_release_notes: true
           name: ${{ github.event.inputs.tag_name }}
-
-      - name: Dry run - Release status
-        if: ${{ github.event.inputs.dry_run == 'true' }}
-        run: |
-          if [[ "${{ steps.check_release.outputs.release_exists }}" == "true" ]]; then
-            echo "::notice::DRY RUN: Release already exists, would skip creation"
-          else
-            echo "::notice::DRY RUN: Would create release for ${{ github.event.inputs.tag_name }}"
-          fi
 
   bump-odh-tag:
     name: Bump ODH Tag for Next Release
