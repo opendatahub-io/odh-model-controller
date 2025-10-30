@@ -99,42 +99,43 @@ jobs:
         shell: python
         continue-on-error: false
 
-      - name: Update params.env and create tag
+      - name: Log tag exists - skip creation
+        if: ${{ steps.check_tag.outputs.tag_exists == 'true' }}
+        run: |
+          echo "::notice::Tag ${{ github.event.inputs.tag_name }} already exists, no further action will be taken"
+
+      - name: Prepare params.env update
         if: ${{ steps.check_tag.outputs.tag_exists != 'true' }}
         run: |
+          echo "::notice::Tag ${{ github.event.inputs.tag_name }} will be created"
+          echo "::notice::Updating config/base/params.env with new tag"
+
           # Update params.env with release tag
           sed -i "s|odh-model-controller:fast|odh-model-controller:${{ github.event.inputs.tag_name }}|g" config/base/params.env
 
-          git config --global user.email "github-actions@github.com"
-          git config --global user.name "GitHub Actions"
-          git add config/base/params.env
-
-          # Check if there are changes to commit
-          if [[ -n "$(git status --porcelain)" ]]; then
-            git commit -m "Update image refs for ODH release ${{ github.event.inputs.tag_name }}"
+          # Check and log if params.env will be updated
+          if git diff --quiet config/base/params.env; then
+            echo "::notice::No changes needed in config/base/params.env"
+          else
+            echo "::notice::config/base/params.env will be updated on the new tag"
+            git diff config/base/params.env
           fi
 
-      - name: Create Tag
-        id: create_tag
+      - name: Create and push tag
         if: ${{ github.event.inputs.dry_run != 'true' && steps.check_tag.outputs.tag_exists != 'true' }}
         run: |
           git config --global user.email "github-actions@github.com"
           git config --global user.name "GitHub Actions"
+          git add config/base/params.env
+
+          # Commit changes if there are any
+          if [[ -n "$(git status --porcelain)" ]]; then
+            git commit -m "Update image refs for ODH release ${{ github.event.inputs.tag_name }}"
+          fi
+
+          # Create and push tag
           git tag -a ${{ github.event.inputs.tag_name }} -m "Prepare for ODH release ${{ github.event.inputs.tag_name }}"
           git push origin ${{ github.event.inputs.tag_name }}
-
-      - name: Skip tag creation - already exists
-        if: ${{ github.event.inputs.dry_run != 'true' && steps.check_tag.outputs.tag_exists == 'true' }}
-        run: |
-          echo "::notice::Tag ${{ github.event.inputs.tag_name }} already exists, skipping creation"
-
-      - name: Dry run - Tag would be created
-        if: ${{ github.event.inputs.dry_run == 'true' }}
-        run: |
-          echo "::notice::DRY RUN: Would create tag ${{ github.event.inputs.tag_name }}"
-          echo "::notice::DRY RUN: Would update config/base/params.env"
-          sed -i "s|odh-model-controller:fast|odh-model-controller:${{ github.event.inputs.tag_name }}|g" config/base/params.env
-          git diff config/base/params.env || echo "No changes in params.env"
 
   changelog:
     name: Changelog
