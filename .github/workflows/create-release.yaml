@@ -148,7 +148,6 @@ jobs:
 
       - name: Check if release exists
         id: check_release
-        if: ${{ github.event.inputs.dry_run != 'true' }}
         run: |
           if gh release view "${{ github.event.inputs.tag_name }}" >/dev/null 2>&1; then
             echo "release_exists=true" >> $GITHUB_OUTPUT
@@ -172,10 +171,14 @@ jobs:
           generate_release_notes: true
           name: ${{ github.event.inputs.tag_name }}
 
-      - name: Dry run - Release would be created
+      - name: Dry run - Release status
         if: ${{ github.event.inputs.dry_run == 'true' }}
         run: |
-          echo "::notice::DRY RUN: Would create release for ${{ github.event.inputs.tag_name }}"
+          if [[ "${{ steps.check_release.outputs.release_exists }}" == "true" ]]; then
+            echo "::notice::DRY RUN: Release already exists, would skip creation"
+          else
+            echo "::notice::DRY RUN: Would create release for ${{ github.event.inputs.tag_name }}"
+          fi
 
   bump-odh-tag:
     name: Bump ODH Tag for Next Release
