@@ -24,6 +24,7 @@ objects:
         openshift.io/display-name: vLLM NVIDIA GPU ServingRuntime for KServe
         opendatahub.io/recommended-accelerators: '["nvidia.com/gpu"]'
         opendatahub.io/runtime-version: 'v0.9.1.0'
+        opendatahub.io/kserve-vllm-runtime: 'true'
       labels:
         opendatahub.io/dashboard: 'true'
     spec:
