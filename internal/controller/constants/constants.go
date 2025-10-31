@@ -31,6 +31,7 @@ const (
 	KserveNetworkVisibility = "networking.kserve.io/visibility"
 	KserveGroupAnnotation   = "serving.kserve.io/inferenceservice"
 	RhoaiObservabilityLabel = "monitoring.opendatahub.io/scrape"
+	RuntimesBaseAnnotation  = "opendatahub.io"
 
 	ODHManagedLabel         = "opendatahub.io/managed"
 	EnableAuthODHAnnotation = "security.opendatahub.io/enable-auth"
@@ -90,11 +91,11 @@ const (
 	IntervalValue                    = "1m"
 	RequestRateInterval              = "5m"
 	GPUKVCacheSamplingInterval       = "24h"
-	OvmsImageName                    = "openvino_model_server"
-	TgisImageName                    = "text-generation-inference"
-	VllmImageName                    = "vllm"
-	CaikitImageName                  = "caikit-nlp"
-	ServingRuntimeFallBackImageName  = "unsupported"
+
+	KServeRuntimeAnnotation = RuntimesBaseAnnotation + "/kserve-runtime"
+	OvmsRuntimeName         = "ovms"
+	TgisRuntimeName         = "tgis"
+	VllmRuntimeName         = "vllm"
 )
 
 // openshift
