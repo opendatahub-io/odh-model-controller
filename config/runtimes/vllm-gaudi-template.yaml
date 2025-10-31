@@ -24,6 +24,7 @@ objects:
         openshift.io/display-name: vLLM Intel Gaudi Accelerator ServingRuntime for KServe
         opendatahub.io/recommended-accelerators: '["habana.ai/gaudi"]'
         opendatahub.io/runtime-version: 'v0.7.2'
+        opendatahub.io/kserve-vllm-runtime: 'true'
       labels:
         opendatahub.io/dashboard: 'true'
     spec:
