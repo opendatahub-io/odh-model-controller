@@ -17,7 +17,6 @@ package reconcilers
 
 import (
 	"context"
-	"regexp"
 	"strconv"
 
 	"github.com/go-logr/logr"
@@ -94,7 +93,7 @@ func (r *KserveMetricsDashboardReconciler) Reconcile(ctx context.Context, log lo
 func (r *KserveMetricsDashboardReconciler) createDesiredResource(ctx context.Context, log logr.Logger, isvc *kservev1beta1.InferenceService) (*corev1.ConfigMap, error) {
 
 	var err error
-	runtime := &kservev1alpha1.ServingRuntime{}
+	var runtime *kservev1alpha1.ServingRuntime
 	supported := false
 
 	// there is the possibility to also have and nil model field, e.g:
@@ -115,10 +114,6 @@ func (r *KserveMetricsDashboardReconciler) createDesiredResource(ctx context.Con
 		}
 		log.Error(err, "Could not determine servingruntime for isvc")
 		return nil, err
-	}
-
-	if (runtime.Spec.Containers == nil) || (len(runtime.Spec.Containers) < 1) {
-		log.V(1).Info("Could not determine runtime image")
 	}
 
 	// supported is true only when a match on this map is found, is false otherwise
@@ -198,29 +193,39 @@ func (r *KserveMetricsDashboardReconciler) processDelta(ctx context.Context, log
 	return nil
 }
 
+// getMetricsData determines the appropriate metrics configuration data based on the serving runtime annotations.
+// It checks for specific runtime type annotations and returns the corresponding metrics data string.
+//
+// The function evaluates annotations in the following order:
+//   - IsNimRuntimeAnnotation: Returns NIMMetricsData if set to "true"
+//   - KServeRuntimeAnnotation with OvmsRuntimeName: Returns OvmsMetricsData
+//   - KServeRuntimeAnnotation with VllmRuntimeName: Returns VllmMetricsData
+//   - KServeRuntimeAnnotation with TgisRuntimeName: Returns TgisMetricsData
+//
+// Parameters:
+//   - runtime: A pointer to the ServingRuntime object containing annotations to evaluate
+//
+// Returns:
+//   - string: The metrics configuration data for the detected runtime type, or empty string if no match
+//   - bool: True if a supported runtime type was detected, false otherwise
+//
+// Example usage:
+//
+//	metricsData, found := getMetricsData(servingRuntime)
+//	if found {
+//	    // Use metricsData for dashboard configuration
+//	}
 func getMetricsData(runtime *kservev1alpha1.ServingRuntime) (string, bool) {
-	if runtime.Annotations[utils.IsNimRuntimeAnnotation] == "true" {
+	switch {
+	case runtime.Annotations[utils.IsNimRuntimeAnnotation] == "true":
 		return constants.NIMMetricsData, true
+	case runtime.Spec.Annotations[constants.KServeRuntimeAnnotation] == constants.OvmsRuntimeName:
+		return constants.OvmsMetricsData, true
+	case runtime.Spec.Annotations[constants.KServeRuntimeAnnotation] == constants.VllmRuntimeName:
+		return constants.VllmMetricsData, true
+	case runtime.Spec.Annotations[constants.KServeRuntimeAnnotation] == constants.TgisRuntimeName:
+		return constants.TgisMetricsData, true
+	default:
+		return "", false
 	}
-
-	var servingRuntime string
-	servingRuntimeImage := runtime.Spec.Containers[0].Image
-	re := regexp.MustCompile(`/([^/@]+)[@:]`)
-	findImageName := re.FindStringSubmatch(servingRuntimeImage)
-	// sanity check for regex match, will fall back to a known string that will lead to a configmap for unsupported metrics
-	if len(findImageName) < 2 {
-		servingRuntime = constants.ServingRuntimeFallBackImageName
-	} else {
-		servingRuntime = findImageName[1]
-	}
-
-	runtimeMetricsData := map[string]string{
-		constants.OvmsImageName:   constants.OvmsMetricsData,
-		constants.TgisImageName:   constants.TgisMetricsData,
-		constants.VllmImageName:   constants.VllmMetricsData,
-		constants.CaikitImageName: constants.CaikitMetricsData,
-	}
-	// supported is true only when a match on this map is found, is false otherwise
-	data, supported := runtimeMetricsData[servingRuntime]
-	return data, supported
 }
