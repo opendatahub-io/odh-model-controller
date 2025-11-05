@@ -78,24 +78,15 @@ jobs:
       - name: Check if tag exists
         id: check_tag
         run: |
-          import sys
-          import subprocess
-          import os
-          tag_name = "${{ github.event.inputs.tag_name }}"
-          command = ['git', 'tag', '-l', tag_name]
-          output = subprocess.check_output(command, stderr=subprocess.STDOUT)
-          if output.decode() != "":
-            print(f"::warning::Tag '{tag_name}' already exists, will skip creation")
-            # Output for downstream steps to check
-            with open(os.environ['GITHUB_OUTPUT'], 'a') as f:
-              f.write(f"tag_exists=true\n")
-          else:
-            print(f"Tag '{tag_name}' does not exist, will create it")
-            with open(os.environ['GITHUB_OUTPUT'], 'a') as f:
-              f.write(f"tag_exists=false\n")
+          TAG_NAME="${{ github.event.inputs.tag_name }}"
 
-        shell: python
-        continue-on-error: false
+          if git tag -l "$TAG_NAME" | grep -q "^$TAG_NAME$"; then
+            echo "::warning::Tag '$TAG_NAME' already exists, will skip creation"
+            echo "tag_exists=true" >> $GITHUB_OUTPUT
+          else
+            echo "::notice::Tag '$TAG_NAME' does not exist, will create it"
+            echo "tag_exists=false" >> $GITHUB_OUTPUT
+          fi
 
       - name: Log tag exists - skip creation
         if: ${{ steps.check_tag.outputs.tag_exists == 'true' }}
