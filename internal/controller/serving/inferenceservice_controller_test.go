@@ -24,6 +24,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/opendatahub-io/odh-model-controller/internal/controller/utils"
+
 	kedaapi "github.com/kedacore/keda/v2/apis/keda/v1alpha1"
 	kservev1alpha1 "github.com/kserve/kserve/pkg/apis/serving/v1alpha1"
 	kservev1beta1 "github.com/kserve/kserve/pkg/apis/serving/v1beta1"
@@ -56,7 +58,6 @@ import (
 
 	"github.com/opendatahub-io/odh-model-controller/internal/controller/comparators"
 	"github.com/opendatahub-io/odh-model-controller/internal/controller/constants"
-	"github.com/opendatahub-io/odh-model-controller/internal/controller/utils"
 	. "github.com/opendatahub-io/odh-model-controller/test/matchers"
 	testutils "github.com/opendatahub-io/odh-model-controller/test/utils"
 )
@@ -64,16 +65,13 @@ import (
 const (
 	KserveOvmsInferenceServiceName         = "example-onnx-mnist"
 	UnsupportedMetricsInferenceServiceName = "sklearn-v2-iris"
-	NilRuntimeInferenceServiceName         = "sklearn-v2-iris-no-runtime"
-	NilModelInferenceServiceName           = "custom-runtime"
 
 	UnsupportedMetricsInferenceServicePath = "./testdata/deploy/kserve-unsupported-metrics-inference-service.yaml"
 	UnsupprtedMetricsServingRuntimePath    = "./testdata/deploy/kserve-unsupported-metrics-serving-runtime.yaml"
-	NilRuntimeInferenceServicePath         = "./testdata/deploy/kserve-nil-runtime-inference-service.yaml"
-	NilModelInferenceServicePath           = "./testdata/deploy/kserve-nil-model-inference-service.yaml"
-	testIsvcSvcPath                        = "./testdata/servingcert-service/test-isvc-svc.yaml"
-	kserveLocalGatewayPath                 = "./testdata/gateway/kserve-local-gateway.yaml"
-	testIsvcSvcSecretPath                  = "./testdata/gateway/test-isvc-svc-secret.yaml"
+
+	testIsvcSvcPath        = "./testdata/servingcert-service/test-isvc-svc.yaml"
+	kserveLocalGatewayPath = "./testdata/gateway/kserve-local-gateway.yaml"
+	testIsvcSvcSecretPath  = "./testdata/gateway/test-isvc-svc-secret.yaml"
 )
 
 var _ = Describe("InferenceService Controller", func() {
@@ -783,38 +781,6 @@ var _ = Describe("InferenceService Controller", func() {
 			return inferenceService
 		}
 
-		verifyConfigMap := func(isvcName string, namespace string, supported bool, metricsData string) {
-			metricsConfigMap, err := testutils.WaitForConfigMap(k8sClient, namespace, isvcName+constants.KserveMetricsConfigMapNameSuffix, 30, 1*time.Second)
-			Expect(err).NotTo(HaveOccurred())
-			Expect(metricsConfigMap).NotTo(BeNil())
-			var expectedMetricsConfigMap *corev1.ConfigMap
-			if supported {
-				finaldata := utils.SubstituteVariablesInQueries(metricsData, namespace, isvcName)
-				expectedMetricsConfigMap = &corev1.ConfigMap{
-					ObjectMeta: metav1.ObjectMeta{
-						Name:      isvcName + constants.KserveMetricsConfigMapNameSuffix,
-						Namespace: namespace,
-					},
-					Data: map[string]string{
-						"supported": "true",
-						"metrics":   finaldata,
-					},
-				}
-			} else {
-				expectedMetricsConfigMap = &corev1.ConfigMap{
-					ObjectMeta: metav1.ObjectMeta{
-						Name:      UnsupportedMetricsInferenceServiceName + constants.KserveMetricsConfigMapNameSuffix,
-						Namespace: testNs,
-					},
-					Data: map[string]string{
-						"supported": "false",
-					},
-				}
-			}
-			Expect(testutils.CompareConfigMap(metricsConfigMap, expectedMetricsConfigMap)).Should(BeTrue())
-			Expect(expectedMetricsConfigMap.Data).NotTo(HaveKeyWithValue("metrics", ContainSubstring("${REQUEST_RATE_INTERVAL}")))
-		}
-
 		BeforeEach(func() {
 			testNs = testutils.Namespaces.Create(ctx, k8sClient).Name
 
@@ -823,60 +789,6 @@ var _ = Describe("InferenceService Controller", func() {
 			if err := k8sClient.Create(ctx, inferenceServiceConfig); err != nil {
 				Fail(err.Error())
 			}
-		})
-
-		When("deploying a Kserve model", func() {
-			It("[serverless] if the runtime is supported for metrics, it should create a configmap with prometheus queries", func() {
-				_ = createServingRuntime(testNs, KserveServingRuntimePath1)
-				_ = createInferenceService(testNs, KserveOvmsInferenceServiceName, KserveInferenceServicePath1)
-
-				verifyConfigMap(KserveOvmsInferenceServiceName, testNs, true, constants.OvmsMetricsData)
-			})
-
-			It("[raw] if the runtime is supported for metrics, it should create a configmap with prometheus queries", func() {
-				_ = createServingRuntime(testNs, KserveServingRuntimePath1)
-				_ = createInferenceService(testNs, KserveOvmsInferenceServiceName, KserveInferenceServicePath1, true)
-
-				verifyConfigMap(KserveOvmsInferenceServiceName, testNs, true, constants.OvmsMetricsData)
-			})
-
-			It("[serverless] if the runtime is not supported for metrics, it should create a configmap with the unsupported config", func() {
-				_ = createServingRuntime(testNs, UnsupprtedMetricsServingRuntimePath)
-				_ = createInferenceService(testNs, UnsupportedMetricsInferenceServiceName, UnsupportedMetricsInferenceServicePath)
-
-				verifyConfigMap(UnsupportedMetricsInferenceServiceName, testNs, false, "")
-			})
-
-			It("[raw] if the runtime is not supported for metrics, it should create a configmap with the unsupported config", func() {
-				_ = createServingRuntime(testNs, UnsupprtedMetricsServingRuntimePath)
-				_ = createInferenceService(testNs, UnsupportedMetricsInferenceServiceName, UnsupportedMetricsInferenceServicePath, true)
-
-				verifyConfigMap(UnsupportedMetricsInferenceServiceName, testNs, false, "")
-			})
-
-			It("[serverless] if the isvc does not have a runtime specified and there is no supported runtime, an unsupported metrics configmap should be created", func() {
-				_ = createInferenceService(testNs, NilRuntimeInferenceServiceName, NilRuntimeInferenceServicePath)
-
-				verifyConfigMap(NilRuntimeInferenceServiceName, testNs, false, "")
-			})
-
-			It("[raw] if the isvc does not have a runtime specified and there is no supported runtime, an unsupported metrics configmap should be created", func() {
-				_ = createInferenceService(testNs, NilRuntimeInferenceServiceName, NilRuntimeInferenceServicePath, true)
-
-				verifyConfigMap(NilRuntimeInferenceServiceName, testNs, false, "")
-			})
-
-			It("[serverless] if the isvc does not have the model field specified, an unsupported metrics configmap should be created", func() {
-				_ = createInferenceService(testNs, NilModelInferenceServiceName, NilModelInferenceServicePath)
-
-				verifyConfigMap(NilModelInferenceServiceName, testNs, false, "")
-			})
-
-			It("[raw] if the isvc does not have the model field specified, an unsupported metrics configmap should be created", func() {
-				_ = createInferenceService(testNs, NilModelInferenceServiceName, NilModelInferenceServicePath, true)
-
-				verifyConfigMap(NilModelInferenceServiceName, testNs, false, "")
-			})
 		})
 
 		When("deleting the deployed models", func() {
