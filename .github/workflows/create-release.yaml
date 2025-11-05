@@ -67,7 +67,9 @@ jobs:
       - name: Get latest tag
         id: get_tag
         run: |
-          echo "old_tag_name=$(git ls-remote --tags origin | awk -F'/' '{print $3}' | grep -v '{}' | sort -V | tail -n1)" >> $GITHUB_OUTPUT
+          echo "old_tag_name=$(gh release list --limit 1 --json tagName --jq '.[0].tagName')" >> $GITHUB_OUTPUT
+        env:
+          GH_TOKEN: ${{ github.token }}
 
       - name: Print tag information
         run: |
@@ -182,15 +184,11 @@ jobs:
           BRANCH_NAME="chore/bump-odh-tag-${{ github.event.inputs.next_odh_tag }}"
           echo "BRANCH_NAME=$BRANCH_NAME" >> $GITHUB_ENV
 
-          # Check if branch exists locally
-          if git show-ref --verify --quiet refs/heads/$BRANCH_NAME 2>/dev/null; then
-            echo "::notice::Branch $BRANCH_NAME already exists locally, checking out"
-            git checkout $BRANCH_NAME
-          # Check if branch exists on remote
-          elif git ls-remote --heads origin $BRANCH_NAME | grep -q $BRANCH_NAME; then
+          # Check if branch exists on remote using gh
+          if gh api repos/${{ github.repository }}/branches/$BRANCH_NAME >/dev/null 2>&1; then
             echo "::notice::Branch $BRANCH_NAME exists on remote, fetching and checking out"
             git fetch origin $BRANCH_NAME
-            git checkout -b $BRANCH_NAME origin/$BRANCH_NAME
+            git checkout -b $BRANCH_NAME origin/$BRANCH_NAME 2>/dev/null || git checkout $BRANCH_NAME
           else
             echo "::notice::Creating new branch $BRANCH_NAME"
             git checkout -b "$BRANCH_NAME"
