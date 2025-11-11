@@ -79,8 +79,9 @@ func (r *KserveRouteReconciler) Reconcile(ctx context.Context, log logr.Logger, 
 }
 
 func (r *KserveRouteReconciler) Delete(ctx context.Context, log logr.Logger, isvc *kservev1beta1.InferenceService) error {
-	// handled by owner references
-	return nil
+	log.V(1).Info("Deleting Kserve inference service generic route")
+	_, meshNamespace := utils2.GetIstioControlPlaneName(ctx, r.client)
+	return r.routeHandler.DeleteRoute(ctx, types.NamespacedName{Name: getKServeRouteName(isvc), Namespace: meshNamespace})
 }
 
 func (r *KserveRouteReconciler) Cleanup(_ context.Context, _ logr.Logger, _ string) error {
