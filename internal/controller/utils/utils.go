@@ -22,7 +22,9 @@ import (
 	apierrs "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
+	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/apimachinery/pkg/util/validation/field"
 	"k8s.io/client-go/discovery"
 	"k8s.io/client-go/rest"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -402,4 +404,23 @@ func IsManagedResource(owner client.Object, resource client.Object) bool {
 	}
 
 	return false
+}
+
+// ValidateInferenceServiceNameLength validates that the InferenceService name does not exceed the Kubernetes resource name limit
+// when combined with the "-predictor" suffix.
+func ValidateInferenceServiceNameLength(isvc *kservev1beta1.InferenceService) error {
+	isvcName := isvc.GetName()
+	if len(isvcName) > constants.MaxISVCLength {
+		return apierrs.NewInvalid(
+			schema.GroupKind{Group: isvc.GroupVersionKind().Group, Kind: isvc.Kind},
+			isvcName,
+			field.ErrorList{
+				field.Invalid(
+					field.NewPath("metadata").Child("name"),
+					isvcName,
+					fmt.Sprintf("InferenceService name is too long. The name exceeds the maximum length of %d characters (current length: %d)", constants.MaxISVCLength, len(isvcName)),
+				),
+			})
+	}
+	return nil
 }

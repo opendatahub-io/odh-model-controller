@@ -70,6 +70,12 @@ func (v *InferenceServiceCustomValidator) ValidateCreate(ctx context.Context, ob
 	logger := inferenceservicelog.WithValues("namespace", inferenceservice.Namespace, "isvc", inferenceservice.GetName())
 	logger.Info("Validation for InferenceService upon creation")
 
+	// Validate the InferenceService name length
+	if err := utils.ValidateInferenceServiceNameLength(inferenceservice); err != nil {
+		logger.V(1).Info("InferenceService name validation failed", "name", inferenceservice.GetName())
+		return nil, err
+	}
+
 	appNamespace, err := utils.GetApplicationNamespace(ctx, v.client)
 	if err != nil {
 		return nil, err
