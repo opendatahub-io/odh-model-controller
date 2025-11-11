@@ -48,6 +48,13 @@ const (
 	WorkerContainerName = "worker-container"
 )
 
+// InferenceService validation constants
+const (
+	/* The k8s character limit for names is 63 characters, and we need to account for the
+	"-predictor" suffix added to the deployment name */
+	MaxISVCLength = 53
+)
+
 // isvc modes
 var (
 	RawDeployment KServeDeploymentMode = "RawDeployment"
