@@ -13,7 +13,7 @@ require (
 	github.com/kuadrant/authorino-operator v0.11.1
 	github.com/kuadrant/kuadrant-operator v1.2.0
 	github.com/kubeflow/model-registry v0.3.3
-	github.com/kubeflow/model-registry/pkg/openapi v0.0.0
+	github.com/kubeflow/model-registry/pkg/openapi v0.3.3
 	github.com/onsi/ginkgo/v2 v2.27.1
 	github.com/onsi/gomega v1.38.2
 	github.com/openshift/api v0.0.0-20250102185430-d6d8306a24ec
@@ -178,6 +178,3 @@ replace sigs.k8s.io/controller-runtime => sigs.k8s.io/controller-runtime v0.19.1
 // Use ODH release branch instead
 // odh-v3.1
 replace github.com/kserve/kserve => github.com/opendatahub-io/kserve v0.0.0-20251110212500-80391cf16c0d
-
-// Fixes "unknown revision pkg/openapi/v0.0.0" error when importing model-registry v0.3.3
-replace github.com/kubeflow/model-registry/pkg/openapi => github.com/kubeflow/model-registry/pkg/openapi v0.3.3
