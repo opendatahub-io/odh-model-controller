@@ -27,10 +27,11 @@ import (
 	kservellmisvc "github.com/kserve/kserve/pkg/controller/llmisvc"
 	kuadrantv1 "github.com/kuadrant/kuadrant-operator/api/v1"
 	istioclientv1alpha3 "istio.io/client-go/pkg/apis/networking/v1alpha3"
+	corev1 "k8s.io/api/core/v1"
 	v1 "k8s.io/api/rbac/v1"
 	apierrs "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/runtime"
-	"k8s.io/client-go/rest"
+	"k8s.io/client-go/tools/record"
 	ctrl "sigs.k8s.io/controller-runtime"
 	ctrlbuilder "sigs.k8s.io/controller-runtime/pkg/builder"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -40,7 +41,6 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/predicate"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
-	"github.com/opendatahub-io/odh-model-controller/internal/controller/constants"
 	"github.com/opendatahub-io/odh-model-controller/internal/controller/resources"
 	"github.com/opendatahub-io/odh-model-controller/internal/controller/serving/llm/reconcilers"
 	parentreconcilers "github.com/opendatahub-io/odh-model-controller/internal/controller/serving/reconcilers"
@@ -49,6 +49,7 @@ import (
 
 type LLMInferenceServiceReconciler struct {
 	client.Client
+	Recorder               record.EventRecorder
 	Scheme                 *runtime.Scheme
 	subResourceReconcilers []parentreconcilers.LLMSubResourceReconciler
 	authPolicyMatcher      resources.AuthPolicyMatcher
@@ -59,26 +60,17 @@ var ownedBySelfPredicate = predicate.NewPredicateFuncs(func(o client.Object) boo
 	return o.GetLabels()["app.kubernetes.io/managed-by"] == "odh-model-controller"
 })
 
-func NewLLMInferenceServiceReconciler(client client.Client, scheme *runtime.Scheme, config *rest.Config) *LLMInferenceServiceReconciler {
-	var subResourceReconcilers []parentreconcilers.LLMSubResourceReconciler
-	subResourceReconcilers = append(subResourceReconcilers,
+func NewLLMInferenceServiceReconciler(client client.Client, scheme *runtime.Scheme, recorder record.EventRecorder) *LLMInferenceServiceReconciler {
+	subResourceReconcilers := []parentreconcilers.LLMSubResourceReconciler{
 		parentreconcilers.NewLLMRoleReconciler(client),
 		parentreconcilers.NewLLMRoleBindingReconciler(client),
-	)
-
-	if ok, err := utils.IsCrdAvailable(config, kuadrantv1.GroupVersion.String(), constants.AuthPolicyKind); err == nil && ok {
-		subResourceReconcilers = append(subResourceReconcilers,
-			reconcilers.NewKserveAuthPolicyReconciler(client, scheme),
-		)
-	}
-	if ok, err := utils.IsCrdAvailable(config, istioclientv1alpha3.SchemeGroupVersion.String(), constants.EnvoyFilterKind); err == nil && ok {
-		subResourceReconcilers = append(subResourceReconcilers,
-			reconcilers.NewKserveEnvoyFilterReconciler(client, scheme),
-		)
+		reconcilers.NewKserveAuthPolicyReconciler(client, scheme),
+		reconcilers.NewKserveEnvoyFilterReconciler(client, scheme),
 	}
 
 	return &LLMInferenceServiceReconciler{
 		Client:                 client,
+		Recorder:               recorder,
 		Scheme:                 scheme,
 		subResourceReconcilers: subResourceReconcilers,
 		authPolicyMatcher:      resources.NewKServeAuthPolicyMatcher(client),
@@ -138,6 +130,7 @@ func (r *LLMInferenceServiceReconciler) Reconcile(ctx context.Context, req ctrl.
 
 	if err := r.reconcileSubResources(ctx, logger, llmisvc); err != nil {
 		logger.Error(err, "Failed to reconcile LLMInferenceService sub-resources")
+		r.Recorder.Eventf(llmisvc, corev1.EventTypeWarning, "ReconcileError", "Failed to reconcile LLMInferenceService: %v", err)
 		return ctrl.Result{}, err
 	}
 
