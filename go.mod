@@ -93,7 +93,9 @@ require (
 	github.com/josharian/intern v1.0.0 // indirect
 	github.com/json-iterator/go v1.1.12 // indirect
 	github.com/kuadrant/authorino v0.20.0 // indirect
+	github.com/kuadrant/authorino-operator v0.11.1 // indirect
 	github.com/kuadrant/dns-operator v0.10.0 // indirect
+	github.com/kuadrant/limitador-operator v0.9.0 // indirect
 	github.com/kuadrant/policy-machinery v0.6.4 // indirect
 	github.com/leodido/go-urn v1.4.0 // indirect
 	github.com/mailru/easyjson v0.9.0 // indirect

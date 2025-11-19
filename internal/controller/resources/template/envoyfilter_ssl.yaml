@@ -14,7 +14,7 @@ spec:
     - applyTo: CLUSTER
       match:
         cluster:
-          service: authorino-authorino-authorization.kuadrant-system.svc.cluster.local
+          service: authorino-authorino-authorization.{{ .KuadrantNamespace }}.svc.cluster.local
       patch:
         operation: ADD
         value:

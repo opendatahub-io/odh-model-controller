@@ -131,6 +131,14 @@ rules:
   - patch
   - update
 - apiGroups:
+  - kuadrant.io
+  resources:
+  - kuadrants
+  verbs:
+  - get
+  - list
+  - watch
+- apiGroups:
   - metrics.k8s.io
   resources:
   - nodes

@@ -16,7 +16,11 @@ limitations under the License.
 package resources_test
 
 import (
+	"encoding/json"
+	"os"
+
 	kservev1alpha1 "github.com/kserve/kserve/pkg/apis/serving/v1alpha1"
+	kuadrantv1beta1 "github.com/kuadrant/kuadrant-operator/api/v1beta1"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	istiov1alpha3 "istio.io/api/networking/v1alpha3"
@@ -476,6 +480,247 @@ var _ = Describe("EnvoyFilterMatcher", func() {
 
 			Expect(err).ToNot(HaveOccurred())
 			Expect(namespacedNames).To(BeEmpty())
+		})
+	})
+})
+
+var _ = Describe("EnvoyFilterTemplateLoader Kuadrant Namespace Detection", func() {
+	var loader resources.EnvoyFilterTemplateLoader
+	var dummyLLMISvc kservev1alpha1.LLMInferenceService
+
+	Context("Kuadrant namespace detection", func() {
+		It("should use default kuadrant-system namespace when no Kuadrant resources exist", func(ctx SpecContext) {
+			scheme := runtime.NewScheme()
+			Expect(kservev1alpha1.AddToScheme(scheme)).To(Succeed())
+			Expect(gatewayapiv1.Install(scheme)).To(Succeed())
+			Expect(kuadrantv1beta1.AddToScheme(scheme)).To(Succeed())
+
+			// Create default gateway
+			defaultGateway := &gatewayapiv1.Gateway{
+				ObjectMeta: v1.ObjectMeta{
+					Name:      "openshift-ai-inference",
+					Namespace: "openshift-ingress",
+				},
+			}
+
+			fakeClient := fake.NewClientBuilder().WithScheme(scheme).WithObjects(defaultGateway).Build()
+			loader = resources.NewKServeEnvoyFilterTemplateLoader(fakeClient)
+
+			dummyLLMISvc = kservev1alpha1.LLMInferenceService{
+				ObjectMeta: v1.ObjectMeta{
+					Namespace: "test-ns",
+					Name:      "test-llm",
+				},
+			}
+
+			envoyFilters, err := loader.Load(ctx, &dummyLLMISvc)
+
+			Expect(err).ToNot(HaveOccurred())
+			Expect(envoyFilters).To(HaveLen(1))
+
+			// Verify that the EnvoyFilter contains reference to kuadrant-system
+			envoyFilterJSON, err := json.Marshal(envoyFilters[0])
+			Expect(err).ToNot(HaveOccurred())
+			envoyFilterStr := string(envoyFilterJSON)
+			Expect(envoyFilterStr).To(ContainSubstring("authorino-authorino-authorization.kuadrant-system.svc.cluster.local"))
+		})
+
+		It("should detect Kuadrant namespace from Kuadrant resource", func(ctx SpecContext) {
+			scheme := runtime.NewScheme()
+			Expect(kservev1alpha1.AddToScheme(scheme)).To(Succeed())
+			Expect(gatewayapiv1.Install(scheme)).To(Succeed())
+			Expect(kuadrantv1beta1.AddToScheme(scheme)).To(Succeed())
+
+			// Create Kuadrant resource in custom namespace
+			kuadrant := &kuadrantv1beta1.Kuadrant{
+				ObjectMeta: v1.ObjectMeta{
+					Name:      "kuadrant",
+					Namespace: "custom-kuadrant-ns",
+				},
+			}
+
+			// Create default gateway
+			defaultGateway := &gatewayapiv1.Gateway{
+				ObjectMeta: v1.ObjectMeta{
+					Name:      "openshift-ai-inference",
+					Namespace: "openshift-ingress",
+				},
+			}
+
+			fakeClient := fake.NewClientBuilder().WithScheme(scheme).WithObjects(defaultGateway, kuadrant).Build()
+			loader = resources.NewKServeEnvoyFilterTemplateLoader(fakeClient)
+
+			dummyLLMISvc = kservev1alpha1.LLMInferenceService{
+				ObjectMeta: v1.ObjectMeta{
+					Namespace: "test-ns",
+					Name:      "test-llm",
+				},
+			}
+
+			envoyFilters, err := loader.Load(ctx, &dummyLLMISvc)
+
+			Expect(err).ToNot(HaveOccurred())
+			Expect(envoyFilters).To(HaveLen(1))
+
+			// Verify that the EnvoyFilter contains reference to custom-kuadrant-ns
+			envoyFilterJSON, err := json.Marshal(envoyFilters[0])
+			Expect(err).ToNot(HaveOccurred())
+			envoyFilterStr := string(envoyFilterJSON)
+			Expect(envoyFilterStr).To(ContainSubstring("authorino-authorino-authorization.custom-kuadrant-ns.svc.cluster.local"))
+		})
+
+		It("should prioritize kuadrant-system namespace when multiple Kuadrant resources exist", func(ctx SpecContext) {
+			scheme := runtime.NewScheme()
+			Expect(kservev1alpha1.AddToScheme(scheme)).To(Succeed())
+			Expect(gatewayapiv1.Install(scheme)).To(Succeed())
+			Expect(kuadrantv1beta1.AddToScheme(scheme)).To(Succeed())
+
+			// Create multiple Kuadrant resources
+			kuadrant1 := &kuadrantv1beta1.Kuadrant{
+				ObjectMeta: v1.ObjectMeta{
+					Name:      "kuadrant",
+					Namespace: "another-ns",
+				},
+			}
+
+			kuadrant2 := &kuadrantv1beta1.Kuadrant{
+				ObjectMeta: v1.ObjectMeta{
+					Name:      "kuadrant",
+					Namespace: "kuadrant-system",
+				},
+			}
+
+			// Create default gateway
+			defaultGateway := &gatewayapiv1.Gateway{
+				ObjectMeta: v1.ObjectMeta{
+					Name:      "openshift-ai-inference",
+					Namespace: "openshift-ingress",
+				},
+			}
+
+			fakeClient := fake.NewClientBuilder().WithScheme(scheme).WithObjects(defaultGateway, kuadrant1, kuadrant2).Build()
+			loader = resources.NewKServeEnvoyFilterTemplateLoader(fakeClient)
+
+			dummyLLMISvc = kservev1alpha1.LLMInferenceService{
+				ObjectMeta: v1.ObjectMeta{
+					Namespace: "test-ns",
+					Name:      "test-llm",
+				},
+			}
+
+			envoyFilters, err := loader.Load(ctx, &dummyLLMISvc)
+
+			Expect(err).ToNot(HaveOccurred())
+			Expect(envoyFilters).To(HaveLen(1))
+
+			// Verify that the EnvoyFilter contains reference to kuadrant-system (prioritized)
+			envoyFilterJSON, err := json.Marshal(envoyFilters[0])
+			Expect(err).ToNot(HaveOccurred())
+			envoyFilterStr := string(envoyFilterJSON)
+			Expect(envoyFilterStr).To(ContainSubstring("authorino-authorino-authorization.kuadrant-system.svc.cluster.local"))
+		})
+
+		It("should prioritize KUADRANT_NAMESPACE environment variable when set", func(ctx SpecContext) {
+			// Set environment variable
+			Expect(os.Setenv("KUADRANT_NAMESPACE", "env-kuadrant-ns")).To(Succeed())
+			defer func() { _ = os.Unsetenv("KUADRANT_NAMESPACE") }()
+
+			scheme := runtime.NewScheme()
+			Expect(kservev1alpha1.AddToScheme(scheme)).To(Succeed())
+			Expect(gatewayapiv1.Install(scheme)).To(Succeed())
+			Expect(kuadrantv1beta1.AddToScheme(scheme)).To(Succeed())
+
+			// Create Kuadrant resource in different namespace
+			kuadrant1 := &kuadrantv1beta1.Kuadrant{
+				ObjectMeta: v1.ObjectMeta{
+					Name:      "kuadrant",
+					Namespace: "another-kuadrant-ns",
+				},
+			}
+
+			kuadrant2 := &kuadrantv1beta1.Kuadrant{
+				ObjectMeta: v1.ObjectMeta{
+					Name:      "kuadrant",
+					Namespace: "env-kuadrant-ns",
+				},
+			}
+
+			// Create default gateway
+			defaultGateway := &gatewayapiv1.Gateway{
+				ObjectMeta: v1.ObjectMeta{
+					Name:      "openshift-ai-inference",
+					Namespace: "openshift-ingress",
+				},
+			}
+
+			fakeClient := fake.NewClientBuilder().WithScheme(scheme).WithObjects(defaultGateway, kuadrant1, kuadrant2).Build()
+			loader = resources.NewKServeEnvoyFilterTemplateLoader(fakeClient)
+
+			dummyLLMISvc = kservev1alpha1.LLMInferenceService{
+				ObjectMeta: v1.ObjectMeta{
+					Namespace: "test-ns",
+					Name:      "test-llm",
+				},
+			}
+
+			envoyFilters, err := loader.Load(ctx, &dummyLLMISvc)
+
+			Expect(err).ToNot(HaveOccurred())
+			Expect(envoyFilters).To(HaveLen(1))
+
+			// Verify that the EnvoyFilter contains reference to env-kuadrant-ns from environment variable
+			envoyFilterJSON, err := json.Marshal(envoyFilters[0])
+			Expect(err).ToNot(HaveOccurred())
+			envoyFilterStr := string(envoyFilterJSON)
+			Expect(envoyFilterStr).To(ContainSubstring("authorino-authorino-authorization.env-kuadrant-ns.svc.cluster.local"))
+		})
+
+		It("should use KUADRANT_NAMESPACE environment variable when set", func(ctx SpecContext) {
+			// Set environment variable
+			Expect(os.Setenv("KUADRANT_NAMESPACE", "env-kuadrant-ns")).To(Succeed())
+			defer func() { _ = os.Unsetenv("KUADRANT_NAMESPACE") }()
+
+			scheme := runtime.NewScheme()
+			Expect(kservev1alpha1.AddToScheme(scheme)).To(Succeed())
+			Expect(gatewayapiv1.Install(scheme)).To(Succeed())
+			Expect(kuadrantv1beta1.AddToScheme(scheme)).To(Succeed())
+
+			// Create Kuadrant resource in different namespace
+			kuadrant := &kuadrantv1beta1.Kuadrant{
+				ObjectMeta: v1.ObjectMeta{
+					Name:      "kuadrant",
+					Namespace: "another-kuadrant-ns",
+				},
+			}
+
+			// Create default gateway
+			defaultGateway := &gatewayapiv1.Gateway{
+				ObjectMeta: v1.ObjectMeta{
+					Name:      "openshift-ai-inference",
+					Namespace: "openshift-ingress",
+				},
+			}
+
+			fakeClient := fake.NewClientBuilder().WithScheme(scheme).WithObjects(defaultGateway, kuadrant).Build()
+			loader = resources.NewKServeEnvoyFilterTemplateLoader(fakeClient)
+
+			dummyLLMISvc = kservev1alpha1.LLMInferenceService{
+				ObjectMeta: v1.ObjectMeta{
+					Namespace: "test-ns",
+					Name:      "test-llm",
+				},
+			}
+
+			envoyFilters, err := loader.Load(ctx, &dummyLLMISvc)
+
+			Expect(err).ToNot(HaveOccurred())
+			Expect(envoyFilters).To(HaveLen(1))
+
+			// Verify that the EnvoyFilter contains reference to another-kuadrant-ns from environment variable
+			envoyFilterJSON, err := json.Marshal(envoyFilters[0])
+			Expect(err).ToNot(HaveOccurred())
+			envoyFilterStr := string(envoyFilterJSON)
+			Expect(envoyFilterStr).To(ContainSubstring("authorino-authorino-authorization.another-kuadrant-ns.svc.cluster.local"))
 		})
 	})
 })

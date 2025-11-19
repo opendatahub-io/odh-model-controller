@@ -17,15 +17,19 @@ limitations under the License.
 package resources
 
 import (
+	"cmp"
 	"context"
 	_ "embed"
 	"fmt"
+	"slices"
 	"strings"
 	"text/template"
 
 	"github.com/go-logr/logr"
 	kservev1alpha1 "github.com/kserve/kserve/pkg/apis/serving/v1alpha1"
+	kuadrantv1beta1 "github.com/kuadrant/kuadrant-operator/api/v1beta1"
 	"github.com/opendatahub-io/odh-model-controller/internal/controller/constants"
+	"github.com/opendatahub-io/odh-model-controller/internal/controller/utils"
 	controllerutils "github.com/opendatahub-io/odh-model-controller/internal/controller/utils"
 	istioclientv1alpha3 "istio.io/client-go/pkg/apis/networking/v1alpha3"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
@@ -95,7 +99,7 @@ func (k *kserveEnvoyFilterTemplateLoader) Load(ctx context.Context, llmisvc *kse
 	envoyFilters := make([]*istioclientv1alpha3.EnvoyFilter, 0, len(gateways))
 
 	for _, gateway := range gateways {
-		envoyFilter, err := k.renderSSLTemplate(gateway.Namespace, gateway.Name)
+		envoyFilter, err := k.renderSSLTemplate(ctx, gateway.Namespace, gateway.Name)
 		if err != nil {
 			return nil, fmt.Errorf("failed to render EnvoyFilter for gateway %s/%s: %w", gateway.Namespace, gateway.Name, err)
 		}
@@ -105,20 +109,50 @@ func (k *kserveEnvoyFilterTemplateLoader) Load(ctx context.Context, llmisvc *kse
 	return envoyFilters, nil
 }
 
-func (k *kserveEnvoyFilterTemplateLoader) renderSSLTemplate(gatewayNamespace, gatewayName string) (*istioclientv1alpha3.EnvoyFilter, error) {
+func (k *kserveEnvoyFilterTemplateLoader) renderSSLTemplate(ctx context.Context, gatewayNamespace, gatewayName string) (*istioclientv1alpha3.EnvoyFilter, error) {
 	tmpl, err := template.New("envoyfilter").Parse(string(envoyFilterTemplateSSL))
 	if err != nil {
 		return nil, fmt.Errorf("failed to parse EnvoyFilter template: %w", err)
 	}
 
+	const defaultKuadrantNamespace = "kuadrant-system"
+	kuadrantNamespace := utils.GetEnvOr("KUADRANT_NAMESPACE", defaultKuadrantNamespace)
+	kuadrantList := &kuadrantv1beta1.KuadrantList{}
+	if err := k.client.List(ctx, kuadrantList); err == nil {
+
+		// Ensure a stable ordering of resources.
+		slices.SortStableFunc(kuadrantList.Items, func(a, b kuadrantv1beta1.Kuadrant) int {
+			c := cmp.Compare(a.Namespace, b.Namespace)
+			if c != 0 {
+				return c
+			}
+			return cmp.Compare(a.Name, b.Name)
+		})
+
+		// Prioritize Kuadrant in "default Kuadrant namespace"
+		foundDefault := false
+		for _, kuadrant := range kuadrantList.Items {
+			if kuadrant.Namespace == kuadrantNamespace {
+				foundDefault = true
+				break
+			}
+		}
+
+		if !foundDefault && len(kuadrantList.Items) > 0 {
+			kuadrantNamespace = kuadrantList.Items[0].Namespace
+		}
+	}
+
 	templateData := struct {
-		Name             string
-		GatewayName      string
-		GatewayNamespace string
+		Name              string
+		GatewayName       string
+		GatewayNamespace  string
+		KuadrantNamespace string
 	}{
-		Name:             constants.GetGatewayEnvoyFilterName(gatewayName),
-		GatewayName:      gatewayName,
-		GatewayNamespace: gatewayNamespace,
+		Name:              constants.GetGatewayEnvoyFilterName(gatewayName),
+		GatewayName:       gatewayName,
+		GatewayNamespace:  gatewayNamespace,
+		KuadrantNamespace: kuadrantNamespace,
 	}
 
 	var builder strings.Builder
