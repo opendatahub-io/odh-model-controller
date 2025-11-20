@@ -111,7 +111,7 @@ func (r *KserveRawRouteReconciler) createDesiredResource(ctx context.Context, lo
 		return nil, err
 	}
 	var targetService corev1.Service
-	var predicorService, transformerService *corev1.Service
+	var predictorService, transformerService *corev1.Service
 	predictorName := isvc.Name + "-predictor"
 	for i := range serviceList.Items {
 		svc := &serviceList.Items[i]
@@ -120,16 +120,16 @@ func (r *KserveRawRouteReconciler) createDesiredResource(ctx context.Context, lo
 			continue
 		}
 		if svc.Name == predictorName {
-			predicorService = svc
-		} else if val, ok := svc.Labels["component"]; ok && val == "predictor" && predicorService == nil {
-			predicorService = svc
+			predictorService = svc
+		} else if val, ok := svc.Labels["component"]; ok && val == "predictor" && predictorService == nil {
+			predictorService = svc
 		}
 	}
 	switch {
 	case transformerService != nil:
 		targetService = *transformerService
-	case predicorService != nil:
-		targetService = *predicorService
+	case predictorService != nil:
+		targetService = *predictorService
 	default:
 		return nil, fmt.Errorf("no predictor or transformer Service found for InferenceService %q", isvc.Name)
 	}
