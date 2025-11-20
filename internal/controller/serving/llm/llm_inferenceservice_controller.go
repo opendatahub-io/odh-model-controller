@@ -25,6 +25,7 @@ import (
 	"github.com/hashicorp/go-multierror"
 	kservev1alpha1 "github.com/kserve/kserve/pkg/apis/serving/v1alpha1"
 	kservellmisvc "github.com/kserve/kserve/pkg/controller/llmisvc"
+	authorinooperatorv1beta1 "github.com/kuadrant/authorino-operator/api/v1beta1"
 	kuadrantv1 "github.com/kuadrant/kuadrant-operator/api/v1"
 	kuadrantv1beta1 "github.com/kuadrant/kuadrant-operator/api/v1beta1"
 	istioclientv1alpha3 "istio.io/client-go/pkg/apis/networking/v1alpha3"
@@ -154,6 +155,7 @@ func (r *LLMInferenceServiceReconciler) Reconcile(ctx context.Context, req ctrl.
 // +kubebuilder:rbac:groups=gateway.networking.k8s.io,resources=httproutes,verbs=get;list;watch
 // +kubebuilder:rbac:groups=config.openshift.io,resources=authentications,verbs=get;list;watch
 // +kubebuilder:rbac:groups=kuadrant.io,resources=kuadrants,verbs=get;list;watch
+// +kubebuilder:rbac:groups=operator.authorino.kuadrant.io,resources=authorinos,verbs=get;list;watch
 
 func (r *LLMInferenceServiceReconciler) SetupWithManager(mgr ctrl.Manager, setupLog logr.Logger) error {
 	b := ctrl.NewControllerManagedBy(mgr).
@@ -186,6 +188,12 @@ func (r *LLMInferenceServiceReconciler) SetupWithManager(mgr ctrl.Manager, setup
 		setupLog.Error(err, "Failed to check CRD availability for Kuadrant")
 	} else if ok {
 		b = b.Watches(&kuadrantv1beta1.Kuadrant{}, r.globalResync(setupLog))
+	}
+
+	if ok, err := utils.IsCrdAvailable(mgr.GetConfig(), authorinooperatorv1beta1.GroupVersion.String(), "Authorino"); err != nil {
+		setupLog.Error(err, "Failed to check CRD availability for Authorino")
+	} else if ok {
+		b = b.Watches(&authorinooperatorv1beta1.Authorino{}, r.globalResync(setupLog))
 	}
 
 	if ok, err := utils.IsCrdAvailable(mgr.GetConfig(), istioclientv1alpha3.SchemeGroupVersion.String(), "EnvoyFilter"); err != nil {

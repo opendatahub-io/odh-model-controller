@@ -30,7 +30,7 @@ spec:
                   - endpoint:
                       address:
                         socket_address:
-                          address: authorino-authorino-authorization.kuadrant-system.svc.cluster.local
+                          address: authorino-authorino-authorization.{{ .KuadrantNamespace }}.svc.cluster.local
                           port_value: 50051
           transport_socket:
             name: envoy.transport_sockets.tls

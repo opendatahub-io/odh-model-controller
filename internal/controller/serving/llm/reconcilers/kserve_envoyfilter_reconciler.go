@@ -42,7 +42,6 @@ type KserveEnvoyFilterReconciler struct {
 	client         client.Client
 	scheme         *runtime.Scheme
 	deltaProcessor processors.DeltaProcessor
-	detector       resources.EnvoyFilterDetector
 	templateLoader resources.EnvoyFilterTemplateLoader
 	store          resources.EnvoyFilterStore
 }
@@ -52,7 +51,6 @@ func NewKserveEnvoyFilterReconciler(client client.Client, scheme *runtime.Scheme
 		client:         client,
 		scheme:         scheme,
 		deltaProcessor: processors.NewDeltaProcessor(),
-		detector:       resources.NewKServeEnvoyFilterDetector(client),
 		templateLoader: resources.NewKServeEnvoyFilterTemplateLoader(client),
 		store:          resources.NewClientEnvoyFilterStore(client),
 	}
@@ -60,12 +58,6 @@ func NewKserveEnvoyFilterReconciler(client client.Client, scheme *runtime.Scheme
 
 func (r *KserveEnvoyFilterReconciler) Reconcile(ctx context.Context, log logr.Logger, llmisvc *kservev1alpha1.LLMInferenceService) error {
 	log.V(1).Info("Starting EnvoyFilter reconciliation for LLMInferenceService")
-
-	// Check if EnvoyFilter should be created based on annotations
-	if !r.detector.Detect(ctx, llmisvc.GetAnnotations()) {
-		log.V(1).Info("EnvoyFilter not required for this LLMInferenceService, skipping")
-		return nil
-	}
 
 	if err := r.reconcileGatewayEnvoyFilter(ctx, log, llmisvc); err != nil {
 		log.Error(err, "Failed to reconcile Gateway EnvoyFilter")
