@@ -27,6 +27,7 @@ import (
 	. "github.com/onsi/gomega"
 	corev1 "k8s.io/api/core/v1"
 	apierrs "k8s.io/apimachinery/pkg/api/errors"
+	"k8s.io/client-go/util/retry"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	"github.com/opendatahub-io/odh-model-controller/internal/controller/constants"
@@ -197,50 +198,54 @@ var _ = Describe("Secret Controller (StorageConfig controller)", func() {
 })
 
 func updateSecretData(cli client.Client, namespace, secretName string, dataKey string, dataValue string) error {
-	secret := &corev1.Secret{}
-	err := cli.Get(context.TODO(), client.ObjectKey{Name: secretName, Namespace: namespace}, secret)
-	if err != nil {
-		log.Printf("Error getting Secret: %v\n", err)
-		return err
-	}
+	return retry.RetryOnConflict(retry.DefaultRetry, func() error {
+		secret := &corev1.Secret{}
+		err := cli.Get(context.TODO(), client.ObjectKey{Name: secretName, Namespace: namespace}, secret)
+		if err != nil {
+			log.Printf("Error getting Secret: %v\n", err)
+			return err
+		}
 
-	// Add the new data to the Secret
-	if secret.Data == nil {
-		secret.Data = make(map[string][]byte)
-	}
-	secret.Data[dataKey] = []byte(dataValue)
+		// Add the new data to the Secret
+		if secret.Data == nil {
+			secret.Data = make(map[string][]byte)
+		}
+		secret.Data[dataKey] = []byte(dataValue)
 
-	// Save the updated Secret
-	err = cli.Update(context.TODO(), secret)
-	if err != nil {
-		log.Printf("Error updating Secret: %v\n", err)
-		return err
-	}
-	return nil
+		// Save the updated Secret
+		err = cli.Update(context.TODO(), secret)
+		if err != nil {
+			log.Printf("Error updating Secret: %v\n", err)
+			return err
+		}
+		return nil
+	})
 }
 
 func updateSecretLabel(cli client.Client, namespace, secretName string, labelKey string, labelValue string) error {
-	secret := &corev1.Secret{}
-	err := cli.Get(context.TODO(), client.ObjectKey{Name: secretName, Namespace: namespace}, secret)
-	if err != nil {
-		log.Printf("Error getting Secret: %v\n", err)
-		return err
-	}
+	return retry.RetryOnConflict(retry.DefaultRetry, func() error {
+		secret := &corev1.Secret{}
+		err := cli.Get(context.TODO(), client.ObjectKey{Name: secretName, Namespace: namespace}, secret)
+		if err != nil {
+			log.Printf("Error getting Secret: %v\n", err)
+			return err
+		}
 
-	// Update the label
-	if secret.Labels == nil {
-		secret.Labels = make(map[string]string)
-	}
-	secret.Labels[labelKey] = labelValue
+		// Update the label
+		if secret.Labels == nil {
+			secret.Labels = make(map[string]string)
+		}
+		secret.Labels[labelKey] = labelValue
 
-	// Save the updated Secret
-	err = cli.Update(context.TODO(), secret)
-	if err != nil {
-		log.Printf("Error updating Secret: %v\n", err)
-		return err
-	}
-	log.Printf("Updated Secret label: %s: %s\n", labelKey, labelValue)
-	return nil
+		// Save the updated Secret
+		err = cli.Update(context.TODO(), secret)
+		if err != nil {
+			log.Printf("Error updating Secret: %v\n", err)
+			return err
+		}
+		log.Printf("Updated Secret label: %s: %s\n", labelKey, labelValue)
+		return nil
+	})
 }
 
 // nolint:unparam
