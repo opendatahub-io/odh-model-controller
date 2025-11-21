@@ -16,7 +16,12 @@ limitations under the License.
 package resources_test
 
 import (
+	"encoding/json"
+	"os"
+
 	kservev1alpha1 "github.com/kserve/kserve/pkg/apis/serving/v1alpha1"
+	authorinooperatorv1beta1 "github.com/kuadrant/authorino-operator/api/v1beta1"
+	kuadrantv1beta1 "github.com/kuadrant/kuadrant-operator/api/v1beta1"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	istiov1alpha3 "istio.io/api/networking/v1alpha3"
@@ -26,6 +31,7 @@ import (
 	v1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 	gatewayapiv1 "sigs.k8s.io/gateway-api/apis/v1"
@@ -34,93 +40,38 @@ import (
 	"github.com/opendatahub-io/odh-model-controller/internal/controller/resources"
 )
 
-var _ = Describe("EnvoyFilterDetector", func() {
-	var detector resources.EnvoyFilterDetector
+// Test helper functions
 
-	BeforeEach(func() {
-		detector = resources.NewKServeEnvoyFilterDetector(nil)
-	})
+// setupTestScheme creates a runtime scheme with all necessary types registered
+func setupTestScheme() *runtime.Scheme {
+	scheme := runtime.NewScheme()
+	Expect(kservev1alpha1.AddToScheme(scheme)).To(Succeed())
+	Expect(gatewayapiv1.Install(scheme)).To(Succeed())
+	Expect(kuadrantv1beta1.AddToScheme(scheme)).To(Succeed())
+	Expect(authorinooperatorv1beta1.AddToScheme(scheme)).To(Succeed())
+	Expect(istioclientv1alpha3.AddToScheme(scheme)).To(Succeed())
+	return scheme
+}
 
-	It("should return true when annotation is 'true'", func(ctx SpecContext) {
-		annotations := map[string]string{
-			constants.EnableAuthODHAnnotation: "true",
-		}
+// createDefaultGateway creates a gateway object with default test values
+func createDefaultGateway() *gatewayapiv1.Gateway {
+	return &gatewayapiv1.Gateway{
+		ObjectMeta: v1.ObjectMeta{
+			Name:      "openshift-ai-inference",
+			Namespace: "openshift-ingress",
+		},
+	}
+}
 
-		result := detector.Detect(ctx, annotations)
-
-		Expect(result).To(BeTrue())
-	})
-
-	It("should return false when annotation is 'false'", func(ctx SpecContext) {
-		annotations := map[string]string{
-			constants.EnableAuthODHAnnotation: "false",
-		}
-
-		result := detector.Detect(ctx, annotations)
-
-		Expect(result).To(BeFalse())
-	})
-
-	It("should return true when annotation is empty string", func(ctx SpecContext) {
-		annotations := map[string]string{
-			constants.EnableAuthODHAnnotation: "",
-		}
-
-		result := detector.Detect(ctx, annotations)
-
-		Expect(result).To(BeTrue())
-	})
-
-	It("should return true when annotation does not exist", func(ctx SpecContext) {
-		annotations := map[string]string{}
-
-		result := detector.Detect(ctx, annotations)
-
-		Expect(result).To(BeTrue())
-	})
-
-	It("should be case-insensitive for 'true' value", func(ctx SpecContext) {
-		testCases := []string{"TRUE", "True", "tRuE"}
-
-		for _, value := range testCases {
-			annotations := map[string]string{
-				constants.EnableAuthODHAnnotation: value,
-			}
-
-			result := detector.Detect(ctx, annotations)
-
-			Expect(result).To(BeTrue(), "Expected true for case variation: %s", value)
-		}
-	})
-
-	It("should be case-insensitive for 'false' value", func(ctx SpecContext) {
-		testCases := []string{"FALSE", "False", "fAlSe"}
-
-		for _, value := range testCases {
-			annotations := map[string]string{
-				constants.EnableAuthODHAnnotation: value,
-			}
-
-			result := detector.Detect(ctx, annotations)
-
-			Expect(result).To(BeFalse(), "Expected false for case variation: %s", value)
-		}
-	})
-
-	It("should return true for any other invalid values", func(ctx SpecContext) {
-		testCases := []string{"yes", "1", "enabled", "on", "invalid", "123"}
-
-		for _, value := range testCases {
-			annotations := map[string]string{
-				constants.EnableAuthODHAnnotation: value,
-			}
-
-			result := detector.Detect(ctx, annotations)
-
-			Expect(result).To(BeTrue(), "Expected true for invalid value: %s", value)
-		}
-	})
-})
+// createTestLLMISvc creates a dummy LLMInferenceService for testing
+func createTestLLMISvc() kservev1alpha1.LLMInferenceService {
+	return kservev1alpha1.LLMInferenceService{
+		ObjectMeta: v1.ObjectMeta{
+			Namespace: "test-ns",
+			Name:      "test-llm",
+		},
+	}
+}
 
 var _ = Describe("EnvoyFilterTemplateLoader", func() {
 	Context("Template loading", func() {
@@ -476,6 +427,249 @@ var _ = Describe("EnvoyFilterMatcher", func() {
 
 			Expect(err).ToNot(HaveOccurred())
 			Expect(namespacedNames).To(BeEmpty())
+		})
+	})
+})
+
+var _ = Describe("EnvoyFilterTemplateLoader Kuadrant Namespace Detection", func() {
+	var loader resources.EnvoyFilterTemplateLoader
+	var dummyLLMISvc kservev1alpha1.LLMInferenceService
+
+	// Helper to verify Authorino service address in EnvoyFilter
+	verifyAuthorinoNamespace := func(envoyFilter *istioclientv1alpha3.EnvoyFilter, expectedNamespace string) {
+		envoyFilterJSON, err := json.Marshal(envoyFilter)
+		Expect(err).ToNot(HaveOccurred())
+		expectedAddress := "authorino-authorino-authorization." + expectedNamespace + ".svc.cluster.local"
+		Expect(string(envoyFilterJSON)).To(ContainSubstring(expectedAddress))
+	}
+
+	Context("Kuadrant namespace detection", func() {
+		It("should use default kuadrant-system namespace when no Kuadrant resources exist", func(ctx SpecContext) {
+			scheme := setupTestScheme()
+			fakeClient := fake.NewClientBuilder().WithScheme(scheme).WithObjects(createDefaultGateway()).Build()
+			loader = resources.NewKServeEnvoyFilterTemplateLoader(fakeClient)
+			dummyLLMISvc = createTestLLMISvc()
+
+			envoyFilters, err := loader.Load(ctx, &dummyLLMISvc)
+
+			Expect(err).ToNot(HaveOccurred())
+			Expect(envoyFilters).To(HaveLen(1))
+			verifyAuthorinoNamespace(envoyFilters[0], "kuadrant-system")
+		})
+
+		It("should detect Kuadrant namespace from Kuadrant resource", func(ctx SpecContext) {
+			scheme := setupTestScheme()
+			kuadrant := &kuadrantv1beta1.Kuadrant{
+				ObjectMeta: v1.ObjectMeta{Name: "kuadrant", Namespace: "custom-kuadrant-ns"},
+			}
+
+			fakeClient := fake.NewClientBuilder().WithScheme(scheme).WithObjects(createDefaultGateway(), kuadrant).Build()
+			loader = resources.NewKServeEnvoyFilterTemplateLoader(fakeClient)
+			dummyLLMISvc = createTestLLMISvc()
+
+			envoyFilters, err := loader.Load(ctx, &dummyLLMISvc)
+
+			Expect(err).ToNot(HaveOccurred())
+			Expect(envoyFilters).To(HaveLen(1))
+			verifyAuthorinoNamespace(envoyFilters[0], "custom-kuadrant-ns")
+		})
+
+		It("should prioritize kuadrant-system namespace when multiple Kuadrant resources exist", func(ctx SpecContext) {
+			scheme := setupTestScheme()
+			kuadrant1 := &kuadrantv1beta1.Kuadrant{
+				ObjectMeta: v1.ObjectMeta{Name: "kuadrant", Namespace: "another-ns"},
+			}
+			kuadrant2 := &kuadrantv1beta1.Kuadrant{
+				ObjectMeta: v1.ObjectMeta{Name: "kuadrant", Namespace: "kuadrant-system"},
+			}
+
+			fakeClient := fake.NewClientBuilder().WithScheme(scheme).WithObjects(createDefaultGateway(), kuadrant1, kuadrant2).Build()
+			loader = resources.NewKServeEnvoyFilterTemplateLoader(fakeClient)
+			dummyLLMISvc = createTestLLMISvc()
+
+			envoyFilters, err := loader.Load(ctx, &dummyLLMISvc)
+
+			Expect(err).ToNot(HaveOccurred())
+			Expect(envoyFilters).To(HaveLen(1))
+			verifyAuthorinoNamespace(envoyFilters[0], "kuadrant-system")
+		})
+
+		It("should prioritize KUADRANT_NAMESPACE environment variable when set", func(ctx SpecContext) {
+			GinkgoT().Setenv("KUADRANT_NAMESPACE", "env-kuadrant-ns")
+
+			scheme := setupTestScheme()
+			kuadrant1 := &kuadrantv1beta1.Kuadrant{
+				ObjectMeta: v1.ObjectMeta{Name: "kuadrant", Namespace: "another-kuadrant-ns"},
+			}
+			kuadrant2 := &kuadrantv1beta1.Kuadrant{
+				ObjectMeta: v1.ObjectMeta{Name: "kuadrant", Namespace: "env-kuadrant-ns"},
+			}
+
+			fakeClient := fake.NewClientBuilder().WithScheme(scheme).WithObjects(createDefaultGateway(), kuadrant1, kuadrant2).Build()
+			loader = resources.NewKServeEnvoyFilterTemplateLoader(fakeClient)
+			dummyLLMISvc = createTestLLMISvc()
+
+			envoyFilters, err := loader.Load(ctx, &dummyLLMISvc)
+
+			Expect(err).ToNot(HaveOccurred())
+			Expect(envoyFilters).To(HaveLen(1))
+			verifyAuthorinoNamespace(envoyFilters[0], "env-kuadrant-ns")
+		})
+
+		It("should use KUADRANT_NAMESPACE environment variable when set", func(ctx SpecContext) {
+			Expect(os.Setenv("KUADRANT_NAMESPACE", "env-kuadrant-ns")).To(Succeed())
+			defer func() { _ = os.Unsetenv("KUADRANT_NAMESPACE") }()
+
+			scheme := setupTestScheme()
+			kuadrant := &kuadrantv1beta1.Kuadrant{
+				ObjectMeta: v1.ObjectMeta{Name: "kuadrant", Namespace: "another-kuadrant-ns"},
+			}
+
+			fakeClient := fake.NewClientBuilder().WithScheme(scheme).WithObjects(createDefaultGateway(), kuadrant).Build()
+			loader = resources.NewKServeEnvoyFilterTemplateLoader(fakeClient)
+			dummyLLMISvc = createTestLLMISvc()
+
+			envoyFilters, err := loader.Load(ctx, &dummyLLMISvc)
+
+			Expect(err).ToNot(HaveOccurred())
+			Expect(envoyFilters).To(HaveLen(1))
+			verifyAuthorinoNamespace(envoyFilters[0], "another-kuadrant-ns")
+		})
+	})
+})
+
+var _ = Describe("EnvoyFilterTemplateLoader Authorino TLS Detection", func() {
+	var loader resources.EnvoyFilterTemplateLoader
+	var dummyLLMISvc kservev1alpha1.LLMInferenceService
+
+	Context("Authorino TLS detection", func() {
+		It("should skip EnvoyFilter creation when Authorino has TLS disabled", func(ctx SpecContext) {
+			scheme := setupTestScheme()
+			authorino := &authorinooperatorv1beta1.Authorino{
+				ObjectMeta: v1.ObjectMeta{Name: "authorino", Namespace: "kuadrant-system"},
+				Spec: authorinooperatorv1beta1.AuthorinoSpec{
+					Listener: authorinooperatorv1beta1.Listener{
+						Tls: authorinooperatorv1beta1.Tls{Enabled: ptr.To(false)},
+					},
+				},
+			}
+
+			fakeClient := fake.NewClientBuilder().WithScheme(scheme).WithObjects(createDefaultGateway(), authorino).Build()
+			loader = resources.NewKServeEnvoyFilterTemplateLoader(fakeClient)
+			dummyLLMISvc = createTestLLMISvc()
+
+			envoyFilters, err := loader.Load(ctx, &dummyLLMISvc)
+
+			Expect(err).ToNot(HaveOccurred())
+			Expect(envoyFilters).To(BeEmpty(), "EnvoyFilter should not be created when Authorino has TLS disabled")
+		})
+
+		It("should create EnvoyFilter when Authorino has TLS enabled", func(ctx SpecContext) {
+			scheme := setupTestScheme()
+			authorino := &authorinooperatorv1beta1.Authorino{
+				ObjectMeta: v1.ObjectMeta{Name: "authorino", Namespace: "kuadrant-system"},
+				Spec: authorinooperatorv1beta1.AuthorinoSpec{
+					Listener: authorinooperatorv1beta1.Listener{
+						Tls: authorinooperatorv1beta1.Tls{Enabled: ptr.To(true)},
+					},
+				},
+			}
+
+			fakeClient := fake.NewClientBuilder().WithScheme(scheme).WithObjects(createDefaultGateway(), authorino).Build()
+			loader = resources.NewKServeEnvoyFilterTemplateLoader(fakeClient)
+			dummyLLMISvc = createTestLLMISvc()
+
+			envoyFilters, err := loader.Load(ctx, &dummyLLMISvc)
+
+			Expect(err).ToNot(HaveOccurred())
+			Expect(envoyFilters).To(HaveLen(1), "EnvoyFilter should be created when Authorino has TLS enabled")
+		})
+
+		It("should skip EnvoyFilter creation when Authorino TLS is nil (defaults to disabled)", func(ctx SpecContext) {
+			scheme := setupTestScheme()
+			authorino := &authorinooperatorv1beta1.Authorino{
+				ObjectMeta: v1.ObjectMeta{Name: "authorino", Namespace: "kuadrant-system"},
+				Spec: authorinooperatorv1beta1.AuthorinoSpec{
+					Listener: authorinooperatorv1beta1.Listener{
+						Tls: authorinooperatorv1beta1.Tls{Enabled: nil},
+					},
+				},
+			}
+
+			fakeClient := fake.NewClientBuilder().WithScheme(scheme).WithObjects(createDefaultGateway(), authorino).Build()
+			loader = resources.NewKServeEnvoyFilterTemplateLoader(fakeClient)
+			dummyLLMISvc = createTestLLMISvc()
+
+			envoyFilters, err := loader.Load(ctx, &dummyLLMISvc)
+
+			Expect(err).ToNot(HaveOccurred())
+			Expect(envoyFilters).To(BeEmpty(), "EnvoyFilter should not be created when Authorino TLS is nil (defaults to disabled)")
+		})
+
+		It("should create EnvoyFilter when no Authorino resources exist", func(ctx SpecContext) {
+			scheme := setupTestScheme()
+			fakeClient := fake.NewClientBuilder().WithScheme(scheme).WithObjects(createDefaultGateway()).Build()
+			loader = resources.NewKServeEnvoyFilterTemplateLoader(fakeClient)
+			dummyLLMISvc = createTestLLMISvc()
+
+			envoyFilters, err := loader.Load(ctx, &dummyLLMISvc)
+
+			Expect(err).ToNot(HaveOccurred())
+			Expect(envoyFilters).To(HaveLen(1), "EnvoyFilter should be created when no Authorino resources exist (assumes TLS enabled)")
+		})
+
+		It("should use first Authorino when multiple exist in namespace", func(ctx SpecContext) {
+			scheme := setupTestScheme()
+			authorino1 := &authorinooperatorv1beta1.Authorino{
+				ObjectMeta: v1.ObjectMeta{Name: "authorino-a", Namespace: "kuadrant-system"},
+				Spec: authorinooperatorv1beta1.AuthorinoSpec{
+					Listener: authorinooperatorv1beta1.Listener{
+						Tls: authorinooperatorv1beta1.Tls{Enabled: ptr.To(false)},
+					},
+				},
+			}
+			authorino2 := &authorinooperatorv1beta1.Authorino{
+				ObjectMeta: v1.ObjectMeta{Name: "authorino-z", Namespace: "kuadrant-system"},
+				Spec: authorinooperatorv1beta1.AuthorinoSpec{
+					Listener: authorinooperatorv1beta1.Listener{
+						Tls: authorinooperatorv1beta1.Tls{Enabled: ptr.To(true)},
+					},
+				},
+			}
+
+			fakeClient := fake.NewClientBuilder().WithScheme(scheme).WithObjects(createDefaultGateway(), authorino1, authorino2).Build()
+			loader = resources.NewKServeEnvoyFilterTemplateLoader(fakeClient)
+			dummyLLMISvc = createTestLLMISvc()
+
+			envoyFilters, err := loader.Load(ctx, &dummyLLMISvc)
+
+			Expect(err).ToNot(HaveOccurred())
+			Expect(envoyFilters).To(BeEmpty(), "Should use first Authorino (authorino-a) which has TLS disabled")
+		})
+
+		It("should work with custom Kuadrant namespace and Authorino", func(ctx SpecContext) {
+			scheme := setupTestScheme()
+			customNamespace := "custom-kuadrant"
+			kuadrant := &kuadrantv1beta1.Kuadrant{
+				ObjectMeta: v1.ObjectMeta{Name: "kuadrant", Namespace: customNamespace},
+			}
+			authorino := &authorinooperatorv1beta1.Authorino{
+				ObjectMeta: v1.ObjectMeta{Name: "authorino", Namespace: customNamespace},
+				Spec: authorinooperatorv1beta1.AuthorinoSpec{
+					Listener: authorinooperatorv1beta1.Listener{
+						Tls: authorinooperatorv1beta1.Tls{Enabled: ptr.To(false)},
+					},
+				},
+			}
+
+			fakeClient := fake.NewClientBuilder().WithScheme(scheme).WithObjects(createDefaultGateway(), kuadrant, authorino).Build()
+			loader = resources.NewKServeEnvoyFilterTemplateLoader(fakeClient)
+			dummyLLMISvc = createTestLLMISvc()
+
+			envoyFilters, err := loader.Load(ctx, &dummyLLMISvc)
+
+			Expect(err).ToNot(HaveOccurred())
+			Expect(envoyFilters).To(BeEmpty(), "Should detect Kuadrant namespace and check Authorino TLS in that namespace")
 		})
 	})
 })
