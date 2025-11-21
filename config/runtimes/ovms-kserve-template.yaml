@@ -58,9 +58,6 @@ objects:
             - '--rest_port=8888'
             - '--model_path=/mnt/models'
             - '--file_system_poll_wait_seconds=0'
-            - '--grpc_bind_address=0.0.0.0'
-            - '--rest_bind_address=0.0.0.0'
-            - '--target_device=AUTO'
             - '--metrics_enable'
           ports:
             - containerPort: 8888
