@@ -94,7 +94,7 @@ var _ = Describe("Secret Controller (StorageConfig controller)", func() {
 			Expect(err).NotTo(HaveOccurred())
 
 			By("updating storage-config label opendatahub.io/managed: false")
-			err = updateSecretLabel(k8sClient, WorkingNamespace, constants.DefaultStorageConfig, "opendatahub.io/managed", "false")
+			err = updateSecretLabel(ctx, k8sClient, WorkingNamespace, constants.DefaultStorageConfig, "opendatahub.io/managed", "false")
 			Expect(err).NotTo(HaveOccurred())
 
 			By("deleting the dataconnection secrets")
@@ -122,13 +122,13 @@ var _ = Describe("Secret Controller (StorageConfig controller)", func() {
 			Expect(err).NotTo(HaveOccurred())
 
 			By("updating storage-config label opendatahub.io/managed: false")
-			err = updateSecretLabel(k8sClient, WorkingNamespace, constants.DefaultStorageConfig, "opendatahub.io/managed", "false")
+			err = updateSecretLabel(ctx, k8sClient, WorkingNamespace, constants.DefaultStorageConfig, "opendatahub.io/managed", "false")
 			Expect(err).NotTo(HaveOccurred())
 
 			By("updating storage-config secret data")
-			err = updateSecretData(k8sClient, WorkingNamespace, constants.DefaultStorageConfig, "aws-connection-minio-http", "unmanaged")
+			err = updateSecretData(ctx, k8sClient, WorkingNamespace, constants.DefaultStorageConfig, "aws-connection-minio-http", "unmanaged")
 			Expect(err).NotTo(HaveOccurred())
-			err = updateSecretData(k8sClient, WorkingNamespace, constants.DefaultStorageConfig, "aws-connection-minio-https", "unmanaged")
+			err = updateSecretData(ctx, k8sClient, WorkingNamespace, constants.DefaultStorageConfig, "aws-connection-minio-https", "unmanaged")
 			Expect(err).NotTo(HaveOccurred())
 
 			storageconfigSecret, err := waitForSecret(k8sClient, WorkingNamespace, constants.DefaultStorageConfig, 30, 3*time.Second)
@@ -197,10 +197,10 @@ var _ = Describe("Secret Controller (StorageConfig controller)", func() {
 	})
 })
 
-func updateSecretData(cli client.Client, namespace, secretName string, dataKey string, dataValue string) error {
+func updateSecretData(ctx context.Context, cli client.Client, namespace, secretName string, dataKey string, dataValue string) error {
 	return retry.RetryOnConflict(retry.DefaultRetry, func() error {
 		secret := &corev1.Secret{}
-		err := cli.Get(context.TODO(), client.ObjectKey{Name: secretName, Namespace: namespace}, secret)
+		err := cli.Get(ctx, client.ObjectKey{Name: secretName, Namespace: namespace}, secret)
 		if err != nil {
 			log.Printf("Error getting Secret: %v\n", err)
 			return err
@@ -213,7 +213,7 @@ func updateSecretData(cli client.Client, namespace, secretName string, dataKey s
 		secret.Data[dataKey] = []byte(dataValue)
 
 		// Save the updated Secret
-		err = cli.Update(context.TODO(), secret)
+		err = cli.Update(ctx, secret)
 		if err != nil {
 			log.Printf("Error updating Secret: %v\n", err)
 			return err
@@ -222,10 +222,10 @@ func updateSecretData(cli client.Client, namespace, secretName string, dataKey s
 	})
 }
 
-func updateSecretLabel(cli client.Client, namespace, secretName string, labelKey string, labelValue string) error {
+func updateSecretLabel(ctx context.Context, cli client.Client, namespace, secretName string, labelKey string, labelValue string) error {
 	return retry.RetryOnConflict(retry.DefaultRetry, func() error {
 		secret := &corev1.Secret{}
-		err := cli.Get(context.TODO(), client.ObjectKey{Name: secretName, Namespace: namespace}, secret)
+		err := cli.Get(ctx, client.ObjectKey{Name: secretName, Namespace: namespace}, secret)
 		if err != nil {
 			log.Printf("Error getting Secret: %v\n", err)
 			return err
@@ -238,7 +238,7 @@ func updateSecretLabel(cli client.Client, namespace, secretName string, labelKey
 		secret.Labels[labelKey] = labelValue
 
 		// Save the updated Secret
-		err = cli.Update(context.TODO(), secret)
+		err = cli.Update(ctx, secret)
 		if err != nil {
 			log.Printf("Error updating Secret: %v\n", err)
 			return err
