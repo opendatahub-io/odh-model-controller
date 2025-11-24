@@ -88,9 +88,9 @@ func (r *KserveRawRouteReconciler) Cleanup(_ context.Context, _ logr.Logger, _ s
 
 func (r *KserveRawRouteReconciler) createDesiredResource(ctx context.Context, log logr.Logger, isvc *kservev1beta1.InferenceService) (*v1.Route, error) {
 	var err error
-	enableAuth := false
-	if enableAuth, err = strconv.ParseBool(isvc.Annotations[constants.EnableAuthODHAnnotation]); err != nil {
-		enableAuth = false
+	enableSSL := false
+	if enableSSL, err = strconv.ParseBool(isvc.Annotations[constants.EnableAuthODHAnnotation]); err != nil {
+		enableSSL = false
 	}
 	createRoute := false
 	if val, ok := isvc.Labels[constants.KserveNetworkVisibility]; ok && val == constants.LabelEnableKserveRawRoute {
@@ -134,7 +134,7 @@ func (r *KserveRawRouteReconciler) createDesiredResource(ctx context.Context, lo
 		return nil, fmt.Errorf("no predictor or transformer Service found for InferenceService %q", isvc.Name)
 	}
 
-	targetPort, err := setRouteTargetPort(enableAuth, &targetService)
+	targetPort, err := setRouteTargetPort(enableSSL, &targetService)
 	if err != nil {
 		return nil, err
 	}
@@ -166,7 +166,7 @@ func (r *KserveRawRouteReconciler) createDesiredResource(ctx context.Context, lo
 	// Set route timeout
 	utils.SetOpenshiftRouteTimeoutForIsvc(desiredRoute, isvc)
 
-	if enableAuth {
+	if enableSSL {
 		desiredRoute.Spec.TLS = &v1.TLSConfig{
 			Termination:                   v1.TLSTerminationReencrypt,
 			InsecureEdgeTerminationPolicy: v1.InsecureEdgeTerminationPolicyRedirect,
@@ -200,8 +200,8 @@ func checkRouteTargetPort(ctx context.Context, c client.Client, route *v1.Route)
 	if err := c.Get(ctx, types.NamespacedName{Namespace: route.Namespace, Name: route.Spec.To.Name}, &svc); err != nil {
 		return err
 	}
-	enableAuth := route.Spec.TLS != nil && route.Spec.TLS.Termination == v1.TLSTerminationReencrypt
-	targetPort, err := setRouteTargetPort(enableAuth, &svc)
+	enableSSL := route.Spec.TLS != nil && route.Spec.TLS.Termination == v1.TLSTerminationReencrypt
+	targetPort, err := setRouteTargetPort(enableSSL, &svc)
 	if err != nil {
 		return err
 	}
@@ -212,8 +212,8 @@ func checkRouteTargetPort(ctx context.Context, c client.Client, route *v1.Route)
 	return nil
 }
 
-func setRouteTargetPort(enableAuth bool, svc *corev1.Service) (intstr.IntOrString, error) {
-	if enableAuth {
+func setRouteTargetPort(enableSSL bool, svc *corev1.Service) (intstr.IntOrString, error) {
+	if enableSSL {
 		for _, port := range svc.Spec.Ports {
 			if port.Name == "https" {
 				return intstr.FromString(port.Name), nil
