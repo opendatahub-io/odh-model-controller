@@ -200,7 +200,8 @@ func checkRouteTargetPort(ctx context.Context, c client.Client, route *v1.Route)
 	if err := c.Get(ctx, types.NamespacedName{Namespace: route.Namespace, Name: route.Spec.To.Name}, &svc); err != nil {
 		return err
 	}
-	targetPort, err := setRouteTargetPort(false, &svc)
+	enableAuth := route.Spec.TLS != nil && route.Spec.TLS.Termination == v1.TLSTerminationReencrypt
+	targetPort, err := setRouteTargetPort(enableAuth, &svc)
 	if err != nil {
 		return err
 	}
@@ -215,10 +216,7 @@ func setRouteTargetPort(enableAuth bool, svc *corev1.Service) (intstr.IntOrStrin
 	if enableAuth {
 		for _, port := range svc.Spec.Ports {
 			if port.Name == "https" {
-				if port.Name != "" {
-					return intstr.FromString(port.Name), nil
-				}
-				return intstr.FromInt32(port.Port), nil
+				return intstr.FromString(port.Name), nil
 			}
 		}
 	} else {
