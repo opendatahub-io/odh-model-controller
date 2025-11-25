@@ -62,6 +62,15 @@ jobs:
             exit 1
           fi
 
+          # Verify tag_name exists in the Tekton file before proceeding
+          if ! grep -q "odh-model-controller:${{ github.event.inputs.tag_name }}" .tekton/odh-model-controller-push.yaml; then
+            echo "::error::Tag '${{ github.event.inputs.tag_name }}' not found in .tekton/odh-model-controller-push.yaml"
+            echo "::error::The current tag in the file must match the tag_name input for the workflow to proceed."
+            CURRENT_TAG=$(grep -oP 'odh-model-controller:\K(odh-v[0-9.]+)' .tekton/odh-model-controller-push.yaml | head -1)
+            echo "::notice::Current tag in file: $CURRENT_TAG"
+            exit 1
+          fi
+
           echo "::notice::✅ Tag validation passed"
 
       - name: Get latest tag
