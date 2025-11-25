@@ -201,7 +201,7 @@ jobs:
 
           echo "Updating ODH tag from $CURRENT_TAG to $NEXT_TAG..."
 
-          # Update Tekton file with next tag
+          # Update Tekton file with next tag (current release tag -> next tag)
           sed -i "s|odh-model-controller:${CURRENT_TAG}|odh-model-controller:${NEXT_TAG}|g" .tekton/odh-model-controller-push.yaml
 
           # Update params.env with next tag to keep both files in sync
