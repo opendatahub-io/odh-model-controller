@@ -64,10 +64,31 @@ jobs:
 
           # Verify tag_name exists in the Tekton file before proceeding
           if ! grep -q "odh-model-controller:${{ github.event.inputs.tag_name }}" .tekton/odh-model-controller-push.yaml; then
+            CURRENT_TAG=$(grep -oP 'odh-model-controller:\K(odh-v[0-9.]+)' .tekton/odh-model-controller-push.yaml | head -1)
+
             echo "::error::Tag '${{ github.event.inputs.tag_name }}' not found in .tekton/odh-model-controller-push.yaml"
             echo "::error::The current tag in the file must match the tag_name input for the workflow to proceed."
-            CURRENT_TAG=$(grep -oP 'odh-model-controller:\K(odh-v[0-9.]+)' .tekton/odh-model-controller-push.yaml | head -1)
             echo "::notice::Current tag in file: $CURRENT_TAG"
+
+            # Write failure summary
+            echo "## ❌ Workflow Failed - Tag Mismatch" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "The specified \`tag_name\` was not found in the Tekton file." >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "### Details" >> $GITHUB_STEP_SUMMARY
+            echo "- **Requested tag**: \`${{ github.event.inputs.tag_name }}\`" >> $GITHUB_STEP_SUMMARY
+            echo "- **Current tag in file**: \`$CURRENT_TAG\`" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "### Resolution" >> $GITHUB_STEP_SUMMARY
+            echo "Re-run the workflow with \`tag_name\` set to \`$CURRENT_TAG\` (the current tag in the Tekton file)." >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "---" >> $GITHUB_STEP_SUMMARY
+            echo "### Workflow Inputs" >> $GITHUB_STEP_SUMMARY
+            echo "- **Current Tag**: \`${{ github.event.inputs.tag_name }}\`" >> $GITHUB_STEP_SUMMARY
+            echo "- **Next Tag**: \`${{ github.event.inputs.next_odh_tag }}\`" >> $GITHUB_STEP_SUMMARY
+            echo "- **Dry Run**: \`${{ github.event.inputs.dry_run }}\`" >> $GITHUB_STEP_SUMMARY
+            echo "- **Base Branch**: \`${{ github.ref_name }}\`" >> $GITHUB_STEP_SUMMARY
+
             exit 1
           fi
 
