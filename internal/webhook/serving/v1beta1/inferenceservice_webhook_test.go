@@ -71,5 +71,56 @@ var _ = Describe("InferenceService validator Webhook", func() {
 			_, err := validator.ValidateCreate(ctx, isvc)
 			Expect(err).To(HaveOccurred())
 		})
+
+		It("Should reject InferenceService with name that exceeds 63 characters when combined with -predictor suffix", func() {
+			testNs := &corev1.Namespace{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "test-long-name",
+					Namespace: "test-long-name",
+				},
+			}
+			Expect(k8sClient.Create(ctx, testNs)).Should(Succeed())
+
+			// Name with 54 characters + "-predictor" (10 chars) = 64 characters (exceeds 63)
+			// Using a prefix and padding with 'x' to reach exactly 54 characters
+			longName := "test-isvc-" + "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"[:44] // 10 + 44 = 54
+
+			isvc := createInferenceService(testNs.Name, longName)
+			_, err := validator.ValidateCreate(ctx, isvc)
+			Expect(err).To(HaveOccurred())
+			Expect(err.Error()).To(ContainSubstring("InferenceService name is too long"))
+		})
+
+		It("Should accept InferenceService with name at exactly 63 characters when combined with -predictor suffix", func() {
+			testNs := &corev1.Namespace{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "test-max-name",
+					Namespace: "test-max-name",
+				},
+			}
+			Expect(k8sClient.Create(ctx, testNs)).Should(Succeed())
+
+			// Name with 53 characters + "-predictor" (10 chars) = 63 characters (exactly at limit)
+			// Using a prefix and padding with 'x' to reach exactly 53 characters
+			maxName := "test-isvc-" + "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"[:43] // 10 + 43 = 53
+
+			isvc := createInferenceService(testNs.Name, maxName)
+			_, err := validator.ValidateCreate(ctx, isvc)
+			Expect(err).ShouldNot(HaveOccurred())
+		})
+
+		It("Should accept InferenceService with short name", func() {
+			testNs := &corev1.Namespace{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "test-short-name",
+					Namespace: "test-short-name",
+				},
+			}
+			Expect(k8sClient.Create(ctx, testNs)).Should(Succeed())
+
+			isvc := createInferenceService(testNs.Name, "short-name")
+			_, err := validator.ValidateCreate(ctx, isvc)
+			Expect(err).ShouldNot(HaveOccurred())
+		})
 	})
 })
