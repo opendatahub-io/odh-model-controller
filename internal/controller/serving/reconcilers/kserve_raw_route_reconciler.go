@@ -17,6 +17,7 @@ package reconcilers
 
 import (
 	"context"
+	"fmt"
 	"strconv"
 
 	"github.com/go-logr/logr"
@@ -87,9 +88,9 @@ func (r *KserveRawRouteReconciler) Cleanup(_ context.Context, _ logr.Logger, _ s
 
 func (r *KserveRawRouteReconciler) createDesiredResource(ctx context.Context, log logr.Logger, isvc *kservev1beta1.InferenceService) (*v1.Route, error) {
 	var err error
-	enableAuth := false
-	if enableAuth, err = strconv.ParseBool(isvc.Annotations[constants.EnableAuthODHAnnotation]); err != nil {
-		enableAuth = false
+	enableSSL := false
+	if enableSSL, err = strconv.ParseBool(isvc.Annotations[constants.EnableAuthODHAnnotation]); err != nil {
+		enableSSL = false
 	}
 	createRoute := false
 	if val, ok := isvc.Labels[constants.KserveNetworkVisibility]; ok && val == constants.LabelEnableKserveRawRoute {
@@ -110,30 +111,32 @@ func (r *KserveRawRouteReconciler) createDesiredResource(ctx context.Context, lo
 		return nil, err
 	}
 	var targetService corev1.Service
-	var targetPort intstr.IntOrString
-	for _, service := range serviceList.Items {
-		if val, ok := service.Labels["component"]; ok {
-			if val == "transformer" {
-				targetService = service
-				break
-			}
-			if val == "predictor" {
-				targetService = service
-			}
+	var predictorService, transformerService *corev1.Service
+	predictorName := isvc.Name + "-predictor"
+	for i := range serviceList.Items {
+		svc := &serviceList.Items[i]
+		if val, ok := svc.Labels["component"]; ok && val == "transformer" {
+			transformerService = svc
+			continue
+		}
+		if svc.Name == predictorName {
+			predictorService = svc
+		} else if val, ok := svc.Labels["component"]; ok && val == "predictor" && predictorService == nil {
+			predictorService = svc
 		}
 	}
-	if enableAuth {
-		for _, port := range targetService.Spec.Ports {
-			if port.Name == "https" {
-				targetPort = intstr.FromInt32(port.Port)
-			}
-		}
-	} else {
-		for _, port := range targetService.Spec.Ports {
-			if port.Name == "http" || port.Name == targetService.Name {
-				targetPort = intstr.FromString(port.Name)
-			}
-		}
+	switch {
+	case transformerService != nil:
+		targetService = *transformerService
+	case predictorService != nil:
+		targetService = *predictorService
+	default:
+		return nil, fmt.Errorf("no predictor or transformer Service found for InferenceService %q", isvc.Name)
+	}
+
+	targetPort, err := setRouteTargetPort(enableSSL, &targetService)
+	if err != nil {
+		return nil, err
 	}
 
 	desiredRoute := &v1.Route{
@@ -163,7 +166,7 @@ func (r *KserveRawRouteReconciler) createDesiredResource(ctx context.Context, lo
 	// Set route timeout
 	utils.SetOpenshiftRouteTimeoutForIsvc(desiredRoute, isvc)
 
-	if enableAuth {
+	if enableSSL {
 		desiredRoute.Spec.TLS = &v1.TLSConfig{
 			Termination:                   v1.TLSTerminationReencrypt,
 			InsecureEdgeTerminationPolicy: v1.InsecureEdgeTerminationPolicyRedirect,
@@ -185,6 +188,58 @@ func (r *KserveRawRouteReconciler) getExistingResource(ctx context.Context, log 
 	return r.routeHandler.FetchRoute(ctx, log, types.NamespacedName{Name: isvc.Name, Namespace: isvc.Namespace})
 }
 
+func checkRouteTargetPort(ctx context.Context, c client.Client, route *v1.Route) error {
+	if route.Spec.Port != nil {
+		targetPort := route.Spec.Port.TargetPort
+		if (targetPort.Type == intstr.String && targetPort.StrVal != "") || (targetPort.Type == intstr.Int && targetPort.IntVal != 0) {
+			return nil
+		}
+	}
+
+	var svc corev1.Service
+	if err := c.Get(ctx, types.NamespacedName{Namespace: route.Namespace, Name: route.Spec.To.Name}, &svc); err != nil {
+		return err
+	}
+	enableSSL := route.Spec.TLS != nil && route.Spec.TLS.Termination == v1.TLSTerminationReencrypt
+	targetPort, err := setRouteTargetPort(enableSSL, &svc)
+	if err != nil {
+		return err
+	}
+	if route.Spec.Port == nil {
+		route.Spec.Port = &v1.RoutePort{}
+	}
+	route.Spec.Port.TargetPort = targetPort
+	return nil
+}
+
+func setRouteTargetPort(enableSSL bool, svc *corev1.Service) (intstr.IntOrString, error) {
+	if enableSSL {
+		for _, port := range svc.Spec.Ports {
+			if port.Name == "https" {
+				return intstr.FromString(port.Name), nil
+			}
+		}
+	} else {
+		for _, port := range svc.Spec.Ports {
+			if port.Name == "http" {
+				return intstr.FromString(port.Name), nil
+			}
+		}
+	}
+
+	for _, port := range svc.Spec.Ports {
+		if port.Name != "" {
+			return intstr.FromString(port.Name), nil
+		}
+	}
+
+	if len(svc.Spec.Ports) > 0 {
+		return intstr.FromInt32(svc.Spec.Ports[0].Port), nil
+
+	}
+	return intstr.IntOrString{}, fmt.Errorf("service %q has no ports defined", svc.Name)
+}
+
 func (r *KserveRawRouteReconciler) processDelta(ctx context.Context, log logr.Logger, desiredRoute *v1.Route, existingRoute *v1.Route) (err error) {
 	comparator := comparators.GetKServeRouteComparator()
 	delta := r.deltaProcessor.ComputeDelta(comparator, desiredRoute, existingRoute)
@@ -196,6 +251,9 @@ func (r *KserveRawRouteReconciler) processDelta(ctx context.Context, log logr.Lo
 
 	if delta.IsAdded() {
 		log.V(1).Info("Delta found", "create", desiredRoute.GetName())
+		if err = checkRouteTargetPort(ctx, r.client, desiredRoute); err != nil {
+			return err
+		}
 		if err = r.client.Create(ctx, desiredRoute); err != nil {
 			return err
 		}
@@ -207,6 +265,9 @@ func (r *KserveRawRouteReconciler) processDelta(ctx context.Context, log logr.Lo
 		rp.Annotations = desiredRoute.Annotations
 		rp.Spec = desiredRoute.Spec
 
+		if err = checkRouteTargetPort(ctx, r.client, rp); err != nil {
+			return err
+		}
 		if err = r.client.Update(ctx, rp); err != nil {
 			return err
 		}
