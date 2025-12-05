@@ -39,17 +39,17 @@ const (
 	DefaultTenantNamespace = "maas-api"
 	DefaultTenantName      = "maas-default-gateway"
 
-	// Environment variable name for configuring the tenant namespace
-	TenantNamespaceEnvVar = "TENANT_NAMESPACE"
+	// Environment variable name for configuring the MaaS namespace
+	MaasNamespaceEnvVar = "MAAS_NAMESPACE"
 )
 
-// GetTenantNamespace returns the tenant namespace to use for tier configuration lookups.
-// It reads from the TENANT_NAMESPACE environment variable if set, otherwise returns
+// GetMaasNamespace returns the MaaS namespace to use for tier configuration lookups.
+// It reads from the MAAS_NAMESPACE environment variable if set, otherwise returns
 // the default namespace "maas-api".
 //
-// The tenant namespace is where the tier-to-group-mapping ConfigMap is expected to exist.
-func GetTenantNamespace() string {
-	if ns := os.Getenv(TenantNamespaceEnvVar); ns != "" {
+// The MaaS namespace is where the tier-to-group-mapping ConfigMap is expected to exist.
+func GetMaasNamespace() string {
+	if ns := os.Getenv(MaasNamespaceEnvVar); ns != "" {
 		return ns
 	}
 	return DefaultTenantNamespace
@@ -97,7 +97,7 @@ func (s *TierConfigLoader) ValidateTierAnnotation(ctx context.Context, log logr.
 		return nil, nil, err
 	}
 
-	tiers, err := s.loadTiers(ctx, log, GetTenantNamespace())
+	tiers, err := s.loadTiers(ctx, log, GetMaasNamespace())
 	if err != nil {
 		return requestedTiers, nil, err
 	}
@@ -127,7 +127,7 @@ func (s *TierConfigLoader) DefinedGroups(ctx context.Context, log logr.Logger, l
 		return nil, err
 	}
 
-	tiers, err := s.loadTiers(ctx, log, GetTenantNamespace())
+	tiers, err := s.loadTiers(ctx, log, GetMaasNamespace())
 	if err != nil {
 		return nil, err
 	}
