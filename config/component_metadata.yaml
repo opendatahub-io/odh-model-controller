@@ -8,6 +8,9 @@ releases:
   - name: OpenVINO Model Server
     version: v2024.5
     repoUrl: https://github.com/openvinotoolkit/model_server
+  - name: MLServer
+    version: 1.7.1
+    repoUrl: https://github.com/SeldonIO/MLServer
   - name: Caikit
     version: v0.27.7
     repoUrl: https://github.com/caikit/caikit
