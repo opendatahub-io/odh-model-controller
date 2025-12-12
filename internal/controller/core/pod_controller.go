@@ -85,9 +85,14 @@ func checkPodHasIP(oldPod *corev1.Pod, newPod *corev1.Pod) bool {
 }
 
 func checkMultiNodePod(pod *corev1.Pod) bool {
-	for _, contatiner := range pod.Spec.Containers {
-		for _, env := range contatiner.Env {
-			return env.Name == constants.RayUseTlsEnvName && env.Value != "0"
+	for _, container := range pod.Spec.Containers {
+		// Only check RAY_USE_TLS in kserve-container or worker-container
+		if container.Name == "kserve-container" || container.Name == constants.WorkerContainerName {
+			for _, env := range container.Env {
+				if env.Name == constants.RayUseTlsEnvName && env.Value != "0" {
+					return true
+				}
+			}
 		}
 	}
 
