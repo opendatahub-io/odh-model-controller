@@ -27,6 +27,266 @@ func setupLogger(t *testing.T) logr.Logger {
 
 // TestUpdateSecret_Concurrent tests that updateSecret correctly updates secret data with optimistic locking.
 // Used TEST CERT
+func TestCheckMultiNodePod(t *testing.T) {
+	tests := []struct {
+		name     string
+		pod      *corev1.Pod
+		expected bool
+	}{
+		{
+			name: "RAY_USE_TLS as first env var should return true",
+			pod: &corev1.Pod{
+				Spec: corev1.PodSpec{
+					Containers: []corev1.Container{
+						{
+							Name: "kserve-container",
+							Env: []corev1.EnvVar{
+								{Name: constants.RayUseTlsEnvName, Value: "1"},
+								{Name: "OTHER_VAR", Value: "other"},
+							},
+						},
+					},
+				},
+			},
+			expected: true,
+		},
+		{
+			name: "RAY_USE_TLS NOT as first env var should return true (regression test)",
+			pod: &corev1.Pod{
+				Spec: corev1.PodSpec{
+					Containers: []corev1.Container{
+						{
+							Name: "kserve-container",
+							Env: []corev1.EnvVar{
+								{Name: "PATH", Value: "/usr/bin"},
+								{Name: "HOME", Value: "/root"},
+								{Name: "OTHER_VAR", Value: "value"},
+								{Name: constants.RayUseTlsEnvName, Value: "1"},
+								{Name: "ANOTHER_VAR", Value: "another"},
+							},
+						},
+					},
+				},
+			},
+			expected: true,
+		},
+		{
+			name: "RAY_USE_TLS with value 0 should return false",
+			pod: &corev1.Pod{
+				Spec: corev1.PodSpec{
+					Containers: []corev1.Container{
+						{
+							Name: "kserve-container",
+							Env: []corev1.EnvVar{
+								{Name: constants.RayUseTlsEnvName, Value: "0"},
+							},
+						},
+					},
+				},
+			},
+			expected: false,
+		},
+		{
+			name: "RAY_USE_TLS with empty value should return true",
+			pod: &corev1.Pod{
+				Spec: corev1.PodSpec{
+					Containers: []corev1.Container{
+						{
+							Name: "kserve-container",
+							Env: []corev1.EnvVar{
+								{Name: constants.RayUseTlsEnvName, Value: ""},
+							},
+						},
+					},
+				},
+			},
+			expected: true,
+		},
+		{
+			name: "No RAY_USE_TLS env var should return false",
+			pod: &corev1.Pod{
+				Spec: corev1.PodSpec{
+					Containers: []corev1.Container{
+						{
+							Name: "kserve-container",
+							Env: []corev1.EnvVar{
+								{Name: "PATH", Value: "/usr/bin"},
+								{Name: "HOME", Value: "/root"},
+							},
+						},
+					},
+				},
+			},
+			expected: false,
+		},
+		{
+			name: "RAY_USE_TLS in worker-container should return true",
+			pod: &corev1.Pod{
+				Spec: corev1.PodSpec{
+					Containers: []corev1.Container{
+						{
+							Name: "worker-container",
+							Env: []corev1.EnvVar{
+								{Name: "OTHER_VAR", Value: "other"},
+								{Name: constants.RayUseTlsEnvName, Value: "1"},
+							},
+						},
+					},
+				},
+			},
+			expected: true,
+		},
+		{
+			name: "RAY_USE_TLS in second container should return true",
+			pod: &corev1.Pod{
+				Spec: corev1.PodSpec{
+					Containers: []corev1.Container{
+						{
+							Name: "init-container",
+							Env: []corev1.EnvVar{
+								{Name: "SOME_VAR", Value: "value"},
+							},
+						},
+						{
+							Name: "kserve-container",
+							Env: []corev1.EnvVar{
+								{Name: "PATH", Value: "/usr/bin"},
+								{Name: constants.RayUseTlsEnvName, Value: "1"},
+							},
+						},
+					},
+				},
+			},
+			expected: true,
+		},
+		{
+			name: "RAY_USE_TLS in different container name should return false",
+			pod: &corev1.Pod{
+				Spec: corev1.PodSpec{
+					Containers: []corev1.Container{
+						{
+							Name: "some-other-container",
+							Env: []corev1.EnvVar{
+								{Name: constants.RayUseTlsEnvName, Value: "1"},
+							},
+						},
+					},
+				},
+			},
+			expected: false,
+		},
+		{
+			name: "Empty pod with no containers should return false",
+			pod: &corev1.Pod{
+				Spec: corev1.PodSpec{
+					Containers: []corev1.Container{},
+				},
+			},
+			expected: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := checkMultiNodePod(tt.pod)
+			assert.Equal(t, tt.expected, result, "checkMultiNodePod returned unexpected result")
+		})
+	}
+}
+
+func TestCheckPodHasIP(t *testing.T) {
+	tests := []struct {
+		name     string
+		oldPod   *corev1.Pod
+		newPod   *corev1.Pod
+		expected bool
+	}{
+		{
+			name:   "New pod with IP and no old pod should return true",
+			oldPod: nil,
+			newPod: &corev1.Pod{
+				Status: corev1.PodStatus{
+					PodIP: "192.168.1.1",
+				},
+			},
+			expected: true,
+		},
+		{
+			name:   "New pod without IP and no old pod should return false",
+			oldPod: nil,
+			newPod: &corev1.Pod{
+				Status: corev1.PodStatus{
+					PodIP: "",
+				},
+			},
+			expected: false,
+		},
+		{
+			name: "Pod IP changed should return true",
+			oldPod: &corev1.Pod{
+				Status: corev1.PodStatus{
+					PodIP: "192.168.1.1",
+				},
+			},
+			newPod: &corev1.Pod{
+				Status: corev1.PodStatus{
+					PodIP: "192.168.1.2",
+				},
+			},
+			expected: true,
+		},
+		{
+			name: "Pod IP unchanged should return false",
+			oldPod: &corev1.Pod{
+				Status: corev1.PodStatus{
+					PodIP: "192.168.1.1",
+				},
+			},
+			newPod: &corev1.Pod{
+				Status: corev1.PodStatus{
+					PodIP: "192.168.1.1",
+				},
+			},
+			expected: false,
+		},
+		{
+			name: "Old pod had IP, new pod has no IP should return true",
+			oldPod: &corev1.Pod{
+				Status: corev1.PodStatus{
+					PodIP: "192.168.1.1",
+				},
+			},
+			newPod: &corev1.Pod{
+				Status: corev1.PodStatus{
+					PodIP: "",
+				},
+			},
+			expected: true,
+		},
+		{
+			name: "Old pod had no IP, new pod has IP should return true",
+			oldPod: &corev1.Pod{
+				Status: corev1.PodStatus{
+					PodIP: "",
+				},
+			},
+			newPod: &corev1.Pod{
+				Status: corev1.PodStatus{
+					PodIP: "192.168.1.1",
+				},
+			},
+			expected: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := checkPodHasIP(tt.oldPod, tt.newPod)
+			assert.Equal(t, tt.expected, result, "checkPodHasIP returned unexpected result")
+		})
+	}
+}
+
 func TestUpdateSecret_Concurrent(t *testing.T) {
 	namespace := "test-namespace"
 	secretName := constants.RayTLSSecretName
