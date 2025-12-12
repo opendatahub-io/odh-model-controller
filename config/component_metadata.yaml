@@ -3,10 +3,10 @@ releases:
     version: v0.14.0
     repoUrl: https://github.com/kserve/kserve/
   - name: vLLM
-    version: v0.6.4.post1
+    version: v0.11.2
     repoUrl: https://github.com/vllm-project/vllm
   - name: OpenVINO Model Server
-    version: v2024.5
+    version: v2024.4
     repoUrl: https://github.com/openvinotoolkit/model_server
   - name: MLServer
     version: 1.7.1
