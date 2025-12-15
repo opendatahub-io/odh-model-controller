@@ -19,7 +19,9 @@ package testing
 import (
 	"path/filepath"
 
+	authorinooperatorv1beta1 "github.com/kuadrant/authorino-operator/api/v1beta1"
 	kuadrantv1 "github.com/kuadrant/kuadrant-operator/api/v1"
+	kuadrantv1beta1 "github.com/kuadrant/kuadrant-operator/api/v1beta1"
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	netv1 "k8s.io/api/networking/v1"
@@ -48,6 +50,8 @@ func NewEnvTest(options ...Option) *Config {
 		apiextv1.AddToScheme,
 		netv1.AddToScheme,
 		kuadrantv1.AddToScheme,
+		kuadrantv1beta1.AddToScheme,
+		authorinooperatorv1beta1.AddToScheme,
 		gatewayapiv1.Install,
 		igwapi.Install,
 		istioclientv1alpha3.AddToScheme,

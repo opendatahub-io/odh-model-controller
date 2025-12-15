@@ -48,7 +48,7 @@ func SetupTestEnv() *pkgtest.Client {
 		return llmcontroller.NewLLMInferenceServiceReconciler(
 			mgr.GetClient(),
 			mgr.GetScheme(),
-			cfg,
+			mgr.GetEventRecorderFor("OpenDataHubModelController"),
 		).SetupWithManager(mgr, setupLog)
 	}
 

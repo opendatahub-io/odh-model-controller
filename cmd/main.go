@@ -318,7 +318,7 @@ func setupReconcilers(mgr ctrl.Manager, setupLog logr.Logger, cfg *rest.Config) 
 		setupLog.Error(err, "unable to create controller", "controller", "ServingRuntime")
 		return err
 	}
-	if err := setupLLMInferenceServiceReconciler(mgr, cfg); err != nil {
+	if err := setupLLMInferenceServiceReconciler(mgr); err != nil {
 		setupLog.Error(err, "unable to create controller", "controller", "LLMInferenceService")
 		return err
 	}
@@ -372,10 +372,10 @@ func setupServingRuntimeReconciler(mgr ctrl.Manager) error {
 	}).SetupWithManager(mgr)
 }
 
-func setupLLMInferenceServiceReconciler(mgr ctrl.Manager, cfg *rest.Config) error {
+func setupLLMInferenceServiceReconciler(mgr ctrl.Manager) error {
 	return llmcontroller.NewLLMInferenceServiceReconciler(
 		mgr.GetClient(),
 		mgr.GetScheme(),
-		cfg,
+		mgr.GetEventRecorderFor("OpenDataHubModelController"),
 	).SetupWithManager(mgr, setupLog)
 }

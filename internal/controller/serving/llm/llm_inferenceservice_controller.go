@@ -25,12 +25,16 @@ import (
 	"github.com/hashicorp/go-multierror"
 	kservev1alpha1 "github.com/kserve/kserve/pkg/apis/serving/v1alpha1"
 	kservellmisvc "github.com/kserve/kserve/pkg/controller/llmisvc"
+	authorinooperatorv1beta1 "github.com/kuadrant/authorino-operator/api/v1beta1"
 	kuadrantv1 "github.com/kuadrant/kuadrant-operator/api/v1"
+	kuadrantv1beta1 "github.com/kuadrant/kuadrant-operator/api/v1beta1"
 	istioclientv1alpha3 "istio.io/client-go/pkg/apis/networking/v1alpha3"
+	corev1 "k8s.io/api/core/v1"
 	v1 "k8s.io/api/rbac/v1"
 	apierrs "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/runtime"
-	"k8s.io/client-go/rest"
+	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/client-go/tools/record"
 	ctrl "sigs.k8s.io/controller-runtime"
 	ctrlbuilder "sigs.k8s.io/controller-runtime/pkg/builder"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -40,7 +44,6 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/predicate"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
-	"github.com/opendatahub-io/odh-model-controller/internal/controller/constants"
 	"github.com/opendatahub-io/odh-model-controller/internal/controller/resources"
 	"github.com/opendatahub-io/odh-model-controller/internal/controller/serving/llm/reconcilers"
 	parentreconcilers "github.com/opendatahub-io/odh-model-controller/internal/controller/serving/reconcilers"
@@ -49,6 +52,7 @@ import (
 
 type LLMInferenceServiceReconciler struct {
 	client.Client
+	Recorder               record.EventRecorder
 	Scheme                 *runtime.Scheme
 	subResourceReconcilers []parentreconcilers.LLMSubResourceReconciler
 	authPolicyMatcher      resources.AuthPolicyMatcher
@@ -59,26 +63,17 @@ var ownedBySelfPredicate = predicate.NewPredicateFuncs(func(o client.Object) boo
 	return o.GetLabels()["app.kubernetes.io/managed-by"] == "odh-model-controller"
 })
 
-func NewLLMInferenceServiceReconciler(client client.Client, scheme *runtime.Scheme, config *rest.Config) *LLMInferenceServiceReconciler {
-	var subResourceReconcilers []parentreconcilers.LLMSubResourceReconciler
-	subResourceReconcilers = append(subResourceReconcilers,
+func NewLLMInferenceServiceReconciler(client client.Client, scheme *runtime.Scheme, recorder record.EventRecorder) *LLMInferenceServiceReconciler {
+	subResourceReconcilers := []parentreconcilers.LLMSubResourceReconciler{
 		parentreconcilers.NewLLMRoleReconciler(client),
 		parentreconcilers.NewLLMRoleBindingReconciler(client),
-	)
-
-	if ok, err := utils.IsCrdAvailable(config, kuadrantv1.GroupVersion.String(), constants.AuthPolicyKind); err == nil && ok {
-		subResourceReconcilers = append(subResourceReconcilers,
-			reconcilers.NewKserveAuthPolicyReconciler(client, scheme),
-		)
-	}
-	if ok, err := utils.IsCrdAvailable(config, istioclientv1alpha3.SchemeGroupVersion.String(), constants.EnvoyFilterKind); err == nil && ok {
-		subResourceReconcilers = append(subResourceReconcilers,
-			reconcilers.NewKserveEnvoyFilterReconciler(client, scheme),
-		)
+		reconcilers.NewKserveAuthPolicyReconciler(client, scheme),
+		reconcilers.NewKserveEnvoyFilterReconciler(client, scheme),
 	}
 
 	return &LLMInferenceServiceReconciler{
 		Client:                 client,
+		Recorder:               recorder,
 		Scheme:                 scheme,
 		subResourceReconcilers: subResourceReconcilers,
 		authPolicyMatcher:      resources.NewKServeAuthPolicyMatcher(client),
@@ -138,6 +133,7 @@ func (r *LLMInferenceServiceReconciler) Reconcile(ctx context.Context, req ctrl.
 
 	if err := r.reconcileSubResources(ctx, logger, llmisvc); err != nil {
 		logger.Error(err, "Failed to reconcile LLMInferenceService sub-resources")
+		r.Recorder.Eventf(llmisvc, corev1.EventTypeWarning, "ReconcileError", "Failed to reconcile LLMInferenceService: %v", err)
 		return ctrl.Result{}, err
 	}
 
@@ -158,6 +154,8 @@ func (r *LLMInferenceServiceReconciler) Reconcile(ctx context.Context, req ctrl.
 // +kubebuilder:rbac:groups=gateway.networking.k8s.io,resources=gateways/finalizers,verbs=update;patch
 // +kubebuilder:rbac:groups=gateway.networking.k8s.io,resources=httproutes,verbs=get;list;watch
 // +kubebuilder:rbac:groups=config.openshift.io,resources=authentications,verbs=get;list;watch
+// +kubebuilder:rbac:groups=kuadrant.io,resources=kuadrants,verbs=get;list;watch
+// +kubebuilder:rbac:groups=operator.authorino.kuadrant.io,resources=authorinos,verbs=get;list;watch
 
 func (r *LLMInferenceServiceReconciler) SetupWithManager(mgr ctrl.Manager, setupLog logr.Logger) error {
 	b := ctrl.NewControllerManagedBy(mgr).
@@ -184,6 +182,18 @@ func (r *LLMInferenceServiceReconciler) SetupWithManager(mgr ctrl.Manager, setup
 					return utils.IsManagedByOpenDataHub(e.Object)
 				},
 			}))
+	}
+
+	if ok, err := utils.IsCrdAvailable(mgr.GetConfig(), kuadrantv1beta1.GroupVersion.String(), "Kuadrant"); err != nil {
+		setupLog.Error(err, "Failed to check CRD availability for Kuadrant")
+	} else if ok {
+		b = b.Watches(&kuadrantv1beta1.Kuadrant{}, r.globalResync(setupLog))
+	}
+
+	if ok, err := utils.IsCrdAvailable(mgr.GetConfig(), authorinooperatorv1beta1.GroupVersion.String(), "Authorino"); err != nil {
+		setupLog.Error(err, "Failed to check CRD availability for Authorino")
+	} else if ok {
+		b = b.Watches(&authorinooperatorv1beta1.Authorino{}, r.globalResync(setupLog))
 	}
 
 	if ok, err := utils.IsCrdAvailable(mgr.GetConfig(), istioclientv1alpha3.SchemeGroupVersion.String(), "EnvoyFilter"); err != nil {
@@ -226,6 +236,26 @@ func (r *LLMInferenceServiceReconciler) enqueueOnAuthPolicyChange() handler.Even
 			return requests
 		}
 		return []reconcile.Request{}
+	})
+}
+
+func (r *LLMInferenceServiceReconciler) globalResync(setupLog logr.Logger) handler.EventHandler {
+	return handler.EnqueueRequestsFromMapFunc(func(ctx context.Context, object client.Object) []reconcile.Request {
+
+		llmSvcList := &kservev1alpha1.LLMInferenceServiceList{}
+		if err := r.Client.List(ctx, llmSvcList); err != nil {
+			setupLog.Error(err, "Failed to list LLMInferenceService")
+			return nil
+		}
+
+		requests := make([]reconcile.Request, 0, len(llmSvcList.Items))
+		for _, llmSvc := range llmSvcList.Items {
+			requests = append(requests, reconcile.Request{NamespacedName: types.NamespacedName{
+				Name:      llmSvc.Name,
+				Namespace: llmSvc.Namespace,
+			}})
+		}
+		return requests
 	})
 }
 

@@ -4,7 +4,9 @@ import (
 	kedaapi "github.com/kedacore/keda/v2/apis/keda/v1alpha1"
 	kservev1alpha1 "github.com/kserve/kserve/pkg/apis/serving/v1alpha1"
 	kservev1beta1 "github.com/kserve/kserve/pkg/apis/serving/v1beta1"
+	authorinooperatorv1beta1 "github.com/kuadrant/authorino-operator/api/v1beta1"
 	kuadrantv1 "github.com/kuadrant/kuadrant-operator/api/v1"
+	kuadrantv1beta1 "github.com/kuadrant/kuadrant-operator/api/v1beta1"
 	ocpconfigv1 "github.com/openshift/api/config/v1"
 	routev1 "github.com/openshift/api/route/v1"
 	templatev1 "github.com/openshift/api/template/v1"
@@ -33,6 +35,8 @@ func RegisterSchemes(s *runtime.Scheme) {
 	utilruntime.Must(authv1.AddToScheme(s))
 	utilruntime.Must(monitoringv1.AddToScheme(s))
 	utilruntime.Must(kuadrantv1.AddToScheme(s))
+	utilruntime.Must(kuadrantv1beta1.AddToScheme(s))
+	utilruntime.Must(authorinooperatorv1beta1.AddToScheme(s))
 	utilruntime.Must(nimv1.SchemeBuilder.AddToScheme(s))
 	utilruntime.Must(templatev1.AddToScheme(s))
 	utilruntime.Must(kedaapi.AddToScheme(s))

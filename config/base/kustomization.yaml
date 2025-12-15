@@ -43,6 +43,17 @@ replacements:
       kind: ConfigMap
       version: v1
       name: odh-model-controller-parameters
+      fieldPath: data.mlserver-image
+    targets:
+      - select:
+          kind: Template
+          name: mlserver-runtime-template
+        fieldPaths:
+          - objects.0.spec.containers.0.image
+  - source:
+      kind: ConfigMap
+      version: v1
+      name: odh-model-controller-parameters
       fieldPath: data.vllm-cuda-image
     targets:
       - select:
@@ -155,6 +166,17 @@ replacements:
           name: odh-model-controller
         fieldPaths:
           - spec.template.spec.containers.[name=manager].env.[name=MODELREGISTRY_STATE].value
+  - source:
+      kind: ConfigMap
+      version: v1
+      name: odh-model-controller-parameters
+      fieldPath: data.maas-namespace
+    targets:
+      - select:
+          kind: Deployment
+          name: odh-model-controller
+        fieldPaths:
+          - spec.template.spec.containers.[name=manager].env.[name=MAAS_NAMESPACE].value
   - source:
       kind: ConfigMap
       version: v1
