@@ -10,6 +10,7 @@ require (
 	github.com/hashicorp/go-multierror v1.1.1
 	github.com/kedacore/keda/v2 v2.16.1
 	github.com/kserve/kserve v0.15.0
+	github.com/kuadrant/authorino-operator v0.11.1
 	github.com/kuadrant/kuadrant-operator v1.2.0
 	github.com/kubeflow/model-registry v0.2.19
 	github.com/onsi/ginkgo/v2 v2.23.4
@@ -94,6 +95,7 @@ require (
 	github.com/json-iterator/go v1.1.12 // indirect
 	github.com/kuadrant/authorino v0.20.0 // indirect
 	github.com/kuadrant/dns-operator v0.10.0 // indirect
+	github.com/kuadrant/limitador-operator v0.9.0 // indirect
 	github.com/kuadrant/policy-machinery v0.6.4 // indirect
 	github.com/leodido/go-urn v1.4.0 // indirect
 	github.com/mailru/easyjson v0.9.0 // indirect
@@ -170,5 +172,5 @@ require (
 replace sigs.k8s.io/controller-runtime => sigs.k8s.io/controller-runtime v0.19.1
 
 // Use ODH release branch instead
-// odh-v3.0
-replace github.com/kserve/kserve => github.com/opendatahub-io/kserve v0.0.0-20251021185421-35e0bedc2fdc
+// odh-v3.2
+replace github.com/kserve/kserve => github.com/opendatahub-io/kserve v0.0.0-20251215142358-6caad3ad9820

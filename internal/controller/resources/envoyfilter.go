@@ -17,29 +17,33 @@ limitations under the License.
 package resources
 
 import (
+	"cmp"
 	"context"
 	_ "embed"
 	"fmt"
+	"slices"
 	"strings"
 	"text/template"
 
 	"github.com/go-logr/logr"
 	kservev1alpha1 "github.com/kserve/kserve/pkg/apis/serving/v1alpha1"
+	authorinooperatorv1beta1 "github.com/kuadrant/authorino-operator/api/v1beta1"
+	kuadrantv1beta1 "github.com/kuadrant/kuadrant-operator/api/v1beta1"
 	"github.com/opendatahub-io/odh-model-controller/internal/controller/constants"
+	"github.com/opendatahub-io/odh-model-controller/internal/controller/utils"
 	controllerutils "github.com/opendatahub-io/odh-model-controller/internal/controller/utils"
 	istioclientv1alpha3 "istio.io/client-go/pkg/apis/networking/v1alpha3"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/util/retry"
+	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	gatewayapiv1 "sigs.k8s.io/gateway-api/apis/v1"
 	"sigs.k8s.io/yaml"
 )
 
-type EnvoyFilterDetector interface {
-	Detect(ctx context.Context, annotations map[string]string) bool
-}
+// We can remove the EnvoyFilter creation once https://github.com/Kuadrant/kuadrant-operator/issues/1531 is resolved.
 
 type EnvoyFilterTemplateLoader interface {
 	Load(ctx context.Context, llmisvc *kservev1alpha1.LLMInferenceService) ([]*istioclientv1alpha3.EnvoyFilter, error)
@@ -59,25 +63,6 @@ type EnvoyFilterMatcher interface {
 //go:embed template/envoyfilter_ssl.yaml
 var envoyFilterTemplateSSL []byte
 
-type kserveEnvoyFilterDetector struct {
-	client client.Client
-}
-
-func NewKServeEnvoyFilterDetector(client client.Client) EnvoyFilterDetector {
-	return &kserveEnvoyFilterDetector{
-		client: client,
-	}
-}
-
-func (k *kserveEnvoyFilterDetector) Detect(_ context.Context, annotations map[string]string) bool {
-	if value, exist := annotations[constants.EnableAuthODHAnnotation]; exist {
-		if strings.EqualFold(strings.TrimSpace(value), "false") {
-			return false
-		}
-	}
-	return true
-}
-
 type kserveEnvoyFilterTemplateLoader struct {
 	client client.Client
 }
@@ -95,30 +80,84 @@ func (k *kserveEnvoyFilterTemplateLoader) Load(ctx context.Context, llmisvc *kse
 	envoyFilters := make([]*istioclientv1alpha3.EnvoyFilter, 0, len(gateways))
 
 	for _, gateway := range gateways {
-		envoyFilter, err := k.renderSSLTemplate(gateway.Namespace, gateway.Name)
+		gwCtx := logr.NewContext(ctx, logger.WithValues("gateway.namespace", gateway.Namespace, "gateway.name", gateway.Name))
+		envoyFilter, err := k.renderSSLTemplate(gwCtx, gateway.Namespace, gateway.Name)
 		if err != nil {
 			return nil, fmt.Errorf("failed to render EnvoyFilter for gateway %s/%s: %w", gateway.Namespace, gateway.Name, err)
 		}
-		envoyFilters = append(envoyFilters, envoyFilter)
+		if envoyFilter != nil {
+			envoyFilters = append(envoyFilters, envoyFilter)
+		}
 	}
 
 	return envoyFilters, nil
 }
 
-func (k *kserveEnvoyFilterTemplateLoader) renderSSLTemplate(gatewayNamespace, gatewayName string) (*istioclientv1alpha3.EnvoyFilter, error) {
+func (k *kserveEnvoyFilterTemplateLoader) renderSSLTemplate(ctx context.Context, gatewayNamespace, gatewayName string) (*istioclientv1alpha3.EnvoyFilter, error) {
 	tmpl, err := template.New("envoyfilter").Parse(string(envoyFilterTemplateSSL))
 	if err != nil {
 		return nil, fmt.Errorf("failed to parse EnvoyFilter template: %w", err)
 	}
 
+	logger := logr.FromContextOrDiscard(ctx)
+
+	const defaultKuadrantNamespace = "kuadrant-system"
+	kuadrantNamespace := utils.GetEnvOr("KUADRANT_NAMESPACE", defaultKuadrantNamespace)
+	kuadrantList := &kuadrantv1beta1.KuadrantList{}
+	if err := k.client.List(ctx, kuadrantList); err == nil {
+
+		// Ensure a stable ordering of resources.
+		slices.SortStableFunc(kuadrantList.Items, func(a, b kuadrantv1beta1.Kuadrant) int {
+			c := cmp.Compare(a.Namespace, b.Namespace)
+			if c != 0 {
+				return c
+			}
+			return cmp.Compare(a.Name, b.Name)
+		})
+
+		// Prioritize Kuadrant in "default Kuadrant namespace"
+		foundDefault := false
+		for _, kuadrant := range kuadrantList.Items {
+			if kuadrant.Namespace == kuadrantNamespace {
+				foundDefault = true
+				break
+			}
+		}
+
+		if !foundDefault && len(kuadrantList.Items) > 0 {
+			kuadrantNamespace = kuadrantList.Items[0].Namespace
+		}
+	} else {
+		logger.Error(err, "Unable to list Kuadrant resources, using default namespace", "kuadrant.namespace", kuadrantNamespace)
+	}
+
+	authorinoList := &authorinooperatorv1beta1.AuthorinoList{}
+	if err := k.client.List(ctx, authorinoList, client.InNamespace(kuadrantNamespace)); err == nil {
+
+		// Ensure a stable ordering of resources.
+		slices.SortStableFunc(authorinoList.Items, func(a, b authorinooperatorv1beta1.Authorino) int {
+			return cmp.Compare(a.Name, b.Name)
+		})
+
+		// Skip EnvoyFilter creation only if TLS is disabled (default to false if unset)
+		if len(authorinoList.Items) > 0 && !ptr.Deref(authorinoList.Items[0].Spec.Listener.Tls.Enabled, false) {
+			logger.Info("Authorino has TLS disabled, skipping EnvoyFilter creation", "listener.tls", authorinoList.Items[0].Spec.Listener.Tls)
+			return nil, nil
+		}
+	} else {
+		logger.Error(err, "Unable to list Authorino resources, assuming TLS is enabled", "kuadrant.namespace", kuadrantNamespace)
+	}
+
 	templateData := struct {
-		Name             string
-		GatewayName      string
-		GatewayNamespace string
+		Name              string
+		GatewayName       string
+		GatewayNamespace  string
+		KuadrantNamespace string
 	}{
-		Name:             constants.GetGatewayEnvoyFilterName(gatewayName),
-		GatewayName:      gatewayName,
-		GatewayNamespace: gatewayNamespace,
+		Name:              constants.GetGatewayEnvoyFilterName(gatewayName),
+		GatewayName:       gatewayName,
+		GatewayNamespace:  gatewayNamespace,
+		KuadrantNamespace: kuadrantNamespace,
 	}
 
 	var builder strings.Builder

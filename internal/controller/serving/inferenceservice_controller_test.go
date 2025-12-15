@@ -50,6 +50,8 @@ const (
 
 	UnsupportedMetricsInferenceServicePath = "./testdata/deploy/kserve-unsupported-metrics-inference-service.yaml"
 	UnsupprtedMetricsServingRuntimePath    = "./testdata/deploy/kserve-unsupported-metrics-serving-runtime.yaml"
+
+	CustomServiceAccountName = "custom-sa"
 )
 
 var _ = Describe("InferenceService Controller", func() {
@@ -187,19 +189,50 @@ var _ = Describe("InferenceService Controller", func() {
 				}, timeout, interval).Should(HaveOccurred())
 			})
 			It("it should create a custom rolebinding if isvc has a SA defined", func() {
-				serviceAccountName := "custom-sa"
 				_ = createServingRuntime(testNs, KserveServingRuntimePath1)
 				inferenceService := createInferenceService(testNs, KserveOvmsInferenceServiceName, KserveInferenceServicePath1)
 				inferenceService.Annotations[constants.EnableAuthODHAnnotation] = "true"
-				inferenceService.Spec.Predictor.ServiceAccountName = serviceAccountName
+				inferenceService.Spec.Predictor.ServiceAccountName = CustomServiceAccountName
 				if err := k8sClient.Create(ctx, inferenceService); err != nil && !k8sErrors.IsAlreadyExists(err) {
 					Expect(err).NotTo(HaveOccurred())
 				}
 
 				crb := &rbacv1.ClusterRoleBinding{}
 				Eventually(func() error {
-					key := types.NamespacedName{Name: inferenceService.Namespace + "-" + serviceAccountName + "-auth-delegator",
+					key := types.NamespacedName{Name: inferenceService.Namespace + "-" + CustomServiceAccountName + "-auth-delegator",
 						Namespace: inferenceService.Namespace}
+					return k8sClient.Get(ctx, key, crb)
+				}, timeout, interval).ShouldNot(HaveOccurred())
+			})
+			It("should maintain CRB when 2 isvcs use the same SA with different auth requirements", func() {
+				_ = createServingRuntime(testNs, KserveServingRuntimePath1)
+
+				isvc1 := createInferenceService(testNs, "isvc-with-auth", KserveInferenceServicePath1)
+				isvc1.Annotations[constants.EnableAuthODHAnnotation] = "true"
+				isvc1.Spec.Predictor.ServiceAccountName = CustomServiceAccountName
+				if err := k8sClient.Create(ctx, isvc1); err != nil {
+					Expect(err).NotTo(HaveOccurred())
+				}
+
+				isvc2 := createInferenceService(testNs, "isvc-without-auth", KserveInferenceServicePath1)
+				// Do not set EnableAuthODHAnnotation - auth is disabled by default
+				isvc2.Spec.Predictor.ServiceAccountName = CustomServiceAccountName
+				if err := k8sClient.Create(ctx, isvc2); err != nil {
+					Expect(err).NotTo(HaveOccurred())
+				}
+
+				crb := &rbacv1.ClusterRoleBinding{}
+				Eventually(func() error {
+					key := types.NamespacedName{
+						Name: testNs + "-" + CustomServiceAccountName + "-auth-delegator",
+					}
+					return k8sClient.Get(ctx, key, crb)
+				}, timeout, interval).ShouldNot(HaveOccurred())
+
+				Consistently(func() error {
+					key := types.NamespacedName{
+						Name: testNs + "-" + CustomServiceAccountName + "-auth-delegator",
+					}
 					return k8sClient.Get(ctx, key, crb)
 				}, timeout, interval).ShouldNot(HaveOccurred())
 			})
@@ -425,7 +458,6 @@ var _ = Describe("InferenceService Controller", func() {
 				}, timeout, interval).Should(HaveOccurred())
 			})
 			It("CRB is deleted only when all associated isvcs are deleted", func() {
-				customServiceAccountName := "custom-sa"
 				_ = createServingRuntime(testNs, KserveServingRuntimePath1)
 				// create 2 isvcs with no SA (i.e default) and 2 with a custom SA
 				defaultIsvc1 := createInferenceService(testNs, "default-1", KserveInferenceServicePath1)
@@ -440,13 +472,13 @@ var _ = Describe("InferenceService Controller", func() {
 				}
 				customIsvc1 := createInferenceService(testNs, "custom-1", KserveInferenceServicePath1)
 				customIsvc1.Annotations[constants.EnableAuthODHAnnotation] = "true"
-				customIsvc1.Spec.Predictor.ServiceAccountName = customServiceAccountName
+				customIsvc1.Spec.Predictor.ServiceAccountName = CustomServiceAccountName
 				if err := k8sClient.Create(ctx, customIsvc1); err != nil {
 					Expect(err).NotTo(HaveOccurred())
 				}
 				customIsvc2 := createInferenceService(testNs, "custom-2", KserveInferenceServicePath1)
 				customIsvc2.Annotations[constants.EnableAuthODHAnnotation] = "true"
-				customIsvc2.Spec.Predictor.ServiceAccountName = customServiceAccountName
+				customIsvc2.Spec.Predictor.ServiceAccountName = CustomServiceAccountName
 				if err := k8sClient.Create(ctx, customIsvc2); err != nil {
 					Expect(err).NotTo(HaveOccurred())
 				}
@@ -460,7 +492,7 @@ var _ = Describe("InferenceService Controller", func() {
 				// confirm that custom CRB exists
 				customCrb := &rbacv1.ClusterRoleBinding{}
 				Eventually(func() error {
-					key := types.NamespacedName{Name: defaultIsvc1.Namespace + "-" + customServiceAccountName + "-auth-delegator",
+					key := types.NamespacedName{Name: defaultIsvc1.Namespace + "-" + CustomServiceAccountName + "-auth-delegator",
 						Namespace: defaultIsvc1.Namespace}
 					return k8sClient.Get(ctx, key, customCrb)
 				}, timeout, interval).ShouldNot(HaveOccurred())
@@ -476,7 +508,7 @@ var _ = Describe("InferenceService Controller", func() {
 					return k8sClient.Get(ctx, key, crb)
 				}, timeout, interval).ShouldNot(HaveOccurred())
 				Consistently(func() error {
-					key := types.NamespacedName{Name: defaultIsvc1.Namespace + "-" + customServiceAccountName + "-auth-delegator",
+					key := types.NamespacedName{Name: defaultIsvc1.Namespace + "-" + CustomServiceAccountName + "-auth-delegator",
 						Namespace: defaultIsvc1.Namespace}
 					return k8sClient.Get(ctx, key, customCrb)
 				}, timeout, interval).ShouldNot(HaveOccurred())
@@ -498,7 +530,7 @@ var _ = Describe("InferenceService Controller", func() {
 				}, timeout, interval).Should(HaveOccurred())
 				Eventually(func() error {
 					customCrb := &rbacv1.ClusterRoleBinding{}
-					key := types.NamespacedName{Name: defaultIsvc1.Namespace + "-" + customServiceAccountName + "-auth-delegator", Namespace: customIsvc2.Namespace}
+					key := types.NamespacedName{Name: defaultIsvc1.Namespace + "-" + CustomServiceAccountName + "-auth-delegator", Namespace: customIsvc2.Namespace}
 					return k8sClient.Get(ctx, key, customCrb)
 				}, timeout, interval).Should(HaveOccurred())
 			})
