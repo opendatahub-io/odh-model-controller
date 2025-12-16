@@ -144,13 +144,13 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           token: ${{ github.token }}
-          tag_name: $TAG_NAME
+          tag_name: ${{ env.TAG_NAME }}
           prerelease: false
           draft: false
           # this takes the path of payload to upload as an asset in the changelog
           files: bin/*
           generate_release_notes: true
-          name: $TAG_NAME
+          name: ${{ env.TAG_NAME }}
   
   bump-tag: 
     runs-on: ubuntu-latest
