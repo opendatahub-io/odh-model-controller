@@ -7,7 +7,6 @@ labels:
     includeSelectors: true
 resources:
   - ovms-kserve-template.yaml
-  - mlserver-template.yaml
   - vllm-cuda-template.yaml
   - vllm-multinode-template.yaml
   - vllm-rocm-template.yaml
