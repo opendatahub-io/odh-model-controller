@@ -174,3 +174,6 @@ replace sigs.k8s.io/controller-runtime => sigs.k8s.io/controller-runtime v0.19.1
 // Use ODH release branch instead
 // odh-v3.2
 replace github.com/kserve/kserve => github.com/opendatahub-io/kserve v0.0.0-20251215142358-6caad3ad9820
+
+// CVE-2025-68156: Update expr-lang/expr to v1.17.7
+replace github.com/expr-lang/expr => github.com/expr-lang/expr v1.17.7
