@@ -182,13 +182,13 @@ var _ = Describe("Tier ConfigMap Validator Webhook", func() {
 			originalValue := os.Getenv(reconcilers.MaasNamespaceEnvVar)
 			defer func() {
 				if originalValue == "" {
-					os.Unsetenv(reconcilers.MaasNamespaceEnvVar)
+					Expect(os.Unsetenv(reconcilers.MaasNamespaceEnvVar)).To(Succeed())
 				} else {
-					os.Setenv(reconcilers.MaasNamespaceEnvVar, originalValue)
+					Expect(os.Setenv(reconcilers.MaasNamespaceEnvVar, originalValue)).To(Succeed())
 				}
 			}()
 
-			os.Setenv(reconcilers.MaasNamespaceEnvVar, customNamespace)
+			Expect(os.Setenv(reconcilers.MaasNamespaceEnvVar, customNamespace)).To(Succeed())
 
 			// ConfigMap in custom namespace with duplicate levels should be validated
 			configMap := &corev1.ConfigMap{
