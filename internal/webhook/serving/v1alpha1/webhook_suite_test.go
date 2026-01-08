@@ -44,6 +44,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/webhook"
 
 	"github.com/opendatahub-io/odh-model-controller/internal/controller/utils"
+	webhookcorev1 "github.com/opendatahub-io/odh-model-controller/internal/webhook/core/v1"
 )
 
 // These tests use Ginkgo (BDD-style Go testing framework). Refer to
@@ -129,6 +130,9 @@ var _ = BeforeSuite(func() {
 	Expect(err).NotTo(HaveOccurred())
 
 	err = SetupLLMInferenceServiceWebhookWithManager(mgr)
+	Expect(err).NotTo(HaveOccurred())
+
+	err = webhookcorev1.SetupTierConfigMapWebhookWithManager(mgr)
 	Expect(err).NotTo(HaveOccurred())
 
 	// +kubebuilder:scaffold:webhook
