@@ -75,6 +75,30 @@ var _ = Describe("Tier ConfigMap Validator Webhook", func() {
 			Expect(err.Error()).To(ContainSubstring("premium"))
 		})
 
+		It("should fail validation when 3 tiers have 2 duplicate levels and 1 unique", func() {
+			configMap := &corev1.ConfigMap{
+				Data: map[string]string{
+					"tiers": `
+- name: "free"
+  level: 10
+  groups: ["free-users"]
+- name: "basic"
+  level: 20
+  groups: ["basic-users"]
+- name: "premium"
+  level: 10
+  groups: ["premium-users"]
+`,
+				},
+			}
+
+			err := validateTierLevels(configMap)
+			Expect(err).To(HaveOccurred())
+			Expect(err.Error()).To(ContainSubstring("duplicate level 10"))
+			Expect(err.Error()).To(ContainSubstring("free"))
+			Expect(err.Error()).To(ContainSubstring("premium"))
+		})
+
 		It("should pass validation when tiers key is missing", func() {
 			configMap := &corev1.ConfigMap{
 				Data: map[string]string{
