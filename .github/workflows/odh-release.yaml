@@ -171,8 +171,8 @@ jobs:
         id: app-token
         uses: getsentry/action-github-app-token@v2
         with:
-          app_id: ${{ secrets.DEVOPS_APP_ID }}
-          private_key: ${{ secrets.DEVOPS_APP_PRIVATE_KEY }}
+          app_id: ${{ secrets.ODH_RELEASE_BOT_APP_ID }}
+          private_key: ${{ secrets.ODH_RELEASE_BOT_PRIVATE_KEY }}
 
       - name: Checkout target repository
         uses: actions/checkout@v4
@@ -286,8 +286,8 @@ jobs:
         id: app-token
         uses: getsentry/action-github-app-token@v2
         with:
-          app_id: ${{ secrets.DEVOPS_APP_ID }}
-          private_key: ${{ secrets.DEVOPS_APP_PRIVATE_KEY }}
+          app_id: ${{ secrets.ODH_RELEASE_BOT_APP_ID }}
+          private_key: ${{ secrets.ODH_RELEASE_BOT_PRIVATE_KEY }}
 
       - name: Checkout target repository
         uses: actions/checkout@v4
