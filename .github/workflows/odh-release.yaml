@@ -16,8 +16,8 @@ on:
         required: true
         type: string
       next_tag_name: # The next tag to replace the current one in the Konflux files.
-        description: 'Next development tag (e.g., odh-v2.36)'
-        required: true
+        description: 'Next development tag (e.g., odh-v2.36) - not required for llm-d-inference-scheduler'
+        required: false
         type: string
       target_branch:
         description: 'Target branch in the repository (e.g., main, incubating)'
@@ -83,12 +83,14 @@ jobs:
           if not re.match(tag_pattern, tag_name):
             errors.append(f"Tag '{tag_name}' does not match expected format 'odh-vX.Y' or 'odh-vX.Y.Z'")
           
-          if not re.match(tag_pattern, next_tag):
-            errors.append(f"Next tag '{next_tag}' does not match expected format 'odh-vX.Y' or 'odh-vX.Y.Z'")
-          
-          # Check if tags are different
-          if tag_name == next_tag:
-            errors.append(f"tag_name and next_tag_name must be different (both are '{tag_name}')")
+          # next_tag validation only required for repos that need Tekton bumping
+          if repository != "llm-d-inference-scheduler":
+            if not next_tag:
+              errors.append("next_tag_name is required for this repository")
+            elif not re.match(tag_pattern, next_tag):
+              errors.append(f"Next tag '{next_tag}' does not match expected format 'odh-vX.Y' or 'odh-vX.Y.Z'")
+            elif tag_name == next_tag:
+              errors.append(f"tag_name and next_tag_name must be different (both are '{tag_name}')")
           
           # Fail fast if validation errors exist
           if errors:
@@ -124,27 +126,39 @@ jobs:
           import json
           import glob
           
-          # Discover params.env files under config/
-          params_env_files = glob.glob('config/**/params.env', recursive=True)
+          repository = "${{ github.event.inputs.repository }}"
           
-          # Discover YAML files under .tekton/
-          tekton_files = glob.glob('.tekton/**/*.yaml', recursive=True) + \
-                         glob.glob('.tekton/**/*.yml', recursive=True)
-          
-          # Output results
-          print(f"Found params.env files: {params_env_files}")
-          print(f"Found tekton files: {tekton_files}")
-          
-          # Write outputs
-          with open(os.environ['GITHUB_OUTPUT'], 'a') as f:
-            f.write(f"params_env_files={json.dumps(params_env_files)}\n")
-            f.write(f"tekton_files={json.dumps(tekton_files)}\n")
-            f.write(f"has_params_env={'true' if params_env_files else 'false'}\n")
-            f.write(f"has_tekton={'true' if tekton_files else 'false'}\n")
-          
-          print(f"\n✓ Discovery complete")
-          print(f"  params.env files: {len(params_env_files)}")
-          print(f"  Tekton files: {len(tekton_files)}")
+          # Skip file discovery for llm-d-inference-scheduler
+          if repository == "llm-d-inference-scheduler":
+            print("Skipping file discovery for llm-d-inference-scheduler")
+            with open(os.environ['GITHUB_OUTPUT'], 'a') as f:
+              f.write(f"params_env_files=[]\n")
+              f.write(f"tekton_files=[]\n")
+              f.write(f"has_params_env=false\n")
+              f.write(f"has_tekton=false\n")
+            print("✓ Discovery skipped - no files to update for this repository")
+          else:
+            # Discover params.env files under config/
+            params_env_files = glob.glob('config/**/params.env', recursive=True)
+            
+            # Discover YAML files under .tekton/
+            tekton_files = glob.glob('.tekton/**/*.yaml', recursive=True) + \
+                           glob.glob('.tekton/**/*.yml', recursive=True)
+            
+            # Output results
+            print(f"Found params.env files: {params_env_files}")
+            print(f"Found tekton files: {tekton_files}")
+            
+            # Write outputs
+            with open(os.environ['GITHUB_OUTPUT'], 'a') as f:
+              f.write(f"params_env_files={json.dumps(params_env_files)}\n")
+              f.write(f"tekton_files={json.dumps(tekton_files)}\n")
+              f.write(f"has_params_env={'true' if params_env_files else 'false'}\n")
+              f.write(f"has_tekton={'true' if tekton_files else 'false'}\n")
+            
+            print(f"\n✓ Discovery complete")
+            print(f"  params.env files: {len(params_env_files)}")
+            print(f"  Tekton files: {len(tekton_files)}")
         shell: python
 
   create-release:
@@ -166,6 +180,7 @@ jobs:
           repository: ${{ env.REPO_OWNER }}/${{ needs.validate-and-check.outputs.repo_name }}
           token: ${{ steps.app-token.outputs.token }}
           ref: ${{ github.event.inputs.target_branch }}
+          fetch-depth: 1
 
       - name: Configure Git
         run: |
@@ -191,9 +206,9 @@ jobs:
               r'([\w.-]+(?:\.[\w.-]+)*/[\w.-]+/(?:odh-model-controller|mlserver)):(fast|v[\d.]+-latest|release-v[\d.]+|odh-v[\d.]+)'
             )
           else:
-            # For kserve and others: update all matching images
+            # For kserve and others: update all matching images except llm-d-* images
             image_pattern = re.compile(
-              r'([\w.-]+(?:\.[\w.-]+)*(?:/[\w.-]+)+):(fast|v[\d.]+-latest|release-v[\d.]+|odh-v[\d.]+)'
+              r'([\w.-]+(?:\.[\w.-]+)*/[\w.-]+/(?!llm-d-inference-scheduler|llm-d-routing-sidecar)[\w.-]+):(fast|v[\d.]+-latest|release-v[\d.]+|odh-v[\d.]+)'
             )
           
           updated_files = []
@@ -263,7 +278,7 @@ jobs:
     name: Bump Tekton tags for next release
     runs-on: ubuntu-latest
     needs: [validate-and-check, create-release]
-    if: always() && needs.create-release.result == 'success' && needs.validate-and-check.outputs.has_tekton == 'true'
+    if: always() && needs.create-release.result == 'success' && needs.validate-and-check.outputs.has_tekton == 'true' && !(github.event.inputs.repository == 'llm-d-inference-scheduler' && github.event.inputs.next_tag_name == '')
     outputs:
       pr_url: ${{ steps.create_pr.outputs.pr_url }}
     steps:
@@ -280,6 +295,7 @@ jobs:
           repository: ${{ env.REPO_OWNER }}/${{ needs.validate-and-check.outputs.repo_name }}
           token: ${{ steps.app-token.outputs.token }}
           ref: ${{ github.event.inputs.target_branch }}
+          fetch-depth: 1
 
       - name: Update Tekton files with next tag
         run: |
@@ -365,7 +381,7 @@ jobs:
           git commit -m "chore(konflux): Bump ODH tag to ${{ github.event.inputs.next_tag_name }}"
           
           # Force push the branch (handles both new and existing branches)
-          git push --force origin "$BRANCH_NAME"
+          git push --force-with-lease origin "$BRANCH_NAME"
           echo "✓ Branch pushed: $BRANCH_NAME"
           
           # Create PR
