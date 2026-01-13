@@ -14,12 +14,12 @@ metadata:
     opendatahub.io/modelServingSupport: '["single"]'
     opendatahub.io/apiProtocol: 'REST'
     opendatahub.io/model-type: '["generative"]'
-  name: vllm-cpu-runtime-template
+  name: vllm-cpu-x86-runtime-template
 objects:
   - apiVersion: serving.kserve.io/v1alpha1
     kind: ServingRuntime
     metadata:
-      name: vllm-cpu-runtime
+      name: vllm-cpu-x86-runtime
       annotations:
         openshift.io/display-name: vLLM CPU (x86) ServingRuntime for KServe
         opendatahub.io/runtime-version: 'v0.13.0'
@@ -36,7 +36,7 @@ objects:
           name: vLLM
       containers:
         - name: kserve-container
-          image: $(vllm-cpu-image)
+          image: $(vllm-cpu-x86-image)
           command:
             - python
             - -m
