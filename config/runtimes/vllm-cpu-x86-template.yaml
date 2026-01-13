@@ -6,11 +6,11 @@ metadata:
     opendatahub.io/ootb: 'true'
   annotations:
     description: vLLM is a high-throughput and memory-efficient inference and serving engine for LLMs
-    openshift.io/display-name: vLLM CPU (ppc64le/s390x) ServingRuntime for KServe
+    openshift.io/display-name: vLLM CPU (x86) ServingRuntime for KServe
     openshift.io/provider-display-name: Red Hat, Inc.
     tags: rhods,rhoai,kserve,servingruntime
     template.openshift.io/documentation-url: https://github.com/opendatahub-io/vllm
-    template.openshift.io/long-description: This template defines resources needed to deploy vLLM CPU ServingRuntime with KServe in Red Hat OpenShift AI (ppc64le/s390x architectures only)
+    template.openshift.io/long-description: This template defines resources needed to deploy vLLM CPU ServingRuntime with KServe in Red Hat OpenShift AI (x86 architectures only)
     opendatahub.io/modelServingSupport: '["single"]'
     opendatahub.io/apiProtocol: 'REST'
     opendatahub.io/model-type: '["generative"]'
@@ -21,8 +21,8 @@ objects:
     metadata:
       name: vllm-cpu-runtime
       annotations:
-        openshift.io/display-name: vLLM CPU (ppc64le/s390x) ServingRuntime for KServe
-        opendatahub.io/runtime-version: 'v0.10.1.1.6'
+        openshift.io/display-name: vLLM CPU (x86) ServingRuntime for KServe
+        opendatahub.io/runtime-version: 'v0.13.0'
       labels:
         opendatahub.io/dashboard: 'true'
     spec:
