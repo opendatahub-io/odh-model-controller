@@ -166,6 +166,13 @@ const (
 	KubernetesAudience      = "https://kubernetes.default.svc"
 	DefaultGatewayName      = "openshift-ai-inference"
 	DefaultGatewayNamespace = "openshift-ingress"
+
+	// AuthorinoTLSBootstrapAnnotation is a Gateway annotation that enables EnvoyFilter creation
+	// for Authorino TLS bootstrap even when the gateway has opendatahub.io/managed=false.
+	// This allows configuring TLS between the gateway and Authorino without creating AuthPolicies.
+	// This is in particular useful for MaaS gateway where custom policies are used, but we still need
+	// to configure TLS between the gateway and Authorino.
+	AuthorinoTLSBootstrapAnnotation = "security.opendatahub.io/authorino-tls-bootstrap"
 )
 
 func GetHTTPRouteAuthPolicyName(httpRouteName string) string {

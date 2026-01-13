@@ -6,6 +6,7 @@ import (
 	"github.com/opendatahub-io/odh-model-controller/internal/controller/constants"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	gatewayapiv1 "sigs.k8s.io/gateway-api/apis/v1"
 )
 
 var _ = Describe("IsManagedByOdhController", func() {
@@ -170,6 +171,74 @@ var _ = Describe("IsExplicitlyUnmanaged", func() {
 			},
 		}
 		Expect(IsExplicitlyUnmanaged(obj)).To(BeFalse())
+	})
+})
+
+var _ = Describe("IsAuthorinoTLSBootstrapEnabled", func() {
+	It("should return true when annotation is 'true'", func() {
+		obj := &corev1.ConfigMap{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      "test-gateway",
+				Namespace: "test-ns",
+				Annotations: map[string]string{
+					constants.AuthorinoTLSBootstrapAnnotation: "true",
+				},
+			},
+		}
+		Expect(IsAuthorinoTLSBootstrapEnabled(obj)).To(BeTrue())
+	})
+
+	It("should return false when annotation is 'false'", func() {
+		obj := &corev1.ConfigMap{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      "test-gateway",
+				Namespace: "test-ns",
+				Annotations: map[string]string{
+					constants.AuthorinoTLSBootstrapAnnotation: "false",
+				},
+			},
+		}
+		Expect(IsAuthorinoTLSBootstrapEnabled(obj)).To(BeFalse())
+	})
+
+	It("should return false when annotation doesn't exist", func() {
+		obj := &corev1.ConfigMap{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      "test-gateway",
+				Namespace: "test-ns",
+				Annotations: map[string]string{
+					"some-other-annotation": "value",
+				},
+			},
+		}
+		Expect(IsAuthorinoTLSBootstrapEnabled(obj)).To(BeFalse())
+	})
+
+	It("should return false when annotations are nil", func() {
+		obj := &corev1.ConfigMap{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      "test-gateway",
+				Namespace: "test-ns",
+			},
+		}
+		Expect(IsAuthorinoTLSBootstrapEnabled(obj)).To(BeFalse())
+	})
+
+	It("should return false when object is nil", func() {
+		Expect(IsAuthorinoTLSBootstrapEnabled(nil)).To(BeFalse())
+	})
+
+	It("should return false when annotation has invalid value", func() {
+		obj := &corev1.ConfigMap{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      "test-gateway",
+				Namespace: "test-ns",
+				Annotations: map[string]string{
+					constants.AuthorinoTLSBootstrapAnnotation: "invalid-value",
+				},
+			},
+		}
+		Expect(IsAuthorinoTLSBootstrapEnabled(obj)).To(BeFalse())
 	})
 })
 
@@ -487,5 +556,75 @@ var _ = Describe("MergeUserLabelsAndAnnotations", func() {
 			Expect(desired.GetAnnotations()).To(HaveKeyWithValue("template-annotation", "template-value"))
 			Expect(desired.GetAnnotations()).To(HaveKeyWithValue("user-annotation", "user-value"))
 		})
+	})
+})
+
+var _ = Describe("ShouldCreateEnvoyFilterForGateway", func() {
+	It("should return true for managed gateway (no managed label)", func() {
+		gateway := &gatewayapiv1.Gateway{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      "test-gateway",
+				Namespace: "test-ns",
+			},
+		}
+		Expect(ShouldCreateEnvoyFilterForGateway(gateway)).To(BeTrue())
+	})
+
+	It("should return true for gateway with managed=true label", func() {
+		gateway := &gatewayapiv1.Gateway{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      "test-gateway",
+				Namespace: "test-ns",
+				Labels: map[string]string{
+					constants.ODHManagedLabel: "true",
+				},
+			},
+		}
+		Expect(ShouldCreateEnvoyFilterForGateway(gateway)).To(BeTrue())
+	})
+
+	It("should return false for unmanaged gateway without opt-in annotation", func() {
+		gateway := &gatewayapiv1.Gateway{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      "test-gateway",
+				Namespace: "test-ns",
+				Labels: map[string]string{
+					constants.ODHManagedLabel: "false",
+				},
+			},
+		}
+		Expect(ShouldCreateEnvoyFilterForGateway(gateway)).To(BeFalse())
+	})
+
+	It("should return true for unmanaged gateway WITH opt-in annotation set to true", func() {
+		gateway := &gatewayapiv1.Gateway{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      "test-gateway",
+				Namespace: "test-ns",
+				Labels: map[string]string{
+					constants.ODHManagedLabel: "false",
+				},
+				Annotations: map[string]string{
+					constants.AuthorinoTLSBootstrapAnnotation: "true",
+				},
+			},
+		}
+		Expect(ShouldCreateEnvoyFilterForGateway(gateway)).To(BeTrue())
+	})
+
+	It("should return false for unmanaged gateway with opt-in annotation set to false", func() {
+		gateway := &gatewayapiv1.Gateway{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      "test-gateway",
+				Namespace: "test-ns",
+				Labels: map[string]string{
+					constants.ODHManagedLabel: "false",
+				},
+				Annotations: map[string]string{
+					constants.AuthorinoTLSBootstrapAnnotation: "false",
+				},
+			},
+		}
+		Expect(ShouldCreateEnvoyFilterForGateway(gateway)).To(BeFalse())
 	})
 })

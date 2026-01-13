@@ -412,6 +412,123 @@ var _ = Describe("LLMInferenceService Controller", func() {
 				fixture.VerifyResourceExists(ctx, envTest.Client, constants.DefaultGatewayNamespace, constants.GetGatewayEnvoyFilterName(customGatewayName), &istioclientv1alpha3.EnvoyFilter{})
 			})
 		})
+
+		Context("when Gateway has opendatahub.io/managed=false label", func() {
+			It("should NOT create EnvoyFilter for unmanaged gateway without opt-in annotation", func(ctx SpecContext) {
+				unmanagedGatewayName := pkgtest.GenerateUniqueTestName("unmanaged-gateway")
+
+				unmanagedGateway := fixture.Gateway(unmanagedGatewayName,
+					fixture.InNamespace[*gatewayapiv1.Gateway](testNs),
+					fixture.WithClassName(GatewayClassName),
+					fixture.WithListener(gatewayapiv1.HTTPProtocolType),
+					fixture.WithUnmanagedLabel(),
+				)
+				Expect(envTest.Client.Create(ctx, unmanagedGateway)).Should(Succeed())
+
+				llmisvc := fixture.LLMInferenceService(LLMInferenceServiceName,
+					fixture.InNamespace[*kservev1alpha1.LLMInferenceService](testNs),
+					fixture.WithGatewayRefs(kservev1alpha1.UntypedObjectReference{
+						Name:      gatewayapiv1.ObjectName(unmanagedGatewayName),
+						Namespace: gatewayapiv1.Namespace(testNs),
+					}),
+				)
+				Expect(envTest.Client.Create(ctx, llmisvc)).Should(Succeed())
+
+				fixture.VerifyGatewayEnvoyFilterNotExist(ctx, envTest.Client, testNs, unmanagedGatewayName)
+			})
+
+			It("should create EnvoyFilter for unmanaged gateway WITH authorino-tls-bootstrap=true annotation", func(ctx SpecContext) {
+				optInGatewayName := pkgtest.GenerateUniqueTestName("optin-gateway")
+
+				optInGateway := fixture.Gateway(optInGatewayName,
+					fixture.InNamespace[*gatewayapiv1.Gateway](testNs),
+					fixture.WithClassName(GatewayClassName),
+					fixture.WithListener(gatewayapiv1.HTTPProtocolType),
+					fixture.WithUnmanagedLabel(),
+					fixture.WithAuthorinoTLSBootstrapAnnotation("true"),
+				)
+				Expect(envTest.Client.Create(ctx, optInGateway)).Should(Succeed())
+
+				llmisvc := fixture.LLMInferenceService(LLMInferenceServiceName,
+					fixture.InNamespace[*kservev1alpha1.LLMInferenceService](testNs),
+					fixture.WithGatewayRefs(kservev1alpha1.UntypedObjectReference{
+						Name:      gatewayapiv1.ObjectName(optInGatewayName),
+						Namespace: gatewayapiv1.Namespace(testNs),
+					}),
+				)
+				Expect(envTest.Client.Create(ctx, llmisvc)).Should(Succeed())
+
+				fixture.VerifyGatewayEnvoyFilterOwnerRef(ctx, envTest.Client, testNs, optInGatewayName)
+			})
+
+			It("should delete EnvoyFilter when authorino-tls-bootstrap annotation is removed from unmanaged gateway", func(ctx SpecContext) {
+				optInGatewayName := pkgtest.GenerateUniqueTestName("optin-gateway")
+
+				optInGateway := fixture.Gateway(optInGatewayName,
+					fixture.InNamespace[*gatewayapiv1.Gateway](testNs),
+					fixture.WithClassName(GatewayClassName),
+					fixture.WithListener(gatewayapiv1.HTTPProtocolType),
+					fixture.WithUnmanagedLabel(),
+					fixture.WithAuthorinoTLSBootstrapAnnotation("true"),
+				)
+				Expect(envTest.Client.Create(ctx, optInGateway)).Should(Succeed())
+
+				llmisvc := fixture.LLMInferenceService(LLMInferenceServiceName,
+					fixture.InNamespace[*kservev1alpha1.LLMInferenceService](testNs),
+					fixture.WithGatewayRefs(kservev1alpha1.UntypedObjectReference{
+						Name:      gatewayapiv1.ObjectName(optInGatewayName),
+						Namespace: gatewayapiv1.Namespace(testNs),
+					}),
+				)
+				Expect(envTest.Client.Create(ctx, llmisvc)).Should(Succeed())
+				fixture.VerifyGatewayEnvoyFilterOwnerRef(ctx, envTest.Client, testNs, optInGatewayName)
+
+				Eventually(func() error {
+					gw := &gatewayapiv1.Gateway{}
+					if err := envTest.Client.Get(ctx, types.NamespacedName{Name: optInGatewayName, Namespace: testNs}, gw); err != nil {
+						return err
+					}
+					delete(gw.Annotations, constants.AuthorinoTLSBootstrapAnnotation)
+					return envTest.Client.Update(ctx, gw)
+				}).Should(Succeed())
+
+				fixture.VerifyGatewayEnvoyFilterNotExist(ctx, envTest.Client, testNs, optInGatewayName)
+			})
+
+			It("should delete EnvoyFilter when authorino-tls-bootstrap annotation is changed to false", func(ctx SpecContext) {
+				optInGatewayName := pkgtest.GenerateUniqueTestName("optin-gateway")
+
+				optInGateway := fixture.Gateway(optInGatewayName,
+					fixture.InNamespace[*gatewayapiv1.Gateway](testNs),
+					fixture.WithClassName(GatewayClassName),
+					fixture.WithListener(gatewayapiv1.HTTPProtocolType),
+					fixture.WithUnmanagedLabel(),
+					fixture.WithAuthorinoTLSBootstrapAnnotation("true"),
+				)
+				Expect(envTest.Client.Create(ctx, optInGateway)).Should(Succeed())
+
+				llmisvc := fixture.LLMInferenceService(LLMInferenceServiceName,
+					fixture.InNamespace[*kservev1alpha1.LLMInferenceService](testNs),
+					fixture.WithGatewayRefs(kservev1alpha1.UntypedObjectReference{
+						Name:      gatewayapiv1.ObjectName(optInGatewayName),
+						Namespace: gatewayapiv1.Namespace(testNs),
+					}),
+				)
+				Expect(envTest.Client.Create(ctx, llmisvc)).Should(Succeed())
+				fixture.VerifyGatewayEnvoyFilterOwnerRef(ctx, envTest.Client, testNs, optInGatewayName)
+
+				Eventually(func() error {
+					gw := &gatewayapiv1.Gateway{}
+					if err := envTest.Client.Get(ctx, types.NamespacedName{Name: optInGatewayName, Namespace: testNs}, gw); err != nil {
+						return err
+					}
+					gw.Annotations[constants.AuthorinoTLSBootstrapAnnotation] = "false"
+					return envTest.Client.Update(ctx, gw)
+				}).Should(Succeed())
+
+				fixture.VerifyGatewayEnvoyFilterNotExist(ctx, envTest.Client, testNs, optInGatewayName)
+			})
+		})
 	})
 
 	Describe("Model-as-a-Service Integration", func() {

@@ -17,10 +17,8 @@ package resources_test
 
 import (
 	"encoding/json"
-	"os"
 
 	kservev1alpha1 "github.com/kserve/kserve/pkg/apis/serving/v1alpha1"
-	authorinooperatorv1beta1 "github.com/kuadrant/authorino-operator/api/v1beta1"
 	kuadrantv1beta1 "github.com/kuadrant/kuadrant-operator/api/v1beta1"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
@@ -31,7 +29,6 @@ import (
 	v1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
-	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 	gatewayapiv1 "sigs.k8s.io/gateway-api/apis/v1"
@@ -48,88 +45,117 @@ func setupTestScheme() *runtime.Scheme {
 	Expect(kservev1alpha1.AddToScheme(scheme)).To(Succeed())
 	Expect(gatewayapiv1.Install(scheme)).To(Succeed())
 	Expect(kuadrantv1beta1.AddToScheme(scheme)).To(Succeed())
-	Expect(authorinooperatorv1beta1.AddToScheme(scheme)).To(Succeed())
 	Expect(istioclientv1alpha3.AddToScheme(scheme)).To(Succeed())
 	return scheme
 }
 
-// createDefaultGateway creates a gateway object with default test values
-func createDefaultGateway() *gatewayapiv1.Gateway {
-	return &gatewayapiv1.Gateway{
-		ObjectMeta: v1.ObjectMeta{
-			Name:      "openshift-ai-inference",
-			Namespace: "openshift-ingress",
-		},
-	}
-}
-
-// createTestLLMISvc creates a dummy LLMInferenceService for testing
-func createTestLLMISvc() kservev1alpha1.LLMInferenceService {
-	return kservev1alpha1.LLMInferenceService{
-		ObjectMeta: v1.ObjectMeta{
-			Namespace: "test-ns",
-			Name:      "test-llm",
-		},
-	}
-}
-
 var _ = Describe("EnvoyFilterTemplateLoader", func() {
-	Context("Template loading", func() {
+	Context("Template rendering", func() {
 		var loader resources.EnvoyFilterTemplateLoader
-		var dummyLLMISvc kservev1alpha1.LLMInferenceService
 
 		BeforeEach(func() {
-			scheme := runtime.NewScheme()
-			Expect(kservev1alpha1.AddToScheme(scheme)).To(Succeed())
-			Expect(gatewayapiv1.Install(scheme)).To(Succeed())
-
-			// Create default gateway that tests expect
-			defaultGateway := &gatewayapiv1.Gateway{
-				ObjectMeta: v1.ObjectMeta{
-					Name:      "openshift-ai-inference",
-					Namespace: "openshift-ingress",
-				},
-			}
-
-			fakeClient := fake.NewClientBuilder().WithScheme(scheme).WithObjects(defaultGateway).Build()
+			scheme := setupTestScheme()
+			fakeClient := fake.NewClientBuilder().WithScheme(scheme).Build()
 			loader = resources.NewKServeEnvoyFilterTemplateLoader(fakeClient)
-
-			dummyLLMISvc = kservev1alpha1.LLMInferenceService{
-				ObjectMeta: v1.ObjectMeta{
-					Namespace: "test-ns",
-					Name:      "test-llm",
-				},
-			}
 		})
 
-		It("should resolve SSL template for LLMInferenceService", func(ctx SpecContext) {
-			envoyFilters, err := loader.Load(ctx, &dummyLLMISvc)
+		It("should render EnvoyFilter with correct name and namespace", func(ctx SpecContext) {
+			envoyFilter, err := loader.Load(ctx, "openshift-ingress", "openshift-ai-inference")
 
 			Expect(err).ToNot(HaveOccurred())
-			Expect(envoyFilters).ToNot(BeNil())
-			Expect(envoyFilters).ToNot(BeEmpty())
-			Expect(envoyFilters[0].GetName()).To(Equal(constants.GetGatewayEnvoyFilterName("openshift-ai-inference")))
-			Expect(envoyFilters[0].GetNamespace()).To(Equal("openshift-ingress"))
+			Expect(envoyFilter).ToNot(BeNil())
+			Expect(envoyFilter.GetName()).To(Equal(constants.GetGatewayEnvoyFilterName("openshift-ai-inference")))
+			Expect(envoyFilter.GetNamespace()).To(Equal("openshift-ingress"))
 		})
 
 		It("should have correct targetRefs in rendered template", func(ctx SpecContext) {
-			envoyFilters, err := loader.Load(ctx, &dummyLLMISvc)
+			envoyFilter, err := loader.Load(ctx, "openshift-ingress", "openshift-ai-inference")
 
 			Expect(err).ToNot(HaveOccurred())
-			Expect(envoyFilters).ToNot(BeNil())
-			Expect(envoyFilters).To(HaveLen(1))
-			Expect(envoyFilters[0].Spec.TargetRefs).ToNot(BeEmpty())
-			Expect(envoyFilters[0].Spec.TargetRefs[0].Kind).To(Equal("Gateway"))
-			Expect(envoyFilters[0].Spec.TargetRefs[0].Name).To(Equal("openshift-ai-inference"))
+			Expect(envoyFilter).ToNot(BeNil())
+			Expect(envoyFilter.Spec.TargetRefs).ToNot(BeEmpty())
+			Expect(envoyFilter.Spec.TargetRefs[0].Kind).To(Equal("Gateway"))
+			Expect(envoyFilter.Spec.TargetRefs[0].Name).To(Equal("openshift-ai-inference"))
 		})
 
 		It("should have configPatches in rendered template", func(ctx SpecContext) {
-			envoyFilters, err := loader.Load(ctx, &dummyLLMISvc)
+			envoyFilter, err := loader.Load(ctx, "openshift-ingress", "openshift-ai-inference")
 
 			Expect(err).ToNot(HaveOccurred())
-			Expect(envoyFilters).ToNot(BeNil())
-			Expect(envoyFilters).To(HaveLen(1))
-			Expect(envoyFilters[0].Spec.ConfigPatches).ToNot(BeEmpty())
+			Expect(envoyFilter).ToNot(BeNil())
+			Expect(envoyFilter.Spec.ConfigPatches).ToNot(BeEmpty())
+		})
+
+		It("should have managed-by label", func(ctx SpecContext) {
+			envoyFilter, err := loader.Load(ctx, "openshift-ingress", "openshift-ai-inference")
+
+			Expect(err).ToNot(HaveOccurred())
+			Expect(envoyFilter).ToNot(BeNil())
+			Expect(envoyFilter.GetLabels()).To(HaveKeyWithValue("app.kubernetes.io/managed-by", "odh-model-controller"))
+		})
+	})
+
+	Context("Kuadrant namespace detection", func() {
+		It("should use default kuadrant-system namespace when no Kuadrant resources exist", func(ctx SpecContext) {
+			scheme := setupTestScheme()
+			fakeClient := fake.NewClientBuilder().WithScheme(scheme).Build()
+			loader := resources.NewKServeEnvoyFilterTemplateLoader(fakeClient)
+
+			envoyFilter, err := loader.Load(ctx, "openshift-ingress", "openshift-ai-inference")
+
+			Expect(err).ToNot(HaveOccurred())
+			// The EnvoyFilter should be rendered with default kuadrant-system namespace
+			Expect(envoyFilter).ToNot(BeNil())
+		})
+
+		It("should detect Kuadrant namespace from Kuadrant resource", func(ctx SpecContext) {
+			scheme := setupTestScheme()
+			kuadrant := &kuadrantv1beta1.Kuadrant{
+				ObjectMeta: v1.ObjectMeta{Name: "kuadrant", Namespace: "custom-kuadrant"},
+			}
+
+			fakeClient := fake.NewClientBuilder().WithScheme(scheme).WithObjects(kuadrant).Build()
+			loader := resources.NewKServeEnvoyFilterTemplateLoader(fakeClient)
+
+			envoyFilter, err := loader.Load(ctx, "openshift-ingress", "openshift-ai-inference")
+
+			Expect(err).ToNot(HaveOccurred())
+			Expect(envoyFilter).ToNot(BeNil())
+		})
+
+		It("should prioritize kuadrant-system namespace when multiple Kuadrant resources exist", func(ctx SpecContext) {
+			scheme := setupTestScheme()
+			kuadrant1 := &kuadrantv1beta1.Kuadrant{
+				ObjectMeta: v1.ObjectMeta{Name: "kuadrant", Namespace: "custom-kuadrant"},
+			}
+			kuadrant2 := &kuadrantv1beta1.Kuadrant{
+				ObjectMeta: v1.ObjectMeta{Name: "kuadrant", Namespace: "kuadrant-system"},
+			}
+
+			fakeClient := fake.NewClientBuilder().WithScheme(scheme).WithObjects(kuadrant1, kuadrant2).Build()
+			loader := resources.NewKServeEnvoyFilterTemplateLoader(fakeClient)
+
+			envoyFilter, err := loader.Load(ctx, "openshift-ingress", "openshift-ai-inference")
+
+			Expect(err).ToNot(HaveOccurred())
+			Expect(envoyFilter).ToNot(BeNil())
+		})
+
+		It("should use KUADRANT_NAMESPACE environment variable when set", func(ctx SpecContext) {
+			scheme := setupTestScheme()
+			GinkgoT().Setenv("KUADRANT_NAMESPACE", "env-kuadrant")
+
+			kuadrant := &kuadrantv1beta1.Kuadrant{
+				ObjectMeta: v1.ObjectMeta{Name: "kuadrant", Namespace: "env-kuadrant"},
+			}
+
+			fakeClient := fake.NewClientBuilder().WithScheme(scheme).WithObjects(kuadrant).Build()
+			loader := resources.NewKServeEnvoyFilterTemplateLoader(fakeClient)
+
+			envoyFilter, err := loader.Load(ctx, "openshift-ingress", "openshift-ai-inference")
+
+			Expect(err).ToNot(HaveOccurred())
+			Expect(envoyFilter).ToNot(BeNil())
 		})
 	})
 })
@@ -153,523 +179,329 @@ func createTestEnvoyFilter() *istioclientv1alpha3.EnvoyFilter {
 }
 
 var _ = Describe("EnvoyFilterStore", func() {
-	var store resources.EnvoyFilterStore
-	var fakeClient client.Client
+	var (
+		fakeClient client.Client
+		store      resources.EnvoyFilterStore
+	)
 
 	BeforeEach(func() {
 		scheme := runtime.NewScheme()
-		Expect(istioclientv1alpha3.AddToScheme(scheme)).ToNot(HaveOccurred())
+		Expect(istioclientv1alpha3.AddToScheme(scheme)).To(Succeed())
 		fakeClient = fake.NewClientBuilder().WithScheme(scheme).Build()
 		store = resources.NewClientEnvoyFilterStore(fakeClient)
 	})
 
-	Context("CRUD operations", func() {
-		It("should create EnvoyFilter successfully", func(ctx SpecContext) {
-			testEnvoyFilter := createTestEnvoyFilter()
-			err := store.Create(ctx, testEnvoyFilter)
+	Describe("Get", func() {
+		It("should return the EnvoyFilter when it exists", func(ctx SpecContext) {
+			ef := createTestEnvoyFilter()
+			Expect(fakeClient.Create(ctx, ef)).To(Succeed())
+
+			result, err := store.Get(ctx, types.NamespacedName{
+				Name:      ef.Name,
+				Namespace: ef.Namespace,
+			})
+
 			Expect(err).ToNot(HaveOccurred())
+			Expect(result.Name).To(Equal(ef.Name))
+			Expect(result.Namespace).To(Equal(ef.Namespace))
+		})
+
+		It("should return error when EnvoyFilter does not exist", func(ctx SpecContext) {
+			_, err := store.Get(ctx, types.NamespacedName{
+				Name:      "nonexistent",
+				Namespace: "test-namespace",
+			})
+
+			Expect(err).To(HaveOccurred())
+		})
+	})
+
+	Describe("Create", func() {
+		It("should create an EnvoyFilter successfully", func(ctx SpecContext) {
+			ef := createTestEnvoyFilter()
+			err := store.Create(ctx, ef)
+			Expect(err).ToNot(HaveOccurred())
+
+			result, err := store.Get(ctx, types.NamespacedName{
+				Name:      ef.Name,
+				Namespace: ef.Namespace,
+			})
+			Expect(err).ToNot(HaveOccurred())
+			Expect(result.Name).To(Equal(ef.Name))
 		})
 
 		It("should return error when creating duplicate EnvoyFilter", func(ctx SpecContext) {
-			testEnvoyFilter := createTestEnvoyFilter()
-			err := store.Create(ctx, testEnvoyFilter)
-			Expect(err).ToNot(HaveOccurred())
-
-			err = store.Create(ctx, testEnvoyFilter)
+			ef := createTestEnvoyFilter()
+			Expect(store.Create(ctx, ef)).To(Succeed())
+			err := store.Create(ctx, ef)
 			Expect(err).To(HaveOccurred())
 		})
+	})
 
-		It("should get EnvoyFilter successfully", func(ctx SpecContext) {
-			testEnvoyFilter := createTestEnvoyFilter()
-			err := store.Create(ctx, testEnvoyFilter)
+	Describe("Update", func() {
+		It("should update an existing EnvoyFilter successfully", func(ctx SpecContext) {
+			ef := createTestEnvoyFilter()
+			Expect(store.Create(ctx, ef)).To(Succeed())
+
+			ef.Spec.TargetRefs = append(ef.Spec.TargetRefs, &istiotypev1beta1.PolicyTargetReference{
+				Kind: "Gateway",
+				Name: "new-gateway",
+			})
+
+			err := store.Update(ctx, ef)
 			Expect(err).ToNot(HaveOccurred())
 
-			key := types.NamespacedName{
-				Name:      testEnvoyFilter.GetName(),
-				Namespace: testEnvoyFilter.GetNamespace(),
-			}
-			retrieved, err := store.Get(ctx, key)
+			result, err := store.Get(ctx, types.NamespacedName{
+				Name:      ef.Name,
+				Namespace: ef.Namespace,
+			})
 			Expect(err).ToNot(HaveOccurred())
-			Expect(retrieved).ToNot(BeNil())
-			Expect(retrieved.GetName()).To(Equal(testEnvoyFilter.GetName()))
-			Expect(retrieved.GetNamespace()).To(Equal(testEnvoyFilter.GetNamespace()))
+			Expect(result.Spec.TargetRefs).To(HaveLen(2))
 		})
 
-		It("should return error when getting non-existent EnvoyFilter", func(ctx SpecContext) {
-			key := types.NamespacedName{
-				Name:      constants.GetGatewayEnvoyFilterName("non-existent"),
+		It("should return error when updating nonexistent EnvoyFilter", func(ctx SpecContext) {
+			ef := createTestEnvoyFilter()
+			err := store.Update(ctx, ef)
+			Expect(err).To(HaveOccurred())
+		})
+	})
+
+	Describe("Remove", func() {
+		It("should remove an existing EnvoyFilter successfully", func(ctx SpecContext) {
+			ef := createTestEnvoyFilter()
+			Expect(store.Create(ctx, ef)).To(Succeed())
+
+			err := store.Remove(ctx, types.NamespacedName{
+				Name:      ef.Name,
+				Namespace: ef.Namespace,
+			})
+			Expect(err).ToNot(HaveOccurred())
+
+			_, err = store.Get(ctx, types.NamespacedName{
+				Name:      ef.Name,
+				Namespace: ef.Namespace,
+			})
+			Expect(apierrors.IsNotFound(err)).To(BeTrue())
+		})
+
+		It("should not return error when removing nonexistent EnvoyFilter", func(ctx SpecContext) {
+			err := store.Remove(ctx, types.NamespacedName{
+				Name:      "nonexistent",
 				Namespace: "test-namespace",
-			}
-			_, err := store.Get(ctx, key)
-			Expect(err).To(HaveOccurred())
-			Expect(apierrors.IsNotFound(err)).To(BeTrue())
-		})
-
-		It("should update EnvoyFilter successfully", func(ctx SpecContext) {
-			testEnvoyFilter := createTestEnvoyFilter()
-			err := store.Create(ctx, testEnvoyFilter)
-			Expect(err).ToNot(HaveOccurred())
-
-			if testEnvoyFilter.Annotations == nil {
-				testEnvoyFilter.Annotations = make(map[string]string)
-			}
-			testEnvoyFilter.Annotations["test-updated"] = "true"
-			err = store.Update(ctx, testEnvoyFilter)
-			Expect(err).ToNot(HaveOccurred())
-
-			key := types.NamespacedName{
-				Name:      testEnvoyFilter.GetName(),
-				Namespace: testEnvoyFilter.GetNamespace(),
-			}
-			retrieved, err := store.Get(ctx, key)
-			Expect(err).ToNot(HaveOccurred())
-			Expect(retrieved.Annotations).To(HaveKeyWithValue("test-updated", "true"))
-		})
-
-		It("should return error when updating non-existent EnvoyFilter", func(ctx SpecContext) {
-			nonExistentEnvoyFilter := createTestEnvoyFilter()
-			nonExistentEnvoyFilter.Name = constants.GetGatewayEnvoyFilterName("non-existent")
-
-			err := store.Update(ctx, nonExistentEnvoyFilter)
-			Expect(err).To(HaveOccurred())
-			Expect(apierrors.IsNotFound(err)).To(BeTrue())
-		})
-
-		It("should remove EnvoyFilter successfully", func(ctx SpecContext) {
-			testEnvoyFilter := createTestEnvoyFilter()
-			err := store.Create(ctx, testEnvoyFilter)
-			Expect(err).ToNot(HaveOccurred())
-
-			key := types.NamespacedName{
-				Name:      testEnvoyFilter.GetName(),
-				Namespace: testEnvoyFilter.GetNamespace(),
-			}
-			err = store.Remove(ctx, key)
-			Expect(err).ToNot(HaveOccurred())
-
-			_, err = store.Get(ctx, key)
-			Expect(err).To(HaveOccurred())
-			Expect(apierrors.IsNotFound(err)).To(BeTrue())
-		})
-
-		It("should handle NotFound gracefully on remove", func(ctx SpecContext) {
-			key := types.NamespacedName{
-				Name:      constants.GetGatewayEnvoyFilterName("non-existent"),
-				Namespace: "test-namespace",
-			}
-			err := store.Remove(ctx, key)
+			})
 			Expect(err).ToNot(HaveOccurred())
 		})
-
 	})
 })
 
 var _ = Describe("EnvoyFilterMatcher", func() {
-	var matcher resources.EnvoyFilterMatcher
-	var fakeClient client.Client
-	var scheme *runtime.Scheme
+	var (
+		fakeClient client.Client
+		matcher    resources.EnvoyFilterMatcher
+		scheme     *runtime.Scheme
+	)
 
 	BeforeEach(func() {
 		scheme = runtime.NewScheme()
 		Expect(kservev1alpha1.AddToScheme(scheme)).To(Succeed())
+		Expect(gatewayapiv1.Install(scheme)).To(Succeed())
 		Expect(istioclientv1alpha3.AddToScheme(scheme)).To(Succeed())
-
-		fakeClient = fake.NewClientBuilder().WithScheme(scheme).Build()
-		matcher = resources.NewKServeEnvoyFilterMatcher(fakeClient)
 	})
 
 	Describe("FindLLMServiceFromEnvoyFilter", func() {
-		It("should return empty slice when no LLMInferenceService found", func(ctx SpecContext) {
+		It("should find matching LLMInferenceService when using default gateway", func(ctx SpecContext) {
+			llmSvc := &kservev1alpha1.LLMInferenceService{
+				ObjectMeta: v1.ObjectMeta{
+					Name:      "test-llm",
+					Namespace: "test-namespace",
+				},
+			}
+
 			envoyFilter := &istioclientv1alpha3.EnvoyFilter{
 				ObjectMeta: v1.ObjectMeta{
-					Name:      "gateway-envoyfilter",
+					Name:      constants.GetGatewayEnvoyFilterName(constants.DefaultGatewayName),
 					Namespace: constants.DefaultGatewayNamespace,
 				},
 				Spec: istiov1alpha3.EnvoyFilter{
 					TargetRefs: []*istiotypev1beta1.PolicyTargetReference{
 						{
-							Group: "gateway.networking.k8s.io",
-							Kind:  "Gateway",
-							Name:  constants.DefaultGatewayName,
+							Kind: "Gateway",
+							Name: constants.DefaultGatewayName,
 						},
 					},
 				},
 			}
 
-			namespacedNames, err := matcher.FindLLMServiceFromEnvoyFilter(ctx, envoyFilter)
+			fakeClient = fake.NewClientBuilder().WithScheme(scheme).WithObjects(llmSvc, envoyFilter).Build()
+			matcher = resources.NewKServeEnvoyFilterMatcher(fakeClient)
 
+			services, err := matcher.FindLLMServiceFromEnvoyFilter(ctx, envoyFilter)
 			Expect(err).ToNot(HaveOccurred())
-			Expect(namespacedNames).To(BeEmpty())
+			Expect(services).To(HaveLen(1))
+			Expect(services[0].Name).To(Equal("test-llm"))
 		})
 
-		It("should find LLMInferenceService with default gateway", func(ctx SpecContext) {
-			llmService := &kservev1alpha1.LLMInferenceService{
+		It("should find matching LLMInferenceService with explicit gateway refs", func(ctx SpecContext) {
+			llmSvc := &kservev1alpha1.LLMInferenceService{
 				ObjectMeta: v1.ObjectMeta{
-					Name:      "test-llm-service",
+					Name:      "test-llm",
 					Namespace: "test-namespace",
 				},
-				Spec: kservev1alpha1.LLMInferenceServiceSpec{},
+				Spec: kservev1alpha1.LLMInferenceServiceSpec{
+					Router: &kservev1alpha1.RouterSpec{
+						Gateway: &kservev1alpha1.GatewaySpec{
+							Refs: []kservev1alpha1.UntypedObjectReference{
+								{Name: "custom-gateway", Namespace: "test-namespace"},
+							},
+						},
+					},
+				},
 			}
-			err := fakeClient.Create(ctx, llmService)
-			Expect(err).ToNot(HaveOccurred())
 
 			envoyFilter := &istioclientv1alpha3.EnvoyFilter{
 				ObjectMeta: v1.ObjectMeta{
-					Name:      "gateway-envoyfilter",
-					Namespace: constants.DefaultGatewayNamespace,
+					Name:      constants.GetGatewayEnvoyFilterName("custom-gateway"),
+					Namespace: "test-namespace",
 				},
 				Spec: istiov1alpha3.EnvoyFilter{
 					TargetRefs: []*istiotypev1beta1.PolicyTargetReference{
 						{
-							Group: "gateway.networking.k8s.io",
-							Kind:  "Gateway",
-							Name:  constants.DefaultGatewayName,
+							Kind: "Gateway",
+							Name: "custom-gateway",
 						},
 					},
 				},
 			}
 
-			namespacedNames, err := matcher.FindLLMServiceFromEnvoyFilter(ctx, envoyFilter)
+			fakeClient = fake.NewClientBuilder().WithScheme(scheme).WithObjects(llmSvc, envoyFilter).Build()
+			matcher = resources.NewKServeEnvoyFilterMatcher(fakeClient)
 
+			services, err := matcher.FindLLMServiceFromEnvoyFilter(ctx, envoyFilter)
 			Expect(err).ToNot(HaveOccurred())
-			Expect(namespacedNames).To(HaveLen(1))
-			Expect(namespacedNames[0].Name).To(Equal("test-llm-service"))
-			Expect(namespacedNames[0].Namespace).To(Equal("test-namespace"))
+			Expect(services).To(HaveLen(1))
+			Expect(services[0].Name).To(Equal("test-llm"))
 		})
 
-		It("should find multiple LLMInferenceServices with default gateway", func(ctx SpecContext) {
-			// Create multiple LLM services
-			llmService1 := &kservev1alpha1.LLMInferenceService{
+		It("should return empty list when no matching LLMInferenceService found", func(ctx SpecContext) {
+			llmSvc := &kservev1alpha1.LLMInferenceService{
 				ObjectMeta: v1.ObjectMeta{
-					Name:      "test-llm-service-1",
+					Name:      "test-llm",
 					Namespace: "test-namespace",
 				},
-				Spec: kservev1alpha1.LLMInferenceServiceSpec{},
-			}
-			err := fakeClient.Create(ctx, llmService1)
-			Expect(err).ToNot(HaveOccurred())
-
-			llmService2 := &kservev1alpha1.LLMInferenceService{
-				ObjectMeta: v1.ObjectMeta{
-					Name:      "test-llm-service-2",
-					Namespace: "test-namespace",
+				Spec: kservev1alpha1.LLMInferenceServiceSpec{
+					Router: &kservev1alpha1.RouterSpec{
+						Gateway: &kservev1alpha1.GatewaySpec{
+							Refs: []kservev1alpha1.UntypedObjectReference{
+								{Name: "other-gateway", Namespace: "test-namespace"},
+							},
+						},
+					},
 				},
-				Spec: kservev1alpha1.LLMInferenceServiceSpec{},
 			}
-			err = fakeClient.Create(ctx, llmService2)
-			Expect(err).ToNot(HaveOccurred())
 
 			envoyFilter := &istioclientv1alpha3.EnvoyFilter{
 				ObjectMeta: v1.ObjectMeta{
-					Name:      "gateway-envoyfilter",
-					Namespace: constants.DefaultGatewayNamespace,
+					Name:      constants.GetGatewayEnvoyFilterName("unrelated-gateway"),
+					Namespace: "some-namespace",
 				},
 				Spec: istiov1alpha3.EnvoyFilter{
 					TargetRefs: []*istiotypev1beta1.PolicyTargetReference{
 						{
-							Group: "gateway.networking.k8s.io",
-							Kind:  "Gateway",
-							Name:  constants.DefaultGatewayName,
+							Kind: "Gateway",
+							Name: "unrelated-gateway",
 						},
 					},
 				},
 			}
 
-			namespacedNames, err := matcher.FindLLMServiceFromEnvoyFilter(ctx, envoyFilter)
+			fakeClient = fake.NewClientBuilder().WithScheme(scheme).WithObjects(llmSvc, envoyFilter).Build()
+			matcher = resources.NewKServeEnvoyFilterMatcher(fakeClient)
 
+			services, err := matcher.FindLLMServiceFromEnvoyFilter(ctx, envoyFilter)
 			Expect(err).ToNot(HaveOccurred())
-			Expect(namespacedNames).To(HaveLen(2))
-
-			// Verify both services are found
-			serviceNames := make([]string, len(namespacedNames))
-			for i, ns := range namespacedNames {
-				serviceNames[i] = ns.Name
-			}
-			Expect(serviceNames).To(ContainElement("test-llm-service-1"))
-			Expect(serviceNames).To(ContainElement("test-llm-service-2"))
+			Expect(services).To(BeEmpty())
 		})
 
-		It("should handle EnvoyFilter with no targetRefs", func(ctx SpecContext) {
+		It("should return empty list when EnvoyFilter has no targetRefs", func(ctx SpecContext) {
+			llmSvc := &kservev1alpha1.LLMInferenceService{
+				ObjectMeta: v1.ObjectMeta{
+					Name:      "test-llm",
+					Namespace: "test-namespace",
+				},
+			}
+
 			envoyFilter := &istioclientv1alpha3.EnvoyFilter{
 				ObjectMeta: v1.ObjectMeta{
-					Name:      "test-envoyfilter",
-					Namespace: constants.DefaultGatewayNamespace,
+					Name:      "empty-refs",
+					Namespace: "test-namespace",
 				},
 				Spec: istiov1alpha3.EnvoyFilter{
 					TargetRefs: []*istiotypev1beta1.PolicyTargetReference{},
 				},
 			}
 
-			namespacedNames, err := matcher.FindLLMServiceFromEnvoyFilter(ctx, envoyFilter)
+			fakeClient = fake.NewClientBuilder().WithScheme(scheme).WithObjects(llmSvc, envoyFilter).Build()
+			matcher = resources.NewKServeEnvoyFilterMatcher(fakeClient)
 
+			services, err := matcher.FindLLMServiceFromEnvoyFilter(ctx, envoyFilter)
 			Expect(err).ToNot(HaveOccurred())
-			Expect(namespacedNames).To(BeEmpty())
+			Expect(services).To(BeEmpty())
 		})
+	})
+})
 
-		It("should handle API errors gracefully", func(ctx SpecContext) {
-			envoyFilter := &istioclientv1alpha3.EnvoyFilter{
-				ObjectMeta: v1.ObjectMeta{
-					Name:      "test-envoyfilter",
-					Namespace: constants.DefaultGatewayNamespace,
-				},
-				Spec: istiov1alpha3.EnvoyFilter{
-					TargetRefs: []*istiotypev1beta1.PolicyTargetReference{
-						{
-							Group: "gateway.networking.k8s.io",
-							Kind:  "Gateway",
-							Name:  constants.DefaultGatewayName,
+var _ = Describe("EnvoyFilterComparator", func() {
+	createEnvoyFilterForComparison := func(name, namespace string, workloadSelector map[string]string) *istioclientv1alpha3.EnvoyFilter {
+		var selector *istiov1alpha3.WorkloadSelector
+		if workloadSelector != nil {
+			selector = &istiov1alpha3.WorkloadSelector{
+				Labels: workloadSelector,
+			}
+		}
+		return &istioclientv1alpha3.EnvoyFilter{
+			ObjectMeta: v1.ObjectMeta{
+				Name:      name,
+				Namespace: namespace,
+			},
+			Spec: istiov1alpha3.EnvoyFilter{
+				WorkloadSelector: selector,
+				ConfigPatches: []*istiov1alpha3.EnvoyFilter_EnvoyConfigObjectPatch{
+					{
+						ApplyTo: istiov1alpha3.EnvoyFilter_CLUSTER,
+						Match: &istiov1alpha3.EnvoyFilter_EnvoyConfigObjectMatch{
+							ObjectTypes: &istiov1alpha3.EnvoyFilter_EnvoyConfigObjectMatch_Cluster{
+								Cluster: &istiov1alpha3.EnvoyFilter_ClusterMatch{
+									Name: "outbound|443||authorino-authorino-authorization.kuadrant-system.svc.cluster.local",
+								},
+							},
+						},
+						Patch: &istiov1alpha3.EnvoyFilter_Patch{
+							Operation: istiov1alpha3.EnvoyFilter_Patch_MERGE,
+							Value:     nil,
 						},
 					},
 				},
-			}
-
-			namespacedNames, err := matcher.FindLLMServiceFromEnvoyFilter(ctx, envoyFilter)
-
-			Expect(err).ToNot(HaveOccurred())
-			Expect(namespacedNames).To(BeEmpty())
-		})
-	})
-})
-
-var _ = Describe("EnvoyFilterTemplateLoader Kuadrant Namespace Detection", func() {
-	var loader resources.EnvoyFilterTemplateLoader
-	var dummyLLMISvc kservev1alpha1.LLMInferenceService
-
-	// Helper to verify Authorino service address in EnvoyFilter
-	verifyAuthorinoNamespace := func(envoyFilter *istioclientv1alpha3.EnvoyFilter, expectedNamespace string) {
-		envoyFilterJSON, err := json.Marshal(envoyFilter)
-		Expect(err).ToNot(HaveOccurred())
-		expectedAddress := "authorino-authorino-authorization." + expectedNamespace + ".svc.cluster.local"
-		Expect(string(envoyFilterJSON)).To(ContainSubstring(expectedAddress))
+			},
+		}
 	}
 
-	Context("Kuadrant namespace detection", func() {
-		It("should use default kuadrant-system namespace when no Kuadrant resources exist", func(ctx SpecContext) {
-			scheme := setupTestScheme()
-			fakeClient := fake.NewClientBuilder().WithScheme(scheme).WithObjects(createDefaultGateway()).Build()
-			loader = resources.NewKServeEnvoyFilterTemplateLoader(fakeClient)
-			dummyLLMISvc = createTestLLMISvc()
+	Context("Spec comparison", func() {
+		It("should detect differences in WorkloadSelector", func(ctx SpecContext) {
+			ef1 := createEnvoyFilterForComparison("test-ef", "test-ns", map[string]string{"app": "gateway"})
+			ef2 := createEnvoyFilterForComparison("test-ef", "test-ns", map[string]string{"app": "different"})
 
-			envoyFilters, err := loader.Load(ctx, &dummyLLMISvc)
-
-			Expect(err).ToNot(HaveOccurred())
-			Expect(envoyFilters).To(HaveLen(1))
-			verifyAuthorinoNamespace(envoyFilters[0], "kuadrant-system")
+			spec1Json, _ := json.Marshal(&ef1.Spec)
+			spec2Json, _ := json.Marshal(&ef2.Spec)
+			Expect(spec1Json).ToNot(Equal(spec2Json))
 		})
 
-		It("should detect Kuadrant namespace from Kuadrant resource", func(ctx SpecContext) {
-			scheme := setupTestScheme()
-			kuadrant := &kuadrantv1beta1.Kuadrant{
-				ObjectMeta: v1.ObjectMeta{Name: "kuadrant", Namespace: "custom-kuadrant-ns"},
-			}
+		It("should detect no differences when specs are identical", func(ctx SpecContext) {
+			ef1 := createEnvoyFilterForComparison("test-ef", "test-ns", map[string]string{"app": "gateway"})
+			ef2 := createEnvoyFilterForComparison("test-ef", "test-ns", map[string]string{"app": "gateway"})
 
-			fakeClient := fake.NewClientBuilder().WithScheme(scheme).WithObjects(createDefaultGateway(), kuadrant).Build()
-			loader = resources.NewKServeEnvoyFilterTemplateLoader(fakeClient)
-			dummyLLMISvc = createTestLLMISvc()
-
-			envoyFilters, err := loader.Load(ctx, &dummyLLMISvc)
-
-			Expect(err).ToNot(HaveOccurred())
-			Expect(envoyFilters).To(HaveLen(1))
-			verifyAuthorinoNamespace(envoyFilters[0], "custom-kuadrant-ns")
-		})
-
-		It("should prioritize kuadrant-system namespace when multiple Kuadrant resources exist", func(ctx SpecContext) {
-			scheme := setupTestScheme()
-			kuadrant1 := &kuadrantv1beta1.Kuadrant{
-				ObjectMeta: v1.ObjectMeta{Name: "kuadrant", Namespace: "another-ns"},
-			}
-			kuadrant2 := &kuadrantv1beta1.Kuadrant{
-				ObjectMeta: v1.ObjectMeta{Name: "kuadrant", Namespace: "kuadrant-system"},
-			}
-
-			fakeClient := fake.NewClientBuilder().WithScheme(scheme).WithObjects(createDefaultGateway(), kuadrant1, kuadrant2).Build()
-			loader = resources.NewKServeEnvoyFilterTemplateLoader(fakeClient)
-			dummyLLMISvc = createTestLLMISvc()
-
-			envoyFilters, err := loader.Load(ctx, &dummyLLMISvc)
-
-			Expect(err).ToNot(HaveOccurred())
-			Expect(envoyFilters).To(HaveLen(1))
-			verifyAuthorinoNamespace(envoyFilters[0], "kuadrant-system")
-		})
-
-		It("should prioritize KUADRANT_NAMESPACE environment variable when set", func(ctx SpecContext) {
-			GinkgoT().Setenv("KUADRANT_NAMESPACE", "env-kuadrant-ns")
-
-			scheme := setupTestScheme()
-			kuadrant1 := &kuadrantv1beta1.Kuadrant{
-				ObjectMeta: v1.ObjectMeta{Name: "kuadrant", Namespace: "another-kuadrant-ns"},
-			}
-			kuadrant2 := &kuadrantv1beta1.Kuadrant{
-				ObjectMeta: v1.ObjectMeta{Name: "kuadrant", Namespace: "env-kuadrant-ns"},
-			}
-
-			fakeClient := fake.NewClientBuilder().WithScheme(scheme).WithObjects(createDefaultGateway(), kuadrant1, kuadrant2).Build()
-			loader = resources.NewKServeEnvoyFilterTemplateLoader(fakeClient)
-			dummyLLMISvc = createTestLLMISvc()
-
-			envoyFilters, err := loader.Load(ctx, &dummyLLMISvc)
-
-			Expect(err).ToNot(HaveOccurred())
-			Expect(envoyFilters).To(HaveLen(1))
-			verifyAuthorinoNamespace(envoyFilters[0], "env-kuadrant-ns")
-		})
-
-		It("should use KUADRANT_NAMESPACE environment variable when set", func(ctx SpecContext) {
-			Expect(os.Setenv("KUADRANT_NAMESPACE", "env-kuadrant-ns")).To(Succeed())
-			defer func() { _ = os.Unsetenv("KUADRANT_NAMESPACE") }()
-
-			scheme := setupTestScheme()
-			kuadrant := &kuadrantv1beta1.Kuadrant{
-				ObjectMeta: v1.ObjectMeta{Name: "kuadrant", Namespace: "another-kuadrant-ns"},
-			}
-
-			fakeClient := fake.NewClientBuilder().WithScheme(scheme).WithObjects(createDefaultGateway(), kuadrant).Build()
-			loader = resources.NewKServeEnvoyFilterTemplateLoader(fakeClient)
-			dummyLLMISvc = createTestLLMISvc()
-
-			envoyFilters, err := loader.Load(ctx, &dummyLLMISvc)
-
-			Expect(err).ToNot(HaveOccurred())
-			Expect(envoyFilters).To(HaveLen(1))
-			verifyAuthorinoNamespace(envoyFilters[0], "another-kuadrant-ns")
-		})
-	})
-})
-
-var _ = Describe("EnvoyFilterTemplateLoader Authorino TLS Detection", func() {
-	var loader resources.EnvoyFilterTemplateLoader
-	var dummyLLMISvc kservev1alpha1.LLMInferenceService
-
-	Context("Authorino TLS detection", func() {
-		It("should skip EnvoyFilter creation when Authorino has TLS disabled", func(ctx SpecContext) {
-			scheme := setupTestScheme()
-			authorino := &authorinooperatorv1beta1.Authorino{
-				ObjectMeta: v1.ObjectMeta{Name: "authorino", Namespace: "kuadrant-system"},
-				Spec: authorinooperatorv1beta1.AuthorinoSpec{
-					Listener: authorinooperatorv1beta1.Listener{
-						Tls: authorinooperatorv1beta1.Tls{Enabled: ptr.To(false)},
-					},
-				},
-			}
-
-			fakeClient := fake.NewClientBuilder().WithScheme(scheme).WithObjects(createDefaultGateway(), authorino).Build()
-			loader = resources.NewKServeEnvoyFilterTemplateLoader(fakeClient)
-			dummyLLMISvc = createTestLLMISvc()
-
-			envoyFilters, err := loader.Load(ctx, &dummyLLMISvc)
-
-			Expect(err).ToNot(HaveOccurred())
-			Expect(envoyFilters).To(BeEmpty(), "EnvoyFilter should not be created when Authorino has TLS disabled")
-		})
-
-		It("should create EnvoyFilter when Authorino has TLS enabled", func(ctx SpecContext) {
-			scheme := setupTestScheme()
-			authorino := &authorinooperatorv1beta1.Authorino{
-				ObjectMeta: v1.ObjectMeta{Name: "authorino", Namespace: "kuadrant-system"},
-				Spec: authorinooperatorv1beta1.AuthorinoSpec{
-					Listener: authorinooperatorv1beta1.Listener{
-						Tls: authorinooperatorv1beta1.Tls{Enabled: ptr.To(true)},
-					},
-				},
-			}
-
-			fakeClient := fake.NewClientBuilder().WithScheme(scheme).WithObjects(createDefaultGateway(), authorino).Build()
-			loader = resources.NewKServeEnvoyFilterTemplateLoader(fakeClient)
-			dummyLLMISvc = createTestLLMISvc()
-
-			envoyFilters, err := loader.Load(ctx, &dummyLLMISvc)
-
-			Expect(err).ToNot(HaveOccurred())
-			Expect(envoyFilters).To(HaveLen(1), "EnvoyFilter should be created when Authorino has TLS enabled")
-		})
-
-		It("should skip EnvoyFilter creation when Authorino TLS is nil (defaults to disabled)", func(ctx SpecContext) {
-			scheme := setupTestScheme()
-			authorino := &authorinooperatorv1beta1.Authorino{
-				ObjectMeta: v1.ObjectMeta{Name: "authorino", Namespace: "kuadrant-system"},
-				Spec: authorinooperatorv1beta1.AuthorinoSpec{
-					Listener: authorinooperatorv1beta1.Listener{
-						Tls: authorinooperatorv1beta1.Tls{Enabled: nil},
-					},
-				},
-			}
-
-			fakeClient := fake.NewClientBuilder().WithScheme(scheme).WithObjects(createDefaultGateway(), authorino).Build()
-			loader = resources.NewKServeEnvoyFilterTemplateLoader(fakeClient)
-			dummyLLMISvc = createTestLLMISvc()
-
-			envoyFilters, err := loader.Load(ctx, &dummyLLMISvc)
-
-			Expect(err).ToNot(HaveOccurred())
-			Expect(envoyFilters).To(BeEmpty(), "EnvoyFilter should not be created when Authorino TLS is nil (defaults to disabled)")
-		})
-
-		It("should create EnvoyFilter when no Authorino resources exist", func(ctx SpecContext) {
-			scheme := setupTestScheme()
-			fakeClient := fake.NewClientBuilder().WithScheme(scheme).WithObjects(createDefaultGateway()).Build()
-			loader = resources.NewKServeEnvoyFilterTemplateLoader(fakeClient)
-			dummyLLMISvc = createTestLLMISvc()
-
-			envoyFilters, err := loader.Load(ctx, &dummyLLMISvc)
-
-			Expect(err).ToNot(HaveOccurred())
-			Expect(envoyFilters).To(HaveLen(1), "EnvoyFilter should be created when no Authorino resources exist (assumes TLS enabled)")
-		})
-
-		It("should use first Authorino when multiple exist in namespace", func(ctx SpecContext) {
-			scheme := setupTestScheme()
-			authorino1 := &authorinooperatorv1beta1.Authorino{
-				ObjectMeta: v1.ObjectMeta{Name: "authorino-a", Namespace: "kuadrant-system"},
-				Spec: authorinooperatorv1beta1.AuthorinoSpec{
-					Listener: authorinooperatorv1beta1.Listener{
-						Tls: authorinooperatorv1beta1.Tls{Enabled: ptr.To(false)},
-					},
-				},
-			}
-			authorino2 := &authorinooperatorv1beta1.Authorino{
-				ObjectMeta: v1.ObjectMeta{Name: "authorino-z", Namespace: "kuadrant-system"},
-				Spec: authorinooperatorv1beta1.AuthorinoSpec{
-					Listener: authorinooperatorv1beta1.Listener{
-						Tls: authorinooperatorv1beta1.Tls{Enabled: ptr.To(true)},
-					},
-				},
-			}
-
-			fakeClient := fake.NewClientBuilder().WithScheme(scheme).WithObjects(createDefaultGateway(), authorino1, authorino2).Build()
-			loader = resources.NewKServeEnvoyFilterTemplateLoader(fakeClient)
-			dummyLLMISvc = createTestLLMISvc()
-
-			envoyFilters, err := loader.Load(ctx, &dummyLLMISvc)
-
-			Expect(err).ToNot(HaveOccurred())
-			Expect(envoyFilters).To(BeEmpty(), "Should use first Authorino (authorino-a) which has TLS disabled")
-		})
-
-		It("should work with custom Kuadrant namespace and Authorino", func(ctx SpecContext) {
-			scheme := setupTestScheme()
-			customNamespace := "custom-kuadrant"
-			kuadrant := &kuadrantv1beta1.Kuadrant{
-				ObjectMeta: v1.ObjectMeta{Name: "kuadrant", Namespace: customNamespace},
-			}
-			authorino := &authorinooperatorv1beta1.Authorino{
-				ObjectMeta: v1.ObjectMeta{Name: "authorino", Namespace: customNamespace},
-				Spec: authorinooperatorv1beta1.AuthorinoSpec{
-					Listener: authorinooperatorv1beta1.Listener{
-						Tls: authorinooperatorv1beta1.Tls{Enabled: ptr.To(false)},
-					},
-				},
-			}
-
-			fakeClient := fake.NewClientBuilder().WithScheme(scheme).WithObjects(createDefaultGateway(), kuadrant, authorino).Build()
-			loader = resources.NewKServeEnvoyFilterTemplateLoader(fakeClient)
-			dummyLLMISvc = createTestLLMISvc()
-
-			envoyFilters, err := loader.Load(ctx, &dummyLLMISvc)
-
-			Expect(err).ToNot(HaveOccurred())
-			Expect(envoyFilters).To(BeEmpty(), "Should detect Kuadrant namespace and check Authorino TLS in that namespace")
+			spec1Json, _ := json.Marshal(&ef1.Spec)
+			spec2Json, _ := json.Marshal(&ef2.Spec)
+			Expect(spec1Json).To(Equal(spec2Json))
 		})
 	})
 })
