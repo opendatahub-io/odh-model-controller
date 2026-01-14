@@ -10,6 +10,7 @@ import (
 	"strings"
 
 	ocpconfigv1 "github.com/openshift/api/config/v1"
+	gatewayapiv1 "sigs.k8s.io/gateway-api/apis/v1"
 
 	"knative.dev/pkg/kmeta"
 
@@ -379,6 +380,20 @@ func IsExplicitlyUnmanaged(obj client.Object) bool {
 	return false
 }
 
+// IsAuthorinoTLSBootstrapEnabled checks if the gateway has the authorino-tls-bootstrap annotation set to "true".
+// This allows EnvoyFilter creation for Authorino TLS even when the gateway is explicitly unmanaged.
+func IsAuthorinoTLSBootstrapEnabled(obj client.Object) bool {
+	if obj == nil {
+		return false
+	}
+	if annotations := obj.GetAnnotations(); annotations != nil {
+		if value, ok := annotations[constants.AuthorinoTLSBootstrapAnnotation]; ok {
+			return strings.EqualFold(strings.TrimSpace(value), "true")
+		}
+	}
+	return false
+}
+
 // IsManagedByOpenDataHub checks if a resource should be managed by checking "opendatahub.io/managed" label (true/false) or falling back to IsManagedByOdhController
 func IsManagedByOpenDataHub(obj client.Object) bool {
 	if IsExplicitlyUnmanaged(obj) {
@@ -423,4 +438,10 @@ func ValidateInferenceServiceNameLength(isvc *kservev1beta1.InferenceService) er
 			})
 	}
 	return nil
+}
+
+// ShouldCreateEnvoyFilterForGateway returns true if EnvoyFilter should be created for the gateway.
+// This is true when the gateway is managed OR has the authorino-tls-bootstrap opt-in annotation.
+func ShouldCreateEnvoyFilterForGateway(gateway *gatewayapiv1.Gateway) bool {
+	return !IsExplicitlyUnmanaged(gateway) || IsAuthorinoTLSBootstrapEnabled(gateway)
 }
