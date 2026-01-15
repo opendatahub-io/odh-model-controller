@@ -108,10 +108,13 @@ func validateTierLevels(configMap *corev1.ConfigMap) error {
 	seenLevels := make(map[int]string)
 	for _, tier := range tiers {
 		if existingTierName, exists := seenLevels[tier.Level]; exists {
-			return fmt.Errorf(
-				"duplicate level %d found in tiers %q and %q: each tier must have a unique level for reliable tier resolution",
-				tier.Level, existingTierName, tier.Name,
+			tierConfigMaplog.Error(nil,
+				"duplicate tier level detected",
+				"level", tier.Level,
+				"existingTier", existingTierName,
+				"conflictingTier", tier.Name,
 			)
+			return fmt.Errorf("duplicate levels found: each tier must have a unique level")
 		}
 		seenLevels[tier.Level] = tier.Name
 	}

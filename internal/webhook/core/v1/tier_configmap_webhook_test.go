@@ -17,8 +17,6 @@ limitations under the License.
 package v1
 
 import (
-	"os"
-
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	"github.com/opendatahub-io/odh-model-controller/internal/controller/serving/reconcilers"
@@ -70,9 +68,7 @@ var _ = Describe("Tier ConfigMap Validator Webhook", func() {
 
 			err := validateTierLevels(configMap)
 			Expect(err).To(HaveOccurred())
-			Expect(err.Error()).To(ContainSubstring("duplicate level 10"))
-			Expect(err.Error()).To(ContainSubstring("free"))
-			Expect(err.Error()).To(ContainSubstring("premium"))
+			Expect(err.Error()).To(ContainSubstring("duplicate levels found"))
 		})
 
 		It("should fail validation when 3 tiers have 2 duplicate levels and 1 unique", func() {
@@ -94,9 +90,7 @@ var _ = Describe("Tier ConfigMap Validator Webhook", func() {
 
 			err := validateTierLevels(configMap)
 			Expect(err).To(HaveOccurred())
-			Expect(err.Error()).To(ContainSubstring("duplicate level 10"))
-			Expect(err.Error()).To(ContainSubstring("free"))
-			Expect(err.Error()).To(ContainSubstring("premium"))
+			Expect(err.Error()).To(ContainSubstring("duplicate levels found"))
 		})
 
 		It("should pass validation when tiers key is missing", func() {
@@ -137,7 +131,7 @@ var _ = Describe("Tier ConfigMap Validator Webhook", func() {
 
 			err := validateTierLevels(configMap)
 			Expect(err).To(HaveOccurred())
-			Expect(err.Error()).To(ContainSubstring("duplicate level 0"))
+			Expect(err.Error()).To(ContainSubstring("duplicate levels found"))
 		})
 	})
 
@@ -203,16 +197,7 @@ var _ = Describe("Tier ConfigMap Validator Webhook", func() {
 	Describe("MAAS_NAMESPACE environment variable", func() {
 		It("should use custom namespace from environment variable", func() {
 			customNamespace := "custom-maas-namespace"
-			originalValue := os.Getenv(reconcilers.MaasNamespaceEnvVar)
-			defer func() {
-				if originalValue == "" {
-					Expect(os.Unsetenv(reconcilers.MaasNamespaceEnvVar)).To(Succeed())
-				} else {
-					Expect(os.Setenv(reconcilers.MaasNamespaceEnvVar, originalValue)).To(Succeed())
-				}
-			}()
-
-			Expect(os.Setenv(reconcilers.MaasNamespaceEnvVar, customNamespace)).To(Succeed())
+			GinkgoT().Setenv(reconcilers.MaasNamespaceEnvVar, customNamespace)
 
 			// ConfigMap in custom namespace with duplicate levels should be validated
 			configMap := &corev1.ConfigMap{
@@ -232,7 +217,7 @@ var _ = Describe("Tier ConfigMap Validator Webhook", func() {
 
 			warnings, err := validator.validate(configMap)
 			Expect(err).To(HaveOccurred())
-			Expect(err.Error()).To(ContainSubstring("duplicate level"))
+			Expect(err.Error()).To(ContainSubstring("duplicate levels found"))
 			Expect(warnings).To(BeNil())
 		})
 	})
