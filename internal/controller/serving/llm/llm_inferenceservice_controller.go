@@ -52,6 +52,12 @@ import (
 	"github.com/opendatahub-io/odh-model-controller/internal/controller/utils"
 )
 
+const (
+	// Field indexer key and value for tier annotation lookup
+	tierAnnotationIndexKey   = "metadata.annotations[alpha.maas.opendatahub.io/tiers]"
+	tierAnnotationIndexValue = "__has_tier__"
+)
+
 type LLMInferenceServiceReconciler struct {
 	client.Client
 	Recorder               record.EventRecorder
@@ -68,7 +74,7 @@ var ownedBySelfPredicate = predicate.NewPredicateFuncs(func(o client.Object) boo
 func NewLLMInferenceServiceReconciler(client client.Client, scheme *runtime.Scheme, recorder record.EventRecorder) *LLMInferenceServiceReconciler {
 	subResourceReconcilers := []parentreconcilers.LLMSubResourceReconciler{
 		parentreconcilers.NewLLMRoleReconciler(client),
-		parentreconcilers.NewLLMRoleBindingReconciler(client),
+		parentreconcilers.NewLLMRoleBindingReconciler(client, recorder),
 		reconcilers.NewKserveAuthPolicyReconciler(client, scheme),
 		reconcilers.NewKserveEnvoyFilterReconciler(client, scheme),
 	}
@@ -158,6 +164,7 @@ func (r *LLMInferenceServiceReconciler) Reconcile(ctx context.Context, req ctrl.
 // +kubebuilder:rbac:groups=config.openshift.io,resources=authentications,verbs=get;list;watch
 // +kubebuilder:rbac:groups=kuadrant.io,resources=kuadrants,verbs=get;list;watch
 // +kubebuilder:rbac:groups=operator.authorino.kuadrant.io,resources=authorinos,verbs=get;list;watch
+// +kubebuilder:rbac:groups="",resources=configmaps,verbs=get;list;watch
 
 func (r *LLMInferenceServiceReconciler) SetupWithManager(mgr ctrl.Manager, setupLog logr.Logger) error {
 	b := ctrl.NewControllerManagedBy(mgr).
@@ -167,6 +174,38 @@ func (r *LLMInferenceServiceReconciler) SetupWithManager(mgr ctrl.Manager, setup
 		Named("llminferenceservice")
 
 	setupLog.Info("Setting up LLMInferenceService controller")
+
+	// Setup field indexer for tier annotation BEFORE registering watch
+	// This enables fast lookups when tier ConfigMap changes
+	ctx := context.Background()
+	if err := mgr.GetFieldIndexer().IndexField(ctx, &kservev1alpha1.LLMInferenceService{},
+		tierAnnotationIndexKey, func(obj client.Object) []string {
+			llmisvc := obj.(*kservev1alpha1.LLMInferenceService)
+			if annotations := llmisvc.GetAnnotations(); annotations != nil {
+				if _, found := annotations[parentreconcilers.TierAnnotationKey]; found {
+					return []string{tierAnnotationIndexValue}
+				}
+			}
+			return nil
+		}); err != nil {
+		setupLog.Error(err, "Failed to setup tier annotation field indexer")
+		return err
+	}
+
+	// Watch tier mapping ConfigMap with namespace-scoped predicates
+	b = b.Watches(&corev1.ConfigMap{},
+		r.enqueueOnTierConfigMapChange(),
+		ctrlbuilder.WithPredicates(predicate.Funcs{
+			CreateFunc: func(e event.CreateEvent) bool {
+				return parentreconcilers.IsTierConfigMap(e.Object)
+			},
+			UpdateFunc: func(e event.UpdateEvent) bool {
+				return parentreconcilers.IsTierConfigMap(e.ObjectNew)
+			},
+			DeleteFunc: func(e event.DeleteEvent) bool {
+				return parentreconcilers.IsTierConfigMap(e.Object)
+			},
+		}))
 
 	if ok, err := utils.IsCrdAvailable(mgr.GetConfig(), kuadrantv1.GroupVersion.String(), "AuthPolicy"); err != nil {
 		setupLog.Error(err, "Failed to check CRD availability for AuthPolicy")
@@ -301,6 +340,42 @@ func (r *LLMInferenceServiceReconciler) enqueueOnEnvoyFilterChange() handler.Eve
 			return requests
 		}
 		return []reconcile.Request{}
+	})
+}
+
+// enqueueOnTierConfigMapChange returns a handler that enqueues LLMInferenceServices
+// with tier annotations when the tier mapping ConfigMap changes.
+func (r *LLMInferenceServiceReconciler) enqueueOnTierConfigMapChange() handler.EventHandler {
+	return handler.EnqueueRequestsFromMapFunc(func(ctx context.Context, object client.Object) []reconcile.Request {
+		logger := log.FromContext(ctx)
+
+		// Namespace and name scoping done in predicate, double-check here
+		if !parentreconcilers.IsTierConfigMap(object) {
+			return []reconcile.Request{}
+		}
+
+		logger.Info("Tier ConfigMap changed, enqueueing affected services",
+			"configmap", object.GetName())
+
+		llmSvcList := &kservev1alpha1.LLMInferenceServiceList{}
+		if err := r.Client.List(ctx, llmSvcList,
+			client.MatchingFields{tierAnnotationIndexKey: tierAnnotationIndexValue}); err != nil {
+			logger.Error(err, "Failed to list indexed services")
+			return []reconcile.Request{}
+		}
+
+		requests := make([]reconcile.Request, 0, len(llmSvcList.Items))
+		for _, llmSvc := range llmSvcList.Items {
+			requests = append(requests, reconcile.Request{
+				NamespacedName: types.NamespacedName{
+					Name:      llmSvc.Name,
+					Namespace: llmSvc.Namespace,
+				},
+			})
+		}
+
+		logger.Info("Enqueued services for reconciliation", "count", len(requests))
+		return requests
 	})
 }
 

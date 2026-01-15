@@ -30,6 +30,7 @@ import (
 	"k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 	gatewayapiv1 "sigs.k8s.io/gateway-api/apis/v1"
 
 	"github.com/opendatahub-io/odh-model-controller/internal/controller/constants"
@@ -59,6 +60,17 @@ var _ = Describe("LLMInferenceService Controller", func() {
 		customHTTPRouteName = pkgtest.GenerateUniqueTestName("custom-httproute")
 		testNamespace := testutils.Namespaces.Create(ctx, envTest.Client)
 		testNs = testNamespace.Name
+	})
+
+	AfterEach(func(ctx SpecContext) {
+		// Clean up LLMInferenceServices to prevent cross-test interference
+		// from watches (Gateway, ConfigMap) that list all services
+		llmList := &kservev1alpha1.LLMInferenceServiceList{}
+		if err := envTest.Client.List(ctx, llmList, client.InNamespace(testNs)); err == nil {
+			for i := range llmList.Items {
+				_ = envTest.Client.Delete(ctx, &llmList.Items[i])
+			}
+		}
 	})
 
 	Context("LLMInferenceService with Authentication", func() {
@@ -816,6 +828,187 @@ var _ = Describe("LLMInferenceService Controller", func() {
 					}).Should(Succeed())
 				})
 			})
+		})
+	})
+
+})
+
+var _ = Describe("Tier ConfigMap Watch", func() {
+	var testNs string
+
+	BeforeEach(func(ctx SpecContext) {
+		testNamespace := testutils.Namespaces.Create(ctx, envTest.Client)
+		testNs = testNamespace.Name
+	})
+
+	Context("ConfigMap changes trigger reconciliation", func() {
+		It("should create RoleBinding with all tiers when using empty tier annotation", func(ctx SpecContext) {
+			llmisvc := createLLMInferenceService(testNs, "tier-watch-test", LLMServicePath1)
+			Expect(envTest.Create(ctx, llmisvc)).Should(Succeed())
+
+			roleBindingName := controllerutils.GetMaaSRoleBindingName(llmisvc)
+			roleBinding := waitForRoleBinding(testNs, roleBindingName)
+			Expect(roleBinding.Subjects).To(HaveLen(3))
+			verifyMaaSTierSubjects(Default, roleBinding.Subjects)
+		})
+
+		It("should create RoleBinding with correct subjects when service uses specific tiers", func(ctx SpecContext) {
+			llmisvc := fixture.LLMInferenceService("specific-tiers-test",
+				fixture.InNamespace[*kservev1alpha1.LLMInferenceService](testNs),
+				fixture.WithAnnotation(reconcilers.TierAnnotationKey, `["free", "premium"]`),
+			)
+			Expect(envTest.Create(ctx, llmisvc)).Should(Succeed())
+
+			roleBindingName := controllerutils.GetMaaSRoleBindingName(llmisvc)
+			roleBinding := waitForRoleBinding(testNs, roleBindingName)
+			Expect(roleBinding.Subjects).To(HaveLen(2))
+			Expect(roleBinding.Subjects).To(HaveExactElements([]rbacv1.Subject{
+				{Kind: "Group", APIGroup: "rbac.authorization.k8s.io", Name: "system:serviceaccounts:maas-default-gateway-tier-free"},
+				{Kind: "Group", APIGroup: "rbac.authorization.k8s.io", Name: "system:serviceaccounts:maas-default-gateway-tier-premium"},
+			}))
+		})
+	})
+
+	Context("Tier misconfiguration", func() {
+		It("should not create RoleBinding when requested tier does not exist", func(ctx SpecContext) {
+			llmisvc := fixture.LLMInferenceService("nonexistent-tier-test",
+				fixture.InNamespace[*kservev1alpha1.LLMInferenceService](testNs),
+				fixture.WithAnnotation(reconcilers.TierAnnotationKey, `["nonexistent-tier"]`),
+			)
+			Expect(envTest.Create(ctx, llmisvc)).Should(Succeed())
+
+			roleBindingName := controllerutils.GetMaaSRoleBindingName(llmisvc)
+			Consistently(func() error {
+				return envTest.Get(ctx, types.NamespacedName{Name: roleBindingName, Namespace: testNs}, &rbacv1.RoleBinding{})
+			}).Should(And(
+				Not(Succeed()),
+				WithTransform(errors.IsNotFound, BeTrue()),
+			))
+		})
+	})
+
+	Context("Multiple LLMInferenceServices with different tiers", func() {
+		It("should maintain independent RoleBindings for each service", func(ctx SpecContext) {
+			llmisvc1 := fixture.LLMInferenceService("multi-svc-test-1",
+				fixture.InNamespace[*kservev1alpha1.LLMInferenceService](testNs),
+				fixture.WithAnnotation(reconcilers.TierAnnotationKey, `["free"]`),
+			)
+			Expect(envTest.Create(ctx, llmisvc1)).Should(Succeed())
+
+			llmisvc2 := fixture.LLMInferenceService("multi-svc-test-2",
+				fixture.InNamespace[*kservev1alpha1.LLMInferenceService](testNs),
+				fixture.WithAnnotation(reconcilers.TierAnnotationKey, `["premium", "enterprise"]`),
+			)
+			Expect(envTest.Create(ctx, llmisvc2)).Should(Succeed())
+
+			roleBinding1 := waitForRoleBinding(testNs, controllerutils.GetMaaSRoleBindingName(llmisvc1))
+			Expect(roleBinding1.Subjects).To(HaveLen(1))
+			Expect(roleBinding1.Subjects[0].Name).To(Equal("system:serviceaccounts:maas-default-gateway-tier-free"))
+
+			roleBinding2 := waitForRoleBinding(testNs, controllerutils.GetMaaSRoleBindingName(llmisvc2))
+			Expect(roleBinding2.Subjects).To(HaveLen(2))
+			subjectNames := make([]string, len(roleBinding2.Subjects))
+			for i, s := range roleBinding2.Subjects {
+				subjectNames[i] = s.Name
+			}
+			Expect(subjectNames).To(ContainElements(
+				"system:serviceaccounts:maas-default-gateway-tier-premium",
+				"system:serviceaccounts:maas-default-gateway-tier-enterprise",
+			))
+		})
+	})
+
+	Context("ConfigMap update triggers re-reconciliation", func() {
+		It("should update RoleBinding subjects when ConfigMap tiers are modified", func(ctx SpecContext) {
+			llmisvc := createLLMInferenceService(testNs, "tier-update-test", LLMServicePath1)
+			Expect(envTest.Create(ctx, llmisvc)).Should(Succeed())
+
+			roleBindingName := controllerutils.GetMaaSRoleBindingName(llmisvc)
+			roleBinding := waitForRoleBinding(testNs, roleBindingName)
+			Expect(roleBinding.Subjects).To(HaveLen(3))
+
+			tierCM := &corev1.ConfigMap{}
+			Expect(envTest.Get(ctx, types.NamespacedName{
+				Name:      reconcilers.TierConfigMapName,
+				Namespace: reconcilers.DefaultTenantNamespace,
+			}, tierCM)).Should(Succeed())
+
+			originalTiers := tierCM.Data["tiers"]
+			DeferCleanup(func() {
+				tierCM.Data["tiers"] = originalTiers
+				_ = envTest.Update(context.Background(), tierCM)
+			})
+
+			tierCM.Data["tiers"] = `
+- name: free
+  level: 1
+- name: premium
+  level: 10
+- name: enterprise
+  level: 20
+- name: ultimate
+  level: 30
+`
+			Expect(envTest.Update(ctx, tierCM)).Should(Succeed())
+
+			Eventually(func(g Gomega) {
+				updatedRB := &rbacv1.RoleBinding{}
+				g.Expect(envTest.Get(ctx, types.NamespacedName{Name: roleBindingName, Namespace: testNs}, updatedRB)).To(Succeed())
+				g.Expect(updatedRB.Subjects).To(HaveLen(4))
+				subjectNames := make([]string, len(updatedRB.Subjects))
+				for i, s := range updatedRB.Subjects {
+					subjectNames[i] = s.Name
+				}
+				g.Expect(subjectNames).To(ContainElement("system:serviceaccounts:maas-default-gateway-tier-ultimate"))
+			}).Should(Succeed())
+		})
+	})
+
+	Context("ConfigMap deletion behavior", func() {
+		It("should delete RoleBinding when tier ConfigMap is deleted (fail-closed)", func(ctx SpecContext) {
+			llmisvc := fixture.LLMInferenceService("delete-cm-test",
+				fixture.InNamespace[*kservev1alpha1.LLMInferenceService](testNs),
+				fixture.WithAnnotation(reconcilers.TierAnnotationKey, `["free"]`),
+			)
+			Expect(envTest.Create(ctx, llmisvc)).Should(Succeed())
+
+			roleBindingName := controllerutils.GetMaaSRoleBindingName(llmisvc)
+			roleBinding := waitForRoleBinding(testNs, roleBindingName)
+			Expect(roleBinding.Subjects).To(HaveLen(1))
+
+			tierCM := &corev1.ConfigMap{}
+			Expect(envTest.Get(ctx, types.NamespacedName{
+				Name:      reconcilers.TierConfigMapName,
+				Namespace: reconcilers.DefaultTenantNamespace,
+			}, tierCM)).Should(Succeed())
+
+			originalData := tierCM.Data["tiers"]
+			DeferCleanup(func() {
+				// Restore ConfigMap - recreate if deleted, or update if exists
+				cm := &corev1.ConfigMap{}
+				err := envTest.Get(context.Background(), types.NamespacedName{
+					Name:      reconcilers.TierConfigMapName,
+					Namespace: reconcilers.DefaultTenantNamespace,
+				}, cm)
+				if errors.IsNotFound(err) {
+					cm = &corev1.ConfigMap{
+						ObjectMeta: metav1.ObjectMeta{
+							Name:      reconcilers.TierConfigMapName,
+							Namespace: reconcilers.DefaultTenantNamespace,
+						},
+						Data: map[string]string{"tiers": originalData},
+					}
+					_ = envTest.Create(context.Background(), cm)
+				}
+			})
+
+			Expect(envTest.Delete(ctx, tierCM)).Should(Succeed())
+
+			Eventually(func(g Gomega) {
+				rb := &rbacv1.RoleBinding{}
+				err := envTest.Get(ctx, types.NamespacedName{Name: roleBindingName, Namespace: testNs}, rb)
+				g.Expect(errors.IsNotFound(err)).To(BeTrue(), "RoleBinding should be deleted when ConfigMap is missing")
+			}).Should(Succeed())
 		})
 	})
 
