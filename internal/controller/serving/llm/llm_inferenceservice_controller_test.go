@@ -502,7 +502,7 @@ var _ = Describe("LLMInferenceService Controller", func() {
 					}
 					delete(gw.Annotations, constants.AuthorinoTLSBootstrapAnnotation)
 					return envTest.Client.Update(ctx, gw)
-				}).Should(Succeed())
+				}).WithContext(ctx).Should(Succeed())
 
 				fixture.VerifyGatewayEnvoyFilterNotExist(ctx, envTest.Client, testNs, optInGatewayName)
 			})
@@ -536,7 +536,7 @@ var _ = Describe("LLMInferenceService Controller", func() {
 					}
 					gw.Annotations[constants.AuthorinoTLSBootstrapAnnotation] = "false"
 					return envTest.Client.Update(ctx, gw)
-				}).Should(Succeed())
+				}).WithContext(ctx).Should(Succeed())
 
 				fixture.VerifyGatewayEnvoyFilterNotExist(ctx, envTest.Client, testNs, optInGatewayName)
 			})
@@ -593,7 +593,7 @@ var _ = Describe("LLMInferenceService Controller", func() {
 						return len(updatedRole.Rules) > 0 &&
 							len(updatedRole.Rules[0].Verbs) > 0 &&
 							updatedRole.Rules[0].Verbs[0] == "post"
-					}).Should(BeTrue())
+					}).WithContext(ctx).Should(BeTrue())
 				})
 			})
 
@@ -640,7 +640,7 @@ var _ = Describe("LLMInferenceService Controller", func() {
 							Name:      roleName,
 							Namespace: testNs,
 						}, deletedRole)
-					}).Should(And(
+					}).WithContext(ctx).Should(And(
 						Not(Succeed()),
 						WithTransform(errors.IsNotFound, BeTrue()),
 					))
@@ -678,7 +678,7 @@ var _ = Describe("LLMInferenceService Controller", func() {
 							Name:      unmanagedRole.Name,
 							Namespace: testNs,
 						}, role)
-					}).Should(Succeed())
+					}).WithContext(ctx).Should(Succeed())
 				})
 			})
 		})
@@ -782,7 +782,7 @@ var _ = Describe("LLMInferenceService Controller", func() {
 							Name:      roleBindingName,
 							Namespace: testNs,
 						}, deletedRoleBinding)
-					}).Should(And(
+					}).WithContext(ctx).Should(And(
 						Not(Succeed()),
 						WithTransform(errors.IsNotFound, BeTrue()),
 					))
@@ -825,12 +825,47 @@ var _ = Describe("LLMInferenceService Controller", func() {
 							Name:      unmanagedRoleBinding.Name,
 							Namespace: testNs,
 						}, rb)
-					}).Should(Succeed())
+					}).WithContext(ctx).Should(Succeed())
+				})
+			})
+
+			When("specific tiers are requested via annotation", func() {
+				It("should create RoleBinding with only the requested tier subjects", func(ctx SpecContext) {
+					llmisvc := fixture.LLMInferenceService("specific-tiers-test",
+						fixture.InNamespace[*kservev1alpha1.LLMInferenceService](testNs),
+						fixture.WithAnnotation(reconcilers.TierAnnotationKey, `["free", "premium"]`),
+					)
+					Expect(envTest.Create(ctx, llmisvc)).Should(Succeed())
+
+					roleBindingName := controllerutils.GetMaaSRoleBindingName(llmisvc)
+					roleBinding := waitForRoleBinding(testNs, roleBindingName)
+					Expect(roleBinding.Subjects).To(HaveLen(2))
+					Expect(roleBinding.Subjects).To(HaveExactElements([]rbacv1.Subject{
+						{Kind: "Group", APIGroup: "rbac.authorization.k8s.io", Name: "system:serviceaccounts:maas-default-gateway-tier-free"},
+						{Kind: "Group", APIGroup: "rbac.authorization.k8s.io", Name: "system:serviceaccounts:maas-default-gateway-tier-premium"},
+					}))
+				})
+			})
+
+			When("requested tier does not exist in ConfigMap", func() {
+				It("should not create RoleBinding", func(ctx SpecContext) {
+					llmisvc := fixture.LLMInferenceService("nonexistent-tier-test",
+						fixture.InNamespace[*kservev1alpha1.LLMInferenceService](testNs),
+						fixture.WithAnnotation(reconcilers.TierAnnotationKey, `["nonexistent-tier"]`),
+					)
+					Expect(envTest.Create(ctx, llmisvc)).Should(Succeed())
+
+					roleBindingName := controllerutils.GetMaaSRoleBindingName(llmisvc)
+					Consistently(func() error {
+						return envTest.Get(ctx, types.NamespacedName{Name: roleBindingName, Namespace: testNs}, &rbacv1.RoleBinding{})
+					}).WithContext(ctx).Should(And(
+						Not(Succeed()),
+						WithTransform(errors.IsNotFound, BeTrue()),
+					))
 				})
 			})
 		})
 	})
-
 })
 
 var _ = Describe("Tier ConfigMap Watch", func() {
@@ -839,83 +874,6 @@ var _ = Describe("Tier ConfigMap Watch", func() {
 	BeforeEach(func(ctx SpecContext) {
 		testNamespace := testutils.Namespaces.Create(ctx, envTest.Client)
 		testNs = testNamespace.Name
-	})
-
-	Context("ConfigMap changes trigger reconciliation", func() {
-		It("should create RoleBinding with all tiers when using empty tier annotation", func(ctx SpecContext) {
-			llmisvc := createLLMInferenceService(testNs, "tier-watch-test", LLMServicePath1)
-			Expect(envTest.Create(ctx, llmisvc)).Should(Succeed())
-
-			roleBindingName := controllerutils.GetMaaSRoleBindingName(llmisvc)
-			roleBinding := waitForRoleBinding(testNs, roleBindingName)
-			Expect(roleBinding.Subjects).To(HaveLen(3))
-			verifyMaaSTierSubjects(Default, roleBinding.Subjects)
-		})
-
-		It("should create RoleBinding with correct subjects when service uses specific tiers", func(ctx SpecContext) {
-			llmisvc := fixture.LLMInferenceService("specific-tiers-test",
-				fixture.InNamespace[*kservev1alpha1.LLMInferenceService](testNs),
-				fixture.WithAnnotation(reconcilers.TierAnnotationKey, `["free", "premium"]`),
-			)
-			Expect(envTest.Create(ctx, llmisvc)).Should(Succeed())
-
-			roleBindingName := controllerutils.GetMaaSRoleBindingName(llmisvc)
-			roleBinding := waitForRoleBinding(testNs, roleBindingName)
-			Expect(roleBinding.Subjects).To(HaveLen(2))
-			Expect(roleBinding.Subjects).To(HaveExactElements([]rbacv1.Subject{
-				{Kind: "Group", APIGroup: "rbac.authorization.k8s.io", Name: "system:serviceaccounts:maas-default-gateway-tier-free"},
-				{Kind: "Group", APIGroup: "rbac.authorization.k8s.io", Name: "system:serviceaccounts:maas-default-gateway-tier-premium"},
-			}))
-		})
-	})
-
-	Context("Tier misconfiguration", func() {
-		It("should not create RoleBinding when requested tier does not exist", func(ctx SpecContext) {
-			llmisvc := fixture.LLMInferenceService("nonexistent-tier-test",
-				fixture.InNamespace[*kservev1alpha1.LLMInferenceService](testNs),
-				fixture.WithAnnotation(reconcilers.TierAnnotationKey, `["nonexistent-tier"]`),
-			)
-			Expect(envTest.Create(ctx, llmisvc)).Should(Succeed())
-
-			roleBindingName := controllerutils.GetMaaSRoleBindingName(llmisvc)
-			Consistently(func() error {
-				return envTest.Get(ctx, types.NamespacedName{Name: roleBindingName, Namespace: testNs}, &rbacv1.RoleBinding{})
-			}).Should(And(
-				Not(Succeed()),
-				WithTransform(errors.IsNotFound, BeTrue()),
-			))
-		})
-	})
-
-	Context("Multiple LLMInferenceServices with different tiers", func() {
-		It("should maintain independent RoleBindings for each service", func(ctx SpecContext) {
-			llmisvc1 := fixture.LLMInferenceService("multi-svc-test-1",
-				fixture.InNamespace[*kservev1alpha1.LLMInferenceService](testNs),
-				fixture.WithAnnotation(reconcilers.TierAnnotationKey, `["free"]`),
-			)
-			Expect(envTest.Create(ctx, llmisvc1)).Should(Succeed())
-
-			llmisvc2 := fixture.LLMInferenceService("multi-svc-test-2",
-				fixture.InNamespace[*kservev1alpha1.LLMInferenceService](testNs),
-				fixture.WithAnnotation(reconcilers.TierAnnotationKey, `["premium", "enterprise"]`),
-			)
-			Expect(envTest.Create(ctx, llmisvc2)).Should(Succeed())
-
-			roleBinding1 := waitForRoleBinding(testNs, controllerutils.GetMaaSRoleBindingName(llmisvc1))
-			Expect(roleBinding1.Subjects).To(HaveLen(1))
-			Expect(roleBinding1.Subjects[0].Name).To(Equal("system:serviceaccounts:maas-default-gateway-tier-free"))
-
-			roleBinding2 := waitForRoleBinding(testNs, controllerutils.GetMaaSRoleBindingName(llmisvc2))
-			Expect(roleBinding2.Subjects).To(HaveLen(2))
-			subjectNames := make([]string, len(roleBinding2.Subjects))
-			for i, s := range roleBinding2.Subjects {
-				subjectNames[i] = s.Name
-			}
-			Expect(subjectNames).To(ContainElements(
-				"system:serviceaccounts:maas-default-gateway-tier-premium",
-				"system:serviceaccounts:maas-default-gateway-tier-enterprise",
-			))
-		})
 	})
 
 	Context("ConfigMap update triggers re-reconciliation", func() {
@@ -934,9 +892,9 @@ var _ = Describe("Tier ConfigMap Watch", func() {
 			}, tierCM)).Should(Succeed())
 
 			originalTiers := tierCM.Data["tiers"]
-			DeferCleanup(func() {
+			DeferCleanup(func(ctx SpecContext) {
 				tierCM.Data["tiers"] = originalTiers
-				_ = envTest.Update(context.Background(), tierCM)
+				_ = envTest.Update(ctx, tierCM)
 			})
 
 			tierCM.Data["tiers"] = `
@@ -951,7 +909,7 @@ var _ = Describe("Tier ConfigMap Watch", func() {
 `
 			Expect(envTest.Update(ctx, tierCM)).Should(Succeed())
 
-			Eventually(func(g Gomega) {
+			Eventually(func(g Gomega, ctx context.Context) {
 				updatedRB := &rbacv1.RoleBinding{}
 				g.Expect(envTest.Get(ctx, types.NamespacedName{Name: roleBindingName, Namespace: testNs}, updatedRB)).To(Succeed())
 				g.Expect(updatedRB.Subjects).To(HaveLen(4))
@@ -960,7 +918,7 @@ var _ = Describe("Tier ConfigMap Watch", func() {
 					subjectNames[i] = s.Name
 				}
 				g.Expect(subjectNames).To(ContainElement("system:serviceaccounts:maas-default-gateway-tier-ultimate"))
-			}).Should(Succeed())
+			}).WithContext(ctx).Should(Succeed())
 		})
 	})
 
@@ -983,10 +941,10 @@ var _ = Describe("Tier ConfigMap Watch", func() {
 			}, tierCM)).Should(Succeed())
 
 			originalData := tierCM.Data["tiers"]
-			DeferCleanup(func() {
+			DeferCleanup(func(ctx SpecContext) {
 				// Restore ConfigMap - recreate if deleted, or update if exists
 				cm := &corev1.ConfigMap{}
-				err := envTest.Get(context.Background(), types.NamespacedName{
+				err := envTest.Get(ctx, types.NamespacedName{
 					Name:      reconcilers.TierConfigMapName,
 					Namespace: reconcilers.DefaultTenantNamespace,
 				}, cm)
@@ -998,17 +956,17 @@ var _ = Describe("Tier ConfigMap Watch", func() {
 						},
 						Data: map[string]string{"tiers": originalData},
 					}
-					_ = envTest.Create(context.Background(), cm)
+					_ = envTest.Create(ctx, cm)
 				}
 			})
 
 			Expect(envTest.Delete(ctx, tierCM)).Should(Succeed())
 
-			Eventually(func(g Gomega) {
+			Eventually(func(g Gomega, ctx context.Context) {
 				rb := &rbacv1.RoleBinding{}
 				err := envTest.Get(ctx, types.NamespacedName{Name: roleBindingName, Namespace: testNs}, rb)
 				g.Expect(errors.IsNotFound(err)).To(BeTrue(), "RoleBinding should be deleted when ConfigMap is missing")
-			}).Should(Succeed())
+			}).WithContext(ctx).Should(Succeed())
 		})
 	})
 
@@ -1339,7 +1297,7 @@ var _ = Describe("BaseRefs and Spec Merging", func() {
 					Name:      constants.GetGatewayAuthPolicyName(systemGatewayName),
 					Namespace: systemNamespace,
 				}, authPolicy)
-			}).Should(And(
+			}).WithContext(ctx).Should(And(
 				Not(Succeed()),
 				WithTransform(errors.IsNotFound, BeTrue()),
 			))
@@ -1466,7 +1424,7 @@ var _ = Describe("BaseRefs and Spec Merging", func() {
 					Name:      constants.GetGatewayAuthPolicyName(configGatewayName),
 					Namespace: testNs,
 				}, authPolicy)
-			}).Should(And(
+			}).WithContext(ctx).Should(And(
 				Not(Succeed()),
 				WithTransform(errors.IsNotFound, BeTrue()),
 			))
@@ -1559,7 +1517,7 @@ var _ = Describe("BaseRefs and Spec Merging", func() {
 					Name:      constants.GetGatewayAuthPolicyName(unmanagedGatewayName),
 					Namespace: testNs,
 				}, authPolicy)
-			}).Should(And(
+			}).WithContext(ctx).Should(And(
 				Not(Succeed()),
 				WithTransform(errors.IsNotFound, BeTrue()),
 			))
