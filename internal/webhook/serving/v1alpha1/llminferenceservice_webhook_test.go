@@ -207,8 +207,8 @@ var _ = Describe("LLMInferenceService Webhook", func() {
 				Expect(err).Should(HaveOccurred())
 				Expect(k8sErrors.IsInvalid(err)).Should(BeTrue())
 				Expect(err.Error()).Should(ContainSubstring("not found in tier configuration"))
-				Expect(err.Error()).Should(ContainSubstring("Available tiers"))
-				Expect(err.Error()).Should(SatisfyAll(
+				Expect(err.Error()).ShouldNot(ContainSubstring("Available tiers"))
+				Expect(err.Error()).ShouldNot(SatisfyAny(
 					ContainSubstring("free"),
 					ContainSubstring("premium"),
 				))
