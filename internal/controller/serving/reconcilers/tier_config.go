@@ -20,13 +20,15 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"os"
 
 	"github.com/go-logr/logr"
 	kservev1alpha1 "github.com/kserve/kserve/pkg/apis/serving/v1alpha1"
+	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/yaml"
+
+	"github.com/opendatahub-io/odh-model-controller/internal/controller/utils"
 
 	"github.com/opendatahub-io/odh-model-controller/internal/controller/resources"
 )
@@ -39,8 +41,14 @@ const (
 	DefaultTenantNamespace = "maas-api"
 	DefaultTenantName      = "maas-default-gateway"
 
-	// Environment variable name for configuring the MaaS namespace
-	MaasNamespaceEnvVar = "MAAS_NAMESPACE"
+	// Environment variable names for configuration
+	MaasNamespaceEnvVar  = "MAAS_NAMESPACE"
+	MaasTenantNameEnvVar = "MAAS_TENANT_NAME"
+
+	// Event reasons for tier-related events
+	EventReasonTierNotFound         = "TierNotFound"
+	EventReasonTierConfigUnavail    = "TierConfigUnavailable"
+	EventReasonTierMisconfiguration = "TierMisconfiguration"
 )
 
 // GetMaasNamespace returns the MaaS namespace to use for tier configuration lookups.
@@ -49,10 +57,35 @@ const (
 //
 // The MaaS namespace is where the tier-to-group-mapping ConfigMap is expected to exist.
 func GetMaasNamespace() string {
-	if ns := os.Getenv(MaasNamespaceEnvVar); ns != "" {
-		return ns
+	return utils.GetEnvOr(MaasNamespaceEnvVar, DefaultTenantNamespace)
+}
+
+// GetMaasTenantName returns the MaaS tenant name to use for constructing service account groups.
+// It reads from the MAAS_TENANT_NAME environment variable if set, otherwise returns
+// the default tenant name "maas-default-gateway".
+//
+// The tenant name is used in the format: system:serviceaccounts:{tenantName}-tier-{tierName}
+func GetMaasTenantName() string {
+	return utils.GetEnvOr(MaasTenantNameEnvVar, DefaultTenantName)
+}
+
+// IsTierConfigMap checks if the given object is the well-known tier ConfigMap.
+// It performs type assertion, namespace validation, and name validation.
+// Returns true only if the object is a ConfigMap in the configured MaaS namespace
+// with the well-known name.
+func IsTierConfigMap(obj client.Object) bool {
+	// Type assertion - ensure it's actually a ConfigMap
+	cm, ok := obj.(*corev1.ConfigMap)
+	if !ok {
+		return false
 	}
-	return DefaultTenantNamespace
+
+	// This prevents cross-namespace noise and unintended reconciliation storms
+	if cm.GetNamespace() != GetMaasNamespace() {
+		return false
+	}
+
+	return cm.GetName() == TierConfigMapName
 }
 
 // Tier represents a subscription tier with associated user groups and level.
@@ -73,6 +106,17 @@ type AnnotationNotFoundError struct{}
 
 func (e *AnnotationNotFoundError) Error() string {
 	return "tier annotation not found"
+}
+
+// TierNotFoundError indicates that one or more requested tiers do not exist in the ConfigMap.
+// This is a user misconfiguration error - the user requested tiers that aren't defined.
+type TierNotFoundError struct {
+	MissingTiers   []string
+	AvailableTiers []string
+}
+
+func (e *TierNotFoundError) Error() string {
+	return fmt.Sprintf("requested tiers not found in ConfigMap: %v (available: %v)", e.MissingTiers, e.AvailableTiers)
 }
 
 type TierConfigLoader struct {
@@ -132,19 +176,41 @@ func (s *TierConfigLoader) DefinedGroups(ctx context.Context, log logr.Logger, l
 		return nil, err
 	}
 
+	// Build set of available tier names for quick lookup
+	availableTierNames := make(map[string]bool, len(tiers))
+	for _, tier := range tiers {
+		availableTierNames[tier.Name] = true
+	}
+
 	var groupNames []string
 	if len(requestedTiers) == 0 {
+		// Empty array = all tiers
 		for _, tier := range tiers {
 			groupNames = append(groupNames, s.ProjectedSAGroup(tier.Name))
 		}
 	} else {
+		// Validate that all requested tiers exist
+		var missingTiers []string
 		for _, tierName := range requestedTiers {
-			for _, tierInConfig := range tiers {
-				if tierInConfig.Name == tierName {
-					groupNames = append(groupNames, s.ProjectedSAGroup(tierName))
-					break
-				}
+			if !availableTierNames[tierName] {
+				missingTiers = append(missingTiers, tierName)
 			}
+		}
+
+		if len(missingTiers) > 0 {
+			availableList := make([]string, 0, len(tiers))
+			for _, tier := range tiers {
+				availableList = append(availableList, tier.Name)
+			}
+			return nil, &TierNotFoundError{
+				MissingTiers:   missingTiers,
+				AvailableTiers: availableList,
+			}
+		}
+
+		// All requested tiers exist, build group names
+		for _, tierName := range requestedTiers {
+			groupNames = append(groupNames, s.ProjectedSAGroup(tierName))
 		}
 	}
 
@@ -230,5 +296,5 @@ func (s *TierConfigLoader) loadTiers(ctx context.Context, log logr.Logger, names
 }
 
 func (s *TierConfigLoader) ProjectedSAGroup(tierName string) string {
-	return fmt.Sprintf("system:serviceaccounts:%s-tier-%s", DefaultTenantName, tierName)
+	return fmt.Sprintf("system:serviceaccounts:%s-tier-%s", GetMaasTenantName(), tierName)
 }
