@@ -24,14 +24,11 @@ spec:
   - name: revision
     value: '{{revision}}'
   - name: output-image
-    value: quay.io/opendatahub/odh-model-controller:{{revision}}
+    value: quay.io/opendatahub/odh-model-controller:odh-stable
   - name: dockerfile
     value: Containerfile
   - name: path-context
     value: .
-  - name: additional-tags
-    value:
-    - '{{target_branch}}-{{revision}}'
   pipelineRef:
     resolver: git
     params:
