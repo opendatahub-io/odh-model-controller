@@ -30,6 +30,7 @@ import (
 	"k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 	gatewayapiv1 "sigs.k8s.io/gateway-api/apis/v1"
 
 	"github.com/opendatahub-io/odh-model-controller/internal/controller/constants"
@@ -59,6 +60,17 @@ var _ = Describe("LLMInferenceService Controller", func() {
 		customHTTPRouteName = pkgtest.GenerateUniqueTestName("custom-httproute")
 		testNamespace := testutils.Namespaces.Create(ctx, envTest.Client)
 		testNs = testNamespace.Name
+	})
+
+	AfterEach(func(ctx SpecContext) {
+		// Clean up LLMInferenceServices to prevent cross-test interference
+		// from watches (Gateway, ConfigMap) that list all services
+		llmList := &kservev1alpha1.LLMInferenceServiceList{}
+		if err := envTest.Client.List(ctx, llmList, client.InNamespace(testNs)); err == nil {
+			for i := range llmList.Items {
+				_ = envTest.Client.Delete(ctx, &llmList.Items[i])
+			}
+		}
 	})
 
 	Context("LLMInferenceService with Authentication", func() {
@@ -412,6 +424,123 @@ var _ = Describe("LLMInferenceService Controller", func() {
 				fixture.VerifyResourceExists(ctx, envTest.Client, constants.DefaultGatewayNamespace, constants.GetGatewayEnvoyFilterName(customGatewayName), &istioclientv1alpha3.EnvoyFilter{})
 			})
 		})
+
+		Context("when Gateway has opendatahub.io/managed=false label", func() {
+			It("should NOT create EnvoyFilter for unmanaged gateway without opt-in annotation", func(ctx SpecContext) {
+				unmanagedGatewayName := pkgtest.GenerateUniqueTestName("unmanaged-gateway")
+
+				unmanagedGateway := fixture.Gateway(unmanagedGatewayName,
+					fixture.InNamespace[*gatewayapiv1.Gateway](testNs),
+					fixture.WithClassName(GatewayClassName),
+					fixture.WithListener(gatewayapiv1.HTTPProtocolType),
+					fixture.WithUnmanagedLabel(),
+				)
+				Expect(envTest.Client.Create(ctx, unmanagedGateway)).Should(Succeed())
+
+				llmisvc := fixture.LLMInferenceService(LLMInferenceServiceName,
+					fixture.InNamespace[*kservev1alpha1.LLMInferenceService](testNs),
+					fixture.WithGatewayRefs(kservev1alpha1.UntypedObjectReference{
+						Name:      gatewayapiv1.ObjectName(unmanagedGatewayName),
+						Namespace: gatewayapiv1.Namespace(testNs),
+					}),
+				)
+				Expect(envTest.Client.Create(ctx, llmisvc)).Should(Succeed())
+
+				fixture.VerifyGatewayEnvoyFilterNotExist(ctx, envTest.Client, testNs, unmanagedGatewayName)
+			})
+
+			It("should create EnvoyFilter for unmanaged gateway WITH authorino-tls-bootstrap=true annotation", func(ctx SpecContext) {
+				optInGatewayName := pkgtest.GenerateUniqueTestName("optin-gateway")
+
+				optInGateway := fixture.Gateway(optInGatewayName,
+					fixture.InNamespace[*gatewayapiv1.Gateway](testNs),
+					fixture.WithClassName(GatewayClassName),
+					fixture.WithListener(gatewayapiv1.HTTPProtocolType),
+					fixture.WithUnmanagedLabel(),
+					fixture.WithAuthorinoTLSBootstrapAnnotation("true"),
+				)
+				Expect(envTest.Client.Create(ctx, optInGateway)).Should(Succeed())
+
+				llmisvc := fixture.LLMInferenceService(LLMInferenceServiceName,
+					fixture.InNamespace[*kservev1alpha1.LLMInferenceService](testNs),
+					fixture.WithGatewayRefs(kservev1alpha1.UntypedObjectReference{
+						Name:      gatewayapiv1.ObjectName(optInGatewayName),
+						Namespace: gatewayapiv1.Namespace(testNs),
+					}),
+				)
+				Expect(envTest.Client.Create(ctx, llmisvc)).Should(Succeed())
+
+				fixture.VerifyGatewayEnvoyFilterOwnerRef(ctx, envTest.Client, testNs, optInGatewayName)
+			})
+
+			It("should delete EnvoyFilter when authorino-tls-bootstrap annotation is removed from unmanaged gateway", func(ctx SpecContext) {
+				optInGatewayName := pkgtest.GenerateUniqueTestName("optin-gateway")
+
+				optInGateway := fixture.Gateway(optInGatewayName,
+					fixture.InNamespace[*gatewayapiv1.Gateway](testNs),
+					fixture.WithClassName(GatewayClassName),
+					fixture.WithListener(gatewayapiv1.HTTPProtocolType),
+					fixture.WithUnmanagedLabel(),
+					fixture.WithAuthorinoTLSBootstrapAnnotation("true"),
+				)
+				Expect(envTest.Client.Create(ctx, optInGateway)).Should(Succeed())
+
+				llmisvc := fixture.LLMInferenceService(LLMInferenceServiceName,
+					fixture.InNamespace[*kservev1alpha1.LLMInferenceService](testNs),
+					fixture.WithGatewayRefs(kservev1alpha1.UntypedObjectReference{
+						Name:      gatewayapiv1.ObjectName(optInGatewayName),
+						Namespace: gatewayapiv1.Namespace(testNs),
+					}),
+				)
+				Expect(envTest.Client.Create(ctx, llmisvc)).Should(Succeed())
+				fixture.VerifyGatewayEnvoyFilterOwnerRef(ctx, envTest.Client, testNs, optInGatewayName)
+
+				Eventually(func() error {
+					gw := &gatewayapiv1.Gateway{}
+					if err := envTest.Client.Get(ctx, types.NamespacedName{Name: optInGatewayName, Namespace: testNs}, gw); err != nil {
+						return err
+					}
+					delete(gw.Annotations, constants.AuthorinoTLSBootstrapAnnotation)
+					return envTest.Client.Update(ctx, gw)
+				}).WithContext(ctx).Should(Succeed())
+
+				fixture.VerifyGatewayEnvoyFilterNotExist(ctx, envTest.Client, testNs, optInGatewayName)
+			})
+
+			It("should delete EnvoyFilter when authorino-tls-bootstrap annotation is changed to false", func(ctx SpecContext) {
+				optInGatewayName := pkgtest.GenerateUniqueTestName("optin-gateway")
+
+				optInGateway := fixture.Gateway(optInGatewayName,
+					fixture.InNamespace[*gatewayapiv1.Gateway](testNs),
+					fixture.WithClassName(GatewayClassName),
+					fixture.WithListener(gatewayapiv1.HTTPProtocolType),
+					fixture.WithUnmanagedLabel(),
+					fixture.WithAuthorinoTLSBootstrapAnnotation("true"),
+				)
+				Expect(envTest.Client.Create(ctx, optInGateway)).Should(Succeed())
+
+				llmisvc := fixture.LLMInferenceService(LLMInferenceServiceName,
+					fixture.InNamespace[*kservev1alpha1.LLMInferenceService](testNs),
+					fixture.WithGatewayRefs(kservev1alpha1.UntypedObjectReference{
+						Name:      gatewayapiv1.ObjectName(optInGatewayName),
+						Namespace: gatewayapiv1.Namespace(testNs),
+					}),
+				)
+				Expect(envTest.Client.Create(ctx, llmisvc)).Should(Succeed())
+				fixture.VerifyGatewayEnvoyFilterOwnerRef(ctx, envTest.Client, testNs, optInGatewayName)
+
+				Eventually(func() error {
+					gw := &gatewayapiv1.Gateway{}
+					if err := envTest.Client.Get(ctx, types.NamespacedName{Name: optInGatewayName, Namespace: testNs}, gw); err != nil {
+						return err
+					}
+					gw.Annotations[constants.AuthorinoTLSBootstrapAnnotation] = "false"
+					return envTest.Client.Update(ctx, gw)
+				}).WithContext(ctx).Should(Succeed())
+
+				fixture.VerifyGatewayEnvoyFilterNotExist(ctx, envTest.Client, testNs, optInGatewayName)
+			})
+		})
 	})
 
 	Describe("Model-as-a-Service Integration", func() {
@@ -464,7 +593,7 @@ var _ = Describe("LLMInferenceService Controller", func() {
 						return len(updatedRole.Rules) > 0 &&
 							len(updatedRole.Rules[0].Verbs) > 0 &&
 							updatedRole.Rules[0].Verbs[0] == "post"
-					}).Should(BeTrue())
+					}).WithContext(ctx).Should(BeTrue())
 				})
 			})
 
@@ -511,7 +640,7 @@ var _ = Describe("LLMInferenceService Controller", func() {
 							Name:      roleName,
 							Namespace: testNs,
 						}, deletedRole)
-					}).Should(And(
+					}).WithContext(ctx).Should(And(
 						Not(Succeed()),
 						WithTransform(errors.IsNotFound, BeTrue()),
 					))
@@ -549,7 +678,7 @@ var _ = Describe("LLMInferenceService Controller", func() {
 							Name:      unmanagedRole.Name,
 							Namespace: testNs,
 						}, role)
-					}).Should(Succeed())
+					}).WithContext(ctx).Should(Succeed())
 				})
 			})
 		})
@@ -653,7 +782,7 @@ var _ = Describe("LLMInferenceService Controller", func() {
 							Name:      roleBindingName,
 							Namespace: testNs,
 						}, deletedRoleBinding)
-					}).Should(And(
+					}).WithContext(ctx).Should(And(
 						Not(Succeed()),
 						WithTransform(errors.IsNotFound, BeTrue()),
 					))
@@ -696,9 +825,148 @@ var _ = Describe("LLMInferenceService Controller", func() {
 							Name:      unmanagedRoleBinding.Name,
 							Namespace: testNs,
 						}, rb)
-					}).Should(Succeed())
+					}).WithContext(ctx).Should(Succeed())
 				})
 			})
+
+			When("specific tiers are requested via annotation", func() {
+				It("should create RoleBinding with only the requested tier subjects", func(ctx SpecContext) {
+					llmisvc := fixture.LLMInferenceService("specific-tiers-test",
+						fixture.InNamespace[*kservev1alpha1.LLMInferenceService](testNs),
+						fixture.WithAnnotation(reconcilers.TierAnnotationKey, `["free", "premium"]`),
+					)
+					Expect(envTest.Create(ctx, llmisvc)).Should(Succeed())
+
+					roleBindingName := controllerutils.GetMaaSRoleBindingName(llmisvc)
+					roleBinding := waitForRoleBinding(testNs, roleBindingName)
+					Expect(roleBinding.Subjects).To(HaveLen(2))
+					Expect(roleBinding.Subjects).To(HaveExactElements([]rbacv1.Subject{
+						{Kind: "Group", APIGroup: "rbac.authorization.k8s.io", Name: "system:serviceaccounts:maas-default-gateway-tier-free"},
+						{Kind: "Group", APIGroup: "rbac.authorization.k8s.io", Name: "system:serviceaccounts:maas-default-gateway-tier-premium"},
+					}))
+				})
+			})
+
+			When("requested tier does not exist in ConfigMap", func() {
+				It("should not create RoleBinding", func(ctx SpecContext) {
+					llmisvc := fixture.LLMInferenceService("nonexistent-tier-test",
+						fixture.InNamespace[*kservev1alpha1.LLMInferenceService](testNs),
+						fixture.WithAnnotation(reconcilers.TierAnnotationKey, `["nonexistent-tier"]`),
+					)
+					Expect(envTest.Create(ctx, llmisvc)).Should(Succeed())
+
+					roleBindingName := controllerutils.GetMaaSRoleBindingName(llmisvc)
+					Consistently(func() error {
+						return envTest.Get(ctx, types.NamespacedName{Name: roleBindingName, Namespace: testNs}, &rbacv1.RoleBinding{})
+					}).WithContext(ctx).Should(And(
+						Not(Succeed()),
+						WithTransform(errors.IsNotFound, BeTrue()),
+					))
+				})
+			})
+		})
+	})
+})
+
+var _ = Describe("Tier ConfigMap Watch", func() {
+	var testNs string
+
+	BeforeEach(func(ctx SpecContext) {
+		testNamespace := testutils.Namespaces.Create(ctx, envTest.Client)
+		testNs = testNamespace.Name
+	})
+
+	Context("ConfigMap update triggers re-reconciliation", func() {
+		It("should update RoleBinding subjects when ConfigMap tiers are modified", func(ctx SpecContext) {
+			llmisvc := createLLMInferenceService(testNs, "tier-update-test", LLMServicePath1)
+			Expect(envTest.Create(ctx, llmisvc)).Should(Succeed())
+
+			roleBindingName := controllerutils.GetMaaSRoleBindingName(llmisvc)
+			roleBinding := waitForRoleBinding(testNs, roleBindingName)
+			Expect(roleBinding.Subjects).To(HaveLen(3))
+
+			tierCM := &corev1.ConfigMap{}
+			Expect(envTest.Get(ctx, types.NamespacedName{
+				Name:      reconcilers.TierConfigMapName,
+				Namespace: reconcilers.DefaultTenantNamespace,
+			}, tierCM)).Should(Succeed())
+
+			originalTiers := tierCM.Data["tiers"]
+			DeferCleanup(func(ctx SpecContext) {
+				tierCM.Data["tiers"] = originalTiers
+				_ = envTest.Update(ctx, tierCM)
+			})
+
+			tierCM.Data["tiers"] = `
+- name: free
+  level: 1
+- name: premium
+  level: 10
+- name: enterprise
+  level: 20
+- name: ultimate
+  level: 30
+`
+			Expect(envTest.Update(ctx, tierCM)).Should(Succeed())
+
+			Eventually(func(g Gomega, ctx context.Context) {
+				updatedRB := &rbacv1.RoleBinding{}
+				g.Expect(envTest.Get(ctx, types.NamespacedName{Name: roleBindingName, Namespace: testNs}, updatedRB)).To(Succeed())
+				g.Expect(updatedRB.Subjects).To(HaveLen(4))
+				subjectNames := make([]string, len(updatedRB.Subjects))
+				for i, s := range updatedRB.Subjects {
+					subjectNames[i] = s.Name
+				}
+				g.Expect(subjectNames).To(ContainElement("system:serviceaccounts:maas-default-gateway-tier-ultimate"))
+			}).WithContext(ctx).Should(Succeed())
+		})
+	})
+
+	Context("ConfigMap deletion behavior", func() {
+		It("should delete RoleBinding when tier ConfigMap is deleted (fail-closed)", func(ctx SpecContext) {
+			llmisvc := fixture.LLMInferenceService("delete-cm-test",
+				fixture.InNamespace[*kservev1alpha1.LLMInferenceService](testNs),
+				fixture.WithAnnotation(reconcilers.TierAnnotationKey, `["free"]`),
+			)
+			Expect(envTest.Create(ctx, llmisvc)).Should(Succeed())
+
+			roleBindingName := controllerutils.GetMaaSRoleBindingName(llmisvc)
+			roleBinding := waitForRoleBinding(testNs, roleBindingName)
+			Expect(roleBinding.Subjects).To(HaveLen(1))
+
+			tierCM := &corev1.ConfigMap{}
+			Expect(envTest.Get(ctx, types.NamespacedName{
+				Name:      reconcilers.TierConfigMapName,
+				Namespace: reconcilers.DefaultTenantNamespace,
+			}, tierCM)).Should(Succeed())
+
+			originalData := tierCM.Data["tiers"]
+			DeferCleanup(func(ctx SpecContext) {
+				// Restore ConfigMap - recreate if deleted, or update if exists
+				cm := &corev1.ConfigMap{}
+				err := envTest.Get(ctx, types.NamespacedName{
+					Name:      reconcilers.TierConfigMapName,
+					Namespace: reconcilers.DefaultTenantNamespace,
+				}, cm)
+				if errors.IsNotFound(err) {
+					cm = &corev1.ConfigMap{
+						ObjectMeta: metav1.ObjectMeta{
+							Name:      reconcilers.TierConfigMapName,
+							Namespace: reconcilers.DefaultTenantNamespace,
+						},
+						Data: map[string]string{"tiers": originalData},
+					}
+					_ = envTest.Create(ctx, cm)
+				}
+			})
+
+			Expect(envTest.Delete(ctx, tierCM)).Should(Succeed())
+
+			Eventually(func(g Gomega, ctx context.Context) {
+				rb := &rbacv1.RoleBinding{}
+				err := envTest.Get(ctx, types.NamespacedName{Name: roleBindingName, Namespace: testNs}, rb)
+				g.Expect(errors.IsNotFound(err)).To(BeTrue(), "RoleBinding should be deleted when ConfigMap is missing")
+			}).WithContext(ctx).Should(Succeed())
 		})
 	})
 
@@ -1029,7 +1297,7 @@ var _ = Describe("BaseRefs and Spec Merging", func() {
 					Name:      constants.GetGatewayAuthPolicyName(systemGatewayName),
 					Namespace: systemNamespace,
 				}, authPolicy)
-			}).Should(And(
+			}).WithContext(ctx).Should(And(
 				Not(Succeed()),
 				WithTransform(errors.IsNotFound, BeTrue()),
 			))
@@ -1156,7 +1424,7 @@ var _ = Describe("BaseRefs and Spec Merging", func() {
 					Name:      constants.GetGatewayAuthPolicyName(configGatewayName),
 					Namespace: testNs,
 				}, authPolicy)
-			}).Should(And(
+			}).WithContext(ctx).Should(And(
 				Not(Succeed()),
 				WithTransform(errors.IsNotFound, BeTrue()),
 			))
@@ -1249,7 +1517,7 @@ var _ = Describe("BaseRefs and Spec Merging", func() {
 					Name:      constants.GetGatewayAuthPolicyName(unmanagedGatewayName),
 					Namespace: testNs,
 				}, authPolicy)
-			}).Should(And(
+			}).WithContext(ctx).Should(And(
 				Not(Succeed()),
 				WithTransform(errors.IsNotFound, BeTrue()),
 			))

@@ -17,36 +17,29 @@ limitations under the License.
 package resources
 
 import (
-	"cmp"
 	"context"
 	_ "embed"
 	"fmt"
-	"slices"
 	"strings"
 	"text/template"
 
-	"github.com/go-logr/logr"
 	kservev1alpha1 "github.com/kserve/kserve/pkg/apis/serving/v1alpha1"
-	authorinooperatorv1beta1 "github.com/kuadrant/authorino-operator/api/v1beta1"
-	kuadrantv1beta1 "github.com/kuadrant/kuadrant-operator/api/v1beta1"
 	"github.com/opendatahub-io/odh-model-controller/internal/controller/constants"
-	"github.com/opendatahub-io/odh-model-controller/internal/controller/utils"
 	controllerutils "github.com/opendatahub-io/odh-model-controller/internal/controller/utils"
 	istioclientv1alpha3 "istio.io/client-go/pkg/apis/networking/v1alpha3"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/util/retry"
-	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
-	gatewayapiv1 "sigs.k8s.io/gateway-api/apis/v1"
 	"sigs.k8s.io/yaml"
 )
 
 // We can remove the EnvoyFilter creation once https://github.com/Kuadrant/kuadrant-operator/issues/1531 is resolved.
 
+// EnvoyFilterTemplateLoader renders EnvoyFilter templates.
 type EnvoyFilterTemplateLoader interface {
-	Load(ctx context.Context, llmisvc *kservev1alpha1.LLMInferenceService) ([]*istioclientv1alpha3.EnvoyFilter, error)
+	Load(ctx context.Context, gatewayNamespace, gatewayName string) (*istioclientv1alpha3.EnvoyFilter, error)
 }
 
 type EnvoyFilterStore interface {
@@ -73,79 +66,17 @@ func NewKServeEnvoyFilterTemplateLoader(client client.Client) EnvoyFilterTemplat
 	}
 }
 
-func (k *kserveEnvoyFilterTemplateLoader) Load(ctx context.Context, llmisvc *kservev1alpha1.LLMInferenceService) ([]*istioclientv1alpha3.EnvoyFilter, error) {
-	logger := logr.FromContextOrDiscard(ctx).WithName("envoyfilter")
-	gateways := k.getGatewayInfo(ctx, logger, llmisvc)
-
-	envoyFilters := make([]*istioclientv1alpha3.EnvoyFilter, 0, len(gateways))
-
-	for _, gateway := range gateways {
-		gwCtx := logr.NewContext(ctx, logger.WithValues("gateway.namespace", gateway.Namespace, "gateway.name", gateway.Name))
-		envoyFilter, err := k.renderSSLTemplate(gwCtx, gateway.Namespace, gateway.Name)
-		if err != nil {
-			return nil, fmt.Errorf("failed to render EnvoyFilter for gateway %s/%s: %w", gateway.Namespace, gateway.Name, err)
-		}
-		if envoyFilter != nil {
-			envoyFilters = append(envoyFilters, envoyFilter)
-		}
-	}
-
-	return envoyFilters, nil
+// Load renders the EnvoyFilter SSL template for the given gateway.
+func (k *kserveEnvoyFilterTemplateLoader) Load(ctx context.Context, gatewayNamespace, gatewayName string) (*istioclientv1alpha3.EnvoyFilter, error) {
+	kuadrantNamespace := controllerutils.GetKuadrantNamespace(ctx, k.client)
+	return k.renderSSLTemplate(gatewayNamespace, gatewayName, kuadrantNamespace)
 }
 
-func (k *kserveEnvoyFilterTemplateLoader) renderSSLTemplate(ctx context.Context, gatewayNamespace, gatewayName string) (*istioclientv1alpha3.EnvoyFilter, error) {
+// renderSSLTemplate renders the EnvoyFilter template. Pure function.
+func (k *kserveEnvoyFilterTemplateLoader) renderSSLTemplate(gatewayNamespace, gatewayName, kuadrantNamespace string) (*istioclientv1alpha3.EnvoyFilter, error) {
 	tmpl, err := template.New("envoyfilter").Parse(string(envoyFilterTemplateSSL))
 	if err != nil {
 		return nil, fmt.Errorf("failed to parse EnvoyFilter template: %w", err)
-	}
-
-	logger := logr.FromContextOrDiscard(ctx)
-
-	const defaultKuadrantNamespace = "kuadrant-system"
-	kuadrantNamespace := utils.GetEnvOr("KUADRANT_NAMESPACE", defaultKuadrantNamespace)
-	kuadrantList := &kuadrantv1beta1.KuadrantList{}
-	if err := k.client.List(ctx, kuadrantList); err == nil {
-
-		// Ensure a stable ordering of resources.
-		slices.SortStableFunc(kuadrantList.Items, func(a, b kuadrantv1beta1.Kuadrant) int {
-			c := cmp.Compare(a.Namespace, b.Namespace)
-			if c != 0 {
-				return c
-			}
-			return cmp.Compare(a.Name, b.Name)
-		})
-
-		// Prioritize Kuadrant in "default Kuadrant namespace"
-		foundDefault := false
-		for _, kuadrant := range kuadrantList.Items {
-			if kuadrant.Namespace == kuadrantNamespace {
-				foundDefault = true
-				break
-			}
-		}
-
-		if !foundDefault && len(kuadrantList.Items) > 0 {
-			kuadrantNamespace = kuadrantList.Items[0].Namespace
-		}
-	} else {
-		logger.Error(err, "Unable to list Kuadrant resources, using default namespace", "kuadrant.namespace", kuadrantNamespace)
-	}
-
-	authorinoList := &authorinooperatorv1beta1.AuthorinoList{}
-	if err := k.client.List(ctx, authorinoList, client.InNamespace(kuadrantNamespace)); err == nil {
-
-		// Ensure a stable ordering of resources.
-		slices.SortStableFunc(authorinoList.Items, func(a, b authorinooperatorv1beta1.Authorino) int {
-			return cmp.Compare(a.Name, b.Name)
-		})
-
-		// Skip EnvoyFilter creation only if TLS is disabled (default to false if unset)
-		if len(authorinoList.Items) > 0 && !ptr.Deref(authorinoList.Items[0].Spec.Listener.Tls.Enabled, false) {
-			logger.Info("Authorino has TLS disabled, skipping EnvoyFilter creation", "listener.tls", authorinoList.Items[0].Spec.Listener.Tls)
-			return nil, nil
-		}
-	} else {
-		logger.Error(err, "Unable to list Authorino resources, assuming TLS is enabled", "kuadrant.namespace", kuadrantNamespace)
 	}
 
 	templateData := struct {
@@ -171,49 +102,6 @@ func (k *kserveEnvoyFilterTemplateLoader) renderSSLTemplate(ctx context.Context,
 	}
 
 	return envoyFilter, nil
-}
-
-// getGatewayInfo returns gateway list with fallback logic, filtering out gateways with opendatahub.io/managed: false
-func (k *kserveEnvoyFilterTemplateLoader) getGatewayInfo(ctx context.Context, log logr.Logger, llmisvc *kservev1alpha1.LLMInferenceService) []struct{ Namespace, Name string } {
-	var gateways []struct{ Namespace, Name string }
-
-	if llmisvc.Spec.Router != nil && llmisvc.Spec.Router.Gateway != nil && llmisvc.Spec.Router.Gateway.HasRefs() {
-		for _, ref := range llmisvc.Spec.Router.Gateway.Refs {
-			// Check if the gateway exists and should be managed
-			gateway := &gatewayapiv1.Gateway{}
-			if err := controllerutils.GetResource(ctx, k.client, string(ref.Namespace), string(ref.Name), gateway); err == nil && !controllerutils.IsExplicitlyUnmanaged(gateway) {
-				gateways = append(gateways, struct{ Namespace, Name string }{
-					Namespace: string(ref.Namespace),
-					Name:      string(ref.Name),
-				})
-			}
-		}
-		return gateways
-	}
-
-	var fallbackNamespace, fallbackName string
-	if userDefinedGatewayNS, userDefinedGatewayName, err := controllerutils.GetGatewayInfoFromConfigMap(ctx, k.client); err == nil {
-		fallbackNamespace = userDefinedGatewayNS
-		fallbackName = userDefinedGatewayName
-	} else {
-		log.Info("Using default gateway values due to ConfigMap parsing failure",
-			"error", err.Error(),
-			"defaultNamespace", constants.DefaultGatewayNamespace,
-			"defaultName", constants.DefaultGatewayName)
-		fallbackNamespace = constants.DefaultGatewayNamespace
-		fallbackName = constants.DefaultGatewayName
-	}
-
-	// Check if the fallback gateway exists and should be managed
-	gateway := &gatewayapiv1.Gateway{}
-	if err := controllerutils.GetResource(ctx, k.client, fallbackNamespace, fallbackName, gateway); err == nil && !controllerutils.IsExplicitlyUnmanaged(gateway) {
-		gateways = append(gateways, struct{ Namespace, Name string }{
-			Namespace: fallbackNamespace,
-			Name:      fallbackName,
-		})
-	}
-
-	return gateways
 }
 
 type clientEnvoyFilterStore struct {
@@ -280,24 +168,21 @@ func NewKServeEnvoyFilterMatcher(client client.Client) EnvoyFilterMatcher {
 }
 
 func (k *kserveEnvoyFilterMatcher) FindLLMServiceFromEnvoyFilter(ctx context.Context, envoyFilter *istioclientv1alpha3.EnvoyFilter) ([]types.NamespacedName, error) {
-	gatewayNamespace, gatewayName, err := controllerutils.GetGatewayInfoFromConfigMap(ctx, k.client)
-	if err != nil {
-		// Fallback to default gateway values when ConfigMap is not available
-		gatewayNamespace = constants.DefaultGatewayNamespace
-		gatewayName = constants.DefaultGatewayName
+	if len(envoyFilter.Spec.TargetRefs) == 0 {
+		return nil, nil
 	}
+	targetRef := envoyFilter.Spec.TargetRefs[0]
 
 	var matchedServices []types.NamespacedName
-	listNamespace := metav1.NamespaceAll
 	continueToken := ""
 	for {
 		llmSvcList := &kservev1alpha1.LLMInferenceServiceList{}
-		if err := k.client.List(ctx, llmSvcList, &client.ListOptions{Namespace: listNamespace, Continue: continueToken}); err != nil {
+		if err := k.client.List(ctx, llmSvcList, &client.ListOptions{Namespace: metav1.NamespaceAll, Continue: continueToken}); err != nil {
 			return nil, err
 		}
 
 		for _, llmSvc := range llmSvcList.Items {
-			if k.isGatewayMatchedWithInfo(&llmSvc, envoyFilter, gatewayNamespace, gatewayName) {
+			if controllerutils.LLMIsvcUsesGateway(ctx, k.client, &llmSvc, envoyFilter.Namespace, targetRef.Name) {
 				matchedServices = append(matchedServices, types.NamespacedName{
 					Name:      llmSvc.Name,
 					Namespace: llmSvc.Namespace,
@@ -312,23 +197,4 @@ func (k *kserveEnvoyFilterMatcher) FindLLMServiceFromEnvoyFilter(ctx context.Con
 	}
 
 	return matchedServices, nil
-}
-
-func (k *kserveEnvoyFilterMatcher) isGatewayMatchedWithInfo(llmSvc *kservev1alpha1.LLMInferenceService, envoyFilter *istioclientv1alpha3.EnvoyFilter, gatewayNamespace, gatewayName string) bool {
-	if len(envoyFilter.Spec.TargetRefs) == 0 {
-		return false
-	}
-
-	targetRef := envoyFilter.Spec.TargetRefs[0]
-
-	if llmSvc.Spec.Router == nil || llmSvc.Spec.Router.Gateway == nil || !llmSvc.Spec.Router.Gateway.HasRefs() {
-		return envoyFilter.Namespace == gatewayNamespace && targetRef.Name == gatewayName
-	}
-
-	for _, ref := range llmSvc.Spec.Router.Gateway.Refs {
-		if string(ref.Name) == targetRef.Name && string(ref.Namespace) == envoyFilter.Namespace {
-			return true
-		}
-	}
-	return false
 }

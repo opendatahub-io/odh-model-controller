@@ -104,30 +104,27 @@ func (v *LLMInferenceServiceTierValidator) validate(ctx context.Context, llmisvc
 	if err != nil {
 		var annotationNotFoundError *reconcilers.AnnotationNotFoundError
 		if errors.As(err, &annotationNotFoundError) {
-			// No annotation found, nothing to validate
-			return nil, nil
+			return nil, nil // No annotation found, nothing to validate
 		}
-
-		annotationPath := field.NewPath("metadata").Child("annotations").Key(TierAnnotationKey)
-		var errorMessage string
-
 		if availableTiers != nil {
-			errorMessage = fmt.Sprintf("%v. Available tiers: %v", err.Error(), availableTiers)
-		} else if requestedTiers != nil {
-			errorMessage = err.Error()
-		} else {
-			errorMessage = fmt.Sprintf("Invalid JSON format in tier annotation. Expected format: [\"tier1\", \"tier2\"] or [] for all tiers. Error: %v", err)
+			logger.Error(err, "Tier validation failed", "availableTiers", availableTiers)
 		}
+		annotationPath := field.NewPath("metadata").Child("annotations").Key(TierAnnotationKey)
+		errorMessage := err.Error()
 
-		validationErrors := field.ErrorList{
-			field.Invalid(annotationPath, llmisvc.GetAnnotations()[TierAnnotationKey], errorMessage),
+		// JSON parsing failed (annotation exists but has invalid format).
+		// ConfigMap errors have requestedTiers != nil since parsing succeeded first.
+		if requestedTiers == nil && availableTiers == nil {
+			errorMessage = fmt.Sprintf("Invalid JSON format in tier annotation. Expected format: [\"tier1\", \"tier2\"] or [] for all tiers. Error: %v", err)
 		}
 
 		logger.Info("Tier annotation validation failed", "error", err)
 		return nil, k8sErrors.NewInvalid(
 			schema.GroupKind{Group: llmisvc.GroupVersionKind().Group, Kind: llmisvc.Kind},
 			llmisvc.GetName(),
-			validationErrors)
+			field.ErrorList{
+				field.Invalid(annotationPath, llmisvc.GetAnnotations()[TierAnnotationKey], errorMessage),
+			})
 	}
 
 	logger.Info("Tier annotation validation passed")

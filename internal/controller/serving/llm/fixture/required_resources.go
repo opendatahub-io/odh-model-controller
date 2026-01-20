@@ -140,3 +140,17 @@ func tierConfigMap() *corev1.ConfigMap {
 		},
 	}
 }
+
+// TierConfigMap creates a ConfigMap with tier configuration for testing.
+// This is exported for use in integration tests.
+func TierConfigMap(namespace string, tiers string) *corev1.ConfigMap {
+	return &corev1.ConfigMap{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      reconcilers.TierConfigMapName,
+			Namespace: namespace,
+		},
+		Data: map[string]string{
+			"tiers": tiers,
+		},
+	}
+}

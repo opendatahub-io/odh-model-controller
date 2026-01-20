@@ -17,13 +17,17 @@ package reconcilers
 
 import (
 	"context"
+	"errors"
+	"fmt"
 	"reflect"
 
 	"github.com/go-logr/logr"
 	kservev1alpha1 "github.com/kserve/kserve/pkg/apis/serving/v1alpha1"
+	corev1 "k8s.io/api/core/v1"
 	v1 "k8s.io/api/rbac/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	machineryTypes "k8s.io/apimachinery/pkg/types"
+	"k8s.io/client-go/tools/record"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 
@@ -38,14 +42,16 @@ var _ LLMSubResourceReconciler = (*LLMRoleBindingReconciler)(nil)
 type LLMRoleBindingReconciler struct {
 	LLMNoResourceRemoval
 	client             client.Client
+	recorder           record.EventRecorder
 	roleBindingHandler resources.RoleBindingHandler
 	deltaProcessor     processors.DeltaProcessor
 	tierConfigLoader   *TierConfigLoader
 }
 
-func NewLLMRoleBindingReconciler(client client.Client) *LLMRoleBindingReconciler {
+func NewLLMRoleBindingReconciler(client client.Client, recorder record.EventRecorder) *LLMRoleBindingReconciler {
 	return &LLMRoleBindingReconciler{
 		client:             client,
+		recorder:           recorder,
 		roleBindingHandler: resources.NewRoleBindingHandler(client),
 		deltaProcessor:     processors.NewDeltaProcessor(),
 		tierConfigLoader:   NewTierConfigLoader(client),
@@ -60,8 +66,16 @@ func (r *LLMRoleBindingReconciler) Reconcile(ctx context.Context, log logr.Logge
 		return err
 	}
 
-	if existingResource != nil && !controllerutils.IsManagedResource(llmisvc, existingResource) {
-		return nil
+	if existingResource != nil {
+		if controllerutils.IsExplicitlyUnmanaged(existingResource) {
+			log.V(1).Info("Skipping unmanaged RoleBinding",
+				"llmisvc", llmisvc.Name, "llmisvcNamespace", llmisvc.Namespace,
+				"rolebinding", existingResource.Name, "rolebindingNamespace", existingResource.Namespace)
+			return nil
+		}
+		if !controllerutils.IsManagedResource(llmisvc, existingResource) {
+			return nil
+		}
 	}
 
 	desiredResource := r.createDesiredResource(ctx, log, llmisvc)
@@ -76,7 +90,32 @@ func (r *LLMRoleBindingReconciler) createDesiredResource(ctx context.Context, lo
 		return nil
 	}
 
-	subjects := r.getTierSubjects(ctx, log, llmisvc)
+	subjects, err := r.getTierSubjects(ctx, log, llmisvc)
+	if err != nil {
+		var tierNotFoundErr *TierNotFoundError
+		if errors.As(err, &tierNotFoundErr) {
+			log.Error(err, "Tier misconfiguration - requested tiers not found",
+				"name", llmisvc.Name, "namespace", llmisvc.Namespace,
+				"missing", tierNotFoundErr.MissingTiers, "available", tierNotFoundErr.AvailableTiers)
+			r.recorder.Event(llmisvc, corev1.EventTypeWarning, EventReasonTierNotFound,
+				fmt.Sprintf("Requested tiers %v not found (available: %v)",
+					tierNotFoundErr.MissingTiers, tierNotFoundErr.AvailableTiers))
+		} else {
+			log.Error(err, "Tier config unavailable",
+				"name", llmisvc.Name, "namespace", llmisvc.Namespace)
+			r.recorder.Event(llmisvc, corev1.EventTypeWarning, EventReasonTierConfigUnavail,
+				fmt.Sprintf("Tier configuration unavailable: %v", err))
+		}
+		return nil
+	}
+
+	if subjects == nil {
+		log.Error(nil, "Tier annotation present but no subjects resolved",
+			"name", llmisvc.Name, "namespace", llmisvc.Namespace)
+		r.recorder.Event(llmisvc, corev1.EventTypeWarning, EventReasonTierMisconfiguration,
+			"Tier annotation present but no subjects could be resolved")
+		return nil
+	}
 
 	desiredRoleBinding := &v1.RoleBinding{
 		ObjectMeta: metav1.ObjectMeta{
@@ -98,23 +137,16 @@ func (r *LLMRoleBindingReconciler) createDesiredResource(ctx context.Context, lo
 	return desiredRoleBinding
 }
 
-func (r *LLMRoleBindingReconciler) getTierSubjects(ctx context.Context, log logr.Logger, llmisvc *kservev1alpha1.LLMInferenceService) []v1.Subject {
-	annotations := llmisvc.GetAnnotations()
-	if annotations == nil {
-		return nil
-	}
-
-	if _, found := annotations[TierAnnotationKey]; !found {
-		return nil
-	}
-
+func (r *LLMRoleBindingReconciler) getTierSubjects(ctx context.Context, log logr.Logger, llmisvc *kservev1alpha1.LLMInferenceService) ([]v1.Subject, error) {
 	groupNames, err := r.tierConfigLoader.DefinedGroups(ctx, log, llmisvc)
 	if err != nil {
-		log.V(1).Error(err, "Failed to get tier group names, using default subjects", "name", llmisvc.Name, "namespace", llmisvc.Namespace)
-		return nil
+		return nil, err
+	}
+	if groupNames == nil {
+		return nil, nil
 	}
 	if len(groupNames) == 0 {
-		return nil
+		return nil, fmt.Errorf("no tiers configured in ConfigMap")
 	}
 
 	subjects := make([]v1.Subject, 0, len(groupNames))
@@ -126,7 +158,7 @@ func (r *LLMRoleBindingReconciler) getTierSubjects(ctx context.Context, log logr
 		})
 	}
 
-	return subjects
+	return subjects, nil
 }
 
 func (r *LLMRoleBindingReconciler) getExistingResource(ctx context.Context, log logr.Logger, llmisvc *kservev1alpha1.LLMInferenceService) (*v1.RoleBinding, error) {
