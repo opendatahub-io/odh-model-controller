@@ -61,6 +61,40 @@ func WithClassName(className string) GatewayOption {
 	}
 }
 
+func WithGatewayLabels(labels map[string]string) GatewayOption {
+	return func(gw *gatewayapi.Gateway) {
+		if gw.Labels == nil {
+			gw.Labels = make(map[string]string)
+		}
+		for k, v := range labels {
+			gw.Labels[k] = v
+		}
+	}
+}
+
+func WithGatewayAnnotations(annotations map[string]string) GatewayOption {
+	return func(gw *gatewayapi.Gateway) {
+		if gw.Annotations == nil {
+			gw.Annotations = make(map[string]string)
+		}
+		for k, v := range annotations {
+			gw.Annotations[k] = v
+		}
+	}
+}
+
+func WithUnmanagedLabel() GatewayOption {
+	return WithGatewayLabels(map[string]string{
+		"opendatahub.io/managed": "false",
+	})
+}
+
+func WithAuthorinoTLSBootstrapAnnotation(value string) GatewayOption {
+	return WithGatewayAnnotations(map[string]string{
+		"security.opendatahub.io/authorino-tls-bootstrap": value,
+	})
+}
+
 func WithInfrastructureLabels(key, value string) GatewayOption {
 	return func(gw *gatewayapi.Gateway) {
 		if gw.Spec.Infrastructure.Labels == nil {

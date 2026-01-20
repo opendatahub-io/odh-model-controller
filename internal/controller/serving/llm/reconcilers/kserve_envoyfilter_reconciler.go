@@ -30,6 +30,7 @@ import (
 	gatewayapiv1 "sigs.k8s.io/gateway-api/apis/v1"
 
 	"github.com/opendatahub-io/odh-model-controller/internal/controller/comparators"
+	"github.com/opendatahub-io/odh-model-controller/internal/controller/constants"
 	"github.com/opendatahub-io/odh-model-controller/internal/controller/processors"
 	"github.com/opendatahub-io/odh-model-controller/internal/controller/resources"
 	parentreconcilers "github.com/opendatahub-io/odh-model-controller/internal/controller/serving/reconcilers"
@@ -70,25 +71,70 @@ func (r *KserveEnvoyFilterReconciler) Reconcile(ctx context.Context, log logr.Lo
 func (r *KserveEnvoyFilterReconciler) reconcileGatewayEnvoyFilter(ctx context.Context, log logr.Logger, llmisvc *kservev1alpha1.LLMInferenceService) error {
 	log.V(1).Info("Reconciling Gateway EnvoyFilter")
 
-	desiredEnvoyFilters, err := r.templateLoader.Load(ctx, llmisvc)
-	if err != nil {
-		log.Error(err, "Failed to load Gateway EnvoyFilter templates")
-		return err
-	}
+	gateways := utils.GetGatewaysForLLMIsvc(ctx, r.client, llmisvc)
 
-	for _, desired := range desiredEnvoyFilters {
-		existing, err := r.getExistingEnvoyFilter(ctx, desired.GetName(), desired.GetNamespace())
+	for _, gateway := range gateways {
+		envoyFilterName := constants.GetGatewayEnvoyFilterName(gateway.Name)
+
+		existing, err := r.getExistingEnvoyFilter(ctx, envoyFilterName, gateway.Namespace)
 		if err != nil && !apierrors.IsNotFound(err) {
-			log.Error(err, "Failed to get existing gateway EnvoyFilter", "name", desired.GetName())
+			log.Error(err, "Failed to get existing gateway EnvoyFilter", "name", envoyFilterName)
 			return err
 		}
 
-		if err := r.gatewayEnvoyFilterProcessDelta(ctx, log, desired, existing); err != nil {
+		// Should EnvoyFilter exist? Based on gateway annotation + Authorino TLS settings
+		if !r.shouldEnvoyFilterExist(ctx, gateway) {
+			if err := r.deleteEnvoyFilterIfManaged(ctx, log, existing); err != nil {
+				return err
+			}
+			continue
+		}
+
+		// Construct template
+		desired, err := r.templateLoader.Load(ctx, gateway.Namespace, gateway.Name)
+		if err != nil {
+			log.Error(err, "Failed to render EnvoyFilter for gateway", "name", gateway.Name)
+			return err
+		}
+
+		// Process delta (create/update)
+		if err := r.gatewayEnvoyFilterProcessDelta(ctx, log, gateway, desired, existing); err != nil {
 			log.Error(err, "Failed to process Gateway EnvoyFilter delta", "name", desired.GetName())
 			return err
 		}
 	}
 
+	return nil
+}
+
+// shouldEnvoyFilterExist checks if EnvoyFilter should exist for the given gateway.
+// Based on gateway annotation and Authorino TLS settings.
+func (r *KserveEnvoyFilterReconciler) shouldEnvoyFilterExist(ctx context.Context, gateway *gatewayapiv1.Gateway) bool {
+	// Check gateway-level conditions (managed label + opt-in annotation)
+	if !utils.ShouldCreateEnvoyFilterForGateway(gateway) {
+		return false
+	}
+	// Check Authorino TLS settings
+	kuadrantNamespace := utils.GetKuadrantNamespace(ctx, r.client)
+	return utils.IsAuthorinoTLSEnabled(ctx, r.client, kuadrantNamespace)
+}
+
+func (r *KserveEnvoyFilterReconciler) deleteEnvoyFilterIfManaged(ctx context.Context, log logr.Logger, existing *istioclientv1alpha3.EnvoyFilter) error {
+	if existing == nil {
+		log.V(1).Info("No existing EnvoyFilter to delete")
+		return nil
+	}
+	// Only delete EnvoyFilters managed by this controller
+	isManagedByODH := utils.IsManagedByOpenDataHub(existing)
+	if !isManagedByODH {
+		log.V(1).Info("Skipping deletion - EnvoyFilter is not managed by odh-model-controller", "name", existing.GetName())
+		return nil
+	}
+
+	log.Info("Deleting EnvoyFilter", "name", existing.GetName(), "namespace", existing.GetNamespace())
+	if err := r.store.Remove(ctx, types.NamespacedName{Name: existing.GetName(), Namespace: existing.GetNamespace()}); err != nil {
+		return fmt.Errorf("failed to delete Gateway EnvoyFilter %s: %w", existing.GetName(), err)
+	}
 	return nil
 }
 
@@ -110,28 +156,7 @@ func (r *KserveEnvoyFilterReconciler) getExistingEnvoyFilter(ctx context.Context
 	})
 }
 
-func (r *KserveEnvoyFilterReconciler) getGatewayFromEnvoyFilter(ctx context.Context, envoyFilter *istioclientv1alpha3.EnvoyFilter) (*gatewayapiv1.Gateway, error) {
-	if len(envoyFilter.Spec.TargetRefs) == 0 {
-		return nil, fmt.Errorf("EnvoyFilter %s has no targetRefs", envoyFilter.GetName())
-	}
-
-	targetRef := envoyFilter.Spec.TargetRefs[0]
-	if targetRef.Kind != "Gateway" {
-		return nil, fmt.Errorf("EnvoyFilter %s does not target a Gateway", envoyFilter.GetName())
-	}
-
-	gatewayName := targetRef.Name
-	gatewayNamespace := envoyFilter.GetNamespace()
-
-	gateway := &gatewayapiv1.Gateway{}
-	if err := utils.GetResource(ctx, r.client, gatewayNamespace, gatewayName, gateway); err != nil {
-		return nil, fmt.Errorf("failed to get Gateway %s/%s: %w", gatewayNamespace, gatewayName, err)
-	}
-
-	return gateway, nil
-}
-
-func (r *KserveEnvoyFilterReconciler) gatewayEnvoyFilterProcessDelta(ctx context.Context, log logr.Logger, desired *istioclientv1alpha3.EnvoyFilter, existing *istioclientv1alpha3.EnvoyFilter) error {
+func (r *KserveEnvoyFilterReconciler) gatewayEnvoyFilterProcessDelta(ctx context.Context, log logr.Logger, gateway *gatewayapiv1.Gateway, desired *istioclientv1alpha3.EnvoyFilter, existing *istioclientv1alpha3.EnvoyFilter) error {
 	log.V(1).Info("Processing Gateway EnvoyFilter delta", "name", desired.GetName())
 
 	delta := r.deltaProcessor.ComputeDelta(comparators.GetEnvoyFilterComparator(), desired, existing)
@@ -144,10 +169,6 @@ func (r *KserveEnvoyFilterReconciler) gatewayEnvoyFilterProcessDelta(ctx context
 	if delta.IsAdded() {
 		log.V(1).Info("Delta found", "action", "create", "envoyfilter", desired.GetName())
 
-		gateway, err := r.getGatewayFromEnvoyFilter(ctx, desired)
-		if err != nil {
-			return fmt.Errorf("failed to get Gateway for EnvoyFilter %s: %w", desired.GetName(), err)
-		}
 		if err := controllerutil.SetControllerReference(gateway, desired, r.scheme); err != nil {
 			return fmt.Errorf("failed to set controller reference to Gateway for EnvoyFilter %s: %w", desired.GetName(), err)
 		}
@@ -159,10 +180,6 @@ func (r *KserveEnvoyFilterReconciler) gatewayEnvoyFilterProcessDelta(ctx context
 	} else if delta.IsUpdated() {
 		log.V(1).Info("Delta found", "action", "update", "envoyfilter", existing.GetName())
 
-		gateway, err := r.getGatewayFromEnvoyFilter(ctx, desired)
-		if err != nil {
-			return fmt.Errorf("failed to get Gateway for EnvoyFilter %s: %w", desired.GetName(), err)
-		}
 		if err := controllerutil.SetControllerReference(gateway, desired, r.scheme); err != nil {
 			return fmt.Errorf("failed to set controller reference to Gateway for EnvoyFilter %s: %w", desired.GetName(), err)
 		}
