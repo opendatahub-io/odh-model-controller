@@ -19,10 +19,12 @@ package v1
 import (
 	"context"
 	"fmt"
+	"strings"
 
 	"github.com/opendatahub-io/odh-model-controller/internal/controller/serving/reconcilers"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/apimachinery/pkg/util/validation"
 	ctrl "sigs.k8s.io/controller-runtime"
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
 	"sigs.k8s.io/controller-runtime/pkg/webhook"
@@ -59,12 +61,27 @@ func (v *TierConfigMapValidator) ValidateCreate(ctx context.Context, obj runtime
 
 // ValidateUpdate implements webhook.CustomValidator so a webhook will be registered for the type ConfigMap.
 func (v *TierConfigMapValidator) ValidateUpdate(ctx context.Context, oldObj, newObj runtime.Object) (admission.Warnings, error) {
-	configMap, ok := newObj.(*corev1.ConfigMap)
+	oldConfigMap, ok := oldObj.(*corev1.ConfigMap)
+	if !ok {
+		return nil, fmt.Errorf("expected a ConfigMap object but got %T", oldObj)
+	}
+
+	newConfigMap, ok := newObj.(*corev1.ConfigMap)
 	if !ok {
 		return nil, fmt.Errorf("expected a ConfigMap object but got %T", newObj)
 	}
 
-	return v.validate(configMap)
+	// Only check rename prevention for tier-to-group-mapping ConfigMap
+	maasNamespace := reconcilers.GetMaasNamespace()
+	if newConfigMap.Name == reconcilers.TierConfigMapName && newConfigMap.Namespace == maasNamespace {
+		if err := validateTierNamesNotRemoved(oldConfigMap, newConfigMap); err != nil {
+			log := tierConfigMaplog.WithValues("namespace", newConfigMap.Namespace, "name", newConfigMap.Name)
+			log.Error(err, "Tier rename prevention validation failed")
+			return nil, err
+		}
+	}
+
+	return v.validate(newConfigMap)
 }
 
 // ValidateDelete implements webhook.CustomValidator so a webhook will be registered for the type ConfigMap.
@@ -72,7 +89,7 @@ func (v *TierConfigMapValidator) ValidateDelete(ctx context.Context, obj runtime
 	return nil, nil
 }
 
-// validate checks the ConfigMap and validates tier levels if it's the tier-to-group-mapping ConfigMap.
+// validate checks the ConfigMap and validates tier levels and names if it's the tier-to-group-mapping ConfigMap.
 func (v *TierConfigMapValidator) validate(configMap *corev1.ConfigMap) (admission.Warnings, error) {
 	// Only validate the tier-to-group-mapping ConfigMap in the MaaS namespace
 	maasNamespace := reconcilers.GetMaasNamespace()
@@ -83,8 +100,13 @@ func (v *TierConfigMapValidator) validate(configMap *corev1.ConfigMap) (admissio
 	log := tierConfigMaplog.WithValues("namespace", configMap.Namespace, "name", configMap.Name)
 	log.Info("Validating tier-to-group-mapping ConfigMap")
 
+	if err := validateTierNames(configMap); err != nil {
+		log.Error(err, "Tier name validation failed")
+		return nil, err
+	}
+
 	if err := validateTierLevels(configMap); err != nil {
-		log.Error(err, "Tier ConfigMap validation failed")
+		log.Error(err, "Tier level validation failed")
 		return nil, err
 	}
 
@@ -94,14 +116,12 @@ func (v *TierConfigMapValidator) validate(configMap *corev1.ConfigMap) (admissio
 
 // validateTierLevels checks that no two tiers have the same level value.
 func validateTierLevels(configMap *corev1.ConfigMap) error {
-	tiersData, found := configMap.Data["tiers"]
-	if !found {
-		return nil
+	tiers, err := parseTiers(configMap)
+	if err != nil {
+		return err
 	}
-
-	var tiers []reconcilers.Tier
-	if err := yaml.Unmarshal([]byte(tiersData), &tiers); err != nil {
-		return fmt.Errorf("failed to parse tiers configuration: %w", err)
+	if tiers == nil {
+		return nil
 	}
 
 	// Check for duplicate levels
@@ -120,4 +140,90 @@ func validateTierLevels(configMap *corev1.ConfigMap) error {
 	}
 
 	return nil
+}
+
+// validateTierNames checks that all tier names are valid Kubernetes DNS-1123 labels.
+func validateTierNames(configMap *corev1.ConfigMap) error {
+	tiers, err := parseTiers(configMap)
+	if err != nil {
+		return err
+	}
+	if tiers == nil {
+		return nil
+	}
+
+	for _, tier := range tiers {
+		if errs := validation.IsDNS1123Label(tier.Name); len(errs) > 0 {
+			tierConfigMaplog.Error(nil,
+				"invalid tier name",
+				"tierName", tier.Name,
+				"errors", errs,
+			)
+			return fmt.Errorf("invalid tier name '%s': %s", tier.Name, strings.Join(errs, ", "))
+		}
+	}
+
+	return nil
+}
+
+// validateTierNamesNotRemoved checks that no existing tier names are removed or renamed.
+func validateTierNamesNotRemoved(oldConfigMap, newConfigMap *corev1.ConfigMap) error {
+	oldTierNames, err := extractTierNames(oldConfigMap)
+	if err != nil {
+		return fmt.Errorf("failed to parse old tier configuration: %w", err)
+	}
+
+	newTierNames, err := extractTierNames(newConfigMap)
+	if err != nil {
+		return fmt.Errorf("failed to parse new tier configuration: %w", err)
+	}
+
+	newTierSet := make(map[string]bool)
+	for _, name := range newTierNames {
+		newTierSet[name] = true
+	}
+
+	for _, oldName := range oldTierNames {
+		if !newTierSet[oldName] {
+			tierConfigMaplog.Error(nil,
+				"tier removal/rename detected",
+				"tierName", oldName,
+			)
+			return fmt.Errorf("tier '%s' cannot be removed or renamed: tier names are immutable", oldName)
+		}
+	}
+
+	return nil
+}
+
+// extractTierNames extracts tier names from a ConfigMap.
+func extractTierNames(configMap *corev1.ConfigMap) ([]string, error) {
+	tiers, err := parseTiers(configMap)
+	if err != nil {
+		return nil, err
+	}
+	if tiers == nil {
+		return nil, nil
+	}
+
+	names := make([]string, len(tiers))
+	for i, tier := range tiers {
+		names[i] = tier.Name
+	}
+	return names, nil
+}
+
+// parseTiers parses the tiers data from a ConfigMap.
+func parseTiers(configMap *corev1.ConfigMap) ([]reconcilers.Tier, error) {
+	tiersData, found := configMap.Data["tiers"]
+	if !found {
+		return nil, nil
+	}
+
+	var tiers []reconcilers.Tier
+	if err := yaml.Unmarshal([]byte(tiersData), &tiers); err != nil {
+		return nil, fmt.Errorf("failed to parse tiers configuration: %w", err)
+	}
+
+	return tiers, nil
 }
