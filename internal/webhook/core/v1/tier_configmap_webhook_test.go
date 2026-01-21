@@ -221,4 +221,410 @@ var _ = Describe("Tier ConfigMap Validator Webhook", func() {
 			Expect(warnings).To(BeNil())
 		})
 	})
+
+	Describe("validateTierNames", func() {
+		It("should pass validation when tier names are valid DNS-1123 labels", func() {
+			configMap := &corev1.ConfigMap{
+				Data: map[string]string{
+					"tiers": `
+- name: free
+  level: 10
+  groups: ["free-users"]
+- name: premium-tier
+  level: 20
+  groups: ["premium-users"]
+- name: enterprise123
+  level: 30
+  groups: ["enterprise-users"]
+`,
+				},
+			}
+
+			err := validateTierNames(configMap)
+			Expect(err).NotTo(HaveOccurred())
+		})
+
+		It("should fail validation when tier name contains uppercase letters", func() {
+			configMap := &corev1.ConfigMap{
+				Data: map[string]string{
+					"tiers": `
+- name: Free
+  level: 10
+  groups: ["free-users"]
+`,
+				},
+			}
+
+			err := validateTierNames(configMap)
+			Expect(err).To(HaveOccurred())
+			Expect(err.Error()).To(ContainSubstring("invalid tier name 'Free'"))
+		})
+
+		It("should fail validation when tier name contains special characters", func() {
+			configMap := &corev1.ConfigMap{
+				Data: map[string]string{
+					"tiers": `
+- name: free_tier
+  level: 10
+  groups: ["free-users"]
+`,
+				},
+			}
+
+			err := validateTierNames(configMap)
+			Expect(err).To(HaveOccurred())
+			Expect(err.Error()).To(ContainSubstring("invalid tier name 'free_tier'"))
+		})
+
+		It("should fail validation when tier name starts with a hyphen", func() {
+			configMap := &corev1.ConfigMap{
+				Data: map[string]string{
+					"tiers": `
+- name: -free
+  level: 10
+  groups: ["free-users"]
+`,
+				},
+			}
+
+			err := validateTierNames(configMap)
+			Expect(err).To(HaveOccurred())
+			Expect(err.Error()).To(ContainSubstring("invalid tier name '-free'"))
+		})
+
+		It("should fail validation when tier name ends with a hyphen", func() {
+			configMap := &corev1.ConfigMap{
+				Data: map[string]string{
+					"tiers": `
+- name: free-
+  level: 10
+  groups: ["free-users"]
+`,
+				},
+			}
+
+			err := validateTierNames(configMap)
+			Expect(err).To(HaveOccurred())
+			Expect(err.Error()).To(ContainSubstring("invalid tier name 'free-'"))
+		})
+
+		It("should fail validation when tier name is too long (>63 characters)", func() {
+			configMap := &corev1.ConfigMap{
+				Data: map[string]string{
+					"tiers": `
+- name: this-tier-name-is-way-too-long-and-exceeds-the-sixty-three-character-limit
+  level: 10
+  groups: ["free-users"]
+`,
+				},
+			}
+
+			err := validateTierNames(configMap)
+			Expect(err).To(HaveOccurred())
+			Expect(err.Error()).To(ContainSubstring("invalid tier name"))
+		})
+
+		It("should fail validation when tier name is empty", func() {
+			configMap := &corev1.ConfigMap{
+				Data: map[string]string{
+					"tiers": `
+- name: ""
+  level: 10
+  groups: ["free-users"]
+`,
+				},
+			}
+
+			err := validateTierNames(configMap)
+			Expect(err).To(HaveOccurred())
+			Expect(err.Error()).To(ContainSubstring("invalid tier name"))
+		})
+
+		It("should pass validation when tiers key is missing", func() {
+			configMap := &corev1.ConfigMap{
+				Data: map[string]string{
+					"other-key": "some-value",
+				},
+			}
+
+			err := validateTierNames(configMap)
+			Expect(err).NotTo(HaveOccurred())
+		})
+	})
+
+	Describe("validateTierNamesNotRemoved", func() {
+		It("should pass validation when tiers are unchanged", func() {
+			oldConfigMap := &corev1.ConfigMap{
+				Data: map[string]string{
+					"tiers": `
+- name: free
+  level: 10
+- name: premium
+  level: 20
+`,
+				},
+			}
+			newConfigMap := &corev1.ConfigMap{
+				Data: map[string]string{
+					"tiers": `
+- name: free
+  level: 10
+- name: premium
+  level: 20
+`,
+				},
+			}
+
+			err := validateTierNamesNotRemoved(oldConfigMap, newConfigMap)
+			Expect(err).NotTo(HaveOccurred())
+		})
+
+		It("should pass validation when new tiers are added", func() {
+			oldConfigMap := &corev1.ConfigMap{
+				Data: map[string]string{
+					"tiers": `
+- name: free
+  level: 10
+`,
+				},
+			}
+			newConfigMap := &corev1.ConfigMap{
+				Data: map[string]string{
+					"tiers": `
+- name: free
+  level: 10
+- name: premium
+  level: 20
+`,
+				},
+			}
+
+			err := validateTierNamesNotRemoved(oldConfigMap, newConfigMap)
+			Expect(err).NotTo(HaveOccurred())
+		})
+
+		It("should fail validation when a tier is removed", func() {
+			oldConfigMap := &corev1.ConfigMap{
+				Data: map[string]string{
+					"tiers": `
+- name: free
+  level: 10
+- name: premium
+  level: 20
+`,
+				},
+			}
+			newConfigMap := &corev1.ConfigMap{
+				Data: map[string]string{
+					"tiers": `
+- name: free
+  level: 10
+`,
+				},
+			}
+
+			err := validateTierNamesNotRemoved(oldConfigMap, newConfigMap)
+			Expect(err).To(HaveOccurred())
+			Expect(err.Error()).To(ContainSubstring("tier 'premium' cannot be removed or renamed"))
+		})
+
+		It("should fail validation when a tier is renamed", func() {
+			oldConfigMap := &corev1.ConfigMap{
+				Data: map[string]string{
+					"tiers": `
+- name: free
+  level: 10
+`,
+				},
+			}
+			newConfigMap := &corev1.ConfigMap{
+				Data: map[string]string{
+					"tiers": `
+- name: basic
+  level: 10
+`,
+				},
+			}
+
+			err := validateTierNamesNotRemoved(oldConfigMap, newConfigMap)
+			Expect(err).To(HaveOccurred())
+			Expect(err.Error()).To(ContainSubstring("tier 'free' cannot be removed or renamed"))
+		})
+
+		It("should pass validation when old ConfigMap has no tiers key", func() {
+			oldConfigMap := &corev1.ConfigMap{
+				Data: map[string]string{
+					"other-key": "value",
+				},
+			}
+			newConfigMap := &corev1.ConfigMap{
+				Data: map[string]string{
+					"tiers": `
+- name: free
+  level: 10
+`,
+				},
+			}
+
+			err := validateTierNamesNotRemoved(oldConfigMap, newConfigMap)
+			Expect(err).NotTo(HaveOccurred())
+		})
+
+		It("should pass validation when both ConfigMaps have no tiers key", func() {
+			oldConfigMap := &corev1.ConfigMap{
+				Data: map[string]string{
+					"other-key": "value",
+				},
+			}
+			newConfigMap := &corev1.ConfigMap{
+				Data: map[string]string{
+					"other-key": "new-value",
+				},
+			}
+
+			err := validateTierNamesNotRemoved(oldConfigMap, newConfigMap)
+			Expect(err).NotTo(HaveOccurred())
+		})
+	})
+
+	Describe("ValidateUpdate integration", func() {
+		It("should reject tier removal on update for tier ConfigMap", func() {
+			oldConfigMap := &corev1.ConfigMap{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      reconcilers.TierConfigMapName,
+					Namespace: maasNamespace,
+				},
+				Data: map[string]string{
+					"tiers": `
+- name: free
+  level: 10
+- name: premium
+  level: 20
+`,
+				},
+			}
+			newConfigMap := &corev1.ConfigMap{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      reconcilers.TierConfigMapName,
+					Namespace: maasNamespace,
+				},
+				Data: map[string]string{
+					"tiers": `
+- name: free
+  level: 10
+`,
+				},
+			}
+
+			warnings, err := validator.ValidateUpdate(ctx, oldConfigMap, newConfigMap)
+			Expect(err).To(HaveOccurred())
+			Expect(err.Error()).To(ContainSubstring("tier 'premium' cannot be removed or renamed"))
+			Expect(warnings).To(BeNil())
+		})
+
+		It("should allow tier addition on update", func() {
+			oldConfigMap := &corev1.ConfigMap{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      reconcilers.TierConfigMapName,
+					Namespace: maasNamespace,
+				},
+				Data: map[string]string{
+					"tiers": `
+- name: free
+  level: 10
+`,
+				},
+			}
+			newConfigMap := &corev1.ConfigMap{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      reconcilers.TierConfigMapName,
+					Namespace: maasNamespace,
+				},
+				Data: map[string]string{
+					"tiers": `
+- name: free
+  level: 10
+- name: premium
+  level: 20
+`,
+				},
+			}
+
+			warnings, err := validator.ValidateUpdate(ctx, oldConfigMap, newConfigMap)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(warnings).To(BeNil())
+		})
+
+		It("should skip rename validation for non-tier ConfigMaps", func() {
+			oldConfigMap := &corev1.ConfigMap{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "some-other-configmap",
+					Namespace: maasNamespace,
+				},
+				Data: map[string]string{
+					"tiers": `
+- name: free
+  level: 10
+`,
+				},
+			}
+			newConfigMap := &corev1.ConfigMap{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "some-other-configmap",
+					Namespace: maasNamespace,
+				},
+				Data: map[string]string{
+					"tiers": `
+- name: basic
+  level: 10
+`,
+				},
+			}
+
+			warnings, err := validator.ValidateUpdate(ctx, oldConfigMap, newConfigMap)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(warnings).To(BeNil())
+		})
+	})
+
+	Describe("ValidateCreate with name validation", func() {
+		It("should reject invalid tier names on create", func() {
+			configMap := &corev1.ConfigMap{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      reconcilers.TierConfigMapName,
+					Namespace: maasNamespace,
+				},
+				Data: map[string]string{
+					"tiers": `
+- name: Invalid_Name
+  level: 10
+`,
+				},
+			}
+
+			warnings, err := validator.ValidateCreate(ctx, configMap)
+			Expect(err).To(HaveOccurred())
+			Expect(err.Error()).To(ContainSubstring("invalid tier name 'Invalid_Name'"))
+			Expect(warnings).To(BeNil())
+		})
+
+		It("should accept valid tier names on create", func() {
+			configMap := &corev1.ConfigMap{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      reconcilers.TierConfigMapName,
+					Namespace: maasNamespace,
+				},
+				Data: map[string]string{
+					"tiers": `
+- name: valid-name
+  level: 10
+`,
+				},
+			}
+
+			warnings, err := validator.ValidateCreate(ctx, configMap)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(warnings).To(BeNil())
+		})
+	})
 })
