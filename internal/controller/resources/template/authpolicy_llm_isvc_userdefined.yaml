@@ -3,10 +3,10 @@ kind: AuthPolicy
 metadata:
   name: {{.Name}}
   namespace: {{.GatewayNamespace}}
-  labels:    
-    "app.kubernetes.io/name":       "llminferenceservice-auth"
-    "app.kubernetes.io/component":  "llminferenceservice-policies"
-    "app.kubernetes.io/part-of":    "llminferenceservice"
+  labels:
+    "app.kubernetes.io/name": "llminferenceservice-auth"
+    "app.kubernetes.io/component": "llminferenceservice-policies"
+    "app.kubernetes.io/part-of": "llminferenceservice"
     "app.kubernetes.io/managed-by": "odh-model-controller"
 spec:
   targetRef:
@@ -18,6 +18,11 @@ spec:
       kubernetes-user:
         kubernetesTokenReview:
           audiences: {{.AudiencesJSON}}
+        overrides:
+          fairness:
+            value: "{{.Issuer}}"
+          objective:
+            expression: "{{.ObjectiveExpression}}"
     authorization:
       inference-access:
         kubernetesSubjectAccessReview:
@@ -36,4 +41,35 @@ spec:
               expression: request.path.split("/")[2]
             verb:
               value: get
+        priority: 2
+      endpoint-access:
+        kubernetesSubjectAccessReview:
+          user:
+            expression: auth.identity.user.username
+          authorizationGroups:
+            expression: auth.identity.user.groups
+          resourceAttributes:
+            group:
+              value: serving.kserve.io
+            resource:
+              value: llminferenceservices
+            namespace:
+              expression: request.path.split("/")[1]
+            name:
+              expression: request.path.split("/")[2]
+            verb:
+              value: post
         priority: 1
+    response:
+      success:
+        headers:
+          x-gateway-inference-fairness-id:
+            metrics: false
+            plain:
+              expression: auth.identity.fairness
+            priority: 0
+          x-gateway-inference-objective:
+            metrics: false
+            plain:
+              expression: auth.identity.objective
+            priority: 0

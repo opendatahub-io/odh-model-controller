@@ -134,18 +134,31 @@ func (k *kserveAuthPolicyTemplateLoader) renderUserDefinedTemplate(ctx context.C
 		return nil, fmt.Errorf("failed to marshal audiences %v to JSON: %w", audiences, err)
 	}
 
+	// Get the objective expression from Gateway annotation or use default
+	objectiveExpression := constants.DefaultObjectiveExpression
+	gateway := &gatewayapiv1.Gateway{}
+	if err := controllerutils.GetResource(ctx, k.client, gatewayNamespace, gatewayName, gateway); err == nil {
+		if customExpr, ok := gateway.Annotations[constants.AuthPolicyObjectiveExpressionAnnotation]; ok && customExpr != "" {
+			objectiveExpression = customExpr
+		}
+	}
+
 	templateData := struct {
-		Name             string
-		GatewayName      string
-		GatewayNamespace string
-		Audiences        []string
-		AudiencesJSON    string
+		Name                string
+		GatewayName         string
+		GatewayNamespace    string
+		Audiences           []string
+		AudiencesJSON       string
+		Issuer              string
+		ObjectiveExpression string
 	}{
-		Name:             constants.GetGatewayAuthPolicyName(gatewayName),
-		GatewayName:      gatewayName,
-		GatewayNamespace: gatewayNamespace,
-		Audiences:        audiences,
-		AudiencesJSON:    string(audiencesJSON),
+		Name:                constants.GetGatewayAuthPolicyName(gatewayName),
+		GatewayName:         gatewayName,
+		GatewayNamespace:    gatewayNamespace,
+		Audiences:           audiences,
+		AudiencesJSON:       string(audiencesJSON),
+		Issuer:              audiences[0],
+		ObjectiveExpression: objectiveExpression,
 	}
 
 	var builder strings.Builder
