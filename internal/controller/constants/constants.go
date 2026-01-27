@@ -178,7 +178,7 @@ const (
 	// the CEL expression used to compute the objective value for inference.
 	// If not set, defaults to extracting the namespace from ServiceAccount usernames,
 	// or "authenticated" for non-SA users.
-	AuthPolicyObjectiveExpressionAnnotation = "security.opendatahub.io/inference-objective-expression"
+	AuthPolicyObjectiveExpressionAnnotation = "inference.opendatahub.io/objective-expression"
 
 	// DefaultObjectiveExpression is the default CEL expression for computing the objective value.
 	// For ServiceAccount tokens, it extracts the namespace; for other users, it returns "authenticated".

@@ -163,7 +163,7 @@ metadata:
   name: my-gateway
   namespace: openshift-ingress
   annotations:
-    security.opendatahub.io/inference-objective-expression: "<your-cel-expression>"
+    inference.opendatahub.io/objective-expression: "<your-cel-expression>"
 spec:
 # ...
 ```
