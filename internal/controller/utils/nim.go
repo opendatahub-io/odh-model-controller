@@ -146,7 +146,7 @@ func IsNimAirGapped(ctx context.Context, clt client.Client) bool {
 		return false
 	}
 
-	airGapped, found, err := unstructured.NestedBool(dscList.Items[0].Object, "spec", "components", "nim", "airGapped")
+	airGapped, found, err := unstructured.NestedBool(dscList.Items[0].Object, "spec", "components", "kserve", "nim", "airGapped")
 	if err != nil {
 		logger.V(1).Error(err, "failed to read NIM air-gapped flag from DataScienceCluster")
 		return false
