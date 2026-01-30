@@ -29,7 +29,6 @@ import (
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
 	"sigs.k8s.io/controller-runtime/pkg/webhook"
 	"sigs.k8s.io/controller-runtime/pkg/webhook/admission"
-	"sigs.k8s.io/yaml"
 )
 
 // +kubebuilder:webhook:path=/validate--v1-configmap,mutating=false,failurePolicy=fail,groups="",resources=configmaps,verbs=create;update,versions=v1,name=validating.configmap.odh-model-controller.opendatahub.io,admissionReviewVersions=v1,sideEffects=none
@@ -116,7 +115,7 @@ func (v *TierConfigMapValidator) validate(configMap *corev1.ConfigMap) (admissio
 
 // validateTierLevels checks that no two tiers have the same level value.
 func validateTierLevels(configMap *corev1.ConfigMap) error {
-	tiers, err := parseTiers(configMap)
+	tiers, err := reconcilers.ParseTiersFromConfigMap(configMap)
 	if err != nil {
 		return err
 	}
@@ -144,7 +143,7 @@ func validateTierLevels(configMap *corev1.ConfigMap) error {
 
 // validateTierNames checks that all tier names are valid Kubernetes DNS-1123 labels.
 func validateTierNames(configMap *corev1.ConfigMap) error {
-	tiers, err := parseTiers(configMap)
+	tiers, err := reconcilers.ParseTiersFromConfigMap(configMap)
 	if err != nil {
 		return err
 	}
@@ -198,7 +197,7 @@ func validateTierNamesNotRemoved(oldConfigMap, newConfigMap *corev1.ConfigMap) e
 
 // extractTierNames extracts tier names from a ConfigMap.
 func extractTierNames(configMap *corev1.ConfigMap) ([]string, error) {
-	tiers, err := parseTiers(configMap)
+	tiers, err := reconcilers.ParseTiersFromConfigMap(configMap)
 	if err != nil {
 		return nil, err
 	}
@@ -211,19 +210,4 @@ func extractTierNames(configMap *corev1.ConfigMap) ([]string, error) {
 		names[i] = tier.Name
 	}
 	return names, nil
-}
-
-// parseTiers parses the tiers data from a ConfigMap.
-func parseTiers(configMap *corev1.ConfigMap) ([]reconcilers.Tier, error) {
-	tiersData, found := configMap.Data["tiers"]
-	if !found {
-		return nil, nil
-	}
-
-	var tiers []reconcilers.Tier
-	if err := yaml.Unmarshal([]byte(tiersData), &tiers); err != nil {
-		return nil, fmt.Errorf("failed to parse tiers configuration: %w", err)
-	}
-
-	return tiers, nil
 }

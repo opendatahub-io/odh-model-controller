@@ -113,7 +113,7 @@ var _ = Describe("Tier ConfigMap Validator Webhook", func() {
 
 			err := validateTierLevels(configMap)
 			Expect(err).To(HaveOccurred())
-			Expect(err.Error()).To(ContainSubstring("failed to parse tiers configuration"))
+			Expect(err.Error()).To(ContainSubstring("failed to parse tier configuration"))
 		})
 
 		It("should detect duplicate level 0 when tier omits level field", func() {
