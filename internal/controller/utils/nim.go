@@ -17,6 +17,7 @@ package utils
 
 import (
 	"context"
+	"crypto/tls"
 	"encoding/base64"
 	"encoding/json"
 	"errors"
@@ -116,7 +117,14 @@ var NimHttpClient HttpClient
 var NimEqualities semantic.Equalities
 
 func init() {
-	NimHttpClient = &http.Client{Timeout: time.Second * 30}
+	transport := http.DefaultTransport.(*http.Transport).Clone()
+	transport.TLSClientConfig = &tls.Config{
+		MinVersion: tls.VersionTLS12,
+	}
+	NimHttpClient = &http.Client{
+		Timeout:   time.Second * 30,
+		Transport: transport,
+	}
 	NimEqualities = semantic.EqualitiesOrDie(
 		func(a, b resource.Quantity) bool {
 			return true
