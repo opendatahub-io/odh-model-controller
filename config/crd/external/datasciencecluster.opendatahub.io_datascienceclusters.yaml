@@ -321,13 +321,6 @@ spec:
                         nim:
                           description: Configures and enables NVIDIA NIM integration
                           properties:
-                            airGapped:
-                              default: false
-                              description: |-
-                                When true, NIM integration assumes an air-gapped cluster. External API calls
-                                and the NIM model list ConfigMap creation are skipped, while status conditions
-                                are marked successful with an air-gapped message.
-                              type: boolean
                             managementState:
                               default: Managed
                               enum:
@@ -1704,13 +1697,6 @@ spec:
                         nim:
                           description: Configures and enables NVIDIA NIM integration
                           properties:
-                            airGapped:
-                              default: false
-                              description: |-
-                                When true, NIM integration assumes an air-gapped cluster. External API calls
-                                and the NIM model list ConfigMap creation are skipped, while status conditions
-                                are marked successful with an air-gapped message.
-                              type: boolean
                             managementState:
                               default: Managed
                               enum:
