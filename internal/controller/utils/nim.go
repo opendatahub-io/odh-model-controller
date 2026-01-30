@@ -36,11 +36,13 @@ import (
 	k8serrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/utils/semantic"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/apiutil"
+	"sigs.k8s.io/controller-runtime/pkg/log"
 )
 
 type (
@@ -125,6 +127,34 @@ func init() {
 			return a.UTC() == b.UTC()
 		},
 	)
+}
+
+// IsNimAirGapped returns true when DSC enables NIM air-gapped mode.
+// It is best-effort and returns false on any lookup error.
+func IsNimAirGapped(ctx context.Context, clt client.Client) bool {
+	logger := log.FromContext(ctx)
+
+	dscList := &unstructured.UnstructuredList{}
+	dscList.SetGroupVersionKind(GVK.DataScienceCluster)
+	if err := clt.List(ctx, dscList); err != nil {
+		logger.V(1).Error(err, "failed to list DataScienceCluster for NIM air-gapped flag")
+		return false
+	}
+
+	if len(dscList.Items) != 1 {
+		logger.V(1).Info("unexpected DataScienceCluster count for NIM air-gapped flag", "count", len(dscList.Items))
+		return false
+	}
+
+	airGapped, found, err := unstructured.NestedBool(dscList.Items[0].Object, "spec", "components", "kserve", "nim", "airGapped")
+	if err != nil {
+		logger.V(1).Error(err, "failed to read NIM air-gapped flag from DataScienceCluster")
+		return false
+	}
+	if !found {
+		return false
+	}
+	return airGapped
 }
 
 // GetAvailableNimRuntimes is used for fetching a list of available NIM custom runtimes

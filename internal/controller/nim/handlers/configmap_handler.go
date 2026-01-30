@@ -45,10 +45,28 @@ type ConfigMapHandler struct {
 	Scheme     *runtime.Scheme
 	KubeClient *kubernetes.Clientset
 	KeyManager *APIKeyManager
+	AirGapped  bool
 }
 
 func (c *ConfigMapHandler) Handle(ctx context.Context, account *v1.Account) HandleResponse {
 	logger := log.FromContext(ctx)
+
+	if c.AirGapped {
+		msg := "configmap update marked successful because NIM air-gapped mode is enabled"
+		successStatus := account.Status
+		condUpdated := meta.SetStatusCondition(&successStatus.Conditions,
+			utils.MakeNimCondition(utils.NimConditionConfigMapUpdate, metav1.ConditionTrue, account.Generation, "ConfigMapUpdated", msg))
+		if condUpdated || successStatus.LastSuccessfulConfigRefresh == nil {
+			successStatus.LastSuccessfulConfigRefresh = &metav1.Time{Time: time.Now()}
+			if updateErr := utils.UpdateStatus(ctx, client.ObjectKeyFromObject(account), successStatus, c.Client); updateErr != nil {
+				return HandleResponse{Error: updateErr}
+			}
+			logger.Info(msg)
+			return HandleResponse{Requeue: true}
+		}
+		logger.V(1).Info(msg)
+		return HandleResponse{Continue: true}
+	}
 
 	if shouldReconcile := c.shouldReconcile(ctx, account); !shouldReconcile {
 		return HandleResponse{Continue: true}
