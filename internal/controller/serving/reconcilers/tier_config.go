@@ -278,18 +278,33 @@ func (s *TierConfigLoader) loadTiers(ctx context.Context, log logr.Logger, names
 		return nil, fmt.Errorf("tier ConfigMap %s not found in namespace %s", TierConfigMapName, namespace)
 	}
 
+	tiers, err := ParseTiersFromConfigMap(configMap)
+	if err != nil {
+		return nil, err
+	}
+
+	if tiers == nil {
+		return nil, fmt.Errorf("'tiers' key not found in ConfigMap %s", TierConfigMapName)
+	}
+
+	if len(tiers) == 0 {
+		return nil, fmt.Errorf("no tiers configured in ConfigMap %s", TierConfigMapName)
+	}
+
+	return tiers, nil
+}
+
+// ParseTiersFromConfigMap parses the tier configuration from a ConfigMap's "tiers" key.
+// Returns nil slice if the "tiers" key is not found.
+func ParseTiersFromConfigMap(configMap *corev1.ConfigMap) ([]Tier, error) {
 	tiersData, found := configMap.Data["tiers"]
 	if !found {
-		return nil, fmt.Errorf("'tiers' key not found in ConfigMap %s", TierConfigMapName)
+		return nil, nil
 	}
 
 	var tiers []Tier
 	if err := yaml.Unmarshal([]byte(tiersData), &tiers); err != nil {
 		return nil, fmt.Errorf("failed to parse tier configuration: %w", err)
-	}
-
-	if len(tiers) == 0 {
-		return nil, fmt.Errorf("no tiers configured in ConfigMap %s", TierConfigMapName)
 	}
 
 	return tiers, nil
