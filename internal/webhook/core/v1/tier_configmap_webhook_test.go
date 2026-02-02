@@ -135,8 +135,6 @@ var _ = Describe("Tier ConfigMap Validator Webhook", func() {
 		})
 	})
 
-
-
 	Describe("ValidateDelete", func() {
 		It("should allow deletion without validation", func() {
 			configMap := &corev1.ConfigMap{
@@ -512,7 +510,6 @@ var _ = Describe("Tier ConfigMap Validator Webhook", func() {
 			Expect(err).NotTo(HaveOccurred())
 			Expect(warnings).To(BeNil())
 		})
-
 
 	})
 
