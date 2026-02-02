@@ -135,49 +135,7 @@ var _ = Describe("Tier ConfigMap Validator Webhook", func() {
 		})
 	})
 
-	Describe("validate method filtering", func() {
-		It("should skip validation for non-tier ConfigMaps", func() {
-			configMap := &corev1.ConfigMap{
-				ObjectMeta: metav1.ObjectMeta{
-					Name:      "some-other-configmap",
-					Namespace: maasNamespace,
-				},
-				Data: map[string]string{
-					"tiers": `
-- name: "free"
-  level: 10
-- name: "premium"
-  level: 10
-`,
-				},
-			}
 
-			warnings, err := validator.validate(configMap)
-			Expect(err).NotTo(HaveOccurred())
-			Expect(warnings).To(BeNil())
-		})
-
-		It("should skip validation for ConfigMaps in wrong namespace", func() {
-			configMap := &corev1.ConfigMap{
-				ObjectMeta: metav1.ObjectMeta{
-					Name:      reconcilers.TierConfigMapName,
-					Namespace: "some-other-namespace",
-				},
-				Data: map[string]string{
-					"tiers": `
-- name: "free"
-  level: 10
-- name: "premium"
-  level: 10
-`,
-				},
-			}
-
-			warnings, err := validator.validate(configMap)
-			Expect(err).NotTo(HaveOccurred())
-			Expect(warnings).To(BeNil())
-		})
-	})
 
 	Describe("ValidateDelete", func() {
 		It("should allow deletion without validation", func() {
@@ -555,36 +513,7 @@ var _ = Describe("Tier ConfigMap Validator Webhook", func() {
 			Expect(warnings).To(BeNil())
 		})
 
-		It("should skip rename validation for non-tier ConfigMaps", func() {
-			oldConfigMap := &corev1.ConfigMap{
-				ObjectMeta: metav1.ObjectMeta{
-					Name:      "some-other-configmap",
-					Namespace: maasNamespace,
-				},
-				Data: map[string]string{
-					"tiers": `
-- name: free
-  level: 10
-`,
-				},
-			}
-			newConfigMap := &corev1.ConfigMap{
-				ObjectMeta: metav1.ObjectMeta{
-					Name:      "some-other-configmap",
-					Namespace: maasNamespace,
-				},
-				Data: map[string]string{
-					"tiers": `
-- name: basic
-  level: 10
-`,
-				},
-			}
 
-			warnings, err := validator.ValidateUpdate(ctx, oldConfigMap, newConfigMap)
-			Expect(err).NotTo(HaveOccurred())
-			Expect(warnings).To(BeNil())
-		})
 	})
 
 	Describe("ValidateCreate with name validation", func() {

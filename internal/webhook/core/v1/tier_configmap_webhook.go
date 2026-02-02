@@ -70,14 +70,11 @@ func (v *TierConfigMapValidator) ValidateUpdate(ctx context.Context, oldObj, new
 		return nil, fmt.Errorf("expected a ConfigMap object but got %T", newObj)
 	}
 
-	// Only check rename prevention for tier-to-group-mapping ConfigMap
-	maasNamespace := reconcilers.GetMaasNamespace()
-	if newConfigMap.Name == reconcilers.TierConfigMapName && newConfigMap.Namespace == maasNamespace {
-		if err := validateTierNamesNotRemoved(oldConfigMap, newConfigMap); err != nil {
-			log := tierConfigMaplog.WithValues("namespace", newConfigMap.Namespace, "name", newConfigMap.Name)
-			log.Error(err, "Tier rename prevention validation failed")
-			return nil, err
-		}
+	// Check that existing tier names are not removed (tier names are immutable)
+	if err := validateTierNamesNotRemoved(oldConfigMap, newConfigMap); err != nil {
+		log := tierConfigMaplog.WithValues("namespace", newConfigMap.Namespace, "name", newConfigMap.Name)
+		log.Error(err, "Tier rename prevention validation failed")
+		return nil, err
 	}
 
 	return v.validate(newConfigMap)
@@ -88,16 +85,12 @@ func (v *TierConfigMapValidator) ValidateDelete(ctx context.Context, obj runtime
 	return nil, nil
 }
 
-// validate checks the ConfigMap and validates tier levels and names if it's the tier-to-group-mapping ConfigMap.
+// validate checks the ConfigMap and validates tier levels and names.
+// The webhook is configured with an objectSelector to only receive ConfigMaps
+// with the "component: tier-mapping" label, so no additional filtering is needed.
 func (v *TierConfigMapValidator) validate(configMap *corev1.ConfigMap) (admission.Warnings, error) {
-	// Only validate the tier-to-group-mapping ConfigMap in the MaaS namespace
-	maasNamespace := reconcilers.GetMaasNamespace()
-	if configMap.Name != reconcilers.TierConfigMapName || configMap.Namespace != maasNamespace {
-		return nil, nil
-	}
-
 	log := tierConfigMaplog.WithValues("namespace", configMap.Namespace, "name", configMap.Name)
-	log.Info("Validating tier-to-group-mapping ConfigMap")
+	log.Info("Validating tier ConfigMap")
 
 	if err := validateTierNames(configMap); err != nil {
 		log.Error(err, "Tier name validation failed")
