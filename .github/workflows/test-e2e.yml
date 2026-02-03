@@ -1,8 +1,8 @@
 name: E2E Tests
 
 on:
-#  push:
-#  pull_request:
+  #  push:
+  #  pull_request:
   workflow_dispatch:
 
 jobs:
@@ -16,7 +16,7 @@ jobs:
       - name: Setup Go
         uses: actions/setup-go@v5
         with:
-          go-version: '~1.24'
+          go-version-file: "go.mod"
 
       - name: Install the latest version of kind
         run: |
