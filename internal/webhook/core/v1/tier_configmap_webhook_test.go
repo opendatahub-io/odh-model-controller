@@ -160,6 +160,9 @@ var _ = Describe("Tier ConfigMap Validator Webhook", func() {
 				ObjectMeta: metav1.ObjectMeta{
 					Name:      reconcilers.TierConfigMapName,
 					Namespace: customNamespace,
+					Labels: map[string]string{
+						TierMappingLabel: TierMappingLabelValue,
+					},
 				},
 				Data: map[string]string{
 					"tiers": `
@@ -449,6 +452,9 @@ var _ = Describe("Tier ConfigMap Validator Webhook", func() {
 				ObjectMeta: metav1.ObjectMeta{
 					Name:      reconcilers.TierConfigMapName,
 					Namespace: maasNamespace,
+					Labels: map[string]string{
+						TierMappingLabel: TierMappingLabelValue,
+					},
 				},
 				Data: map[string]string{
 					"tiers": `
@@ -463,6 +469,9 @@ var _ = Describe("Tier ConfigMap Validator Webhook", func() {
 				ObjectMeta: metav1.ObjectMeta{
 					Name:      reconcilers.TierConfigMapName,
 					Namespace: maasNamespace,
+					Labels: map[string]string{
+						TierMappingLabel: TierMappingLabelValue,
+					},
 				},
 				Data: map[string]string{
 					"tiers": `
@@ -483,6 +492,9 @@ var _ = Describe("Tier ConfigMap Validator Webhook", func() {
 				ObjectMeta: metav1.ObjectMeta{
 					Name:      reconcilers.TierConfigMapName,
 					Namespace: maasNamespace,
+					Labels: map[string]string{
+						TierMappingLabel: TierMappingLabelValue,
+					},
 				},
 				Data: map[string]string{
 					"tiers": `
@@ -495,6 +507,9 @@ var _ = Describe("Tier ConfigMap Validator Webhook", func() {
 				ObjectMeta: metav1.ObjectMeta{
 					Name:      reconcilers.TierConfigMapName,
 					Namespace: maasNamespace,
+					Labels: map[string]string{
+						TierMappingLabel: TierMappingLabelValue,
+					},
 				},
 				Data: map[string]string{
 					"tiers": `
@@ -519,6 +534,9 @@ var _ = Describe("Tier ConfigMap Validator Webhook", func() {
 				ObjectMeta: metav1.ObjectMeta{
 					Name:      reconcilers.TierConfigMapName,
 					Namespace: maasNamespace,
+					Labels: map[string]string{
+						TierMappingLabel: TierMappingLabelValue,
+					},
 				},
 				Data: map[string]string{
 					"tiers": `
@@ -539,6 +557,9 @@ var _ = Describe("Tier ConfigMap Validator Webhook", func() {
 				ObjectMeta: metav1.ObjectMeta{
 					Name:      reconcilers.TierConfigMapName,
 					Namespace: maasNamespace,
+					Labels: map[string]string{
+						TierMappingLabel: TierMappingLabelValue,
+					},
 				},
 				Data: map[string]string{
 					"tiers": `

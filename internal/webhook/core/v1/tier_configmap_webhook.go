@@ -35,6 +35,14 @@ import (
 
 var tierConfigMaplog = logf.Log.WithName("TierConfigMapValidatingWebhook")
 
+// TierMappingLabel is the label key used to identify tier ConfigMaps.
+// TierMappingLabelValue is the expected value for the tier mapping label.
+// The webhook objectSelector is configured to match ConfigMaps with this label.
+const (
+	TierMappingLabel      = "component"
+	TierMappingLabelValue = "tier-mapping"
+)
+
 // SetupTierConfigMapWebhookWithManager registers the webhook for ConfigMap validation in the manager.
 func SetupTierConfigMapWebhookWithManager(mgr ctrl.Manager) error {
 	return ctrl.NewWebhookManagedBy(mgr).For(&corev1.ConfigMap{}).
@@ -70,6 +78,12 @@ func (v *TierConfigMapValidator) ValidateUpdate(ctx context.Context, oldObj, new
 		return nil, fmt.Errorf("expected a ConfigMap object but got %T", newObj)
 	}
 
+	// Check for the tier-mapping label - skip validation if not present
+	// This is a safety check for test environments where objectSelector may not be applied
+	if newConfigMap.Labels == nil || newConfigMap.Labels[TierMappingLabel] != TierMappingLabelValue {
+		return nil, nil
+	}
+
 	// Check that existing tier names are not removed (tier names are immutable)
 	if err := validateTierNamesNotRemoved(oldConfigMap, newConfigMap); err != nil {
 		log := tierConfigMaplog.WithValues("namespace", newConfigMap.Namespace, "name", newConfigMap.Name)
@@ -87,10 +101,29 @@ func (v *TierConfigMapValidator) ValidateDelete(ctx context.Context, obj runtime
 
 // validate checks the ConfigMap and validates tier levels and names.
 // The webhook is configured with an objectSelector to only receive ConfigMaps
-// with the "component: tier-mapping" label, so no additional filtering is needed.
+// with the "component: tier-mapping" label. The label check is also done in code
+// for test environments where objectSelector filtering may not be applied.
 func (v *TierConfigMapValidator) validate(configMap *corev1.ConfigMap) (admission.Warnings, error) {
+	// Check for the tier-mapping label - skip validation if not present
+	// This is a safety check for test environments where objectSelector may not be applied
+	if configMap.Labels == nil || configMap.Labels[TierMappingLabel] != TierMappingLabelValue {
+		return nil, nil
+	}
+
 	log := tierConfigMaplog.WithValues("namespace", configMap.Namespace, "name", configMap.Name)
 	log.Info("Validating tier ConfigMap")
+
+	// Verify that the "tiers" key exists
+	tiers, err := reconcilers.ParseTiersFromConfigMap(configMap)
+	if err != nil {
+		log.Error(err, "Failed to parse tier configuration")
+		return nil, err
+	}
+	if tiers == nil {
+		err := fmt.Errorf("'tiers' key is required in tier ConfigMap")
+		log.Error(err, "Missing tiers key")
+		return nil, err
+	}
 
 	if err := validateTierNames(configMap); err != nil {
 		log.Error(err, "Tier name validation failed")
