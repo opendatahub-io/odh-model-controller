@@ -4,7 +4,7 @@ on:
   workflow_dispatch:
     inputs:
       runtime_template:
-        description: 'Comma seperate list of runtime templates for which the runtime version will be updated. The format of each entry in the list should be the template file name with "-template.yaml" dropped'
+        description: 'Comma seperated list of runtime templates for which the runtime version will be updated. The format of each entry in the list should be the template file name with "-template.yaml" dropped'
         required: true
         type: string
       runtime_version:
@@ -100,7 +100,6 @@ jobs:
         shell: python
 
       - name: Create Pull Request
-        id: create_pr
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
@@ -129,7 +128,7 @@ jobs:
 
           # Create PR
           PR_URL=$(gh pr create \
-            --base incubating \
+            --base ${{ github.ref_name }} \
             --head "$BRANCH_NAME" \
             --title "chore(runtimes): Update runtime version to ${{ github.event.inputs.runtime_version }}" \
             --body "## Summary
@@ -142,4 +141,3 @@ jobs:
           *This PR was automatically created by the Runtime Version Update Workflow.*")
 
           echo "✓ PR created: $PR_URL"
-          echo "pr_url=$PR_URL" >> $GITHUB_OUTPUT

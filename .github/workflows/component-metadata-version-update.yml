@@ -93,7 +93,6 @@ jobs:
         shell: python
 
       - name: Create Pull Request
-        id: create_pr
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
@@ -124,7 +123,7 @@ jobs:
 
           # Create PR
           PR_URL=$(gh pr create \
-            --base incubating \
+            --base ${{ github.ref_name }} \
             --head "$BRANCH_NAME" \
             --title "chore(metadata): Update ${{ github.event.inputs.component }} version to ${{ github.event.inputs.component_version }}" \
             --body "## Summary
@@ -138,4 +137,3 @@ jobs:
           *This PR was automatically created by the Component Metadata Version Update Workflow.*")
 
           echo "✓ PR created: $PR_URL"
-          echo "pr_url=$PR_URL" >> $GITHUB_OUTPUT
