@@ -104,8 +104,6 @@ func (v *TierConfigMapValidator) ValidateDelete(ctx context.Context, obj runtime
 // with the "component: tier-mapping" label. The label check is also done in code
 // for test environments where objectSelector filtering may not be applied.
 func (v *TierConfigMapValidator) validate(configMap *corev1.ConfigMap) (admission.Warnings, error) {
-	// Check for the tier-mapping label - skip validation if not present
-	// This is a safety check for test environments where objectSelector may not be applied
 	if configMap.Labels == nil || configMap.Labels[TierMappingLabel] != TierMappingLabelValue {
 		return nil, nil
 	}
@@ -235,5 +233,5 @@ func extractTierNames(configMap *corev1.ConfigMap) ([]string, error) {
 	for i, tier := range tiers {
 		names[i] = tier.Name
 	}
-	return names, nil
+	return names, nil 
 }
