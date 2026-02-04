@@ -233,5 +233,5 @@ func extractTierNames(configMap *corev1.ConfigMap) ([]string, error) {
 	for i, tier := range tiers {
 		names[i] = tier.Name
 	}
-	return names, nil 
+	return names, nil
 }
