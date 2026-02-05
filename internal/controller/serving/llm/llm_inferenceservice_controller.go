@@ -28,7 +28,6 @@ import (
 	authorinooperatorv1beta1 "github.com/kuadrant/authorino-operator/api/v1beta1"
 	kuadrantv1 "github.com/kuadrant/kuadrant-operator/api/v1"
 	kuadrantv1beta1 "github.com/kuadrant/kuadrant-operator/api/v1beta1"
-	istioclientv1alpha3 "istio.io/client-go/pkg/apis/networking/v1alpha3"
 	corev1 "k8s.io/api/core/v1"
 	v1 "k8s.io/api/rbac/v1"
 	apierrs "k8s.io/apimachinery/pkg/api/errors"
@@ -43,9 +42,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/log"
 	"sigs.k8s.io/controller-runtime/pkg/predicate"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
-	gatewayapiv1 "sigs.k8s.io/gateway-api/apis/v1"
 
-	"github.com/opendatahub-io/odh-model-controller/internal/controller/constants"
 	"github.com/opendatahub-io/odh-model-controller/internal/controller/resources"
 	"github.com/opendatahub-io/odh-model-controller/internal/controller/serving/llm/reconcilers"
 	parentreconcilers "github.com/opendatahub-io/odh-model-controller/internal/controller/serving/reconcilers"
@@ -63,8 +60,6 @@ type LLMInferenceServiceReconciler struct {
 	Recorder               record.EventRecorder
 	Scheme                 *runtime.Scheme
 	subResourceReconcilers []parentreconcilers.LLMSubResourceReconciler
-	authPolicyMatcher      resources.AuthPolicyMatcher
-	envoyFilterMatcher     resources.EnvoyFilterMatcher
 }
 
 var ownedBySelfPredicate = predicate.NewPredicateFuncs(func(o client.Object) bool {
@@ -76,7 +71,6 @@ func NewLLMInferenceServiceReconciler(client client.Client, scheme *runtime.Sche
 		parentreconcilers.NewLLMRoleReconciler(client),
 		parentreconcilers.NewLLMRoleBindingReconciler(client, recorder),
 		reconcilers.NewKserveAuthPolicyReconciler(client, scheme),
-		reconcilers.NewKserveEnvoyFilterReconciler(client, scheme),
 	}
 
 	return &LLMInferenceServiceReconciler{
@@ -84,8 +78,6 @@ func NewLLMInferenceServiceReconciler(client client.Client, scheme *runtime.Sche
 		Recorder:               recorder,
 		Scheme:                 scheme,
 		subResourceReconcilers: subResourceReconcilers,
-		authPolicyMatcher:      resources.NewKServeAuthPolicyMatcher(client),
-		envoyFilterMatcher:     resources.NewKServeEnvoyFilterMatcher(client),
 	}
 }
 
@@ -237,73 +229,17 @@ func (r *LLMInferenceServiceReconciler) SetupWithManager(mgr ctrl.Manager, setup
 		b = b.Watches(&authorinooperatorv1beta1.Authorino{}, r.globalResync(setupLog))
 	}
 
-	if ok, err := utils.IsCrdAvailable(mgr.GetConfig(), istioclientv1alpha3.SchemeGroupVersion.String(), "EnvoyFilter"); err != nil {
-		setupLog.Error(err, "Failed to check CRD availability for EnvoyFilter")
-	} else if ok {
-		b = b.Watches(&istioclientv1alpha3.EnvoyFilter{},
-			r.enqueueOnEnvoyFilterChange(),
-			ctrlbuilder.WithPredicates(predicate.Funcs{
-				CreateFunc: func(e event.CreateEvent) bool {
-					return false
-				},
-				UpdateFunc: func(e event.UpdateEvent) bool {
-					return utils.IsManagedByOpenDataHub(e.ObjectNew)
-				},
-				DeleteFunc: func(e event.DeleteEvent) bool {
-					return utils.IsManagedByOpenDataHub(e.Object)
-				},
-			}))
-	}
-
-	// Watch Gateway for managed label or authorino-tls-bootstrap annotation changes
-	if ok, err := utils.IsCrdAvailable(mgr.GetConfig(), gatewayapiv1.GroupVersion.String(), "Gateway"); err != nil {
-		setupLog.Error(err, "Failed to check CRD availability for Gateway")
-	} else if ok {
-		b = b.Watches(&gatewayapiv1.Gateway{},
-			r.enqueueOnGatewayChange(),
-			ctrlbuilder.WithPredicates(predicate.Funcs{
-				CreateFunc: func(e event.CreateEvent) bool {
-					return false
-				},
-				UpdateFunc: func(e event.UpdateEvent) bool {
-					// Check if managed label changed
-					oldManaged := e.ObjectOld.GetLabels()[constants.ODHManagedLabel]
-					newManaged := e.ObjectNew.GetLabels()[constants.ODHManagedLabel]
-					if oldManaged != newManaged {
-						return true
-					}
-					// Check if authorino-tls-bootstrap annotation changed
-					oldTLS := e.ObjectOld.GetAnnotations()[constants.AuthorinoTLSBootstrapAnnotation]
-					newTLS := e.ObjectNew.GetAnnotations()[constants.AuthorinoTLSBootstrapAnnotation]
-					return oldTLS != newTLS
-				},
-				DeleteFunc: func(e event.DeleteEvent) bool {
-					return false
-				},
-			}))
-	}
-
 	return b.Complete(r)
 }
 
 func (r *LLMInferenceServiceReconciler) enqueueOnAuthPolicyChange() handler.EventHandler {
 	return handler.EnqueueRequestsFromMapFunc(func(ctx context.Context, object client.Object) []reconcile.Request {
 		authPolicy := object.(*kuadrantv1.AuthPolicy)
-		targetKind := authPolicy.Spec.TargetRef.Kind
 
-		if targetKind == "HTTPRoute" {
-			if namespacedName, found := r.authPolicyMatcher.FindLLMServiceFromHTTPRouteAuthPolicy(authPolicy); found {
-				return []reconcile.Request{{NamespacedName: namespacedName}}
-			}
+		if namespacedName, found := resources.FindLLMServiceFromAuthPolicy(authPolicy); found {
+			return []reconcile.Request{{NamespacedName: namespacedName}}
 		}
 
-		if namespacedNames, err := r.authPolicyMatcher.FindLLMServiceFromGatewayAuthPolicy(ctx, authPolicy); err == nil && len(namespacedNames) > 0 {
-			requests := make([]reconcile.Request, len(namespacedNames))
-			for i, namespacedName := range namespacedNames {
-				requests[i] = reconcile.Request{NamespacedName: namespacedName}
-			}
-			return requests
-		}
 		return []reconcile.Request{}
 	})
 }
@@ -325,21 +261,6 @@ func (r *LLMInferenceServiceReconciler) globalResync(setupLog logr.Logger) handl
 			}})
 		}
 		return requests
-	})
-}
-
-func (r *LLMInferenceServiceReconciler) enqueueOnEnvoyFilterChange() handler.EventHandler {
-	return handler.EnqueueRequestsFromMapFunc(func(ctx context.Context, object client.Object) []reconcile.Request {
-		envoyFilter := object.(*istioclientv1alpha3.EnvoyFilter)
-
-		if namespacedNames, err := r.envoyFilterMatcher.FindLLMServiceFromEnvoyFilter(ctx, envoyFilter); err == nil && len(namespacedNames) > 0 {
-			requests := make([]reconcile.Request, len(namespacedNames))
-			for i, namespacedName := range namespacedNames {
-				requests[i] = reconcile.Request{NamespacedName: namespacedName}
-			}
-			return requests
-		}
-		return []reconcile.Request{}
 	})
 }
 
@@ -375,43 +296,6 @@ func (r *LLMInferenceServiceReconciler) enqueueOnTierConfigMapChange() handler.E
 		}
 
 		logger.Info("Enqueued services for reconciliation", "count", len(requests))
-		return requests
-	})
-}
-
-func (r *LLMInferenceServiceReconciler) enqueueOnGatewayChange() handler.EventHandler {
-	return handler.EnqueueRequestsFromMapFunc(func(ctx context.Context, object client.Object) []reconcile.Request {
-		gateway := object.(*gatewayapiv1.Gateway)
-		logger := log.FromContext(ctx).WithValues("gateway", gateway.Name, "namespace", gateway.Namespace)
-
-		var requests []reconcile.Request
-		continueToken := ""
-
-		// Use pagination to handle large numbers of services efficiently
-		for {
-			llmSvcList := &kservev1alpha1.LLMInferenceServiceList{}
-			if err := r.Client.List(ctx, llmSvcList, &client.ListOptions{Continue: continueToken}); err != nil {
-				logger.Error(err, "Failed to list LLMInferenceService for gateway change")
-				return nil
-			}
-
-			for _, llmSvc := range llmSvcList.Items {
-				if utils.LLMIsvcUsesGateway(ctx, r.Client, &llmSvc, gateway.Namespace, gateway.Name) {
-					requests = append(requests, reconcile.Request{
-						NamespacedName: types.NamespacedName{
-							Name:      llmSvc.Name,
-							Namespace: llmSvc.Namespace,
-						},
-					})
-				}
-			}
-
-			if llmSvcList.Continue == "" {
-				break
-			}
-			continueToken = llmSvcList.Continue
-		}
-
 		return requests
 	})
 }

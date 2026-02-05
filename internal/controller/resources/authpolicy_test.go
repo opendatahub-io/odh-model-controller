@@ -16,9 +16,6 @@ limitations under the License.
 package resources_test
 
 import (
-	"os"
-
-	kservev1alpha1 "github.com/kserve/kserve/pkg/apis/serving/v1alpha1"
 	kuadrantv1 "github.com/kuadrant/kuadrant-operator/api/v1"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
@@ -127,11 +124,9 @@ var _ = Describe("AuthPolicyDetector", func() {
 var _ = Describe("AuthPolicyTemplateLoader", func() {
 	Context("Template loading", func() {
 		var loader resources.AuthPolicyTemplateLoader
-		var dummyLLMISvc kservev1alpha1.LLMInferenceService
 		var fakeClient client.Client
 		BeforeEach(func() {
 			scheme := runtime.NewScheme()
-			Expect(kservev1alpha1.AddToScheme(scheme)).To(Succeed())
 			Expect(ocpconfigv1.AddToScheme(scheme)).To(Succeed())
 			Expect(gwapiv1alpha2.Install(scheme)).To(Succeed())
 			Expect(gatewayapiv1.Install(scheme)).To(Succeed())
@@ -146,159 +141,104 @@ var _ = Describe("AuthPolicyTemplateLoader", func() {
 
 			fakeClient = fake.NewClientBuilder().WithScheme(scheme).WithObjects(defaultGateway).Build()
 			loader = resources.NewKServeAuthPolicyTemplateLoader(fakeClient)
-
-			dummyLLMISvc = kservev1alpha1.LLMInferenceService{
-				ObjectMeta: v1.ObjectMeta{
-					Namespace: "test-ns",
-					Name:      "test-llm",
-				},
-			}
 		})
 
-		It("should resolve UserDefined template for LLMInferenceService", func(ctx SpecContext) {
-			authPolicies, err := loader.Load(
-				ctx,
-				constants.UserDefined,
-				&dummyLLMISvc)
+		It("should resolve authenticated template for Gateway", func(ctx SpecContext) {
+			authPolicy, err := loader.Load(ctx, resources.AuthPolicyTarget{
+				Kind:      "Gateway",
+				Name:      "openshift-ai-inference",
+				Namespace: "openshift-ingress",
+				AuthType:  constants.UserDefined,
+			})
 
 			Expect(err).ToNot(HaveOccurred())
-			Expect(authPolicies).ToNot(BeNil())
-			Expect(authPolicies).ToNot(BeEmpty())
-			Expect(authPolicies[0].GetName()).To(Equal(constants.GetGatewayAuthPolicyName("openshift-ai-inference")))
-			Expect(authPolicies[0].GetNamespace()).To(Equal("openshift-ingress"))
+			Expect(authPolicy).ToNot(BeNil())
+			Expect(authPolicy.GetName()).To(Equal(constants.GetAuthPolicyName("openshift-ai-inference")))
+			Expect(authPolicy.GetNamespace()).To(Equal("openshift-ingress"))
+			Expect(authPolicy.Spec.AuthScheme.Authentication).To(HaveKey("kubernetes-user"))
 		})
 
-		It("should resolve Anonymous template for LLMInferenceService", func(ctx SpecContext) {
-			authPolicies, err := loader.Load(
-				ctx,
-				constants.Anonymous,
-				&dummyLLMISvc)
+		It("should resolve anonymous template for HTTPRoute", func(ctx SpecContext) {
+			authPolicy, err := loader.Load(ctx, resources.AuthPolicyTarget{
+				Kind:      "HTTPRoute",
+				Name:      "test-route",
+				Namespace: "test-ns",
+				AuthType:  constants.Anonymous,
+			})
+
 			Expect(err).ToNot(HaveOccurred())
-			Expect(authPolicies).ToNot(BeNil())
-			Expect(authPolicies).To(HaveLen(1))
-			httpRouteName := string(authPolicies[0].Spec.TargetRef.Name)
-			Expect(authPolicies[0].GetName()).To(Equal(constants.GetHTTPRouteAuthPolicyName(httpRouteName)))
-			Expect(authPolicies[0].GetNamespace()).To(Equal(dummyLLMISvc.Namespace))
+			Expect(authPolicy).ToNot(BeNil())
+			Expect(string(authPolicy.Spec.TargetRef.Name)).To(Equal("test-route"))
+			Expect(authPolicy.GetName()).To(Equal(constants.GetAuthPolicyName("test-route")))
+			Expect(authPolicy.GetNamespace()).To(Equal("test-ns"))
+			Expect(authPolicy.Spec.AuthScheme.Authentication).To(HaveKey("public"))
 		})
 
-		It("should return error for unsupported auth type", func(ctx SpecContext) {
-			authPolicies, err := loader.Load(
-				ctx,
-				constants.AuthType("unsupported-type"),
-				&dummyLLMISvc)
+		It("should apply labels with WithLabels option", func(ctx SpecContext) {
+			authPolicy, err := loader.Load(ctx, resources.AuthPolicyTarget{
+				Kind:      "HTTPRoute",
+				Name:      "test-route",
+				Namespace: "test-ns",
+				AuthType:  constants.Anonymous,
+			}, resources.WithLabels(map[string]string{
+				"app.kubernetes.io/name": "my-llmisvc",
+			}))
+
+			Expect(err).ToNot(HaveOccurred())
+			Expect(authPolicy).ToNot(BeNil())
+			Expect(authPolicy.GetLabels()).To(HaveKeyWithValue("app.kubernetes.io/name", "my-llmisvc"))
+		})
+
+		It("should return error when AuthType is not set", func(ctx SpecContext) {
+			_, err := loader.Load(ctx, resources.AuthPolicyTarget{
+				Kind:      "HTTPRoute",
+				Name:      "test-route",
+				Namespace: "test-ns",
+			})
 
 			Expect(err).To(HaveOccurred())
-			Expect(authPolicies).To(BeNil())
-			Expect(err.Error()).To(ContainSubstring("unsupported AuthPolicy type"))
+			Expect(err.Error()).To(ContainSubstring("unsupported auth type"))
 		})
 
-		It("should read AUTH_AUDIENCE env var for Audience", func(ctx SpecContext) {
-			_ = os.Setenv("AUTH_AUDIENCE", "http://test.com")
-			defer func() {
-				_ = os.Unsetenv("AUTH_AUDIENCE")
-			}()
-
-			authPolicies, err := loader.Load(
-				ctx,
-				constants.UserDefined,
-				&dummyLLMISvc)
+		It("should apply audiences with WithAudiences option", func(ctx SpecContext) {
+			authPolicy, err := loader.Load(ctx, resources.AuthPolicyTarget{
+				Kind:      "Gateway",
+				Name:      "openshift-ai-inference",
+				Namespace: "openshift-ingress",
+				AuthType:  constants.UserDefined,
+			}, resources.WithAudiences([]string{"http://test.com"}))
 
 			Expect(err).ToNot(HaveOccurred())
-			Expect(authPolicies).ToNot(BeNil())
-			Expect(authPolicies).ToNot(BeEmpty())
+			Expect(authPolicy).ToNot(BeNil())
 
-			Expect(authPolicies[0].Name).To(ContainSubstring("authn"))
-			Expect(string(authPolicies[0].Spec.TargetRef.Kind)).To(Equal("Gateway"))
-			Expect(authPolicies[0].Spec.AuthScheme.Authentication["kubernetes-user"].KubernetesTokenReview.Audiences).To(ContainElement("http://test.com"))
+			Expect(authPolicy.Name).To(ContainSubstring("authn"))
+			Expect(string(authPolicy.Spec.TargetRef.Kind)).To(Equal("Gateway"))
+			Expect(authPolicy.Spec.AuthScheme.Authentication["kubernetes-user"].KubernetesTokenReview.Audiences).To(ContainElement("http://test.com"))
 		})
 
-		It("should use serviceAccountIssuer from Authentication cluster object (ROSA) for Audience", func(ctx SpecContext) {
-			testIssuer := "https://test.com/23c734st3pn7l167mq97d0ot8848lgrl"
-			ocpAuthentication := &ocpconfigv1.Authentication{
-				ObjectMeta: v1.ObjectMeta{
-					Name: "cluster",
-				},
-				Spec: ocpconfigv1.AuthenticationSpec{
-					ServiceAccountIssuer: testIssuer,
-				},
-			}
-
-			err := fakeClient.Create(ctx, ocpAuthentication)
-			Expect(err).ToNot(HaveOccurred())
-
-			authPolicies, err := loader.Load(
-				ctx,
-				constants.UserDefined,
-				&dummyLLMISvc)
+		It("should create Gateway AuthPolicy with default Kubernetes audience", func(ctx SpecContext) {
+			authPolicy, err := loader.Load(ctx, resources.AuthPolicyTarget{
+				Kind:      "Gateway",
+				Name:      "openshift-ai-inference",
+				Namespace: "openshift-ingress",
+				AuthType:  constants.UserDefined,
+			})
 
 			Expect(err).ToNot(HaveOccurred())
-			Expect(authPolicies).ToNot(BeNil())
-			Expect(authPolicies).ToNot(BeEmpty())
+			Expect(authPolicy).ToNot(BeNil())
 
-			Expect(authPolicies[0].Name).To(ContainSubstring("authn"))
-			Expect(string(authPolicies[0].Spec.TargetRef.Kind)).To(Equal("Gateway"))
-			Expect(authPolicies[0].Spec.AuthScheme.Authentication["kubernetes-user"].KubernetesTokenReview.Audiences).To(ConsistOf(testIssuer))
+			Expect(authPolicy.Name).To(ContainSubstring("authn"))
+			Expect(string(authPolicy.Spec.TargetRef.Kind)).To(Equal("Gateway"))
+			Expect(authPolicy.Spec.AuthScheme.Authentication["kubernetes-user"].KubernetesTokenReview.Audiences).To(ContainElement(constants.KubernetesAudience))
 		})
 	})
 
-	Context("Gateway managed annotation filtering", func() {
-		var loader resources.AuthPolicyTemplateLoader
-		var fakeClient client.Client
-		var scheme *runtime.Scheme
-
-		BeforeEach(func() {
-			scheme = runtime.NewScheme()
-			Expect(kservev1alpha1.AddToScheme(scheme)).To(Succeed())
-			Expect(ocpconfigv1.AddToScheme(scheme)).To(Succeed())
-			Expect(gwapiv1alpha2.Install(scheme)).To(Succeed())
-			Expect(gatewayapiv1.Install(scheme)).To(Succeed())
-		})
-
-		It("should exclude gateway with opendatahub.io/managed=false label", func(ctx SpecContext) {
-			gateway := &gatewayapiv1.Gateway{
-				ObjectMeta: v1.ObjectMeta{
-					Name:      "test-gateway",
-					Namespace: "test-gateway-ns",
-					Labels: map[string]string{
-						constants.ODHManagedLabel: "false",
-					},
-				},
-			}
-
-			fakeClient = fake.NewClientBuilder().WithScheme(scheme).WithObjects(gateway).Build()
-			loader = resources.NewKServeAuthPolicyTemplateLoader(fakeClient)
-
-			llmisvc := &kservev1alpha1.LLMInferenceService{
-				ObjectMeta: v1.ObjectMeta{
-					Namespace: "test-ns",
-					Name:      "test-llm",
-				},
-				Spec: kservev1alpha1.LLMInferenceServiceSpec{
-					Router: &kservev1alpha1.RouterSpec{
-						Gateway: &kservev1alpha1.GatewaySpec{
-							Refs: []kservev1alpha1.UntypedObjectReference{
-								{
-									Name:      "test-gateway",
-									Namespace: "test-gateway-ns",
-								},
-							},
-						},
-					},
-				},
-			}
-
-			authPolicies, err := loader.Load(ctx, constants.UserDefined, llmisvc)
-
-			Expect(err).ToNot(HaveOccurred())
-			Expect(authPolicies).To(BeEmpty(), "Expected no AuthPolicy for gateway with managed=false")
-		})
-	})
 })
 
 func createTestAuthPolicy() *kuadrantv1.AuthPolicy {
 	return &kuadrantv1.AuthPolicy{
 		ObjectMeta: v1.ObjectMeta{
-			Name:      constants.GetHTTPRouteAuthPolicyName("test-llm"),
+			Name:      constants.GetAuthPolicyName("test-llm"),
 			Namespace: "test-namespace",
 		},
 		Spec: kuadrantv1.AuthPolicySpec{
@@ -358,7 +298,7 @@ var _ = Describe("AuthPolicyStore", func() {
 
 		It("should return error when getting non-existent AuthPolicy", func(ctx SpecContext) {
 			key := types.NamespacedName{
-				Name:      constants.GetHTTPRouteAuthPolicyName("non-existent"),
+				Name:      constants.GetAuthPolicyName("non-existent"),
 				Namespace: "test-namespace",
 			}
 			_, err := store.Get(ctx, key)
@@ -389,7 +329,7 @@ var _ = Describe("AuthPolicyStore", func() {
 
 		It("should return error when updating non-existent AuthPolicy", func(ctx SpecContext) {
 			nonExistentAuthPolicy := createTestAuthPolicy()
-			nonExistentAuthPolicy.Name = constants.GetHTTPRouteAuthPolicyName("non-existent")
+			nonExistentAuthPolicy.Name = constants.GetAuthPolicyName("non-existent")
 
 			err := store.Update(ctx, nonExistentAuthPolicy)
 			Expect(err).To(HaveOccurred())
@@ -415,7 +355,7 @@ var _ = Describe("AuthPolicyStore", func() {
 
 		It("should handle NotFound gracefully on remove", func(ctx SpecContext) {
 			key := types.NamespacedName{
-				Name:      constants.GetHTTPRouteAuthPolicyName("non-existent"),
+				Name:      constants.GetAuthPolicyName("non-existent"),
 				Namespace: "test-namespace",
 			}
 			err := store.Remove(ctx, key)
@@ -425,288 +365,57 @@ var _ = Describe("AuthPolicyStore", func() {
 	})
 })
 
-var _ = Describe("AuthPolicyMatcher", func() {
-	var matcher resources.AuthPolicyMatcher
-	var fakeClient client.Client
-	var scheme *runtime.Scheme
+var _ = Describe("FindLLMServiceFromAuthPolicy", func() {
+	It("should find LLMInferenceService from OwnerReference", func() {
+		authPolicy := &kuadrantv1.AuthPolicy{
+			ObjectMeta: v1.ObjectMeta{
+				Name:      "test-auth-policy",
+				Namespace: "test-namespace",
+				OwnerReferences: []v1.OwnerReference{{
+					APIVersion: "serving.kserve.io/v1alpha1",
+					Kind:       "LLMInferenceService",
+					Name:       "my-llm-service",
+				}},
+			},
+		}
 
-	BeforeEach(func() {
-		scheme = runtime.NewScheme()
-		Expect(kservev1alpha1.AddToScheme(scheme)).To(Succeed())
-		Expect(kuadrantv1.AddToScheme(scheme)).To(Succeed())
+		namespacedName, found := resources.FindLLMServiceFromAuthPolicy(authPolicy)
 
-		fakeClient = fake.NewClientBuilder().WithScheme(scheme).Build()
-		matcher = resources.NewKServeAuthPolicyMatcher(fakeClient)
+		Expect(found).To(BeTrue())
+		Expect(namespacedName.Name).To(Equal("my-llm-service"))
+		Expect(namespacedName.Namespace).To(Equal("test-namespace"))
 	})
 
-	Describe("FindLLMServiceFromHTTPRouteAuthPolicy", func() {
-		It("should find LLMInferenceService from OwnerReference", func() {
-			authPolicy := &kuadrantv1.AuthPolicy{
-				ObjectMeta: v1.ObjectMeta{
-					Name:      "test-auth-policy",
-					Namespace: "test-namespace",
-					OwnerReferences: []v1.OwnerReference{{
-						APIVersion: "serving.kserve.io/v1alpha1",
-						Kind:       "LLMInferenceService",
-						Name:       "my-llm-service",
-					}},
-				},
-				Spec: kuadrantv1.AuthPolicySpec{
-					TargetRef: gwapiv1alpha2.LocalPolicyTargetReferenceWithSectionName{
-						LocalPolicyTargetReference: gwapiv1alpha2.LocalPolicyTargetReference{
-							Group: "gateway.networking.k8s.io",
-							Kind:  "HTTPRoute",
-							Name:  "some-llm-kserve-route",
-						},
-					},
-				},
-			}
+	It("should return false when no LLMInferenceService OwnerReference found", func() {
+		authPolicy := &kuadrantv1.AuthPolicy{
+			ObjectMeta: v1.ObjectMeta{
+				Name:      "test-auth-policy",
+				Namespace: "test-namespace",
+			},
+		}
 
-			namespacedName, found := matcher.FindLLMServiceFromHTTPRouteAuthPolicy(authPolicy)
+		namespacedName, found := resources.FindLLMServiceFromAuthPolicy(authPolicy)
 
-			Expect(found).To(BeTrue())
-			Expect(namespacedName.Name).To(Equal("my-llm-service"))
-			Expect(namespacedName.Namespace).To(Equal("test-namespace"))
-		})
-
-		It("should find LLMInferenceService from HTTPRoute name pattern", func() {
-			authPolicy := &kuadrantv1.AuthPolicy{
-				ObjectMeta: v1.ObjectMeta{
-					Name:      "test-auth-policy",
-					Namespace: "test-namespace",
-				},
-				Spec: kuadrantv1.AuthPolicySpec{
-					TargetRef: gwapiv1alpha2.LocalPolicyTargetReferenceWithSectionName{
-						LocalPolicyTargetReference: gwapiv1alpha2.LocalPolicyTargetReference{
-							Group: "gateway.networking.k8s.io",
-							Kind:  "HTTPRoute",
-							Name:  "my-llm-service-kserve-route",
-						},
-					},
-				},
-			}
-
-			namespacedName, found := matcher.FindLLMServiceFromHTTPRouteAuthPolicy(authPolicy)
-
-			Expect(found).To(BeTrue())
-			Expect(namespacedName.Name).To(Equal("my-llm-service"))
-			Expect(namespacedName.Namespace).To(Equal("test-namespace"))
-		})
-
-		It("should prioritize OwnerReference over name pattern", func() {
-			authPolicy := &kuadrantv1.AuthPolicy{
-				ObjectMeta: v1.ObjectMeta{
-					Name:      "test-auth-policy",
-					Namespace: "test-namespace",
-					OwnerReferences: []v1.OwnerReference{{
-						APIVersion: "serving.kserve.io/v1alpha1",
-						Kind:       "LLMInferenceService",
-						Name:       "owner-ref-service",
-					}},
-				},
-				Spec: kuadrantv1.AuthPolicySpec{
-					TargetRef: gwapiv1alpha2.LocalPolicyTargetReferenceWithSectionName{
-						LocalPolicyTargetReference: gwapiv1alpha2.LocalPolicyTargetReference{
-							Group: "gateway.networking.k8s.io",
-							Kind:  "HTTPRoute",
-							Name:  "name-pattern-service-kserve-route",
-						},
-					},
-				},
-			}
-
-			namespacedName, found := matcher.FindLLMServiceFromHTTPRouteAuthPolicy(authPolicy)
-
-			Expect(found).To(BeTrue())
-			Expect(namespacedName.Name).To(Equal("owner-ref-service"))
-			Expect(namespacedName.Namespace).To(Equal("test-namespace"))
-		})
-
-		It("should return false when no match found", func() {
-			authPolicy := &kuadrantv1.AuthPolicy{
-				ObjectMeta: v1.ObjectMeta{
-					Name:      "test-auth-policy",
-					Namespace: "test-namespace",
-				},
-				Spec: kuadrantv1.AuthPolicySpec{
-					TargetRef: gwapiv1alpha2.LocalPolicyTargetReferenceWithSectionName{
-						LocalPolicyTargetReference: gwapiv1alpha2.LocalPolicyTargetReference{
-							Group: "gateway.networking.k8s.io",
-							Kind:  "HTTPRoute",
-							Name:  "invalid-route-name",
-						},
-					},
-				},
-			}
-
-			namespacedName, found := matcher.FindLLMServiceFromHTTPRouteAuthPolicy(authPolicy)
-
-			Expect(found).To(BeFalse())
-			Expect(namespacedName).To(Equal(types.NamespacedName{}))
-		})
-
-		It("should ignore non-LLMInferenceService OwnerReferences", func() {
-			authPolicy := &kuadrantv1.AuthPolicy{
-				ObjectMeta: v1.ObjectMeta{
-					Name:      "test-auth-policy",
-					Namespace: "test-namespace",
-					OwnerReferences: []v1.OwnerReference{{
-						APIVersion: "apps/v1",
-						Kind:       "Deployment",
-						Name:       "some-deployment",
-					}},
-				},
-				Spec: kuadrantv1.AuthPolicySpec{
-					TargetRef: gwapiv1alpha2.LocalPolicyTargetReferenceWithSectionName{
-						LocalPolicyTargetReference: gwapiv1alpha2.LocalPolicyTargetReference{
-							Group: "gateway.networking.k8s.io",
-							Kind:  "HTTPRoute",
-							Name:  "my-llm-service-kserve-route",
-						},
-					},
-				},
-			}
-
-			namespacedName, found := matcher.FindLLMServiceFromHTTPRouteAuthPolicy(authPolicy)
-
-			Expect(found).To(BeTrue())
-			Expect(namespacedName.Name).To(Equal("my-llm-service"))
-			Expect(namespacedName.Namespace).To(Equal("test-namespace"))
-		})
+		Expect(found).To(BeFalse())
+		Expect(namespacedName).To(Equal(types.NamespacedName{}))
 	})
 
-	Describe("FindLLMServiceFromGatewayAuthPolicy", func() {
-		It("should return empty slice when no LLMInferenceService found", func(ctx SpecContext) {
-			authPolicy := &kuadrantv1.AuthPolicy{
-				ObjectMeta: v1.ObjectMeta{
-					Name:      "gateway-auth-policy",
-					Namespace: constants.DefaultGatewayNamespace,
-				},
-				Spec: kuadrantv1.AuthPolicySpec{
-					TargetRef: gwapiv1alpha2.LocalPolicyTargetReferenceWithSectionName{
-						LocalPolicyTargetReference: gwapiv1alpha2.LocalPolicyTargetReference{
-							Group: "gateway.networking.k8s.io",
-							Kind:  "Gateway",
-							Name:  constants.DefaultGatewayName,
-						},
-					},
-				},
-			}
+	It("should ignore non-LLMInferenceService OwnerReferences", func() {
+		authPolicy := &kuadrantv1.AuthPolicy{
+			ObjectMeta: v1.ObjectMeta{
+				Name:      "test-auth-policy",
+				Namespace: "test-namespace",
+				OwnerReferences: []v1.OwnerReference{{
+					APIVersion: "apps/v1",
+					Kind:       "Deployment",
+					Name:       "some-deployment",
+				}},
+			},
+		}
 
-			namespacedNames, err := matcher.FindLLMServiceFromGatewayAuthPolicy(ctx, authPolicy)
+		namespacedName, found := resources.FindLLMServiceFromAuthPolicy(authPolicy)
 
-			Expect(err).ToNot(HaveOccurred())
-			Expect(namespacedNames).To(BeEmpty())
-		})
-
-		It("should find LLMInferenceService with default gateway", func(ctx SpecContext) {
-			llmService := &kservev1alpha1.LLMInferenceService{
-				ObjectMeta: v1.ObjectMeta{
-					Name:      "test-llm-service",
-					Namespace: "test-namespace",
-				},
-				Spec: kservev1alpha1.LLMInferenceServiceSpec{},
-			}
-			err := fakeClient.Create(ctx, llmService)
-			Expect(err).ToNot(HaveOccurred())
-
-			authPolicy := &kuadrantv1.AuthPolicy{
-				ObjectMeta: v1.ObjectMeta{
-					Name:      "gateway-auth-policy",
-					Namespace: constants.DefaultGatewayNamespace,
-				},
-				Spec: kuadrantv1.AuthPolicySpec{
-					TargetRef: gwapiv1alpha2.LocalPolicyTargetReferenceWithSectionName{
-						LocalPolicyTargetReference: gwapiv1alpha2.LocalPolicyTargetReference{
-							Group: "gateway.networking.k8s.io",
-							Kind:  "Gateway",
-							Name:  constants.DefaultGatewayName,
-						},
-					},
-				},
-			}
-
-			namespacedNames, err := matcher.FindLLMServiceFromGatewayAuthPolicy(ctx, authPolicy)
-
-			Expect(err).ToNot(HaveOccurred())
-			Expect(namespacedNames).To(HaveLen(1))
-			Expect(namespacedNames[0].Name).To(Equal("test-llm-service"))
-			Expect(namespacedNames[0].Namespace).To(Equal("test-namespace"))
-		})
-
-		It("should find multiple LLMInferenceServices with default gateway", func(ctx SpecContext) {
-			// Create multiple LLM services
-			llmService1 := &kservev1alpha1.LLMInferenceService{
-				ObjectMeta: v1.ObjectMeta{
-					Name:      "test-llm-service-1",
-					Namespace: "test-namespace",
-				},
-				Spec: kservev1alpha1.LLMInferenceServiceSpec{},
-			}
-			err := fakeClient.Create(ctx, llmService1)
-			Expect(err).ToNot(HaveOccurred())
-
-			llmService2 := &kservev1alpha1.LLMInferenceService{
-				ObjectMeta: v1.ObjectMeta{
-					Name:      "test-llm-service-2",
-					Namespace: "test-namespace",
-				},
-				Spec: kservev1alpha1.LLMInferenceServiceSpec{},
-			}
-			err = fakeClient.Create(ctx, llmService2)
-			Expect(err).ToNot(HaveOccurred())
-
-			authPolicy := &kuadrantv1.AuthPolicy{
-				ObjectMeta: v1.ObjectMeta{
-					Name:      "gateway-auth-policy",
-					Namespace: constants.DefaultGatewayNamespace,
-				},
-				Spec: kuadrantv1.AuthPolicySpec{
-					TargetRef: gwapiv1alpha2.LocalPolicyTargetReferenceWithSectionName{
-						LocalPolicyTargetReference: gwapiv1alpha2.LocalPolicyTargetReference{
-							Group: "gateway.networking.k8s.io",
-							Kind:  "Gateway",
-							Name:  constants.DefaultGatewayName,
-						},
-					},
-				},
-			}
-
-			namespacedNames, err := matcher.FindLLMServiceFromGatewayAuthPolicy(ctx, authPolicy)
-
-			Expect(err).ToNot(HaveOccurred())
-			Expect(namespacedNames).To(HaveLen(2))
-
-			// Verify both services are found
-			serviceNames := make([]string, len(namespacedNames))
-			for i, ns := range namespacedNames {
-				serviceNames[i] = ns.Name
-			}
-			Expect(serviceNames).To(ContainElement("test-llm-service-1"))
-			Expect(serviceNames).To(ContainElement("test-llm-service-2"))
-		})
-
-		It("should handle API errors gracefully", func(ctx SpecContext) {
-			authPolicy := &kuadrantv1.AuthPolicy{
-				ObjectMeta: v1.ObjectMeta{
-					Name:      "test-auth-policy",
-					Namespace: constants.DefaultGatewayNamespace,
-				},
-				Spec: kuadrantv1.AuthPolicySpec{
-					TargetRef: gwapiv1alpha2.LocalPolicyTargetReferenceWithSectionName{
-						LocalPolicyTargetReference: gwapiv1alpha2.LocalPolicyTargetReference{
-							Group: "gateway.networking.k8s.io",
-							Kind:  "Gateway",
-							Name:  constants.DefaultGatewayName,
-						},
-					},
-				},
-			}
-
-			namespacedNames, err := matcher.FindLLMServiceFromGatewayAuthPolicy(ctx, authPolicy)
-
-			Expect(err).ToNot(HaveOccurred())
-			Expect(namespacedNames).To(BeEmpty())
-		})
+		Expect(found).To(BeFalse())
+		Expect(namespacedName).To(Equal(types.NamespacedName{}))
 	})
 })
