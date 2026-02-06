@@ -19,32 +19,41 @@ package resources
 import (
 	"context"
 	_ "embed"
-	"encoding/json"
 	"fmt"
 	"strings"
 	"text/template"
 
-	"github.com/go-logr/logr"
-	kservev1alpha1 "github.com/kserve/kserve/pkg/apis/serving/v1alpha1"
 	kuadrantv1 "github.com/kuadrant/kuadrant-operator/api/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/util/retry"
+	"knative.dev/pkg/kmeta"
 	"sigs.k8s.io/controller-runtime/pkg/client"
-	gatewayapiv1 "sigs.k8s.io/gateway-api/apis/v1"
 	"sigs.k8s.io/yaml"
 
 	"github.com/opendatahub-io/odh-model-controller/internal/controller/constants"
 	controllerutils "github.com/opendatahub-io/odh-model-controller/internal/controller/utils"
 )
 
+//go:embed template/authpolicy_llm_isvc_userdefined.yaml
+var authPolicyTemplateUserDefined []byte
+
+//go:embed template/authpolicy_anonymous.yaml
+var authPolicyTemplateAnonymous []byte
+
 type AuthPolicyDetector interface {
 	Detect(ctx context.Context, annotations map[string]string) constants.AuthType
 }
 
+type AuthPolicyTarget struct {
+	Kind      string // Currently only "Gateway" or "HTTPRoute" is supported
+	Name      string
+	Namespace string
+	AuthType  constants.AuthType
+}
+
 type AuthPolicyTemplateLoader interface {
-	Load(ctx context.Context, authType constants.AuthType, llmisvc *kservev1alpha1.LLMInferenceService) ([]*kuadrantv1.AuthPolicy, error)
+	Load(ctx context.Context, target AuthPolicyTarget, opts ...ObjectOption) (*kuadrantv1.AuthPolicy, error)
 }
 
 type AuthPolicyStore interface {
@@ -53,17 +62,6 @@ type AuthPolicyStore interface {
 	Create(ctx context.Context, authPolicy *kuadrantv1.AuthPolicy) error
 	Update(ctx context.Context, authPolicy *kuadrantv1.AuthPolicy) error
 }
-
-type AuthPolicyMatcher interface {
-	FindLLMServiceFromHTTPRouteAuthPolicy(authPolicy *kuadrantv1.AuthPolicy) (types.NamespacedName, bool)
-	FindLLMServiceFromGatewayAuthPolicy(ctx context.Context, authPolicy *kuadrantv1.AuthPolicy) ([]types.NamespacedName, error)
-}
-
-//go:embed template/authpolicy_llm_isvc_userdefined.yaml
-var authPolicyTemplateUserDefined []byte
-
-//go:embed template/authpolicy_anonymous.yaml
-var authPolicyTemplateAnonymous []byte
 
 type kserveAuthPolicyDetector struct {
 	client client.Client
@@ -94,63 +92,61 @@ func NewKServeAuthPolicyTemplateLoader(client client.Client) AuthPolicyTemplateL
 	}
 }
 
-func (k *kserveAuthPolicyTemplateLoader) Load(ctx context.Context, authType constants.AuthType, llmisvc *kservev1alpha1.LLMInferenceService) ([]*kuadrantv1.AuthPolicy, error) {
-	switch authType {
-	case constants.UserDefined:
-		return k.loadUserDefinedTemplates(ctx, llmisvc)
+func withManagedLabels() ObjectOption {
+	return WithLabels(map[string]string{
+		"app.kubernetes.io/component":  "llminferenceservice-policies",
+		"app.kubernetes.io/part-of":    "llminferenceservice",
+		"app.kubernetes.io/managed-by": "odh-model-controller",
+	})
+}
+
+func (k *kserveAuthPolicyTemplateLoader) Load(_ context.Context, target AuthPolicyTarget, opts ...ObjectOption) (*kuadrantv1.AuthPolicy, error) {
+	var tmpl []byte
+
+	switch target.AuthType {
 	case constants.Anonymous:
-		return k.loadAnonymousTemplate(llmisvc)
+		tmpl = authPolicyTemplateAnonymous
+	case constants.UserDefined:
+		tmpl = authPolicyTemplateUserDefined
 	default:
-		return nil, fmt.Errorf("unsupported AuthPolicy type: %s", authType)
-	}
-}
-
-func (k *kserveAuthPolicyTemplateLoader) loadUserDefinedTemplates(ctx context.Context, llmisvc *kservev1alpha1.LLMInferenceService) ([]*kuadrantv1.AuthPolicy, error) {
-	logger := logr.FromContextOrDiscard(ctx).WithName("authpolicy")
-	gateways := k.getGatewayInfo(ctx, logger, llmisvc)
-
-	authPolicies := make([]*kuadrantv1.AuthPolicy, 0, len(gateways))
-
-	for _, gateway := range gateways {
-		authPolicy, err := k.renderUserDefinedTemplate(ctx, gateway.Namespace, gateway.Name)
-		if err != nil {
-			return nil, fmt.Errorf("failed to render AuthPolicy for gateway %s/%s: %w", gateway.Namespace, gateway.Name, err)
-		}
-		authPolicies = append(authPolicies, authPolicy)
+		return nil, fmt.Errorf("unsupported auth type %s", target.AuthType)
 	}
 
-	return authPolicies, nil
+	authPolicy, err := k.renderTemplate(tmpl, authPolicyTemplateData{
+		Name:       kmeta.ChildName(target.Name, constants.AuthPolicyNameSuffix),
+		Namespace:  target.Namespace,
+		TargetKind: target.Kind,
+		TargetName: target.Name,
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	// Apply managed labels first, then caller-provided opts can extend/override
+	withManagedLabels()(authPolicy)
+	for _, opt := range opts {
+		opt(authPolicy)
+	}
+
+	return authPolicy, nil
 }
 
-func (k *kserveAuthPolicyTemplateLoader) renderUserDefinedTemplate(ctx context.Context, gatewayNamespace, gatewayName string) (*kuadrantv1.AuthPolicy, error) {
-	tmpl, err := template.New("authpolicy").Parse(string(authPolicyTemplateUserDefined))
+type authPolicyTemplateData struct {
+	Name       string
+	Namespace  string
+	TargetKind string
+	TargetName string
+}
+
+func (k *kserveAuthPolicyTemplateLoader) renderTemplate(templateBytes []byte, data authPolicyTemplateData) (*kuadrantv1.AuthPolicy, error) {
+	tmpl, err := template.New("authpolicy").Parse(string(templateBytes))
 	if err != nil {
 		return nil, fmt.Errorf("failed to parse AuthPolicy template: %w", err)
 	}
 
-	audiences := controllerutils.GetAuthAudience(ctx, k.client, constants.KubernetesAudience)
-	audiencesJSON, err := json.Marshal(audiences)
-	if err != nil {
-		return nil, fmt.Errorf("failed to marshal audiences %v to JSON: %w", audiences, err)
-	}
-
-	templateData := struct {
-		Name             string
-		GatewayName      string
-		GatewayNamespace string
-		Audiences        []string
-		AudiencesJSON    string
-	}{
-		Name:             constants.GetGatewayAuthPolicyName(gatewayName),
-		GatewayName:      gatewayName,
-		GatewayNamespace: gatewayNamespace,
-		Audiences:        audiences,
-		AudiencesJSON:    string(audiencesJSON),
-	}
-
 	var builder strings.Builder
-	if err := tmpl.Execute(&builder, templateData); err != nil {
-		return nil, fmt.Errorf("failed to execute AuthPolicy template with data %+v: %w", templateData, err)
+	if err := tmpl.Execute(&builder, data); err != nil {
+		return nil, fmt.Errorf("failed to execute AuthPolicy template: %w", err)
 	}
 
 	authPolicy := &kuadrantv1.AuthPolicy{}
@@ -159,117 +155,6 @@ func (k *kserveAuthPolicyTemplateLoader) renderUserDefinedTemplate(ctx context.C
 	}
 
 	return authPolicy, nil
-}
-
-func (k *kserveAuthPolicyTemplateLoader) loadAnonymousTemplate(llmisvc *kservev1alpha1.LLMInferenceService) ([]*kuadrantv1.AuthPolicy, error) {
-	httpRoutes := k.getHTTPRouteInfo(llmisvc)
-
-	authPolicies := make([]*kuadrantv1.AuthPolicy, 0, len(httpRoutes))
-
-	for _, route := range httpRoutes {
-		authPolicy, err := k.renderAnonymousTemplate(llmisvc, route.Name)
-		if err != nil {
-			return nil, fmt.Errorf("failed to render AuthPolicy for HTTPRoute %s: %w", route.Name, err)
-		}
-		authPolicies = append(authPolicies, authPolicy)
-	}
-
-	return authPolicies, nil
-}
-
-func (k *kserveAuthPolicyTemplateLoader) renderAnonymousTemplate(llmisvc *kservev1alpha1.LLMInferenceService, httpRouteName string) (*kuadrantv1.AuthPolicy, error) {
-	tmpl, err := template.New("authpolicy").Parse(string(authPolicyTemplateAnonymous))
-	if err != nil {
-		return nil, fmt.Errorf("failed to parse AuthPolicy anonymous template: %w", err)
-	}
-
-	templateData := struct {
-		Name          string
-		Namespace     string
-		LLMISvcName   string
-		HTTPRouteName string
-	}{
-		Name:          constants.GetHTTPRouteAuthPolicyName(httpRouteName),
-		Namespace:     llmisvc.Namespace,
-		LLMISvcName:   llmisvc.Name,
-		HTTPRouteName: httpRouteName,
-	}
-
-	var builder strings.Builder
-	if err := tmpl.Execute(&builder, templateData); err != nil {
-		return nil, fmt.Errorf("failed to execute AuthPolicy anonymous template with data %+v: %w", templateData, err)
-	}
-
-	authPolicy := &kuadrantv1.AuthPolicy{}
-	if err := yaml.Unmarshal([]byte(builder.String()), authPolicy); err != nil {
-		return nil, fmt.Errorf("failed to unmarshal AuthPolicy anonymous YAML: %w", err)
-	}
-
-	return authPolicy, nil
-}
-
-// getHTTPRouteInfo returns HTTPRoute list with fallback logic
-func (k *kserveAuthPolicyTemplateLoader) getHTTPRouteInfo(llmisvc *kservev1alpha1.LLMInferenceService) []struct{ Name string } {
-	var httpRoutes []struct{ Name string }
-
-	if llmisvc.Spec.Router != nil && llmisvc.Spec.Router.Route != nil && llmisvc.Spec.Router.Route.HTTP != nil && llmisvc.Spec.Router.Route.HTTP.HasRefs() {
-		for _, ref := range llmisvc.Spec.Router.Route.HTTP.Refs {
-			httpRoutes = append(httpRoutes, struct{ Name string }{
-				Name: ref.Name,
-			})
-		}
-		return httpRoutes
-	}
-
-	// Fallback to default naming convention
-	httpRoutes = append(httpRoutes, struct{ Name string }{
-		Name: constants.GetHTTPRouteName(llmisvc.Name),
-	})
-
-	return httpRoutes
-}
-
-// getGatewayInfo returns gateway list with fallback logic, filtering out gateways with opendatahub.io/managed: false
-func (k *kserveAuthPolicyTemplateLoader) getGatewayInfo(ctx context.Context, log logr.Logger, llmisvc *kservev1alpha1.LLMInferenceService) []struct{ Namespace, Name string } {
-	var gateways []struct{ Namespace, Name string }
-
-	if llmisvc.Spec.Router != nil && llmisvc.Spec.Router.Gateway != nil && llmisvc.Spec.Router.Gateway.HasRefs() {
-		for _, ref := range llmisvc.Spec.Router.Gateway.Refs {
-			// Check if the gateway exists and should be managed
-			gateway := &gatewayapiv1.Gateway{}
-			if err := controllerutils.GetResource(ctx, k.client, string(ref.Namespace), string(ref.Name), gateway); err == nil && !controllerutils.IsExplicitlyUnmanaged(gateway) {
-				gateways = append(gateways, struct{ Namespace, Name string }{
-					Namespace: string(ref.Namespace),
-					Name:      string(ref.Name),
-				})
-			}
-		}
-		return gateways
-	}
-
-	var fallbackNamespace, fallbackName string
-	if userDefinedGatewayNS, userDefinedGatewayName, err := controllerutils.GetGatewayInfoFromConfigMap(ctx, k.client); err == nil {
-		fallbackNamespace = userDefinedGatewayNS
-		fallbackName = userDefinedGatewayName
-	} else {
-		log.Info("Using default gateway values due to ConfigMap parsing failure",
-			"error", err.Error(),
-			"defaultNamespace", constants.DefaultGatewayNamespace,
-			"defaultName", constants.DefaultGatewayName)
-		fallbackNamespace = constants.DefaultGatewayNamespace
-		fallbackName = constants.DefaultGatewayName
-	}
-
-	// Check if the fallback gateway exists and should be managed
-	gateway := &gatewayapiv1.Gateway{}
-	if err := controllerutils.GetResource(ctx, k.client, fallbackNamespace, fallbackName, gateway); err == nil && !controllerutils.IsExplicitlyUnmanaged(gateway) {
-		gateways = append(gateways, struct{ Namespace, Name string }{
-			Namespace: fallbackNamespace,
-			Name:      fallbackName,
-		})
-	}
-
-	return gateways
 }
 
 type clientAuthPolicyStore struct {
@@ -325,17 +210,7 @@ func (c *clientAuthPolicyStore) Update(ctx context.Context, authPolicy *kuadrant
 	})
 }
 
-type kserveAuthPolicyMatcher struct {
-	client client.Client
-}
-
-func NewKServeAuthPolicyMatcher(client client.Client) AuthPolicyMatcher {
-	return &kserveAuthPolicyMatcher{
-		client: client,
-	}
-}
-
-func (k *kserveAuthPolicyMatcher) FindLLMServiceFromHTTPRouteAuthPolicy(authPolicy *kuadrantv1.AuthPolicy) (types.NamespacedName, bool) {
+func FindLLMServiceFromAuthPolicy(authPolicy *kuadrantv1.AuthPolicy) (types.NamespacedName, bool) {
 	for _, ownerRef := range authPolicy.OwnerReferences {
 		if ownerRef.Kind == "LLMInferenceService" {
 			return types.NamespacedName{
@@ -344,42 +219,5 @@ func (k *kserveAuthPolicyMatcher) FindLLMServiceFromHTTPRouteAuthPolicy(authPoli
 			}, true
 		}
 	}
-
-	httpRouteName := string(authPolicy.Spec.TargetRef.Name)
-	if strings.HasSuffix(httpRouteName, constants.HTTPRouteNameSuffix) {
-		llmisvcName := strings.TrimSuffix(httpRouteName, constants.HTTPRouteNameSuffix)
-		return types.NamespacedName{
-			Name:      llmisvcName,
-			Namespace: authPolicy.Namespace,
-		}, true
-	}
-
 	return types.NamespacedName{}, false
-}
-
-func (k *kserveAuthPolicyMatcher) FindLLMServiceFromGatewayAuthPolicy(ctx context.Context, authPolicy *kuadrantv1.AuthPolicy) ([]types.NamespacedName, error) {
-	var matchedServices []types.NamespacedName
-	continueToken := ""
-	for {
-		llmSvcList := &kservev1alpha1.LLMInferenceServiceList{}
-		if err := k.client.List(ctx, llmSvcList, &client.ListOptions{Namespace: metav1.NamespaceAll, Continue: continueToken}); err != nil {
-			return nil, err
-		}
-
-		for _, llmSvc := range llmSvcList.Items {
-			if controllerutils.LLMIsvcUsesGateway(ctx, k.client, &llmSvc, authPolicy.Namespace, string(authPolicy.Spec.TargetRef.Name)) {
-				matchedServices = append(matchedServices, types.NamespacedName{
-					Name:      llmSvc.Name,
-					Namespace: llmSvc.Namespace,
-				})
-			}
-		}
-
-		if llmSvcList.Continue == "" {
-			break
-		}
-		continueToken = llmSvcList.Continue
-	}
-
-	return matchedServices, nil
 }

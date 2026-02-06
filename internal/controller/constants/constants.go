@@ -157,10 +157,6 @@ const (
 const (
 	AuthorinoLabel          = "AUTHORINO_LABEL"
 	AuthPolicyNameSuffix    = "-authn"
-	AuthPolicyGroup         = "kuadrant.io"
-	AuthPolicyVersion       = "v1"
-	AuthPolicyKind          = "AuthPolicy"
-	EnvoyFilterKind         = "EnvoyFilter"
 	EnvoyFilterNameSuffix   = "-authn-ssl"
 	HTTPRouteNameSuffix     = "-kserve-route"
 	KubernetesAudience      = "https://kubernetes.default.svc"
@@ -175,12 +171,8 @@ const (
 	AuthorinoTLSBootstrapAnnotation = "security.opendatahub.io/authorino-tls-bootstrap"
 )
 
-func GetHTTPRouteAuthPolicyName(httpRouteName string) string {
-	return kmeta.ChildName(httpRouteName, AuthPolicyNameSuffix)
-}
-
-func GetGatewayAuthPolicyName(gatewayName string) string {
-	return kmeta.ChildName(gatewayName, AuthPolicyNameSuffix)
+func GetAuthPolicyName(targetName string) string {
+	return kmeta.ChildName(targetName, AuthPolicyNameSuffix)
 }
 
 func GetGatewayEnvoyFilterName(gatewayName string) string {
@@ -189,8 +181,4 @@ func GetGatewayEnvoyFilterName(gatewayName string) string {
 
 func GetHTTPRouteName(llmisvcName string) string {
 	return kmeta.ChildName(llmisvcName, HTTPRouteNameSuffix)
-}
-
-func GetAuthPolicyGroupVersion() string {
-	return AuthPolicyGroup + "/" + AuthPolicyVersion
 }

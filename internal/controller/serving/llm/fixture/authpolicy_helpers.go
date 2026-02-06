@@ -30,12 +30,12 @@ import (
 
 func getHTTPRouteAuthPolicy(ctx context.Context, c client.Client, llmisvcNamespace, llmisvcName string) (*kuadrantv1.AuthPolicy, error) {
 	httpRouteName := constants.GetHTTPRouteName(llmisvcName)
-	return GetResourceByName(ctx, c, llmisvcNamespace, constants.GetHTTPRouteAuthPolicyName(httpRouteName), &kuadrantv1.AuthPolicy{})
+	return GetResourceByName(ctx, c, llmisvcNamespace, constants.GetAuthPolicyName(httpRouteName), &kuadrantv1.AuthPolicy{})
 }
 
 func VerifyGatewayAuthPolicyOwnerRef(ctx context.Context, c client.Client, gatewayNamespace, gatewayName string) {
 	gomega.Eventually(func() error {
-		gatewayAuthPolicy, err := GetResourceByName(ctx, c, gatewayNamespace, constants.GetGatewayAuthPolicyName(gatewayName), &kuadrantv1.AuthPolicy{})
+		gatewayAuthPolicy, err := GetResourceByName(ctx, c, gatewayNamespace, constants.GetAuthPolicyName(gatewayName), &kuadrantv1.AuthPolicy{})
 		if err != nil {
 			return err
 		}
@@ -51,7 +51,7 @@ func VerifyGatewayAuthPolicyOwnerRef(ctx context.Context, c client.Client, gatew
 func VerifyHTTPRouteAuthPolicyOwnerRef(ctx context.Context, c client.Client, testNs string, llmisvcName string) {
 	gomega.Eventually(func() error {
 		httpRouteName := constants.GetHTTPRouteName(llmisvcName)
-		httpRouteAuthPolicy, err := GetResourceByName(ctx, c, testNs, constants.GetHTTPRouteAuthPolicyName(httpRouteName), &kuadrantv1.AuthPolicy{})
+		httpRouteAuthPolicy, err := GetResourceByName(ctx, c, testNs, constants.GetAuthPolicyName(httpRouteName), &kuadrantv1.AuthPolicy{})
 		if err != nil {
 			return err
 		}
@@ -66,12 +66,20 @@ func VerifyHTTPRouteAuthPolicyOwnerRef(ctx context.Context, c client.Client, tes
 
 func VerifyHTTPRouteAuthPolicyExists(ctx context.Context, c client.Client, testNs string, llmisvcName string) {
 	httpRouteName := constants.GetHTTPRouteName(llmisvcName)
-	VerifyResourceExists(ctx, c, testNs, constants.GetHTTPRouteAuthPolicyName(httpRouteName), &kuadrantv1.AuthPolicy{})
+	VerifyResourceExists(ctx, c, testNs, constants.GetAuthPolicyName(httpRouteName), &kuadrantv1.AuthPolicy{})
+}
+
+func VerifyGatewayAuthPolicyExists(ctx context.Context, c client.Client, gatewayNamespace, gatewayName string) {
+	VerifyResourceExists(ctx, c, gatewayNamespace, constants.GetAuthPolicyName(gatewayName), &kuadrantv1.AuthPolicy{})
+}
+
+func VerifyGatewayAuthPolicyNotExist(ctx context.Context, c client.Client, gatewayNamespace, gatewayName string) {
+	VerifyResourceNotExist(ctx, c, gatewayNamespace, constants.GetAuthPolicyName(gatewayName), &kuadrantv1.AuthPolicy{})
 }
 
 func VerifyCustomHTTPRouteAuthPolicyExists(ctx context.Context, c client.Client, testNs string, llmisvcName string, httpRouteName string) {
 	gomega.Eventually(func() error {
-		authPolicy, err := GetResourceByName(ctx, c, testNs, constants.GetHTTPRouteAuthPolicyName(httpRouteName), &kuadrantv1.AuthPolicy{})
+		authPolicy, err := GetResourceByName(ctx, c, testNs, constants.GetAuthPolicyName(httpRouteName), &kuadrantv1.AuthPolicy{})
 		if err != nil {
 			return err
 		}
@@ -85,12 +93,12 @@ func VerifyCustomHTTPRouteAuthPolicyExists(ctx context.Context, c client.Client,
 
 func VerifyHTTPRouteAuthPolicyNotExist(ctx context.Context, c client.Client, testNs string, llmisvcName string) {
 	httpRouteName := constants.GetHTTPRouteName(llmisvcName)
-	VerifyResourceNotExist(ctx, c, testNs, constants.GetHTTPRouteAuthPolicyName(httpRouteName), &kuadrantv1.AuthPolicy{})
+	VerifyResourceNotExist(ctx, c, testNs, constants.GetAuthPolicyName(httpRouteName), &kuadrantv1.AuthPolicy{})
 }
 
 func VerifyGatewayAuthPolicyRestored(ctx context.Context, c client.Client, gatewayNamespace, gatewayName string, expectedTargetRefName gatewayapiv1.ObjectName) {
 	gomega.Eventually(func() bool {
-		restored, err := GetResourceByName(ctx, c, gatewayNamespace, constants.GetGatewayAuthPolicyName(gatewayName), &kuadrantv1.AuthPolicy{})
+		restored, err := GetResourceByName(ctx, c, gatewayNamespace, constants.GetAuthPolicyName(gatewayName), &kuadrantv1.AuthPolicy{})
 		if err != nil {
 			return false
 		}
@@ -112,7 +120,7 @@ func WaitForCustomHTTPRouteAuthPolicy(ctx context.Context, c client.Client, test
 	var httpRouteAuthPolicy *kuadrantv1.AuthPolicy
 	gomega.Eventually(func() error {
 		var err error
-		httpRouteAuthPolicy, err = GetResourceByName(ctx, c, testNs, constants.GetHTTPRouteAuthPolicyName(httpRouteName), &kuadrantv1.AuthPolicy{})
+		httpRouteAuthPolicy, err = GetResourceByName(ctx, c, testNs, constants.GetAuthPolicyName(httpRouteName), &kuadrantv1.AuthPolicy{})
 		return err
 	}).WithContext(ctx).Should(gomega.Succeed())
 	return httpRouteAuthPolicy
@@ -120,7 +128,7 @@ func WaitForCustomHTTPRouteAuthPolicy(ctx context.Context, c client.Client, test
 
 func VerifyCustomHTTPRouteAuthPolicyRestored(ctx context.Context, c client.Client, testNs string, httpRouteName string, expectedTargetRefName gatewayapiv1.ObjectName) {
 	gomega.Eventually(func() bool {
-		restored, err := GetResourceByName(ctx, c, testNs, constants.GetHTTPRouteAuthPolicyName(httpRouteName), &kuadrantv1.AuthPolicy{})
+		restored, err := GetResourceByName(ctx, c, testNs, constants.GetAuthPolicyName(httpRouteName), &kuadrantv1.AuthPolicy{})
 		if err != nil {
 			return false
 		}

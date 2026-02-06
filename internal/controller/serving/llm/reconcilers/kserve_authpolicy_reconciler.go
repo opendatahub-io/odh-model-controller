@@ -46,7 +46,6 @@ type KserveAuthPolicyReconciler struct {
 	detector       resources.AuthPolicyDetector
 	templateLoader resources.AuthPolicyTemplateLoader
 	store          resources.AuthPolicyStore
-	matcher        resources.AuthPolicyMatcher
 }
 
 func NewKserveAuthPolicyReconciler(client client.Client, scheme *runtime.Scheme) *KserveAuthPolicyReconciler {
@@ -57,17 +56,11 @@ func NewKserveAuthPolicyReconciler(client client.Client, scheme *runtime.Scheme)
 		detector:       resources.NewKServeAuthPolicyDetector(client),
 		templateLoader: resources.NewKServeAuthPolicyTemplateLoader(client),
 		store:          resources.NewClientAuthPolicyStore(client),
-		matcher:        resources.NewKServeAuthPolicyMatcher(client),
 	}
 }
 
 func (r *KserveAuthPolicyReconciler) Reconcile(ctx context.Context, log logr.Logger, llmisvc *kservev1alpha1.LLMInferenceService) error {
 	log.V(1).Info("Starting AuthPolicy reconciliation for LLMInferenceService")
-
-	if err := r.reconcileGatewayAuthpolicy(ctx, log, llmisvc); err != nil {
-		log.Error(err, "Failed to reconcile Gateway AuthPolicy")
-		return err
-	}
 
 	if err := r.reconcileHTTPRouteAuthpolicy(ctx, log, llmisvc); err != nil {
 		log.Error(err, "Failed to reconcile HTTPRoute AuthPolicy")
@@ -77,46 +70,25 @@ func (r *KserveAuthPolicyReconciler) Reconcile(ctx context.Context, log logr.Log
 	return nil
 }
 
-func (r *KserveAuthPolicyReconciler) reconcileGatewayAuthpolicy(ctx context.Context, log logr.Logger, llmisvc *kservev1alpha1.LLMInferenceService) error {
-	log.V(1).Info("Reconciling Gateway AuthPolicy")
-
-	desiredAuthPolicies, err := r.templateLoader.Load(ctx, constants.UserDefined, llmisvc)
-	if err != nil {
-		log.Error(err, "Failed to load Gateway AuthPolicy templates")
-		return err
-	}
-
-	for _, desired := range desiredAuthPolicies {
-		existing, err := r.getExistingAuthPolicy(ctx, desired.GetName(), desired.GetNamespace())
-		if err != nil && !apierrors.IsNotFound(err) {
-			log.Error(err, "Failed to get existing gateway AuthPolicy", "name", desired.GetName())
-			return err
-		}
-
-		if existing != nil && !utils.IsManagedByOpenDataHub(existing) {
-			log.V(1).Info("Skipping reconciliation - AuthPolicy is not managed by odh-model-controller")
-			continue
-		}
-
-		if err := r.gatewayAuthPolicyProcessDelta(ctx, log, desired, existing); err != nil {
-			log.Error(err, "Failed to process Gateway AuthPolicy delta", "name", desired.GetName())
-			return err
-		}
-	}
-
-	return nil
-}
-
 func (r *KserveAuthPolicyReconciler) reconcileHTTPRouteAuthpolicy(ctx context.Context, log logr.Logger, llmisvc *kservev1alpha1.LLMInferenceService) error {
 	log.V(1).Info("Reconciling HTTPRoute AuthPolicy")
 
-	desiredAuthPolicies, err := r.templateLoader.Load(ctx, constants.Anonymous, llmisvc)
-	if err != nil {
-		log.Error(err, "Failed to load HTTPRoute AuthPolicy templates")
-		return err
-	}
+	httpRouteNames := r.getHTTPRouteNames(llmisvc)
 
-	for _, desired := range desiredAuthPolicies {
+	for _, routeName := range httpRouteNames {
+		desired, err := r.templateLoader.Load(ctx, resources.AuthPolicyTarget{
+			Kind:      "HTTPRoute",
+			Name:      routeName,
+			Namespace: llmisvc.Namespace,
+			AuthType:  constants.Anonymous,
+		}, resources.WithLabels(map[string]string{
+			"app.kubernetes.io/name": llmisvc.Name,
+		}))
+		if err != nil {
+			log.Error(err, "Failed to load HTTPRoute AuthPolicy template", "httpRoute", routeName)
+			return err
+		}
+
 		existing, err := r.getExistingAuthPolicy(ctx, desired.GetName(), desired.GetNamespace())
 		if err != nil && !apierrors.IsNotFound(err) {
 			log.Error(err, "Failed to get existing HTTPRoute AuthPolicy", "name", desired.GetName())
@@ -137,16 +109,21 @@ func (r *KserveAuthPolicyReconciler) reconcileHTTPRouteAuthpolicy(ctx context.Co
 	return nil
 }
 
+func (r *KserveAuthPolicyReconciler) getHTTPRouteNames(llmisvc *kservev1alpha1.LLMInferenceService) []string {
+	if llmisvc.Spec.Router != nil && llmisvc.Spec.Router.Route != nil && llmisvc.Spec.Router.Route.HTTP != nil && llmisvc.Spec.Router.Route.HTTP.HasRefs() {
+		names := make([]string, 0, len(llmisvc.Spec.Router.Route.HTTP.Refs))
+		for _, ref := range llmisvc.Spec.Router.Route.HTTP.Refs {
+			names = append(names, ref.Name)
+		}
+		return names
+	}
+	return []string{constants.GetHTTPRouteName(llmisvc.Name)}
+}
+
 func (r *KserveAuthPolicyReconciler) Delete(ctx context.Context, log logr.Logger, llmisvc *kservev1alpha1.LLMInferenceService) error {
 	log.V(1).Info("Deleting AuthPolicies for LLMInferenceService")
 
-	// 1. Delete HTTPRoute AuthPolicies (always delete)
 	if err := r.deleteHTTPRouteAuthPolicies(ctx, log, llmisvc); err != nil {
-		return err
-	}
-
-	// 2. Delete Gateway AuthPolicies (only if no other LLMInferenceService uses the same gateway)
-	if err := r.deleteGatewayAuthPoliciesIfUnused(ctx, log, llmisvc); err != nil {
 		return err
 	}
 
@@ -156,16 +133,13 @@ func (r *KserveAuthPolicyReconciler) Delete(ctx context.Context, log logr.Logger
 func (r *KserveAuthPolicyReconciler) deleteHTTPRouteAuthPolicies(ctx context.Context, log logr.Logger, llmisvc *kservev1alpha1.LLMInferenceService) error {
 	log.V(1).Info("Deleting HTTPRoute AuthPolicy for LLMInferenceService")
 
-	httpRouteAuthPolicies, err := r.templateLoader.Load(ctx, constants.Anonymous, llmisvc)
-	if err != nil {
-		log.Error(err, "Failed to load HTTPRoute AuthPolicy templates for deletion")
-		return err
-	}
+	httpRouteNames := r.getHTTPRouteNames(llmisvc)
 
-	for _, authPolicy := range httpRouteAuthPolicies {
+	for _, routeName := range httpRouteNames {
+		authPolicyName := constants.GetAuthPolicyName(routeName)
 		namespacedName := types.NamespacedName{
-			Name:      authPolicy.GetName(),
-			Namespace: authPolicy.GetNamespace(),
+			Name:      authPolicyName,
+			Namespace: llmisvc.Namespace,
 		}
 
 		log.V(1).Info("Attempting to delete HTTPRoute AuthPolicy", "name", namespacedName.Name)
@@ -184,69 +158,6 @@ func (r *KserveAuthPolicyReconciler) deleteHTTPRouteAuthPolicies(ctx context.Con
 	return nil
 }
 
-func (r *KserveAuthPolicyReconciler) deleteGatewayAuthPoliciesIfUnused(ctx context.Context, log logr.Logger, llmisvc *kservev1alpha1.LLMInferenceService) error {
-	log.V(1).Info("Checking Gateway AuthPolicies for deletion")
-
-	gatewayAuthPolicies, err := r.templateLoader.Load(ctx, constants.UserDefined, llmisvc)
-	if err != nil {
-		log.Error(err, "Failed to load Gateway AuthPolicy templates for deletion")
-		return err
-	}
-
-	for _, authPolicy := range gatewayAuthPolicies {
-		namespacedName := types.NamespacedName{
-			Name:      authPolicy.GetName(),
-			Namespace: authPolicy.GetNamespace(),
-		}
-
-		log.V(1).Info("Checking if Gateway AuthPolicy is used by other LLMInferenceServices", "name", namespacedName.Name)
-
-		existingAuthPolicy, err := r.store.Get(ctx, namespacedName)
-		if err != nil {
-			if apierrors.IsNotFound(err) {
-				log.V(1).Info("Gateway AuthPolicy not found, already deleted", "name", namespacedName.Name)
-				continue
-			}
-			log.Error(err, "Failed to get Gateway AuthPolicy", "name", namespacedName.Name)
-			return err
-		}
-
-		matchedServices, err := r.matcher.FindLLMServiceFromGatewayAuthPolicy(ctx, existingAuthPolicy)
-		if err != nil {
-			log.Error(err, "Failed to find LLMInferenceServices using Gateway AuthPolicy", "name", namespacedName.Name)
-			return err
-		}
-
-		hasOtherUsers := false
-		for _, svc := range matchedServices {
-			if svc.Name != llmisvc.Name || svc.Namespace != llmisvc.Namespace {
-				hasOtherUsers = true
-				break
-			}
-		}
-
-		if hasOtherUsers {
-			log.Info("Skipping Gateway AuthPolicy deletion as it is used by other LLMInferenceServices",
-				"authPolicy", namespacedName.Name)
-			continue
-		}
-
-		log.V(1).Info("Attempting to delete Gateway AuthPolicy", "name", namespacedName.Name)
-
-		if err := r.store.Remove(ctx, namespacedName); err != nil {
-			if !apierrors.IsNotFound(err) {
-				log.Error(err, "Failed to delete Gateway AuthPolicy", "name", namespacedName.Name)
-				return err
-			}
-			log.V(1).Info("Gateway AuthPolicy not found, already deleted", "name", namespacedName.Name)
-		} else {
-			log.Info("Successfully deleted Gateway AuthPolicy", "name", namespacedName.Name)
-		}
-	}
-
-	return nil
-}
-
 func (r *KserveAuthPolicyReconciler) Cleanup(ctx context.Context, log logr.Logger, isvcNs string) error {
 	return nil
 }
@@ -256,22 +167,6 @@ func (r *KserveAuthPolicyReconciler) getExistingAuthPolicy(ctx context.Context, 
 		Name:      name,
 		Namespace: namespace,
 	})
-}
-
-func (r *KserveAuthPolicyReconciler) getGatewayFromAuthPolicy(ctx context.Context, authPolicy *kuadrantv1.AuthPolicy) (*gatewayapiv1.Gateway, error) {
-	if authPolicy.Spec.TargetRef.Kind != "Gateway" {
-		return nil, fmt.Errorf("AuthPolicy %s does not target a Gateway", authPolicy.GetName())
-	}
-
-	gatewayName := string(authPolicy.Spec.TargetRef.Name)
-	gatewayNamespace := authPolicy.GetNamespace()
-
-	gateway := &gatewayapiv1.Gateway{}
-	if err := utils.GetResource(ctx, r.client, gatewayNamespace, gatewayName, gateway); err != nil {
-		return nil, fmt.Errorf("failed to get Gateway %s/%s: %w", gatewayNamespace, gatewayName, err)
-	}
-
-	return gateway, nil
 }
 
 func (r *KserveAuthPolicyReconciler) getHTTPRouteFromAuthPolicy(ctx context.Context, authPolicy *kuadrantv1.AuthPolicy) (*gatewayapiv1.HTTPRoute, error) {
@@ -287,51 +182,6 @@ func (r *KserveAuthPolicyReconciler) getHTTPRouteFromAuthPolicy(ctx context.Cont
 	}
 
 	return httpRoute, nil
-}
-
-func (r *KserveAuthPolicyReconciler) gatewayAuthPolicyProcessDelta(ctx context.Context, log logr.Logger, desired *kuadrantv1.AuthPolicy, existing *kuadrantv1.AuthPolicy) error {
-	log.V(1).Info("Processing Gateway AuthPolicy delta", "name", desired.GetName())
-
-	delta := r.deltaProcessor.ComputeDelta(comparators.GetAuthPolicyComparator(), desired, existing)
-
-	if !delta.HasChanges() {
-		log.V(1).Info("No delta found for Gateway AuthPolicy", "name", desired.GetName())
-		return nil
-	}
-
-	if delta.IsAdded() {
-		log.V(1).Info("Delta found", "action", "create", "authpolicy", desired.GetName())
-
-		gateway, err := r.getGatewayFromAuthPolicy(ctx, desired)
-		if err != nil {
-			return fmt.Errorf("failed to get Gateway for AuthPolicy %s: %w", desired.GetName(), err)
-		}
-		if err := controllerutil.SetControllerReference(gateway, desired, r.scheme); err != nil {
-			return fmt.Errorf("failed to set controller reference to Gateway for AuthPolicy %s: %w", desired.GetName(), err)
-		}
-
-		if err := r.store.Create(ctx, desired); err != nil {
-			return fmt.Errorf("failed to create Gateway AuthPolicy %s: %w", desired.GetName(), err)
-		}
-	} else if delta.IsUpdated() {
-		log.V(1).Info("Delta found", "action", "update", "authpolicy", existing.GetName())
-
-		gateway, err := r.getGatewayFromAuthPolicy(ctx, desired)
-		if err != nil {
-			return fmt.Errorf("failed to get Gateway for AuthPolicy %s: %w", desired.GetName(), err)
-		}
-		if err := controllerutil.SetControllerReference(gateway, desired, r.scheme); err != nil {
-			return fmt.Errorf("failed to set controller reference to Gateway for AuthPolicy %s: %w", desired.GetName(), err)
-		}
-
-		utils.MergeUserLabelsAndAnnotations(desired, existing)
-
-		if err := r.store.Update(ctx, desired); err != nil {
-			return fmt.Errorf("failed to update Gateway AuthPolicy %s: %w", existing.GetName(), err)
-		}
-	}
-
-	return nil
 }
 
 func (r *KserveAuthPolicyReconciler) httpRouteAuthPolicyProcessDelta(ctx context.Context, log logr.Logger, llmisvc *kservev1alpha1.LLMInferenceService, desired *kuadrantv1.AuthPolicy, existing *kuadrantv1.AuthPolicy) error {
