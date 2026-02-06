@@ -45,10 +45,49 @@ type ConfigMapHandler struct {
 	Scheme     *runtime.Scheme
 	KubeClient *kubernetes.Clientset
 	KeyManager *APIKeyManager
+	AirGapped  bool
 }
 
 func (c *ConfigMapHandler) Handle(ctx context.Context, account *v1.Account) HandleResponse {
 	logger := log.FromContext(ctx)
+
+	if c.AirGapped {
+		cmName := fmt.Sprintf("%s-cm", account.Name)
+		cmNamespace := account.Namespace
+		if appNs, nsErr := utils.GetApplicationNamespace(ctx, c.Client); nsErr == nil && len(appNs) > 0 {
+			cmNamespace = appNs
+		}
+		cmRef := &corev1.ObjectReference{
+			Kind:       "ConfigMap",
+			Name:       cmName,
+			Namespace:  cmNamespace,
+			APIVersion: "v1",
+		}
+
+		msg := "configmap update marked successful because NIM air-gapped mode is enabled"
+		successStatus := account.Status
+		// Always set the expected configmap reference in air-gapped mode so the dashboard can resolve it.
+		successStatus.NIMConfig = cmRef
+		condUpdated := meta.SetStatusCondition(&successStatus.Conditions,
+			utils.MakeNimCondition(utils.NimConditionConfigMapUpdate, metav1.ConditionTrue, account.Generation, "ConfigMapUpdated", msg))
+		needsStatusUpdate := condUpdated || successStatus.LastSuccessfulConfigRefresh == nil
+		if !needsStatusUpdate {
+			existing := account.Status.NIMConfig
+			if existing == nil || existing.Name != cmName || existing.Namespace != cmNamespace {
+				needsStatusUpdate = true
+			}
+		}
+		if needsStatusUpdate {
+			successStatus.LastSuccessfulConfigRefresh = &metav1.Time{Time: time.Now()}
+			if updateErr := utils.UpdateStatus(ctx, client.ObjectKeyFromObject(account), successStatus, c.Client); updateErr != nil {
+				return HandleResponse{Error: updateErr}
+			}
+			logger.Info(msg)
+			return HandleResponse{Requeue: true}
+		}
+		logger.V(1).Info(msg)
+		return HandleResponse{Continue: true}
+	}
 
 	if shouldReconcile := c.shouldReconcile(ctx, account); !shouldReconcile {
 		return HandleResponse{Continue: true}
