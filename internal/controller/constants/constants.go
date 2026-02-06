@@ -173,6 +173,16 @@ const (
 	// This is in particular useful for MaaS gateway where custom policies are used, but we still need
 	// to configure TLS between the gateway and Authorino.
 	AuthorinoTLSBootstrapAnnotation = "security.opendatahub.io/authorino-tls-bootstrap"
+
+	// AuthPolicyObjectiveExpressionAnnotation is a Gateway annotation that allows customizing
+	// the CEL expression used to compute the objective value for inference.
+	// If not set, defaults to extracting the namespace from ServiceAccount usernames,
+	// or "authenticated" for non-SA users.
+	AuthPolicyObjectiveExpressionAnnotation = "inference.opendatahub.io/objective-expression"
+
+	// DefaultObjectiveExpression is the default CEL expression for computing the objective value.
+	// For ServiceAccount tokens, it extracts the namespace; for other users, it returns "authenticated".
+	DefaultObjectiveExpression = "auth.identity.user.username.startsWith('system:serviceaccount:') ? auth.identity.user.username.split(':')[2] : 'authenticated'"
 )
 
 func GetHTTPRouteAuthPolicyName(httpRouteName string) string {
