@@ -66,3 +66,5 @@ objects:
           version: '3'
         - name: lightgbm
           version: '4'
+        - name: onnx
+          version: '1'
