@@ -57,10 +57,18 @@ objects:
               value: '1024'
             - name: VLLM_SPYRE_WARMUP_NEW_TOKENS
               value: '256'
+            - name: VLLM_SPYRE_REQUIRE_PRECOMPILED_DECODERS
+              value: '0'
           ports:
             - containerPort: 8000
               protocol: TCP
+          volumeMounts:
+            - name: spyre-cache
+              mountPath: /opt/ibm/spyre/models
       multiModel: false
       supportedModelFormats:
         - autoSelect: true
           name: vLLM
+      volumes:
+        - name: spyre-cache
+          emptyDir: {}
