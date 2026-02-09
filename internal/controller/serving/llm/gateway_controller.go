@@ -516,9 +516,14 @@ func (r *GatewayReconciler) SetupWithManager(mgr ctrl.Manager, setupLog logr.Log
 			return utils.ShouldCreateEnvoyFilterForGateway(e.Object.(*gatewayapiv1.Gateway))
 		},
 		UpdateFunc: func(e event.UpdateEvent) bool {
-			oldManaged := e.ObjectOld.GetLabels()[constants.ODHManagedLabel]
-			newManaged := e.ObjectNew.GetLabels()[constants.ODHManagedLabel]
-			if oldManaged != newManaged {
+			oldLabManaged := e.ObjectOld.GetLabels()[constants.ODHManaged]
+			newLabManaged := e.ObjectNew.GetLabels()[constants.ODHManaged]
+			if oldLabManaged != newLabManaged {
+				return true
+			}
+			oldAnnManaged := e.ObjectOld.GetAnnotations()[constants.ODHManaged]
+			newAnnManaged := e.ObjectNew.GetAnnotations()[constants.ODHManaged]
+			if oldAnnManaged != newAnnManaged {
 				return true
 			}
 			oldTLS := e.ObjectOld.GetAnnotations()[constants.AuthorinoTLSBootstrapAnnotation]
