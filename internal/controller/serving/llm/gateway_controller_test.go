@@ -19,11 +19,13 @@ package llm_test
 import (
 	"context"
 
+	kservev1alpha1 "github.com/kserve/kserve/pkg/apis/serving/v1alpha1"
 	kuadrantv1 "github.com/kuadrant/kuadrant-operator/api/v1"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	istioclientv1alpha3 "istio.io/client-go/pkg/apis/networking/v1alpha3"
 	"k8s.io/apimachinery/pkg/types"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 	gatewayapiv1 "sigs.k8s.io/gateway-api/apis/v1"
 
 	"github.com/opendatahub-io/odh-model-controller/internal/controller/constants"
@@ -34,59 +36,109 @@ import (
 
 var _ = Describe("Gateway Controller", func() {
 	var testNs string
-	BeforeEach(func() {
-		ctx := context.Background()
-		testNamespace := testutils.Namespaces.Create(ctx, envTest.Client)
+	BeforeEach(func(specContext SpecContext) {
+		testNamespace := testutils.Namespaces.Create(specContext, envTest.Client)
 		testNs = testNamespace.Name
 	})
 
-	// Helper to create a managed gateway with standard options
+	AfterEach(func(ctx SpecContext) {
+		// Clean up LLMInferenceServices to prevent cross-test interference
+		// from watches that list all services cluster-wide.
+		llmList := &kservev1alpha1.LLMInferenceServiceList{}
+		if err := envTest.Client.List(ctx, llmList, client.InNamespace(testNs)); err == nil {
+			for i := range llmList.Items {
+				_ = envTest.Client.Delete(ctx, &llmList.Items[i])
+			}
+		}
+	})
+
 	createGateway := func(ctx context.Context, name string, opts ...fixture.GatewayOption) *gatewayapiv1.Gateway {
 		gw := fixture.ManagedGateway(name, testNs, GatewayClassName, opts...)
 		ExpectWithOffset(1, envTest.Client.Create(ctx, gw)).Should(Succeed())
 		return gw
 	}
 
-	Context("Gateway with opendatahub.io/managed=true label", func() {
-		It("should create EnvoyFilter and AuthPolicy when managed Gateway is created", func(ctx SpecContext) {
-			gatewayName := pkgtest.GenerateUniqueTestName("managed-gateway")
-			createGateway(ctx, gatewayName)
+	createLLMService := func(ctx context.Context, name string, opts ...fixture.LLMInferenceServiceOption) *kservev1alpha1.LLMInferenceService {
+		defaultOpts := []fixture.LLMInferenceServiceOption{
+			fixture.InNamespace[*kservev1alpha1.LLMInferenceService](testNs),
+		}
+		llmSvc := fixture.LLMInferenceService(name, append(defaultOpts, opts...)...)
+		ExpectWithOffset(1, envTest.Client.Create(ctx, llmSvc)).Should(Succeed())
+		return llmSvc
+	}
 
-			fixture.VerifyGatewayEnvoyFilterExists(ctx, envTest.Client, testNs, gatewayName)
-			fixture.VerifyGatewayAuthPolicyExists(ctx, envTest.Client, testNs, gatewayName)
-		})
+	createLLMServiceForGateway := func(ctx context.Context, gatewayName string) {
+		createLLMService(ctx, "test-llmisvc",
+			fixture.WithGatewayRefs(fixture.LLMGatewayRef(gatewayName, testNs)),
+		)
+	}
 
-		It("should have Gateway as owner reference for EnvoyFilter and AuthPolicy", func(ctx SpecContext) {
-			gatewayName := pkgtest.GenerateUniqueTestName("managed-gateway")
-			createGateway(ctx, gatewayName)
+	setupReferencedGateway := func(ctx context.Context) string {
+		gatewayName := pkgtest.GenerateUniqueTestName("managed-gateway")
+		createGateway(ctx, gatewayName)
+		createLLMServiceForGateway(ctx, gatewayName)
+
+		fixture.VerifyGatewayEnvoyFilterExists(ctx, envTest.Client, testNs, gatewayName)
+		fixture.VerifyGatewayAuthPolicyExists(ctx, envTest.Client, testNs, gatewayName)
+
+		return gatewayName
+	}
+
+	Context("Gateway referenced by LLMInferenceService", func() {
+		It("should create EnvoyFilter and AuthPolicy with correct owner references", func(ctx SpecContext) {
+			gatewayName := setupReferencedGateway(ctx)
 
 			fixture.VerifyGatewayEnvoyFilterOwnerRef(ctx, envTest.Client, testNs, gatewayName)
 			fixture.VerifyGatewayAuthPolicyOwnerRef(ctx, envTest.Client, testNs, gatewayName)
 		})
 	})
 
-	Context("Gateway with opendatahub.io/managed=false label", func() {
-		It("should NOT create EnvoyFilter or AuthPolicy for unmanaged gateway without bootstrap annotation", func(ctx SpecContext) {
-			gatewayName := pkgtest.GenerateUniqueTestName("unmanaged-gateway")
-			createGateway(ctx, gatewayName, fixture.WithUnmanagedLabel())
+	Context("Gateway not referenced by any LLMInferenceService", func() {
+		It("should NOT create EnvoyFilter or AuthPolicy for unreferenced managed gateway", func(ctx SpecContext) {
+			gatewayName := pkgtest.GenerateUniqueTestName("unreferenced-gateway")
+			createGateway(ctx, gatewayName)
 
 			fixture.VerifyGatewayEnvoyFilterNotExist(ctx, envTest.Client, testNs, gatewayName)
 			fixture.VerifyGatewayAuthPolicyNotExist(ctx, envTest.Client, testNs, gatewayName)
 		})
 	})
 
-	Context("Gateway with authorino-tls-bootstrap annotation", func() {
-		It("should create EnvoyFilter but NOT AuthPolicy for unmanaged gateway with bootstrap annotation", func(ctx SpecContext) {
-			gatewayName := pkgtest.GenerateUniqueTestName("bootstrap-gateway")
-			createGateway(ctx, gatewayName,
+	Context("Unmanaged and platform gateways", func() {
+		DescribeTable("should NOT create EnvoyFilter or AuthPolicy",
+			func(ctx SpecContext, opts ...fixture.GatewayOption) {
+				gatewayName := pkgtest.GenerateUniqueTestName("gateway")
+				createGateway(ctx, gatewayName, opts...)
+
+				fixture.VerifyGatewayEnvoyFilterNotExist(ctx, envTest.Client, testNs, gatewayName)
+				fixture.VerifyGatewayAuthPolicyNotExist(ctx, envTest.Client, testNs, gatewayName)
+			},
+			Entry("unmanaged gateway without bootstrap annotation",
 				fixture.WithUnmanagedLabel(),
-				fixture.WithAuthorinoTLSBootstrapAnnotation("true"),
-			)
+			),
+			Entry("platform gateway without bootstrap annotation",
+				fixture.WithControllerOwnerRef("GatewayConfig", "default-gateway", "services.platform.opendatahub.io/v1alpha1"),
+			),
+		)
 
-			fixture.VerifyGatewayEnvoyFilterExists(ctx, envTest.Client, testNs, gatewayName)
-			fixture.VerifyGatewayAuthPolicyNotExist(ctx, envTest.Client, testNs, gatewayName)
-		})
+		DescribeTable("should create EnvoyFilter but NOT AuthPolicy when Gateway has bootstrap annotation",
+			func(ctx SpecContext, opts ...fixture.GatewayOption) {
+				gatewayName := pkgtest.GenerateUniqueTestName("gateway")
+				allOpts := append(opts, fixture.WithAuthorinoTLSBootstrapAnnotation("true"))
+				createGateway(ctx, gatewayName, allOpts...)
 
+				fixture.VerifyGatewayEnvoyFilterExists(ctx, envTest.Client, testNs, gatewayName)
+				fixture.VerifyGatewayAuthPolicyNotExist(ctx, envTest.Client, testNs, gatewayName)
+			},
+			Entry("unmanaged gateway",
+				fixture.WithUnmanagedLabel(),
+			),
+			Entry("platform gateway (with explicit tls-bootstrap annotation opt-in)",
+				fixture.WithControllerOwnerRef("GatewayConfig", "default-gateway", "services.platform.opendatahub.io/v1alpha1"),
+			),
+		)
+	})
+
+	Context("Bootstrap annotation removal", func() {
 		It("should delete EnvoyFilter when bootstrap annotation is removed from unmanaged gateway", func(ctx SpecContext) {
 			gatewayName := pkgtest.GenerateUniqueTestName("bootstrap-gateway")
 			createGateway(ctx, gatewayName,
@@ -96,7 +148,6 @@ var _ = Describe("Gateway Controller", func() {
 
 			fixture.VerifyGatewayEnvoyFilterExists(ctx, envTest.Client, testNs, gatewayName)
 
-			// Remove the bootstrap annotation
 			Eventually(func() error {
 				gw := &gatewayapiv1.Gateway{}
 				if err := envTest.Client.Get(ctx, types.NamespacedName{Name: gatewayName, Namespace: testNs}, gw); err != nil {
@@ -110,45 +161,16 @@ var _ = Describe("Gateway Controller", func() {
 		})
 	})
 
-	Context("Gateway controller works independently of LLMInferenceService", func() {
-		It("should create resources for Gateway without any LLMInferenceService existing", func(ctx SpecContext) {
-			// This test verifies the main bug fix - resources should be created
-			// when Gateway exists, even if no LLMInferenceService exists
-			gatewayName := pkgtest.GenerateUniqueTestName("independent-gateway")
-			createGateway(ctx, gatewayName)
-
-			fixture.VerifyGatewayEnvoyFilterExists(ctx, envTest.Client, testNs, gatewayName)
-			fixture.VerifyGatewayAuthPolicyExists(ctx, envTest.Client, testNs, gatewayName)
-		})
-	})
-
-	Context("Platform gateway (owned by GatewayConfig)", func() {
-		It("should NOT create EnvoyFilter or AuthPolicy for platform gateway without bootstrap annotation", func(ctx SpecContext) {
-			gatewayName := pkgtest.GenerateUniqueTestName("platform-gateway")
-			createGateway(ctx, gatewayName,
-				fixture.WithControllerOwnerRef("GatewayConfig", "default-gateway", "services.platform.opendatahub.io/v1alpha1"),
-			)
-
-			fixture.VerifyGatewayEnvoyFilterNotExist(ctx, envTest.Client, testNs, gatewayName)
-			fixture.VerifyGatewayAuthPolicyNotExist(ctx, envTest.Client, testNs, gatewayName)
-		})
-
-		It("should create EnvoyFilter but NOT AuthPolicy for platform gateway with bootstrap annotation", func(ctx SpecContext) {
-			gatewayName := pkgtest.GenerateUniqueTestName("platform-gateway")
-			createGateway(ctx, gatewayName,
-				fixture.WithControllerOwnerRef("GatewayConfig", "default-gateway", "services.platform.opendatahub.io/v1alpha1"),
-				fixture.WithAuthorinoTLSBootstrapAnnotation("true"),
-			)
-
-			fixture.VerifyGatewayEnvoyFilterExists(ctx, envTest.Client, testNs, gatewayName)
-			fixture.VerifyGatewayAuthPolicyNotExist(ctx, envTest.Client, testNs, gatewayName)
+	Context("Default gateway from ConfigMap", func() {
+		It("should create resources for the default gateway without any LLMInferenceService existing", func(ctx SpecContext) {
+			fixture.VerifyGatewayEnvoyFilterExists(ctx, envTest.Client, constants.DefaultGatewayNamespace, constants.DefaultGatewayName)
+			fixture.VerifyGatewayAuthPolicyExists(ctx, envTest.Client, constants.DefaultGatewayNamespace, constants.DefaultGatewayName)
 		})
 	})
 
 	Context("Resource restoration", func() {
 		It("should recreate AuthPolicy when deleted", func(ctx SpecContext) {
-			gatewayName := pkgtest.GenerateUniqueTestName("managed-gateway")
-			createGateway(ctx, gatewayName)
+			gatewayName := setupReferencedGateway(ctx)
 
 			authPolicy := fixture.WaitForResource(ctx, envTest.Client, testNs, constants.GetAuthPolicyName(gatewayName), &kuadrantv1.AuthPolicy{})
 			Expect(envTest.Client.Delete(ctx, authPolicy)).Should(Succeed())
@@ -157,8 +179,7 @@ var _ = Describe("Gateway Controller", func() {
 		})
 
 		It("should recreate EnvoyFilter when deleted", func(ctx SpecContext) {
-			gatewayName := pkgtest.GenerateUniqueTestName("managed-gateway")
-			createGateway(ctx, gatewayName)
+			gatewayName := setupReferencedGateway(ctx)
 
 			envoyFilter := fixture.WaitForResource(ctx, envTest.Client, testNs, constants.GetGatewayEnvoyFilterName(gatewayName), &istioclientv1alpha3.EnvoyFilter{})
 			Expect(envTest.Client.Delete(ctx, envoyFilter)).Should(Succeed())
@@ -167,8 +188,7 @@ var _ = Describe("Gateway Controller", func() {
 		})
 
 		It("should restore AuthPolicy when modified", func(ctx SpecContext) {
-			gatewayName := pkgtest.GenerateUniqueTestName("managed-gateway")
-			createGateway(ctx, gatewayName)
+			gatewayName := setupReferencedGateway(ctx)
 
 			authPolicy := fixture.WaitForResource(ctx, envTest.Client, testNs, constants.GetAuthPolicyName(gatewayName), &kuadrantv1.AuthPolicy{})
 			originalTargetRefName := authPolicy.Spec.TargetRef.Name
@@ -180,8 +200,7 @@ var _ = Describe("Gateway Controller", func() {
 		})
 
 		It("should restore EnvoyFilter when modified", func(ctx SpecContext) {
-			gatewayName := pkgtest.GenerateUniqueTestName("managed-gateway")
-			createGateway(ctx, gatewayName)
+			gatewayName := setupReferencedGateway(ctx)
 
 			envoyFilter := fixture.WaitForResource(ctx, envTest.Client, testNs, constants.GetGatewayEnvoyFilterName(gatewayName), &istioclientv1alpha3.EnvoyFilter{})
 			originalTargetRefName := envoyFilter.Spec.TargetRefs[0].Name
@@ -195,13 +214,8 @@ var _ = Describe("Gateway Controller", func() {
 
 	Context("Gateway label changes", func() {
 		It("should delete resources when Gateway is changed from managed to unmanaged", func(ctx SpecContext) {
-			gatewayName := pkgtest.GenerateUniqueTestName("managed-gateway")
-			createGateway(ctx, gatewayName)
+			gatewayName := setupReferencedGateway(ctx)
 
-			fixture.VerifyGatewayEnvoyFilterExists(ctx, envTest.Client, testNs, gatewayName)
-			fixture.VerifyGatewayAuthPolicyExists(ctx, envTest.Client, testNs, gatewayName)
-
-			// Change gateway to unmanaged
 			Eventually(func() error {
 				gw := &gatewayapiv1.Gateway{}
 				if err := envTest.Client.Get(ctx, types.NamespacedName{Name: gatewayName, Namespace: testNs}, gw); err != nil {
@@ -216,6 +230,68 @@ var _ = Describe("Gateway Controller", func() {
 
 			fixture.VerifyGatewayEnvoyFilterNotExist(ctx, envTest.Client, testNs, gatewayName)
 			fixture.VerifyGatewayAuthPolicyNotExist(ctx, envTest.Client, testNs, gatewayName)
+		})
+	})
+
+	Context("LLMInferenceService gateway ref changes", func() {
+		It("should create resources when gateway ref is added to LLMInferenceService", func(ctx SpecContext) {
+			gatewayName := pkgtest.GenerateUniqueTestName("managed-gateway")
+			createGateway(ctx, gatewayName)
+
+			// Create LLMInferenceService without any gateway ref
+			llmSvc := createLLMService(ctx, "test-llmisvc")
+
+			fixture.VerifyGatewayEnvoyFilterNotExist(ctx, envTest.Client, testNs, gatewayName)
+			fixture.VerifyGatewayAuthPolicyNotExist(ctx, envTest.Client, testNs, gatewayName)
+
+			// Add gateway ref
+			Eventually(func() error {
+				if err := envTest.Client.Get(ctx, types.NamespacedName{Name: llmSvc.Name, Namespace: testNs}, llmSvc); err != nil {
+					return err
+				}
+				llmSvc.Spec.Router = &kservev1alpha1.RouterSpec{
+					Gateway: &kservev1alpha1.GatewaySpec{
+						Refs: []kservev1alpha1.UntypedObjectReference{
+							fixture.LLMGatewayRef(gatewayName, testNs),
+						},
+					},
+				}
+				return envTest.Client.Update(ctx, llmSvc)
+			}).WithContext(ctx).Should(Succeed())
+
+			fixture.VerifyGatewayEnvoyFilterExists(ctx, envTest.Client, testNs, gatewayName)
+			fixture.VerifyGatewayAuthPolicyExists(ctx, envTest.Client, testNs, gatewayName)
+		})
+
+		It("should keep resources stable when gateway refs are reordered", func(ctx SpecContext) {
+			gatewayName := pkgtest.GenerateUniqueTestName("managed-gateway")
+			secondGatewayName := pkgtest.GenerateUniqueTestName("managed-gateway-2")
+			createGateway(ctx, gatewayName)
+			createGateway(ctx, secondGatewayName)
+
+			refA := fixture.LLMGatewayRef(gatewayName, testNs)
+			refB := fixture.LLMGatewayRef(secondGatewayName, testNs)
+
+			// Create with refs [A, B]
+			llmSvc := createLLMService(ctx, "test-llmisvc",
+				fixture.WithGatewayRefs(refA, refB),
+			)
+
+			fixture.VerifyGatewayEnvoyFilterExists(ctx, envTest.Client, testNs, gatewayName)
+			fixture.VerifyGatewayEnvoyFilterExists(ctx, envTest.Client, testNs, secondGatewayName)
+
+			// Reorder to [B, A] — should not trigger unnecessary reconciliation
+			Eventually(func() error {
+				if err := envTest.Client.Get(ctx, types.NamespacedName{Name: llmSvc.Name, Namespace: testNs}, llmSvc); err != nil {
+					return err
+				}
+				llmSvc.Spec.Router.Gateway.Refs = []kservev1alpha1.UntypedObjectReference{refB, refA}
+				return envTest.Client.Update(ctx, llmSvc)
+			}).WithContext(ctx).Should(Succeed())
+
+			// Resources should remain stable
+			fixture.VerifyGatewayEnvoyFilterExists(ctx, envTest.Client, testNs, gatewayName)
+			fixture.VerifyGatewayEnvoyFilterExists(ctx, envTest.Client, testNs, secondGatewayName)
 		})
 	})
 })

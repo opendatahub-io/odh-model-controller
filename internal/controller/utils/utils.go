@@ -303,7 +303,7 @@ func GetInferenceServiceConfigMap(ctx context.Context, cli client.Client) (*core
 	return inferenceServiceConfigMap, nil
 }
 
-func GetGatewayInfoFromConfigMap(ctx context.Context, cli client.Client) (namespace, name string, err error) {
+func GetDefaultGatewayRef(ctx context.Context, cli client.Client) (namespace, name string, err error) {
 	configMap, err := GetInferenceServiceConfigMap(ctx, cli)
 	if err != nil {
 		return "", "", err
