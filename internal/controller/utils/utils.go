@@ -370,10 +370,16 @@ func IsManagedByOdhController(obj client.Object) bool {
 	return false
 }
 
-// IsExplicitlyUnmanaged checks if "opendatahub.io/managed" label is explicitly set to "false"
+// IsExplicitlyUnmanaged checks if "opendatahub.io/managed" is explicitly set to "false"
+// via either a label or an annotation (both are supported for historical reasons).
 func IsExplicitlyUnmanaged(obj client.Object) bool {
 	if labels := obj.GetLabels(); labels != nil {
-		if managedValue, ok := labels["opendatahub.io/managed"]; ok {
+		if managedValue, ok := labels[constants.ODHManaged]; ok {
+			return strings.EqualFold(strings.TrimSpace(managedValue), "false")
+		}
+	}
+	if annotations := obj.GetAnnotations(); annotations != nil {
+		if managedValue, ok := annotations[constants.ODHManaged]; ok {
 			return strings.EqualFold(strings.TrimSpace(managedValue), "false")
 		}
 	}

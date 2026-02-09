@@ -33,7 +33,7 @@ const (
 	RhoaiObservabilityLabel = "monitoring.opendatahub.io/scrape"
 	RuntimesBaseAnnotation  = "opendatahub.io"
 
-	ODHManagedLabel         = "opendatahub.io/managed"
+	ODHManaged              = "opendatahub.io/managed"
 	EnableAuthODHAnnotation = "security.opendatahub.io/enable-auth"
 
 	LabelEnableKserveRawRoute = "exposed"

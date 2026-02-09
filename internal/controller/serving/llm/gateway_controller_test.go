@@ -224,7 +224,7 @@ var _ = Describe("Gateway Controller", func() {
 				if gw.Labels == nil {
 					gw.Labels = make(map[string]string)
 				}
-				gw.Labels[constants.ODHManagedLabel] = "false" //nolint:goconst // standard label value
+				gw.Labels[constants.ODHManaged] = "false" //nolint:goconst // standard label value
 				return envTest.Client.Update(ctx, gw)
 			}).WithContext(ctx).Should(Succeed())
 
