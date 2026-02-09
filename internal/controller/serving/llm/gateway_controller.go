@@ -19,19 +19,27 @@ package llm
 import (
 	"context"
 	"fmt"
+	"os"
+	"slices"
+	"strings"
 
 	"github.com/go-logr/logr"
+	kservev1alpha2 "github.com/kserve/kserve/pkg/apis/serving/v1alpha2"
 	kuadrantv1 "github.com/kuadrant/kuadrant-operator/api/v1"
 	istioclientv1alpha3 "istio.io/client-go/pkg/apis/networking/v1alpha3"
+	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
 	ctrl "sigs.k8s.io/controller-runtime"
+	ctrlbuilder "sigs.k8s.io/controller-runtime/pkg/builder"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 	"sigs.k8s.io/controller-runtime/pkg/event"
+	"sigs.k8s.io/controller-runtime/pkg/handler"
 	"sigs.k8s.io/controller-runtime/pkg/log"
 	"sigs.k8s.io/controller-runtime/pkg/predicate"
+	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 	gatewayapiv1 "sigs.k8s.io/gateway-api/apis/v1"
 
 	"github.com/opendatahub-io/odh-model-controller/internal/controller/comparators"
@@ -88,8 +96,9 @@ func (r *GatewayReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 		return ctrl.Result{}, nil
 	}
 
-	shouldCreateEnvoyFilter := utils.ShouldCreateEnvoyFilterForGateway(gateway)
-	shouldCreateAuthPolicy := !utils.IsExplicitlyUnmanaged(gateway) && !utils.IsOwnedByPlatformController(gateway)
+	gatewayInUse := utils.IsAuthorinoTLSBootstrapEnabled(gateway) || r.isGatewayReferencedByLLMService(ctx, gateway)
+	shouldCreateEnvoyFilter := gatewayInUse && utils.ShouldCreateEnvoyFilterForGateway(gateway)
+	shouldCreateAuthPolicy := gatewayInUse && !utils.IsExplicitlyUnmanaged(gateway) && !utils.IsOwnedByPlatformController(gateway)
 
 	if shouldCreateEnvoyFilter {
 		if err := r.reconcileEnvoyFilter(ctx, logger, gateway); err != nil {
@@ -297,6 +306,184 @@ func (r *GatewayReconciler) deleteAuthPolicyIfManaged(ctx context.Context, logge
 	return nil
 }
 
+// isGatewayReferencedByLLMService checks whether the given gateway is the default gateway
+// (from ConfigMap or hardcoded fallback) or is explicitly referenced by at least one
+// LLMInferenceService (directly or via BaseRef configs). This prevents creating
+// EnvoyFilter/AuthPolicy on gateways unrelated to LLM inference.
+func (r *GatewayReconciler) isGatewayReferencedByLLMService(ctx context.Context, gateway *gatewayapiv1.Gateway) bool {
+	defaultNs, defaultName, err := utils.GetDefaultGatewayRef(ctx, r.Client)
+	if err != nil {
+		defaultNs = constants.DefaultGatewayNamespace
+		defaultName = constants.DefaultGatewayName
+	}
+	if gateway.Name == defaultName && gateway.Namespace == defaultNs {
+		return true
+	}
+
+	llmSvcList := &kservev1alpha2.LLMInferenceServiceList{}
+	if err := r.Client.List(ctx, llmSvcList); err != nil {
+		return false
+	}
+
+	for i := range llmSvcList.Items {
+		for _, ref := range r.getEffectiveGatewayRefs(ctx, &llmSvcList.Items[i]) {
+			ns := string(ref.Namespace)
+			if ns == "" {
+				ns = llmSvcList.Items[i].Namespace
+			}
+			if string(ref.Name) == gateway.Name && ns == gateway.Namespace {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+// getEffectiveGatewayRefs returns all gateway references for an LLMInferenceService,
+// including those inherited from BaseRef configs (LLMInferenceServiceConfig).
+func (r *GatewayReconciler) getEffectiveGatewayRefs(ctx context.Context, llmSvc *kservev1alpha2.LLMInferenceService) []kservev1alpha2.UntypedObjectReference {
+	logger := log.FromContext(ctx)
+
+	var refs []kservev1alpha2.UntypedObjectReference
+
+	for _, baseRef := range llmSvc.Spec.BaseRefs {
+		cfg, err := r.fetchLLMISvcConfig(ctx, baseRef.Name, llmSvc.Namespace)
+		if err != nil {
+			logger.Error(err, "Failed to fetch LLMInferenceServiceConfig", "name", baseRef.Name)
+			continue
+		}
+
+		if cfg.Spec.Router != nil && cfg.Spec.Router.Gateway.HasRefs() {
+			refs = append(refs, cfg.Spec.Router.Gateway.Refs...)
+		}
+	}
+
+	refs = append(refs, getGatewayRefs(llmSvc)...)
+
+	return refs
+}
+
+// fetchLLMISvcConfig fetches LLMInferenceServiceConfig by name, first from the given namespace,
+// then falling back to the system namespace (POD_NAMESPACE).
+func (r *GatewayReconciler) fetchLLMISvcConfig(ctx context.Context, name, namespace string) (*kservev1alpha2.LLMInferenceServiceConfig, error) {
+	cfg := &kservev1alpha2.LLMInferenceServiceConfig{}
+
+	if err := r.Client.Get(ctx, client.ObjectKey{Name: name, Namespace: namespace}, cfg); err != nil {
+		if !apierrors.IsNotFound(err) {
+			return nil, err
+		}
+		systemNamespace := os.Getenv("POD_NAMESPACE")
+		if systemNamespace == "" {
+			return nil, err
+		}
+		if err := r.Client.Get(ctx, client.ObjectKey{Name: name, Namespace: systemNamespace}, cfg); err != nil {
+			return nil, err
+		}
+	}
+
+	return cfg, nil
+}
+
+// enqueueGatewaysFromLLMInferenceService returns an event handler that extracts gateway refs
+// from LLMInferenceService (including BaseRef configs) and enqueues reconcile requests for
+// the referenced gateways.
+func (r *GatewayReconciler) enqueueGatewaysFromLLMInferenceService() handler.EventHandler {
+	return handler.EnqueueRequestsFromMapFunc(func(ctx context.Context, object client.Object) []reconcile.Request {
+		llmSvc, ok := object.(*kservev1alpha2.LLMInferenceService)
+		if !ok {
+			return nil
+		}
+
+		var requests []reconcile.Request
+		for _, ref := range r.getEffectiveGatewayRefs(ctx, llmSvc) {
+			namespace := string(ref.Namespace)
+			if namespace == "" {
+				namespace = llmSvc.Namespace
+			}
+			requests = append(requests, reconcile.Request{
+				NamespacedName: types.NamespacedName{
+					Name:      string(ref.Name),
+					Namespace: namespace,
+				},
+			})
+		}
+
+		// Enqueue the default gateway if no effective refs
+		if len(requests) == 0 {
+			defaultNs, defaultName, err := utils.GetDefaultGatewayRef(ctx, r.Client)
+			if err != nil {
+				defaultNs = constants.DefaultGatewayNamespace
+				defaultName = constants.DefaultGatewayName
+			}
+			requests = append(requests, reconcile.Request{
+				NamespacedName: types.NamespacedName{
+					Name:      defaultName,
+					Namespace: defaultNs,
+				},
+			})
+		}
+
+		return requests
+	})
+}
+
+// gatewayRefsChanged reports whether gateway refs or BaseRefs differ between two LLMInferenceService objects.
+// BaseRefs are compared because they can introduce gateway refs via LLMInferenceServiceConfig.
+func gatewayRefsChanged(old, new *kservev1alpha2.LLMInferenceService) bool {
+	oldRefs := getGatewayRefs(old)
+	newRefs := getGatewayRefs(new)
+
+	if len(oldRefs) != len(newRefs) {
+		return true
+	}
+
+	cmpRefs := func(a, b kservev1alpha2.UntypedObjectReference) int {
+		if c := strings.Compare(string(a.Namespace), string(b.Namespace)); c != 0 {
+			return c
+		}
+		return strings.Compare(string(a.Name), string(b.Name))
+	}
+
+	slices.SortFunc(oldRefs, cmpRefs)
+	slices.SortFunc(newRefs, cmpRefs)
+
+	for i := range oldRefs {
+		if oldRefs[i].Name != newRefs[i].Name || oldRefs[i].Namespace != newRefs[i].Namespace {
+			return true
+		}
+	}
+
+	// Also compare BaseRefs since they can introduce gateway refs via configs
+	oldBaseRefs := slices.Clone(old.Spec.BaseRefs)
+	newBaseRefs := slices.Clone(new.Spec.BaseRefs)
+
+	if len(oldBaseRefs) != len(newBaseRefs) {
+		return true
+	}
+
+	cmpBaseRefs := func(a, b corev1.LocalObjectReference) int {
+		return strings.Compare(a.Name, b.Name)
+	}
+
+	slices.SortFunc(oldBaseRefs, cmpBaseRefs)
+	slices.SortFunc(newBaseRefs, cmpBaseRefs)
+
+	for i := range oldBaseRefs {
+		if oldBaseRefs[i].Name != newBaseRefs[i].Name {
+			return true
+		}
+	}
+
+	return false
+}
+
+func getGatewayRefs(llmSvc *kservev1alpha2.LLMInferenceService) []kservev1alpha2.UntypedObjectReference {
+	if llmSvc.Spec.Router != nil && llmSvc.Spec.Router.Gateway.HasRefs() {
+		return slices.Clone(llmSvc.Spec.Router.Gateway.Refs)
+	}
+	return nil
+}
+
 func (r *GatewayReconciler) SetupWithManager(mgr ctrl.Manager, setupLog logr.Logger) error {
 	if ok, err := utils.IsCrdAvailable(mgr.GetConfig(), gatewayapiv1.GroupVersion.String(), "Gateway"); err != nil {
 		setupLog.Error(err, "Failed to check CRD availability for Gateway")
@@ -324,40 +511,51 @@ func (r *GatewayReconciler) SetupWithManager(mgr ctrl.Manager, setupLog logr.Log
 
 	setupLog.Info("Setting up Gateway controller for EnvoyFilter/AuthPolicy bootstrap")
 
-	return ctrl.NewControllerManagedBy(mgr).
-		For(&gatewayapiv1.Gateway{}).
-		Owns(&istioclientv1alpha3.EnvoyFilter{}).
-		Owns(&kuadrantv1.AuthPolicy{}).
-		WithEventFilter(predicate.Funcs{
-			CreateFunc: func(e event.CreateEvent) bool {
-				if gw, ok := e.Object.(*gatewayapiv1.Gateway); ok {
-					return utils.ShouldCreateEnvoyFilterForGateway(gw)
-				}
+	gatewayPredicate := predicate.Funcs{
+		CreateFunc: func(e event.CreateEvent) bool {
+			return utils.ShouldCreateEnvoyFilterForGateway(e.Object.(*gatewayapiv1.Gateway))
+		},
+		UpdateFunc: func(e event.UpdateEvent) bool {
+			oldManaged := e.ObjectOld.GetLabels()[constants.ODHManagedLabel]
+			newManaged := e.ObjectNew.GetLabels()[constants.ODHManagedLabel]
+			if oldManaged != newManaged {
 				return true
-			},
-			UpdateFunc: func(e event.UpdateEvent) bool {
-				if gw, ok := e.ObjectNew.(*gatewayapiv1.Gateway); ok {
-					oldManaged := e.ObjectOld.GetLabels()[constants.ODHManagedLabel]
-					newManaged := e.ObjectNew.GetLabels()[constants.ODHManagedLabel]
-					if oldManaged != newManaged {
-						return true
-					}
-					oldTLS := e.ObjectOld.GetAnnotations()[constants.AuthorinoTLSBootstrapAnnotation]
-					newTLS := e.ObjectNew.GetAnnotations()[constants.AuthorinoTLSBootstrapAnnotation]
-					if oldTLS != newTLS {
-						return true
-					}
-					return utils.ShouldCreateEnvoyFilterForGateway(gw)
-				}
-				return utils.IsManagedByOpenDataHub(e.ObjectNew)
-			},
-			DeleteFunc: func(e event.DeleteEvent) bool {
-				if _, ok := e.Object.(*gatewayapiv1.Gateway); ok {
-					return false
-				}
-				return utils.IsManagedByOpenDataHub(e.Object)
-			},
-		}).
+			}
+			oldTLS := e.ObjectOld.GetAnnotations()[constants.AuthorinoTLSBootstrapAnnotation]
+			newTLS := e.ObjectNew.GetAnnotations()[constants.AuthorinoTLSBootstrapAnnotation]
+			if oldTLS != newTLS {
+				return true
+			}
+			return utils.ShouldCreateEnvoyFilterForGateway(e.ObjectNew.(*gatewayapiv1.Gateway))
+		},
+		DeleteFunc: func(_ event.DeleteEvent) bool {
+			return false
+		},
+	}
+
+	managedPredicate := predicate.NewPredicateFuncs(func(obj client.Object) bool {
+		return utils.IsManagedByOpenDataHub(obj)
+	})
+
+	return ctrl.NewControllerManagedBy(mgr).
+		For(&gatewayapiv1.Gateway{}, ctrlbuilder.WithPredicates(gatewayPredicate)).
+		Owns(&istioclientv1alpha3.EnvoyFilter{}, ctrlbuilder.WithPredicates(managedPredicate)).
+		Owns(&kuadrantv1.AuthPolicy{}, ctrlbuilder.WithPredicates(managedPredicate)).
+		Watches(&kservev1alpha2.LLMInferenceService{},
+			r.enqueueGatewaysFromLLMInferenceService(),
+			ctrlbuilder.WithPredicates(predicate.Funcs{
+				CreateFunc: func(_ event.CreateEvent) bool {
+					return true
+				},
+				UpdateFunc: func(e event.UpdateEvent) bool {
+					oldSvc := e.ObjectOld.(*kservev1alpha2.LLMInferenceService)
+					newSvc := e.ObjectNew.(*kservev1alpha2.LLMInferenceService)
+					return gatewayRefsChanged(oldSvc, newSvc)
+				},
+				DeleteFunc: func(_ event.DeleteEvent) bool {
+					return false // Gateway resources are not deleted when LLMInferenceService is deleted
+				},
+			})).
 		Named("gateway-auth-bootstrap").
 		Complete(r)
 }
