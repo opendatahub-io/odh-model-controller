@@ -425,30 +425,127 @@ func (r *GatewayReconciler) enqueueGatewaysFromLLMInferenceService() handler.Eve
 	})
 }
 
-// gatewayRefsChanged reports whether gateway refs or BaseRefs differ between two LLMInferenceService objects.
-// BaseRefs are compared because they can introduce gateway refs via LLMInferenceServiceConfig.
-func gatewayRefsChanged(old, new *kservev1alpha1.LLMInferenceService) bool {
-	oldRefs := getGatewayRefs(old)
-	newRefs := getGatewayRefs(new)
+// enqueueGatewaysFromLLMInferenceServiceConfig returns an event handler that finds
+// LLMInferenceServices referencing the changed config via BaseRefs, resolves their
+// effective gateway refs, and enqueues reconcile requests for those gateways.
+func (r *GatewayReconciler) enqueueGatewaysFromLLMInferenceServiceConfig() handler.EventHandler {
+	return handler.EnqueueRequestsFromMapFunc(func(ctx context.Context, object client.Object) []reconcile.Request {
+		cfg, ok := object.(*kservev1alpha1.LLMInferenceServiceConfig)
+		if !ok {
+			return nil
+		}
 
-	if len(oldRefs) != len(newRefs) {
+		llmSvcList := &kservev1alpha1.LLMInferenceServiceList{}
+		if err := r.Client.List(ctx, llmSvcList); err != nil {
+			log.FromContext(ctx).Error(err, "Failed to list LLMInferenceServices for config change, falling back to config's own refs", "config", cfg.Name)
+			return gatewayRequestsFromRefs(getConfigGatewayRefs(cfg), cfg.Namespace)
+		}
+
+		seen := make(map[types.NamespacedName]struct{})
+		var requests []reconcile.Request
+		for i := range llmSvcList.Items {
+			svc := &llmSvcList.Items[i]
+			if !referencesConfig(svc, cfg.Name) {
+				continue
+			}
+			for _, ref := range r.getEffectiveGatewayRefs(ctx, svc) {
+				namespace := string(ref.Namespace)
+				if namespace == "" {
+					namespace = svc.Namespace
+				}
+				key := types.NamespacedName{Name: string(ref.Name), Namespace: namespace}
+				if _, exists := seen[key]; exists {
+					continue
+				}
+				seen[key] = struct{}{}
+				requests = append(requests, reconcile.Request{NamespacedName: key})
+			}
+		}
+
+		return requests
+	})
+}
+
+func getConfigGatewayRefs(cfg *kservev1alpha1.LLMInferenceServiceConfig) []kservev1alpha1.UntypedObjectReference {
+	if cfg.Spec.Router != nil && cfg.Spec.Router.Gateway.HasRefs() {
+		return cfg.Spec.Router.Gateway.Refs
+	}
+	return nil
+}
+
+func gatewayRequestsFromRefs(refs []kservev1alpha1.UntypedObjectReference, fallbackNamespace string) []reconcile.Request {
+	requests := make([]reconcile.Request, 0, len(refs))
+	for _, ref := range refs {
+		namespace := string(ref.Namespace)
+		if namespace == "" {
+			namespace = fallbackNamespace
+		}
+		requests = append(requests, reconcile.Request{
+			NamespacedName: types.NamespacedName{
+				Name:      string(ref.Name),
+				Namespace: namespace,
+			},
+		})
+	}
+	return requests
+}
+
+// referencesConfig returns true if the LLMInferenceService has a BaseRef matching the given config name.
+func referencesConfig(svc *kservev1alpha1.LLMInferenceService, configName string) bool {
+	for _, ref := range svc.Spec.BaseRefs {
+		if ref.Name == configName {
+			return true
+		}
+	}
+	return false
+}
+
+// gatewayRefsEqual reports whether two sets of gateway refs are equivalent (order-independent).
+func gatewayRefsEqual(a, b []kservev1alpha1.UntypedObjectReference) bool {
+	if len(a) != len(b) {
+		return false
+	}
+
+	cmp := func(x, y kservev1alpha1.UntypedObjectReference) int {
+		if c := strings.Compare(string(x.Namespace), string(y.Namespace)); c != 0 {
+			return c
+		}
+		return strings.Compare(string(x.Name), string(y.Name))
+	}
+
+	sortedA := slices.Clone(a)
+	sortedB := slices.Clone(b)
+	slices.SortFunc(sortedA, cmp)
+	slices.SortFunc(sortedB, cmp)
+
+	for i := range sortedA {
+		if sortedA[i].Name != sortedB[i].Name || sortedA[i].Namespace != sortedB[i].Namespace {
+			return false
+		}
+	}
+	return true
+}
+
+// configGatewayRefsChanged reports whether Router.Gateway.Refs differ between two LLMInferenceServiceConfig objects.
+func configGatewayRefsChanged(oldCfg, newCfg *kservev1alpha1.LLMInferenceServiceConfig) bool {
+	oldHasRefs := oldCfg.Spec.Router != nil && oldCfg.Spec.Router.Gateway.HasRefs()
+	newHasRefs := newCfg.Spec.Router != nil && newCfg.Spec.Router.Gateway.HasRefs()
+
+	if !oldHasRefs && !newHasRefs {
+		return false
+	}
+	if oldHasRefs != newHasRefs {
 		return true
 	}
 
-	cmpRefs := func(a, b kservev1alpha1.UntypedObjectReference) int {
-		if c := strings.Compare(string(a.Namespace), string(b.Namespace)); c != 0 {
-			return c
-		}
-		return strings.Compare(string(a.Name), string(b.Name))
-	}
+	return !gatewayRefsEqual(oldCfg.Spec.Router.Gateway.Refs, newCfg.Spec.Router.Gateway.Refs)
+}
 
-	slices.SortFunc(oldRefs, cmpRefs)
-	slices.SortFunc(newRefs, cmpRefs)
-
-	for i := range oldRefs {
-		if oldRefs[i].Name != newRefs[i].Name || oldRefs[i].Namespace != newRefs[i].Namespace {
-			return true
-		}
+// gatewayRefsChanged reports whether gateway refs or BaseRefs differ between two LLMInferenceService objects.
+// BaseRefs are compared because they can introduce gateway refs via LLMInferenceServiceConfig.
+func gatewayRefsChanged(old, new *kservev1alpha1.LLMInferenceService) bool {
+	if !gatewayRefsEqual(getGatewayRefs(old), getGatewayRefs(new)) {
+		return true
 	}
 
 	// Also compare BaseRefs since they can introduce gateway refs via configs
@@ -554,6 +651,21 @@ func (r *GatewayReconciler) SetupWithManager(mgr ctrl.Manager, setupLog logr.Log
 					oldSvc := e.ObjectOld.(*kservev1alpha1.LLMInferenceService)
 					newSvc := e.ObjectNew.(*kservev1alpha1.LLMInferenceService)
 					return gatewayRefsChanged(oldSvc, newSvc)
+				},
+				DeleteFunc: func(_ event.DeleteEvent) bool {
+					return true
+				},
+			})).
+		Watches(&kservev1alpha1.LLMInferenceServiceConfig{},
+			r.enqueueGatewaysFromLLMInferenceServiceConfig(),
+			ctrlbuilder.WithPredicates(predicate.Funcs{
+				CreateFunc: func(_ event.CreateEvent) bool {
+					return true
+				},
+				UpdateFunc: func(e event.UpdateEvent) bool {
+					oldCfg := e.ObjectOld.(*kservev1alpha1.LLMInferenceServiceConfig)
+					newCfg := e.ObjectNew.(*kservev1alpha1.LLMInferenceServiceConfig)
+					return configGatewayRefsChanged(oldCfg, newCfg)
 				},
 				DeleteFunc: func(_ event.DeleteEvent) bool {
 					return true
