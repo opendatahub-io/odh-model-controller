@@ -563,7 +563,7 @@ func (r *GatewayReconciler) SetupWithManager(mgr ctrl.Manager, setupLog logr.Log
 					return gatewayRefsChanged(oldSvc, newSvc)
 				},
 				DeleteFunc: func(_ event.DeleteEvent) bool {
-					return false // Gateway resources are not deleted when LLMInferenceService is deleted
+					return true
 				},
 			})).
 		Named("gateway-auth-bootstrap").
