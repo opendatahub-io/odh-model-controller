@@ -96,7 +96,12 @@ func (r *GatewayReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 		return ctrl.Result{}, nil
 	}
 
-	gatewayInUse := utils.IsAuthorinoTLSBootstrapEnabled(gateway) || r.isGatewayReferencedByLLMService(ctx, gateway)
+	referencedByLLMService, err := r.isGatewayReferencedByLLMService(ctx, gateway)
+	if err != nil {
+		logger.Error(err, "Unable to determine if Gateway is referenced by LLMInferenceService")
+		return ctrl.Result{}, err
+	}
+	gatewayInUse := utils.IsAuthorinoTLSBootstrapEnabled(gateway) || referencedByLLMService
 	shouldCreateEnvoyFilter := gatewayInUse && utils.ShouldCreateEnvoyFilterForGateway(gateway)
 	shouldCreateAuthPolicy := gatewayInUse && !utils.IsExplicitlyUnmanaged(gateway) && !utils.IsOwnedByPlatformController(gateway)
 
@@ -303,19 +308,19 @@ func (r *GatewayReconciler) deleteAuthPolicyIfManaged(ctx context.Context, logge
 // (from ConfigMap or hardcoded fallback) or is explicitly referenced by at least one
 // LLMInferenceService (directly or via BaseRef configs). This prevents creating
 // EnvoyFilter/AuthPolicy on gateways unrelated to LLM inference.
-func (r *GatewayReconciler) isGatewayReferencedByLLMService(ctx context.Context, gateway *gatewayapiv1.Gateway) bool {
+func (r *GatewayReconciler) isGatewayReferencedByLLMService(ctx context.Context, gateway *gatewayapiv1.Gateway) (bool, error) {
 	defaultNs, defaultName, err := utils.GetDefaultGatewayRef(ctx, r.Client)
 	if err != nil {
 		defaultNs = constants.DefaultGatewayNamespace
 		defaultName = constants.DefaultGatewayName
 	}
 	if gateway.Name == defaultName && gateway.Namespace == defaultNs {
-		return true
+		return true, nil
 	}
 
 	llmSvcList := &kservev1alpha1.LLMInferenceServiceList{}
 	if err := r.Client.List(ctx, llmSvcList); err != nil {
-		return false
+		return false, fmt.Errorf("failed to list LLMInferenceServices: %w", err)
 	}
 
 	for i := range llmSvcList.Items {
@@ -325,11 +330,11 @@ func (r *GatewayReconciler) isGatewayReferencedByLLMService(ctx context.Context,
 				ns = llmSvcList.Items[i].Namespace
 			}
 			if string(ref.Name) == gateway.Name && ns == gateway.Namespace {
-				return true
+				return true, nil
 			}
 		}
 	}
-	return false
+	return false, nil
 }
 
 // getEffectiveGatewayRefs returns all gateway references for an LLMInferenceService,
