@@ -59,7 +59,6 @@ objects:
               value: '256'
             - name: VLLM_SPYRE_REQUIRE_PRECOMPILED_DECODERS
               value: '0'
-
           ports:
             - containerPort: 8000
               protocol: TCP

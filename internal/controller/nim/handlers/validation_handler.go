@@ -40,10 +40,28 @@ var _ NimHandler = &ValidationHandler{}
 type ValidationHandler struct {
 	Client     client.Client
 	KeyManager *APIKeyManager
+	AirGapped  bool
 }
 
 func (v *ValidationHandler) Handle(ctx context.Context, account *v1.Account) HandleResponse {
 	logger := log.FromContext(ctx)
+
+	if v.AirGapped {
+		msg := "api key validation marked successful because NIM air-gapped mode is enabled"
+		successStatus := account.Status
+		condUpdated := meta.SetStatusCondition(&successStatus.Conditions,
+			utils.MakeNimCondition(utils.NimConditionAPIKeyValidation, metav1.ConditionTrue, account.Generation, "ApiKeyValidated", msg))
+		if condUpdated || successStatus.LastSuccessfulValidation == nil {
+			successStatus.LastSuccessfulValidation = &metav1.Time{Time: time.Now()}
+			if updateErr := utils.UpdateStatus(ctx, client.ObjectKeyFromObject(account), successStatus, v.Client); updateErr != nil {
+				return HandleResponse{Error: updateErr}
+			}
+			logger.Info(msg)
+			return HandleResponse{Requeue: true}
+		}
+		logger.V(1).Info(msg)
+		return HandleResponse{Continue: true}
+	}
 
 	apiKeySecret, kmErr := v.KeyManager.GetAPIKeySecret(ctx, account)
 	if kmErr != nil {

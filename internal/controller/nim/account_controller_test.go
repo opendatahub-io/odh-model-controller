@@ -163,7 +163,7 @@ var _ = Describe("NIM Account Controller", func() {
 		pullSecretRef, _ := reference.GetReference(scheme.Scheme, pullSecret)
 
 		By("Create the supporting Template")
-		object, _ := utils.GetNimServingRuntimeTemplate(scheme.Scheme)
+		object, _ := utils.GetNimServingRuntimeTemplate(scheme.Scheme, false)
 		gvk, _ := apiutil.GVKForObject(object, scheme.Scheme)
 		object.SetGroupVersionKind(gvk)
 

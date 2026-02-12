@@ -74,8 +74,8 @@ jobs:
           next_tag = "${{ github.event.inputs.next_tag_name }}"
           repository = "${{ github.event.inputs.repository }}"
           
-          # Expected format: odh-vX.Y or odh-vX.Y.Z
-          tag_pattern = r'^odh-v\d+\.\d+(\.\d+)?$'
+          # Expected format: odh-vX.Y or odh-vX.Y.Z with optional -EAn suffix
+          tag_pattern = r'^odh-v\d+\.\d+(\.\d+)?(-EA\d)?$'
           
           errors = []
           
@@ -203,12 +203,12 @@ jobs:
           if repo_name == "odh-model-controller":
             # Only update odh-model-controller and mlserver images
             image_pattern = re.compile(
-              r'([\w.-]+(?:\.[\w.-]+)*/[\w.-]+/(?:odh-model-controller|mlserver)):(fast|v[\d.]+-latest|release-v[\d.]+|odh-v[\d.]+)'
+              r'([\w.-]+(?:\.[\w.-]+)*/[\w.-]+/(?:odh-model-controller|mlserver)):(fast|v[\d.]+-latest|release-v[\d.]+|odh-v[\d.]+(?:-EA\d)?)'
             )
           else:
             # For kserve and others: update all matching images except llm-d-* images
             image_pattern = re.compile(
-              r'([\w.-]+(?:\.[\w.-]+)*/[\w.-]+/(?!llm-d-inference-scheduler|llm-d-routing-sidecar)[\w.-]+):(fast|v[\d.]+-latest|release-v[\d.]+|odh-v[\d.]+)'
+              r'([\w.-]+(?:\.[\w.-]+)*/[\w.-]+/(?!llm-d-inference-scheduler|llm-d-routing-sidecar)[\w.-]+):(fast|v[\d.]+-latest|release-v[\d.]+|odh-v[\d.]+(?:-EA\d)?)'
             )
           
           updated_files = []
@@ -315,7 +315,7 @@ jobs:
           # - :odh-v2.35
           # Captures the full image path (registry/namespace/repo), replaces only the tag
           image_pattern = re.compile(
-            r'([\w.-]+(?:\.[\w.-]+)*(?:/[\w.-]+)+):(fast|v[\d.]+-latest|release-v[\d.]+|odh-v[\d.]+)'
+            r'([\w.-]+(?:\.[\w.-]+)*(?:/[\w.-]+)+):(fast|v[\d.]+-latest|release-v[\d.]+|odh-v[\d.]+(?:-EA\d)?)'
           )
           
           updated_files = []

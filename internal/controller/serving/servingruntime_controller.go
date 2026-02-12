@@ -309,15 +309,32 @@ func (r *ServingRuntimeReconciler) reconcileDefaultRayServerCertSecretInUserNS(c
 		}
 		for _, sr := range servingRuntimeList.Items {
 			if isMultiNodeServingRuntime(sr) {
-				rayDefaultSecret.SetNamespace(sr.Namespace)
-				if err := r.Client.Update(ctx, rayDefaultSecret); err != nil {
+				// Get existing secret from this namespace
+				existingSecret := &corev1.Secret{}
+				err := r.Client.Get(ctx, types.NamespacedName{
+					Name:      constants.RayTLSSecretName,
+					Namespace: sr.Namespace,
+				}, existingSecret)
+
+				if err != nil {
 					if apierrs.IsNotFound(err) {
-						return nil
+						// Secret doesn't exist, skip
+						continue
 					}
-					logger.Error(err, "fail to update ray tls secret", "secret", constants.RayTLSSecretName, "namespace", targetNamespace)
+					logger.Error(err, "fail to get ray tls secret", "secret", constants.RayTLSSecretName, "namespace", sr.Namespace)
 					return err
 				}
-				logger.Info(fmt.Sprintf("Secret(%s) in namespace(%s) updated successfully", rayDefaultSecret.Name, sr.Namespace))
+
+				// Update the data of the EXISTING secret
+				existingSecret.Data = map[string][]byte{
+					rayCaCertNameInUserNS: caCertSecret.Data[corev1.TLSCertKey],
+				}
+
+				if err := r.Client.Update(ctx, existingSecret); err != nil {
+					logger.Error(err, "fail to update ray tls secret", "secret", constants.RayTLSSecretName, "namespace", sr.Namespace)
+					return err
+				}
+				logger.Info(fmt.Sprintf("Secret(%s) in namespace(%s) updated successfully", existingSecret.Name, sr.Namespace))
 			}
 		}
 	}
