@@ -45,15 +45,18 @@ type AuthPolicyDetector interface {
 	Detect(ctx context.Context, annotations map[string]string) constants.AuthType
 }
 
-type AuthPolicyTarget struct {
+type AuthPolicyTmplData struct {
 	Kind      string // Currently only "Gateway" or "HTTPRoute" is supported
 	Name      string
 	Namespace string
 	AuthType  constants.AuthType
+	Objective string
+	Fairness  string
+	Audiences string
 }
 
 type AuthPolicyTemplateLoader interface {
-	Load(ctx context.Context, target AuthPolicyTarget, opts ...ObjectOption) (*kuadrantv1.AuthPolicy, error)
+	Load(ctx context.Context, tmplData AuthPolicyTmplData, opts ...ObjectOption) (*kuadrantv1.AuthPolicy, error)
 }
 
 type AuthPolicyStore interface {
@@ -100,23 +103,23 @@ func withManagedLabels() ObjectOption {
 	})
 }
 
-func (k *kserveAuthPolicyTemplateLoader) Load(_ context.Context, target AuthPolicyTarget, opts ...ObjectOption) (*kuadrantv1.AuthPolicy, error) {
+func (k *kserveAuthPolicyTemplateLoader) Load(_ context.Context, tmplData AuthPolicyTmplData, opts ...ObjectOption) (*kuadrantv1.AuthPolicy, error) {
 	var tmpl []byte
 
-	switch target.AuthType {
+	switch tmplData.AuthType {
 	case constants.Anonymous:
 		tmpl = authPolicyTemplateAnonymous
 	case constants.UserDefined:
 		tmpl = authPolicyTemplateUserDefined
 	default:
-		return nil, fmt.Errorf("unsupported auth type %s", target.AuthType)
+		return nil, fmt.Errorf("unsupported auth type %s", tmplData.AuthType)
 	}
 
 	authPolicy, err := k.renderTemplate(tmpl, authPolicyTemplateData{
-		Name:       kmeta.ChildName(target.Name, constants.AuthPolicyNameSuffix),
-		Namespace:  target.Namespace,
-		TargetKind: target.Kind,
-		TargetName: target.Name,
+		Name:       kmeta.ChildName(tmplData.Name, constants.AuthPolicyNameSuffix),
+		Namespace:  tmplData.Namespace,
+		TargetKind: tmplData.Kind,
+		TargetName: tmplData.Name,
 	})
 	if err != nil {
 		return nil, err

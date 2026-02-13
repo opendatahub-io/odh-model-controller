@@ -144,7 +144,7 @@ var _ = Describe("AuthPolicyTemplateLoader", func() {
 		})
 
 		It("should resolve authenticated template for Gateway", func(ctx SpecContext) {
-			authPolicy, err := loader.Load(ctx, resources.AuthPolicyTarget{
+			authPolicy, err := loader.Load(ctx, resources.AuthPolicyTmplData{
 				Kind:      "Gateway",
 				Name:      "openshift-ai-inference",
 				Namespace: "openshift-ingress",
@@ -159,7 +159,7 @@ var _ = Describe("AuthPolicyTemplateLoader", func() {
 		})
 
 		It("should resolve anonymous template for HTTPRoute", func(ctx SpecContext) {
-			authPolicy, err := loader.Load(ctx, resources.AuthPolicyTarget{
+			authPolicy, err := loader.Load(ctx, resources.AuthPolicyTmplData{
 				Kind:      "HTTPRoute",
 				Name:      "test-route",
 				Namespace: "test-ns",
@@ -175,7 +175,7 @@ var _ = Describe("AuthPolicyTemplateLoader", func() {
 		})
 
 		It("should apply labels with WithLabels option", func(ctx SpecContext) {
-			authPolicy, err := loader.Load(ctx, resources.AuthPolicyTarget{
+			authPolicy, err := loader.Load(ctx, resources.AuthPolicyTmplData{
 				Kind:      "HTTPRoute",
 				Name:      "test-route",
 				Namespace: "test-ns",
@@ -190,7 +190,7 @@ var _ = Describe("AuthPolicyTemplateLoader", func() {
 		})
 
 		It("should return error when AuthType is not set", func(ctx SpecContext) {
-			_, err := loader.Load(ctx, resources.AuthPolicyTarget{
+			_, err := loader.Load(ctx, resources.AuthPolicyTmplData{
 				Kind:      "HTTPRoute",
 				Name:      "test-route",
 				Namespace: "test-ns",
@@ -201,7 +201,7 @@ var _ = Describe("AuthPolicyTemplateLoader", func() {
 		})
 
 		It("should apply audiences with WithAudiences option", func(ctx SpecContext) {
-			authPolicy, err := loader.Load(ctx, resources.AuthPolicyTarget{
+			authPolicy, err := loader.Load(ctx, resources.AuthPolicyTmplData{
 				Kind:      "Gateway",
 				Name:      "openshift-ai-inference",
 				Namespace: "openshift-ingress",
@@ -217,7 +217,7 @@ var _ = Describe("AuthPolicyTemplateLoader", func() {
 		})
 
 		It("should create Gateway AuthPolicy with default Kubernetes audience", func(ctx SpecContext) {
-			authPolicy, err := loader.Load(ctx, resources.AuthPolicyTarget{
+			authPolicy, err := loader.Load(ctx, resources.AuthPolicyTmplData{
 				Kind:      "Gateway",
 				Name:      "openshift-ai-inference",
 				Namespace: "openshift-ingress",

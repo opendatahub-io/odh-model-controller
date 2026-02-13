@@ -18,6 +18,7 @@ package llm
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"os"
 	"slices"
@@ -202,14 +203,27 @@ func (r *GatewayReconciler) reconcileAuthPolicy(ctx context.Context, logger logr
 	}
 
 	audiences := utils.GetAuthAudience(ctx, r.Client, constants.KubernetesAudience)
-	desired, err := r.authPolicyLoader.Load(ctx, resources.AuthPolicyTarget{
+	audiencesJSON, err := json.Marshal(audiences)
+	if err != nil {
+		return fmt.Errorf("failed to marshal audiences %v to JSON: %w", audiences, err)
+	}
+
+	// Get the objective expression from Gateway annotation or use default
+	objectiveExpression := constants.DefaultObjectiveExpression
+	if customExpr, ok := gateway.Annotations[constants.AuthPolicyObjectiveExpressionAnnotation]; ok && customExpr != "" {
+		objectiveExpression = customExpr
+	}
+
+	desired, err := r.authPolicyLoader.Load(ctx, resources.AuthPolicyTmplData{
 		Kind:      "Gateway",
 		Name:      gateway.Name,
 		Namespace: gateway.Namespace,
 		AuthType:  constants.UserDefined,
+		Audiences: string(audiencesJSON),
+		Fairness:  audiences[0],
+		Objective: objectiveExpression,
 	},
 		resources.WithLabels(map[string]string{"app.kubernetes.io/name": "llminferenceservice-auth"}),
-		resources.WithAudiences(audiences),
 	)
 	if err != nil {
 		return fmt.Errorf("failed to load AuthPolicy template: %w", err)

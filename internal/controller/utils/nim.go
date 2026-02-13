@@ -37,11 +37,13 @@ import (
 	k8serrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/utils/semantic"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/apiutil"
+	"sigs.k8s.io/controller-runtime/pkg/log"
 )
 
 type (
@@ -133,6 +135,34 @@ func init() {
 			return a.UTC() == b.UTC()
 		},
 	)
+}
+
+// IsNimAirGapped returns true when DSC enables NIM air-gapped mode.
+// It is best-effort and returns false on any lookup error.
+func IsNimAirGapped(ctx context.Context, clt client.Client) bool {
+	logger := log.FromContext(ctx)
+
+	dscList := &unstructured.UnstructuredList{}
+	dscList.SetGroupVersionKind(GVK.DataScienceCluster)
+	if err := clt.List(ctx, dscList); err != nil {
+		logger.V(1).Error(err, "failed to list DataScienceCluster for NIM air-gapped flag")
+		return false
+	}
+
+	if len(dscList.Items) != 1 {
+		logger.V(1).Info("unexpected DataScienceCluster count for NIM air-gapped flag", "count", len(dscList.Items))
+		return false
+	}
+
+	airGapped, found, err := unstructured.NestedBool(dscList.Items[0].Object, "spec", "components", "kserve", "nim", "airGapped")
+	if err != nil {
+		logger.V(1).Error(err, "failed to read NIM air-gapped flag from DataScienceCluster")
+		return false
+	}
+	if !found {
+		return false
+	}
+	return airGapped
 }
 
 // GetAvailableNimRuntimes is used for fetching a list of available NIM custom runtimes
@@ -421,8 +451,36 @@ func isPersonalApiKey(apiKey string) bool {
 }
 
 // GetNimServingRuntimeTemplate returns the Template used by ODH for creating serving runtimes
-func GetNimServingRuntimeTemplate(scheme *runtime.Scheme) (*v1alpha1.ServingRuntime, error) {
+func GetNimServingRuntimeTemplate(scheme *runtime.Scheme, airGapped bool) (*v1alpha1.ServingRuntime, error) {
 	multiModel := false
+	envVars := []corev1.EnvVar{
+		{
+			Name:  "NIM_CACHE_PATH",
+			Value: "/mnt/models/cache",
+		},
+	}
+	if !airGapped {
+		envVars = append(envVars, corev1.EnvVar{
+			Name: "NGC_API_KEY",
+			ValueFrom: &corev1.EnvVarSource{
+				SecretKeyRef: &corev1.SecretKeySelector{
+					Key: "NGC_API_KEY",
+					LocalObjectReference: corev1.LocalObjectReference{
+						Name: "nvidia-nim-secrets",
+					},
+				},
+			},
+		})
+	}
+
+	var imagePullSecrets []corev1.LocalObjectReference
+	if !airGapped {
+		imagePullSecrets = []corev1.LocalObjectReference{
+			{
+				Name: "ngc-secret",
+			},
+		}
+	}
 	sr := &v1alpha1.ServingRuntime{
 		ObjectMeta: metav1.ObjectMeta{
 			Annotations: map[string]string{
@@ -442,23 +500,7 @@ func GetNimServingRuntimeTemplate(scheme *runtime.Scheme) (*v1alpha1.ServingRunt
 					"prometheus.io/port": "8000",
 				},
 				Containers: []corev1.Container{
-					{Env: []corev1.EnvVar{
-						{
-							Name:  "NIM_CACHE_PATH",
-							Value: "/mnt/models/cache",
-						},
-						{
-							Name: "NGC_API_KEY",
-							ValueFrom: &corev1.EnvVarSource{
-								SecretKeyRef: &corev1.SecretKeySelector{
-									Key: "NGC_API_KEY",
-									LocalObjectReference: corev1.LocalObjectReference{
-										Name: "nvidia-nim-secrets",
-									},
-								},
-							},
-						},
-					},
+					{Env: envVars,
 						Image: "",
 						Name:  "kserve-container",
 						Ports: []corev1.ContainerPort{
@@ -499,11 +541,7 @@ func GetNimServingRuntimeTemplate(scheme *runtime.Scheme) (*v1alpha1.ServingRunt
 						},
 					},
 				},
-				ImagePullSecrets: []corev1.LocalObjectReference{
-					{
-						Name: "ngc-secret",
-					},
-				},
+				ImagePullSecrets: imagePullSecrets,
 				Volumes: []corev1.Volume{
 					{
 						Name: "nim-pvc",

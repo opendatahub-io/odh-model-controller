@@ -17,7 +17,6 @@ limitations under the License.
 package resources
 
 import (
-	kuadrantv1 "github.com/kuadrant/kuadrant-operator/api/v1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
@@ -35,21 +34,5 @@ func WithLabels(labels map[string]string) ObjectOption {
 			existing[k] = v
 		}
 		obj.SetLabels(existing)
-	}
-}
-
-// WithAudiences returns an ObjectOption that sets the audiences for all KubernetesTokenReview authentications.
-func WithAudiences(audiences []string) ObjectOption {
-	return func(obj client.Object) {
-		ap, ok := obj.(*kuadrantv1.AuthPolicy)
-		if !ok || ap.Spec.AuthScheme == nil {
-			return
-		}
-		for key, auth := range ap.Spec.AuthScheme.Authentication {
-			if auth.KubernetesTokenReview != nil {
-				auth.KubernetesTokenReview.Audiences = audiences
-				ap.Spec.AuthScheme.Authentication[key] = auth
-			}
-		}
 	}
 }

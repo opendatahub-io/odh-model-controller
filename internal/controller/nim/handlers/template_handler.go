@@ -55,6 +55,7 @@ type TemplateHandler struct {
 	Client         client.Client
 	Scheme         *runtime.Scheme
 	TemplateClient *templatev1client.Clientset
+	AirGapped      bool
 }
 
 func (t *TemplateHandler) Handle(ctx context.Context, account *v1.Account) HandleResponse {
@@ -113,7 +114,7 @@ func (t *TemplateHandler) Handle(ctx context.Context, account *v1.Account) Handl
 func (t *TemplateHandler) getApplyConfig(ctx context.Context, account *v1.Account) (*templatev1config.TemplateApplyConfiguration, error) {
 	logger := log.FromContext(ctx)
 
-	servingRuntime, srErr := utils.GetNimServingRuntimeTemplate(t.Scheme)
+	servingRuntime, srErr := utils.GetNimServingRuntimeTemplate(t.Scheme, t.AirGapped)
 	if srErr != nil {
 		return nil, srErr
 	}

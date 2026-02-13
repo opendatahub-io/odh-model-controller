@@ -173,7 +173,7 @@ var _ = Describe("NIM Template Handler", func() {
 		}
 		Expect(testClient.Create(ctx, acct)).To(Succeed())
 
-		sr, _ := utils.GetNimServingRuntimeTemplate(scheme.Scheme)
+		sr, _ := utils.GetNimServingRuntimeTemplate(scheme.Scheme, false)
 		By("Create a Template")
 		template := &templatev1.Template{
 			ObjectMeta: metav1.ObjectMeta{
@@ -238,7 +238,7 @@ var _ = Describe("NIM Template Handler", func() {
 		}
 		Expect(testClient.Create(ctx, acct)).To(Succeed())
 
-		sr, _ := utils.GetNimServingRuntimeTemplate(scheme.Scheme)
+		sr, _ := utils.GetNimServingRuntimeTemplate(scheme.Scheme, false)
 		By("Create a Template")
 		template := &templatev1.Template{
 			ObjectMeta: metav1.ObjectMeta{

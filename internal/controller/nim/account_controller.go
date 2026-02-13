@@ -60,6 +60,7 @@ const (
 // +kubebuilder:rbac:groups=nim.opendatahub.io,resources=accounts,verbs=get;list;watch;update;patch
 // +kubebuilder:rbac:groups=nim.opendatahub.io,resources=accounts/status,verbs=get;list;watch;update
 // +kubebuilder:rbac:groups=nim.opendatahub.io,resources=accounts/finalizers,verbs=update
+// +kubebuilder:rbac:groups=datasciencecluster.opendatahub.io,resources=datascienceclusters,verbs=get;list;watch
 // +kubebuilder:rbac:groups=template.openshift.io,resources=templates,verbs=get;list;watch;create;update;delete;patch
 
 func (r *AccountReconciler) SetupWithManager(mgr ctrl.Manager, ctx context.Context) error {
@@ -173,8 +174,9 @@ func (r *AccountReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 	logger.Info("starting account reconciliation")
 
 	keyManager := &handlers.APIKeyManager{Client: r.Client}
+	airGapped := utils.IsNimAirGapped(ctx, r.Client)
 
-	validationHandler := &handlers.ValidationHandler{Client: r.Client, KeyManager: keyManager}
+	validationHandler := &handlers.ValidationHandler{Client: r.Client, KeyManager: keyManager, AirGapped: airGapped}
 	if response := validationHandler.Handle(ctx, account); response.Error != nil {
 		return ctrl.Result{}, response.Error
 	} else if response.Requeue {
@@ -184,7 +186,7 @@ func (r *AccountReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 	}
 	logger.Info("api key validation not required")
 
-	configMapHandler := &handlers.ConfigMapHandler{Client: r.Client, Scheme: r.Scheme, KubeClient: r.KClient, KeyManager: keyManager}
+	configMapHandler := &handlers.ConfigMapHandler{Client: r.Client, Scheme: r.Scheme, KubeClient: r.KClient, KeyManager: keyManager, AirGapped: airGapped}
 	if response := configMapHandler.Handle(ctx, account); response.Error != nil {
 		return ctrl.Result{}, response.Error
 	} else if response.Requeue {
@@ -194,7 +196,7 @@ func (r *AccountReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 	}
 	logger.Info("config refresh not required")
 
-	templateHandler := &handlers.TemplateHandler{Scheme: r.Scheme, Client: r.Client, TemplateClient: r.TemplateClient}
+	templateHandler := &handlers.TemplateHandler{Scheme: r.Scheme, Client: r.Client, TemplateClient: r.TemplateClient, AirGapped: airGapped}
 	if response := templateHandler.Handle(ctx, account); response.Error != nil {
 		return ctrl.Result{}, response.Error
 	} else if response.Requeue {

@@ -76,11 +76,13 @@ func (r *KserveAuthPolicyReconciler) reconcileHTTPRouteAuthpolicy(ctx context.Co
 	httpRouteNames := r.getHTTPRouteNames(llmisvc)
 
 	for _, routeName := range httpRouteNames {
-		desired, err := r.templateLoader.Load(ctx, resources.AuthPolicyTarget{
+		desired, err := r.templateLoader.Load(ctx, resources.AuthPolicyTmplData{
 			Kind:      "HTTPRoute",
 			Name:      routeName,
 			Namespace: llmisvc.Namespace,
 			AuthType:  constants.Anonymous,
+			Objective: "unauthenticated",
+			Fairness:  "unauthenticated",
 		}, resources.WithLabels(map[string]string{
 			"app.kubernetes.io/name": llmisvc.Name,
 		}))
