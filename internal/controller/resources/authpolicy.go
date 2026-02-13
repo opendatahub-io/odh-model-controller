@@ -25,9 +25,9 @@ import (
 
 	kuadrantv1 "github.com/kuadrant/kuadrant-operator/api/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
+	"knative.dev/pkg/kmeta"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/util/retry"
-	"knative.dev/pkg/kmeta"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/yaml"
 
@@ -50,6 +50,13 @@ type AuthPolicyTarget struct {
 	Name      string
 	Namespace string
 	AuthType  constants.AuthType
+}
+
+type authPolicyTemplateData struct {
+	Name       string
+	Namespace  string
+	TargetKind string
+	TargetName string
 }
 
 type AuthPolicyTemplateLoader interface {
@@ -129,13 +136,6 @@ func (k *kserveAuthPolicyTemplateLoader) Load(_ context.Context, target AuthPoli
 	}
 
 	return authPolicy, nil
-}
-
-type authPolicyTemplateData struct {
-	Name       string
-	Namespace  string
-	TargetKind string
-	TargetName string
 }
 
 func (k *kserveAuthPolicyTemplateLoader) renderTemplate(templateBytes []byte, data authPolicyTemplateData) (*kuadrantv1.AuthPolicy, error) {

@@ -227,9 +227,81 @@ var _ = Describe("AuthPolicyTemplateLoader", func() {
 			Expect(err).ToNot(HaveOccurred())
 			Expect(authPolicy).ToNot(BeNil())
 
-			Expect(authPolicy.Name).To(ContainSubstring("authn"))
+			Expect(authPolicy.GetName()).To(Equal(constants.GetAuthPolicyName("openshift-ai-inference")))
 			Expect(string(authPolicy.Spec.TargetRef.Kind)).To(Equal("Gateway"))
 			Expect(authPolicy.Spec.AuthScheme.Authentication["kubernetes-user"].KubernetesTokenReview.Audiences).To(ContainElement(constants.KubernetesAudience))
+		})
+
+		It("should have default objective expression in UserDefined template", func(ctx SpecContext) {
+			authPolicy, err := loader.Load(ctx, resources.AuthPolicyTarget{
+				Kind:      "Gateway",
+				Name:      "openshift-ai-inference",
+				Namespace: "openshift-ingress",
+				AuthType:  constants.UserDefined,
+			})
+
+			Expect(err).ToNot(HaveOccurred())
+			Expect(authPolicy).ToNot(BeNil())
+			Expect(authPolicy.GetName()).To(Equal(constants.GetAuthPolicyName("openshift-ai-inference")))
+			Expect(string(authPolicy.Spec.TargetRef.Name)).To(Equal("openshift-ai-inference"))
+
+			kubernetesUserAuth := authPolicy.Spec.AuthScheme.Authentication["kubernetes-user"]
+			Expect(kubernetesUserAuth.Overrides).To(HaveKey("objective"))
+			Expect(string(kubernetesUserAuth.Overrides["objective"].Expression)).To(Equal(constants.DefaultObjectiveExpression))
+		})
+
+		It("should have default fairness value in UserDefined template", func(ctx SpecContext) {
+			authPolicy, err := loader.Load(ctx, resources.AuthPolicyTarget{
+				Kind:      "Gateway",
+				Name:      "openshift-ai-inference",
+				Namespace: "openshift-ingress",
+				AuthType:  constants.UserDefined,
+			})
+
+			Expect(err).ToNot(HaveOccurred())
+			Expect(authPolicy).ToNot(BeNil())
+			Expect(authPolicy.GetName()).To(Equal(constants.GetAuthPolicyName("openshift-ai-inference")))
+			Expect(string(authPolicy.Spec.TargetRef.Name)).To(Equal("openshift-ai-inference"))
+
+			kubernetesUserAuth := authPolicy.Spec.AuthScheme.Authentication["kubernetes-user"]
+			Expect(kubernetesUserAuth.Overrides).To(HaveKey("fairness"))
+			Expect(string(kubernetesUserAuth.Overrides["fairness"].Value.Raw)).To(Equal(`"https://kubernetes.default.svc"`))
+		})
+
+		It("should have default objective value in Anonymous template", func(ctx SpecContext) {
+			authPolicy, err := loader.Load(ctx, resources.AuthPolicyTarget{
+				Kind:      "HTTPRoute",
+				Name:      "test-route",
+				Namespace: "test-ns",
+				AuthType:  constants.Anonymous,
+			})
+
+			Expect(err).ToNot(HaveOccurred())
+			Expect(authPolicy).ToNot(BeNil())
+			Expect(authPolicy.GetName()).To(Equal(constants.GetAuthPolicyName("test-route")))
+			Expect(string(authPolicy.Spec.TargetRef.Name)).To(Equal("test-route"))
+
+			publicAuth := authPolicy.Spec.AuthScheme.Authentication["public"]
+			Expect(publicAuth.Overrides).To(HaveKey("objective"))
+			Expect(string(publicAuth.Overrides["objective"].Value.Raw)).To(Equal(`"unauthenticated"`))
+		})
+
+		It("should have default fairness value in Anonymous template", func(ctx SpecContext) {
+			authPolicy, err := loader.Load(ctx, resources.AuthPolicyTarget{
+				Kind:      "HTTPRoute",
+				Name:      "test-route",
+				Namespace: "test-ns",
+				AuthType:  constants.Anonymous,
+			})
+
+			Expect(err).ToNot(HaveOccurred())
+			Expect(authPolicy).ToNot(BeNil())
+			Expect(authPolicy.GetName()).To(Equal(constants.GetAuthPolicyName("test-route")))
+			Expect(string(authPolicy.Spec.TargetRef.Name)).To(Equal("test-route"))
+
+			publicAuth := authPolicy.Spec.AuthScheme.Authentication["public"]
+			Expect(publicAuth.Overrides).To(HaveKey("fairness"))
+			Expect(string(publicAuth.Overrides["fairness"].Value.Raw)).To(Equal(`"unauthenticated"`))
 		})
 	})
 })
