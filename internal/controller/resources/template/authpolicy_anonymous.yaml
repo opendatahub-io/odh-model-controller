@@ -5,7 +5,7 @@ metadata:
   namespace: {{.Namespace}}
 spec:
   targetRef:
-    group: "gateway.networking.k8s.io"
+    group: gateway.networking.k8s.io
     kind: {{.TargetKind}}
     name: {{.TargetName}}
   rules:

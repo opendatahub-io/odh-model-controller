@@ -145,10 +145,11 @@ var _ = Describe("AuthPolicyTemplateLoader", func() {
 
 		It("should resolve authenticated template for Gateway", func(ctx SpecContext) {
 			authPolicy, err := loader.Load(ctx, resources.AuthPolicyTmplData{
-				Kind:      "Gateway",
-				Name:      "openshift-ai-inference",
-				Namespace: "openshift-ingress",
-				AuthType:  constants.UserDefined,
+				Name:       constants.GetAuthPolicyName("openshift-ai-inference"),
+				TargetKind: "Gateway",
+				TargetName: "openshift-ai-inference",
+				Namespace:  "openshift-ingress",
+				AuthType:   constants.UserDefined,
 			})
 
 			Expect(err).ToNot(HaveOccurred())
@@ -160,10 +161,11 @@ var _ = Describe("AuthPolicyTemplateLoader", func() {
 
 		It("should resolve anonymous template for HTTPRoute", func(ctx SpecContext) {
 			authPolicy, err := loader.Load(ctx, resources.AuthPolicyTmplData{
-				Kind:      "HTTPRoute",
-				Name:      "test-route",
-				Namespace: "test-ns",
-				AuthType:  constants.Anonymous,
+				Name:       constants.GetAuthPolicyName("test-route"),
+				TargetKind: "HTTPRoute",
+				TargetName: "test-route",
+				Namespace:  "test-ns",
+				AuthType:   constants.Anonymous,
 			})
 
 			Expect(err).ToNot(HaveOccurred())
@@ -176,10 +178,11 @@ var _ = Describe("AuthPolicyTemplateLoader", func() {
 
 		It("should apply labels with WithLabels option", func(ctx SpecContext) {
 			authPolicy, err := loader.Load(ctx, resources.AuthPolicyTmplData{
-				Kind:      "HTTPRoute",
-				Name:      "test-route",
-				Namespace: "test-ns",
-				AuthType:  constants.Anonymous,
+				Name:       constants.GetAuthPolicyName("test-route"),
+				TargetKind: "HTTPRoute",
+				TargetName: "test-route",
+				Namespace:  "test-ns",
+				AuthType:   constants.Anonymous,
 			}, resources.WithLabels(map[string]string{
 				"app.kubernetes.io/name": "my-llmisvc",
 			}))
@@ -191,9 +194,10 @@ var _ = Describe("AuthPolicyTemplateLoader", func() {
 
 		It("should return error when AuthType is not set", func(ctx SpecContext) {
 			_, err := loader.Load(ctx, resources.AuthPolicyTmplData{
-				Kind:      "HTTPRoute",
-				Name:      "test-route",
-				Namespace: "test-ns",
+				Name:       constants.GetAuthPolicyName("test-route"),
+				TargetKind: "HTTPRoute",
+				TargetName: "test-route",
+				Namespace:  "test-ns",
 			})
 
 			Expect(err).To(HaveOccurred())
@@ -202,11 +206,13 @@ var _ = Describe("AuthPolicyTemplateLoader", func() {
 
 		It("should apply audiences with WithAudiences option", func(ctx SpecContext) {
 			authPolicy, err := loader.Load(ctx, resources.AuthPolicyTmplData{
-				Kind:      "Gateway",
-				Name:      "openshift-ai-inference",
-				Namespace: "openshift-ingress",
-				AuthType:  constants.UserDefined,
-			}, resources.WithAudiences([]string{"http://test.com"}))
+				Name:       constants.GetAuthPolicyName("openshift-ai-inference"),
+				TargetKind: "Gateway",
+				TargetName: "openshift-ai-inference",
+				Namespace:  "openshift-ingress",
+				AuthType:   constants.UserDefined,
+				Audiences:  "[\"http://test.com\"]",
+			})
 
 			Expect(err).ToNot(HaveOccurred())
 			Expect(authPolicy).ToNot(BeNil())
@@ -216,20 +222,104 @@ var _ = Describe("AuthPolicyTemplateLoader", func() {
 			Expect(authPolicy.Spec.AuthScheme.Authentication["kubernetes-user"].KubernetesTokenReview.Audiences).To(ContainElement("http://test.com"))
 		})
 
-		It("should create Gateway AuthPolicy with default Kubernetes audience", func(ctx SpecContext) {
+		It("should create Gateway AuthPolicy with Kubernetes audience", func(ctx SpecContext) {
 			authPolicy, err := loader.Load(ctx, resources.AuthPolicyTmplData{
-				Kind:      "Gateway",
-				Name:      "openshift-ai-inference",
-				Namespace: "openshift-ingress",
-				AuthType:  constants.UserDefined,
+				Name:       constants.GetAuthPolicyName("openshift-ai-inference"),
+				TargetKind: "Gateway",
+				TargetName: "openshift-ai-inference",
+				Namespace:  "openshift-ingress",
+				AuthType:   constants.UserDefined,
+				Audiences:  "[\"" + constants.KubernetesAudience + "\"]",
 			})
 
 			Expect(err).ToNot(HaveOccurred())
 			Expect(authPolicy).ToNot(BeNil())
 
-			Expect(authPolicy.Name).To(ContainSubstring("authn"))
+			Expect(authPolicy.GetName()).To(Equal(constants.GetAuthPolicyName("openshift-ai-inference")))
 			Expect(string(authPolicy.Spec.TargetRef.Kind)).To(Equal("Gateway"))
 			Expect(authPolicy.Spec.AuthScheme.Authentication["kubernetes-user"].KubernetesTokenReview.Audiences).To(ContainElement(constants.KubernetesAudience))
+		})
+
+		It("should apply objective expression in UserDefined template", func(ctx SpecContext) {
+			authPolicy, err := loader.Load(ctx, resources.AuthPolicyTmplData{
+				Name:       constants.GetAuthPolicyName("openshift-ai-inference"),
+				TargetKind: "Gateway",
+				TargetName: "openshift-ai-inference",
+				Namespace:  "openshift-ingress",
+				AuthType:   constants.UserDefined,
+				Objective:  constants.DefaultObjectiveExpression,
+				Audiences:  "[\"" + constants.KubernetesAudience + "\"]",
+			})
+
+			Expect(err).ToNot(HaveOccurred())
+			Expect(authPolicy).ToNot(BeNil())
+			Expect(authPolicy.GetName()).To(Equal(constants.GetAuthPolicyName("openshift-ai-inference")))
+			Expect(string(authPolicy.Spec.TargetRef.Name)).To(Equal("openshift-ai-inference"))
+
+			kubernetesUserAuth := authPolicy.Spec.AuthScheme.Authentication["kubernetes-user"]
+			Expect(kubernetesUserAuth.Overrides).To(HaveKey("objective"))
+			Expect(string(kubernetesUserAuth.Overrides["objective"].Expression)).To(Equal(constants.DefaultObjectiveExpression))
+		})
+
+		It("should apply fairness value in UserDefined template", func(ctx SpecContext) {
+			authPolicy, err := loader.Load(ctx, resources.AuthPolicyTmplData{
+				Name:       constants.GetAuthPolicyName("openshift-ai-inference"),
+				TargetKind: "Gateway",
+				TargetName: "openshift-ai-inference",
+				Namespace:  "openshift-ingress",
+				AuthType:   constants.UserDefined,
+				Fairness:   "https://kubernetes.default.svc",
+				Audiences:  "[\"" + constants.KubernetesAudience + "\"]",
+			})
+
+			Expect(err).ToNot(HaveOccurred())
+			Expect(authPolicy).ToNot(BeNil())
+			Expect(authPolicy.GetName()).To(Equal(constants.GetAuthPolicyName("openshift-ai-inference")))
+			Expect(string(authPolicy.Spec.TargetRef.Name)).To(Equal("openshift-ai-inference"))
+
+			kubernetesUserAuth := authPolicy.Spec.AuthScheme.Authentication["kubernetes-user"]
+			Expect(kubernetesUserAuth.Overrides).To(HaveKey("fairness"))
+			Expect(string(kubernetesUserAuth.Overrides["fairness"].Value.Raw)).To(Equal(`"https://kubernetes.default.svc"`))
+		})
+
+		It("should apply objective expression in Anonymous template", func(ctx SpecContext) {
+			authPolicy, err := loader.Load(ctx, resources.AuthPolicyTmplData{
+				Name:       constants.GetAuthPolicyName("test-route"),
+				TargetKind: "HTTPRoute",
+				TargetName: "test-route",
+				Namespace:  "test-ns",
+				AuthType:   constants.Anonymous,
+				Objective:  "unauthenticated",
+			})
+
+			Expect(err).ToNot(HaveOccurred())
+			Expect(authPolicy).ToNot(BeNil())
+			Expect(authPolicy.GetName()).To(Equal(constants.GetAuthPolicyName("test-route")))
+			Expect(string(authPolicy.Spec.TargetRef.Name)).To(Equal("test-route"))
+
+			publicAuth := authPolicy.Spec.AuthScheme.Authentication["public"]
+			Expect(publicAuth.Overrides).To(HaveKey("objective"))
+			Expect(string(publicAuth.Overrides["objective"].Expression)).To(Equal("unauthenticated"))
+		})
+
+		It("should apply fairness value in Anonymous template", func(ctx SpecContext) {
+			authPolicy, err := loader.Load(ctx, resources.AuthPolicyTmplData{
+				Name:       constants.GetAuthPolicyName("test-route"),
+				TargetKind: "HTTPRoute",
+				TargetName: "test-route",
+				Namespace:  "test-ns",
+				AuthType:   constants.Anonymous,
+				Fairness:   "unauthenticated",
+			})
+
+			Expect(err).ToNot(HaveOccurred())
+			Expect(authPolicy).ToNot(BeNil())
+			Expect(authPolicy.GetName()).To(Equal(constants.GetAuthPolicyName("test-route")))
+			Expect(string(authPolicy.Spec.TargetRef.Name)).To(Equal("test-route"))
+
+			publicAuth := authPolicy.Spec.AuthScheme.Authentication["public"]
+			Expect(publicAuth.Overrides).To(HaveKey("fairness"))
+			Expect(string(publicAuth.Overrides["fairness"].Value.Raw)).To(Equal(`"unauthenticated"`))
 		})
 	})
 

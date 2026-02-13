@@ -25,6 +25,7 @@ import (
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
+	"knative.dev/pkg/kmeta"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 	gatewayapiv1 "sigs.k8s.io/gateway-api/apis/v1"
@@ -77,12 +78,13 @@ func (r *KserveAuthPolicyReconciler) reconcileHTTPRouteAuthpolicy(ctx context.Co
 
 	for _, routeName := range httpRouteNames {
 		desired, err := r.templateLoader.Load(ctx, resources.AuthPolicyTmplData{
-			Kind:      "HTTPRoute",
-			Name:      routeName,
-			Namespace: llmisvc.Namespace,
-			AuthType:  constants.Anonymous,
-			Objective: "unauthenticated",
-			Fairness:  "unauthenticated",
+			Name:       kmeta.ChildName(routeName, constants.AuthPolicyNameSuffix),
+			TargetKind: "HTTPRoute",
+			TargetName: routeName,
+			Namespace:  llmisvc.Namespace,
+			AuthType:   constants.Anonymous,
+			Objective:  "unauthenticated",
+			Fairness:   "unauthenticated",
 		}, resources.WithLabels(map[string]string{
 			"app.kubernetes.io/name": llmisvc.Name,
 		}))

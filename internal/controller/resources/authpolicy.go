@@ -27,7 +27,6 @@ import (
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/util/retry"
-	"knative.dev/pkg/kmeta"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/yaml"
 
@@ -46,13 +45,14 @@ type AuthPolicyDetector interface {
 }
 
 type AuthPolicyTmplData struct {
-	Kind      string // Currently only "Gateway" or "HTTPRoute" is supported
-	Name      string
-	Namespace string
-	AuthType  constants.AuthType
-	Objective string
-	Fairness  string
-	Audiences string
+	AuthType   constants.AuthType
+	Name       string
+	Namespace  string
+	TargetName string
+	TargetKind string // Currently only "Gateway" or "HTTPRoute" is supported
+	Objective  string
+	Fairness   string
+	Audiences  string
 }
 
 type AuthPolicyTemplateLoader interface {
@@ -115,12 +115,7 @@ func (k *kserveAuthPolicyTemplateLoader) Load(_ context.Context, tmplData AuthPo
 		return nil, fmt.Errorf("unsupported auth type %s", tmplData.AuthType)
 	}
 
-	authPolicy, err := k.renderTemplate(tmpl, authPolicyTemplateData{
-		Name:       kmeta.ChildName(tmplData.Name, constants.AuthPolicyNameSuffix),
-		Namespace:  tmplData.Namespace,
-		TargetKind: tmplData.Kind,
-		TargetName: tmplData.Name,
-	})
+	authPolicy, err := k.renderTemplate(tmpl, tmplData)
 	if err != nil {
 		return nil, err
 	}
@@ -134,14 +129,7 @@ func (k *kserveAuthPolicyTemplateLoader) Load(_ context.Context, tmplData AuthPo
 	return authPolicy, nil
 }
 
-type authPolicyTemplateData struct {
-	Name       string
-	Namespace  string
-	TargetKind string
-	TargetName string
-}
-
-func (k *kserveAuthPolicyTemplateLoader) renderTemplate(templateBytes []byte, data authPolicyTemplateData) (*kuadrantv1.AuthPolicy, error) {
+func (k *kserveAuthPolicyTemplateLoader) renderTemplate(templateBytes []byte, data AuthPolicyTmplData) (*kuadrantv1.AuthPolicy, error) {
 	tmpl, err := template.New("authpolicy").Parse(string(templateBytes))
 	if err != nil {
 		return nil, fmt.Errorf("failed to parse AuthPolicy template: %w", err)

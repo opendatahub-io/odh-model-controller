@@ -32,6 +32,7 @@ import (
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
+	"knative.dev/pkg/kmeta"
 	ctrl "sigs.k8s.io/controller-runtime"
 	ctrlbuilder "sigs.k8s.io/controller-runtime/pkg/builder"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -215,13 +216,14 @@ func (r *GatewayReconciler) reconcileAuthPolicy(ctx context.Context, logger logr
 	}
 
 	desired, err := r.authPolicyLoader.Load(ctx, resources.AuthPolicyTmplData{
-		Kind:      "Gateway",
-		Name:      gateway.Name,
-		Namespace: gateway.Namespace,
-		AuthType:  constants.UserDefined,
-		Audiences: string(audiencesJSON),
-		Fairness:  audiences[0],
-		Objective: objectiveExpression,
+		Name:       kmeta.ChildName(gateway.Name, constants.AuthPolicyNameSuffix),
+		TargetKind: "Gateway",
+		TargetName: gateway.Name,
+		Namespace:  gateway.Namespace,
+		AuthType:   constants.UserDefined,
+		Audiences:  string(audiencesJSON),
+		Fairness:   audiences[0],
+		Objective:  objectiveExpression,
 	},
 		resources.WithLabels(map[string]string{"app.kubernetes.io/name": "llminferenceservice-auth"}),
 	)
