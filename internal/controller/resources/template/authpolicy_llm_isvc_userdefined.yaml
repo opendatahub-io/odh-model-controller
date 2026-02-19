@@ -25,6 +25,8 @@ spec:
             expression: "{{.ObjectiveExpression}}"
     authorization:
       inference-access:
+        when:
+          - predicate: request.method == 'GET'
         kubernetesSubjectAccessReview:
           user:
             expression: auth.identity.user.username
@@ -41,8 +43,9 @@ spec:
               expression: request.path.split("/")[2]
             verb:
               value: get
-        priority: 2
       endpoint-access:
+        when:
+          - predicate: request.method == 'POST'
         kubernetesSubjectAccessReview:
           user:
             expression: auth.identity.user.username
@@ -59,7 +62,6 @@ spec:
               expression: request.path.split("/")[2]
             verb:
               value: post
-        priority: 1
     response:
       success:
         headers:
