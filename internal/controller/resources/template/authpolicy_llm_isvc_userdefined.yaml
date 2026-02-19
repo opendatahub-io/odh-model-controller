@@ -24,6 +24,12 @@ spec:
           objective:
             expression: "{{.ObjectiveExpression}}"
     authorization:
+      deny-unhandled-methods:
+        when:
+          - predicate: request.method != 'GET' && request.method != 'POST'
+        patternMatching:
+          patterns:
+            - predicate: false
       inference-access:
         when:
           - predicate: request.method == 'GET'
