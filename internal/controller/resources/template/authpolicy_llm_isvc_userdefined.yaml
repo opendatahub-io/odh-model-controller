@@ -41,6 +41,7 @@ spec:
               expression: request.path.split("/")[2]
             verb:
               value: get
+        priority: 1
     response:
       success:
         headers:
