@@ -24,15 +24,7 @@ spec:
           objective:
             expression: "{{.ObjectiveExpression}}"
     authorization:
-      deny-unhandled-methods:
-        when:
-          - predicate: request.method != 'GET' && request.method != 'POST'
-        patternMatching:
-          patterns:
-            - predicate: false
       inference-access:
-        when:
-          - predicate: request.method == 'GET'
         kubernetesSubjectAccessReview:
           user:
             expression: auth.identity.user.username
@@ -49,25 +41,6 @@ spec:
               expression: request.path.split("/")[2]
             verb:
               value: get
-      endpoint-access:
-        when:
-          - predicate: request.method == 'POST'
-        kubernetesSubjectAccessReview:
-          user:
-            expression: auth.identity.user.username
-          authorizationGroups:
-            expression: auth.identity.user.groups
-          resourceAttributes:
-            group:
-              value: serving.kserve.io
-            resource:
-              value: llminferenceservices
-            namespace:
-              expression: request.path.split("/")[1]
-            name:
-              expression: request.path.split("/")[2]
-            verb:
-              value: post
     response:
       success:
         headers:
