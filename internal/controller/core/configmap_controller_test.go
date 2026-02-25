@@ -18,16 +18,15 @@ package core
 
 import (
 	"context"
+	"fmt"
 	"reflect"
 	"strings"
-	"time"
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	corev1 "k8s.io/api/core/v1"
-	apierrs "k8s.io/apimachinery/pkg/api/errors"
 
 	"github.com/opendatahub-io/odh-model-controller/internal/controller/constants"
 )
@@ -53,9 +52,7 @@ var _ = Describe("KServe Custom CA Cert ConfigMap Controller", func() {
 		Expect(k8sClient.Delete(ctx, openshiftServiceCAConfigMap)).Should(Succeed())
 
 		// Check that the odh-kserve-custom-ca-bundle configmap is also deleted since no ca bundle data will remain
-		_, err := waitForConfigMap(k8sClient, WorkingNamespace, constants.KServeCACertConfigMapName, 30, 3*time.Second)
-		Expect(err).To(HaveOccurred())
-		Expect(err).To(BeAssignableToTypeOf(&apierrs.StatusError{}))
+		WaitForResourceDeletion(ctx, k8sClient, WorkingNamespace, constants.KServeCACertConfigMapName, &corev1.ConfigMap{})
 	})
 
 	Context("when a configmap 'odh-trusted-ca-bundle' or 'openshift-service-ca.crt' exists", func() {
@@ -72,13 +69,24 @@ var _ = Describe("KServe Custom CA Cert ConfigMap Controller", func() {
 			Expect(err).NotTo(HaveOccurred())
 			Expect(k8sClient.Create(ctx, openshiftServiceCAConfigMap)).Should(Succeed())
 
-			kserveCACertConfigmap, err := waitForConfigMap(k8sClient, WorkingNamespace, constants.KServeCACertConfigMapName, 30, 1*time.Second)
-			Expect(err).NotTo(HaveOccurred())
 			expectedKserveCACertConfigmap := &corev1.ConfigMap{}
 			err = convertToStructuredResource(odhKserveCustomCABundleConfigMapPath, expectedKserveCACertConfigmap)
 			Expect(err).NotTo(HaveOccurred())
 			// Trim out the last \n in the file
 			expectedKserveCACertConfigmap.Data["cabundle.crt"] = strings.TrimSpace(expectedKserveCACertConfigmap.Data["cabundle.crt"])
+
+			// Wait for ConfigMap with data populated
+			kserveCACertConfigmap := WaitForResourceWithCondition(ctx, k8sClient, WorkingNamespace,
+				constants.KServeCACertConfigMapName, &corev1.ConfigMap{},
+				func(cm *corev1.ConfigMap) error {
+					if len(cm.Data) == 0 {
+						return fmt.Errorf("configmap data is empty")
+					}
+					if _, ok := cm.Data["cabundle.crt"]; !ok {
+						return fmt.Errorf("cabundle.crt key not found in configmap")
+					}
+					return nil
+				})
 
 			Expect(compareConfigMap(kserveCACertConfigmap, expectedKserveCACertConfigmap)).Should((BeTrue()))
 		})
@@ -98,8 +106,18 @@ var _ = Describe("KServe Custom CA Cert ConfigMap Controller", func() {
 			Expect(err).NotTo(HaveOccurred())
 			Expect(k8sClient.Create(ctx, openshiftServiceCAConfigMap)).Should(Succeed())
 
-			_, err = waitForConfigMap(k8sClient, WorkingNamespace, constants.KServeCACertConfigMapName, 30, 1*time.Second)
-			Expect(err).NotTo(HaveOccurred())
+			// Wait for initial ConfigMap with data
+			WaitForResourceWithCondition(ctx, k8sClient, WorkingNamespace,
+				constants.KServeCACertConfigMapName, &corev1.ConfigMap{},
+				func(cm *corev1.ConfigMap) error {
+					if len(cm.Data) == 0 {
+						return fmt.Errorf("configmap data is empty")
+					}
+					if _, ok := cm.Data["cabundle.crt"]; !ok {
+						return fmt.Errorf("cabundle.crt key not found in configmap")
+					}
+					return nil
+				})
 
 			By("updating odh-trusted-ca-bundle configmap")
 			updatedOdhtrustedcacertConfigMap := &corev1.ConfigMap{}
@@ -113,14 +131,30 @@ var _ = Describe("KServe Custom CA Cert ConfigMap Controller", func() {
 			Expect(err).NotTo(HaveOccurred())
 			Expect(k8sClient.Update(ctx, updatedOpenshiftServiceCAConfigMap)).Should(Succeed())
 
-			// Wait for updating ConfigMap
-			kserveCACertConfigmap, err := waitForConfigMap(k8sClient, WorkingNamespace, constants.KServeCACertConfigMapName, 30, 3*time.Second)
-			Expect(err).NotTo(HaveOccurred())
 			expectedKserveCACertConfigmap := &corev1.ConfigMap{}
 			err = convertToStructuredResource(odhKserveCustomCABundleConfigMapUpdatedPath, expectedKserveCACertConfigmap)
 			Expect(err).NotTo(HaveOccurred())
 			// Trim out the last \n in the file
 			expectedKserveCACertConfigmap.Data["cabundle.crt"] = strings.TrimSpace(expectedKserveCACertConfigmap.Data["cabundle.crt"])
+
+			// Wait for ConfigMap to be updated with new data
+			kserveCACertConfigmap := WaitForResourceWithCondition(ctx, k8sClient, WorkingNamespace,
+				constants.KServeCACertConfigMapName, &corev1.ConfigMap{},
+				func(cm *corev1.ConfigMap) error {
+					if len(cm.Data) == 0 {
+						return fmt.Errorf("configmap data is empty")
+					}
+					crt, ok := cm.Data["cabundle.crt"]
+					if !ok {
+						return fmt.Errorf("cabundle.crt key not found in configmap")
+					}
+					// Check that data has been updated by comparing with expected
+					expectedCrt := expectedKserveCACertConfigmap.Data["cabundle.crt"]
+					if crt != expectedCrt {
+						return fmt.Errorf("configmap data not yet updated")
+					}
+					return nil
+				})
 
 			Expect(compareConfigMap(kserveCACertConfigmap, expectedKserveCACertConfigmap)).Should((BeTrue()))
 		})
