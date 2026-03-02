@@ -28,6 +28,7 @@ resources:
 # [METRICS] Expose the controller manager metrics service.
 - metrics_service.yaml
 - ../runtimes
+- ../server
 
 # Uncomment the patches line if you enable Metrics, and/or are using webhooks and cert-manager
 patches:
