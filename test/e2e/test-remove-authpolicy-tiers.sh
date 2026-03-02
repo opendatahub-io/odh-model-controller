@@ -8,6 +8,7 @@ set -euo pipefail
 
 PASS=0
 FAIL=0
+SKIP=0
 TEST_NS="llm"
 GATEWAY_NS="openshift-ingress"
 GATEWAY_NAME="maas-default-gateway"
@@ -19,10 +20,12 @@ POLL_INTERVAL=3
 RED='\033[0;31m'
 GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
+BLUE='\033[0;34m'
 NC='\033[0m'
 
 pass() { PASS=$((PASS + 1)); echo -e "  ${GREEN}PASS${NC}: $1"; }
 fail() { FAIL=$((FAIL + 1)); echo -e "  ${RED}FAIL${NC}: $1"; }
+skip() { SKIP=$((SKIP + 1)); echo -e "  ${BLUE}SKIP${NC}: $1"; }
 info() { echo -e "${YELLOW}>>>${NC} $1"; }
 
 cleanup() {
@@ -37,11 +40,11 @@ trap cleanup EXIT
 
 wait_for_condition() {
     local description="$1"
-    local check_cmd="$2"
-    local timeout="${3:-$WAIT_TIMEOUT}"
+    local timeout="$2"
+    shift 2
     local elapsed=0
     while [ $elapsed -lt "$timeout" ]; do
-        if eval "$check_cmd" >/dev/null 2>&1; then
+        if "$@" >/dev/null 2>&1; then
             return 0
         fi
         sleep "$POLL_INTERVAL"
@@ -52,11 +55,11 @@ wait_for_condition() {
 
 wait_for_absence() {
     local description="$1"
-    local check_cmd="$2"
-    local timeout="${3:-$WAIT_TIMEOUT}"
+    local timeout="$2"
+    shift 2
     local elapsed=0
     while [ $elapsed -lt "$timeout" ]; do
-        if ! eval "$check_cmd" >/dev/null 2>&1; then
+        if ! "$@" >/dev/null 2>&1; then
             return 0
         fi
         sleep "$POLL_INTERVAL"
@@ -68,11 +71,12 @@ wait_for_absence() {
 # ─────────────────────────────────────────────────────────
 info "Precondition: verify controller is running with new image"
 # ─────────────────────────────────────────────────────────
+EXPECTED_IMG="${EXPECTED_CONTROLLER_IMAGE:-quay.io/maas/odh-model-controller:latest}"
 ACTUAL_IMG=$(oc get deployment odh-model-controller -n "$ODH_NS" -o jsonpath='{.spec.template.spec.containers[0].image}')
-if [[ "$ACTUAL_IMG" == "quay.io/maas/odh-model-controller:latest" ]]; then
-    pass "odh-model-controller image is quay.io/maas/odh-model-controller:latest"
+if [[ "$ACTUAL_IMG" == "$EXPECTED_IMG" ]]; then
+    pass "odh-model-controller image is $EXPECTED_IMG"
 else
-    fail "odh-model-controller image is $ACTUAL_IMG (expected quay.io/maas/odh-model-controller:latest)"
+    fail "odh-model-controller image is $ACTUAL_IMG (expected $EXPECTED_IMG)"
 fi
 
 READY=$(oc get deployment odh-model-controller -n "$ODH_NS" -o jsonpath='{.status.readyReplicas}')
@@ -204,7 +208,7 @@ EOF
 
 EF_NAME="${GATEWAY_NAME}-authn-ssl"
 info "Waiting for EnvoyFilter '$EF_NAME' (up to 45s)..."
-if wait_for_condition "EnvoyFilter $EF_NAME" "oc get envoyfilter $EF_NAME -n $GATEWAY_NS" 45; then
+if wait_for_condition "EnvoyFilter $EF_NAME" 45 oc get envoyfilter "$EF_NAME" -n "$GATEWAY_NS"; then
     EF_OWNER=$(oc get envoyfilter "$EF_NAME" -n "$GATEWAY_NS" -o jsonpath='{.metadata.ownerReferences[0].kind}' 2>/dev/null || echo "none")
     pass "TC4: EnvoyFilter '$EF_NAME' exists in $GATEWAY_NS (owner: $EF_OWNER)"
 else
@@ -267,9 +271,8 @@ done
 if $MAAS_AP_FOUND; then
     pass "TC5: MaaS controller created AuthPolicy in $TEST_NS: $MAAS_APS"
 else
-    info "TC5: (SKIP) MaaS controller did not create per-route AuthPolicy within 60s"
     info "     This may be expected if MaaSModel/LLMIsvc isn't fully reconciled (missing HTTPRoute)"
-    pass "TC5: Verified no ODH AuthPolicy was created (MaaS controller flow is separate)"
+    skip "TC5: MaaS controller did not create per-route AuthPolicy within 60s (MaaS controller flow is separate)"
 fi
 
 # Cleanup MaaS test resources
@@ -298,9 +301,9 @@ echo ""
 # ─────────────────────────────────────────────────────────
 # Summary
 # ─────────────────────────────────────────────────────────
-TOTAL=$((PASS + FAIL))
+TOTAL=$((PASS + FAIL + SKIP))
 echo "============================================"
-echo -e "  Results: ${GREEN}$PASS passed${NC}, ${RED}$FAIL failed${NC} out of $TOTAL"
+echo -e "  Results: ${GREEN}$PASS passed${NC}, ${RED}$FAIL failed${NC}, ${BLUE}$SKIP skipped${NC} out of $TOTAL"
 echo "============================================"
 
 if [ "$FAIL" -gt 0 ]; then

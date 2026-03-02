@@ -7,10 +7,6 @@ on:
         description: 'OpenShift API server URL'
         required: true
         type: string
-      cluster_token:
-        description: 'OpenShift login token (use secrets for production)'
-        required: true
-        type: string
       controller_image:
         description: 'odh-model-controller image to test'
         required: false
@@ -34,7 +30,9 @@ jobs:
 
       - name: Login to OpenShift cluster
         run: |
-          oc login --token="${{ inputs.cluster_token }}" --server="${{ inputs.cluster_url }}" --insecure-skip-tls-verify=true
+          oc login --token="${{ secrets.CLUSTER_TOKEN }}" --server="${{ inputs.cluster_url }}" --insecure-skip-tls-verify=true
 
       - name: Run AuthPolicy removal integration test
+        env:
+          EXPECTED_CONTROLLER_IMAGE: ${{ inputs.controller_image }}
         run: make test-authpolicy-removal
