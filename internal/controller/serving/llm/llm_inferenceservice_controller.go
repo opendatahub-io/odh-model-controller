@@ -57,10 +57,6 @@ type LLMInferenceServiceReconciler struct {
 	envoyFilterMatcher     resources.EnvoyFilterMatcher
 }
 
-var ownedBySelfPredicate = predicate.NewPredicateFuncs(func(o client.Object) bool {
-	return o.GetLabels()["app.kubernetes.io/managed-by"] == "odh-model-controller"
-})
-
 func NewLLMInferenceServiceReconciler(client client.Client, scheme *runtime.Scheme, recorder record.EventRecorder) *LLMInferenceServiceReconciler {
 	subResourceReconcilers := []parentreconcilers.LLMSubResourceReconciler{
 		reconcilers.NewKserveEnvoyFilterReconciler(client, scheme),

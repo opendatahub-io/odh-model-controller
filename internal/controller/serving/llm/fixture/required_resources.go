@@ -105,4 +105,3 @@ func defaultGateway() *gatewayapiv1.Gateway {
 		},
 	}
 }
-

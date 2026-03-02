@@ -364,4 +364,3 @@ func WithLabel(key, value string) LLMInferenceServiceOption {
 		llmSvc.Labels[key] = value
 	}
 }
-
