@@ -23,7 +23,6 @@ import (
 	gatewayapiv1 "sigs.k8s.io/gateway-api/apis/v1"
 
 	"github.com/kserve/kserve/pkg/apis/serving/v1alpha1"
-	"github.com/opendatahub-io/odh-model-controller/internal/controller/constants"
 )
 
 type LLMInferenceServiceOption ObjectOption[*v1alpha1.LLMInferenceService]
@@ -366,11 +365,3 @@ func WithLabel(key, value string) LLMInferenceServiceOption {
 	}
 }
 
-// Convenience functions for common annotations
-func WithEnableAuth(enable bool) LLMInferenceServiceOption {
-	value := "false"
-	if enable {
-		value = "true"
-	}
-	return WithAnnotation(constants.EnableAuthODHAnnotation, value)
-}

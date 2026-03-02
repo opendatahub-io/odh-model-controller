@@ -113,6 +113,18 @@ test-e2e: manifests generate fmt vet ## Run the e2e tests. Expected an isolated 
 	}
 	POD_NAMESPACE=default go test ./test/e2e/ -v -ginkgo.v
 
+.PHONY: test-authpolicy-removal
+test-authpolicy-removal: ## Run integration test verifying AuthPolicy and tier removal. Requires an OpenShift cluster with MaaS stack.
+	@command -v oc >/dev/null 2>&1 || { \
+		echo "oc CLI is not installed."; \
+		exit 1; \
+	}
+	@oc whoami >/dev/null 2>&1 || { \
+		echo "Not logged in to an OpenShift cluster. Run 'oc login' first."; \
+		exit 1; \
+	}
+	./test/e2e/test-remove-authpolicy-tiers.sh
+
 .PHONY: lint
 lint: golangci-lint ## Run golangci-lint linter
 	$(GOLANGCI_LINT) run

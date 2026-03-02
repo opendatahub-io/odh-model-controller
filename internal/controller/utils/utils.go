@@ -9,10 +9,7 @@ import (
 	"sort"
 	"strings"
 
-	ocpconfigv1 "github.com/openshift/api/config/v1"
 	gatewayapiv1 "sigs.k8s.io/gateway-api/apis/v1"
-
-	"knative.dev/pkg/kmeta"
 
 	"github.com/go-logr/logr"
 	kservev1alpha1 "github.com/kserve/kserve/pkg/apis/serving/v1alpha1"
@@ -268,28 +265,6 @@ func GetEnvOr(key, defaultValue string) string {
 	return defaultValue
 }
 
-func GetAuthAudience(ctx context.Context, client client.Client, defaultAudience string) []string {
-	// 1. Check environment variable first (explicit configuration)
-	if aud := os.Getenv("AUTH_AUDIENCE"); aud != "" {
-		audiences := strings.Split(aud, ",")
-		for i := range audiences {
-			audiences[i] = strings.TrimSpace(audiences[i])
-		}
-		return audiences
-	}
-
-	// 2. Discover Authentication cluster object for ROSA (auto-detection)
-	authConfig := &ocpconfigv1.Authentication{}
-	if err := client.Get(ctx, types.NamespacedName{Name: "cluster"}, authConfig); err == nil {
-		if authConfig.Spec.ServiceAccountIssuer != "" {
-			return []string{authConfig.Spec.ServiceAccountIssuer}
-		}
-	}
-
-	// 3. Use default
-	return []string{defaultAudience}
-}
-
 func GetInferenceServiceConfigMap(ctx context.Context, cli client.Client) (*corev1.ConfigMap, error) {
 	controllerNs := os.Getenv("POD_NAMESPACE")
 	inferenceServiceConfigMap := &corev1.ConfigMap{}
@@ -351,16 +326,6 @@ func MergeUserLabelsAndAnnotations(desired, existing client.Object) {
 		}
 		desired.SetAnnotations(desiredAnnotations)
 	}
-}
-
-// GetMaaSRoleName returns the name of the related Role resource for MaaS RBAC use cases
-func GetMaaSRoleName(llmisvc *kservev1alpha1.LLMInferenceService) string {
-	return kmeta.ChildName(llmisvc.Name, "-model-post-access")
-}
-
-// GetMaaSRoleBindingName returns the name of the related RoleBinding resource for MaaS RBAC use cases
-func GetMaaSRoleBindingName(llmisvc *kservev1alpha1.LLMInferenceService) string {
-	return kmeta.ChildName(llmisvc.Name, "-model-post-access-tier-binding")
 }
 
 func IsManagedByOdhController(obj client.Object) bool {
