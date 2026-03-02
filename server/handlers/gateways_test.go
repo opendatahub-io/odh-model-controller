@@ -21,24 +21,28 @@ func (m *mockDiscoverer) Discover(_ context.Context, _, _ string) ([]gateway.Gat
 	return m.refs, m.err
 }
 
-func requestWithToken(method, path, token string) *http.Request {
+func requestWithToken(method, path string) *http.Request {
 	req := httptest.NewRequest(method, path, nil)
-	if token != "" {
-		req = req.WithContext(middleware.ContextWithToken(req.Context(), token))
-	}
-	return req
+	return req.WithContext(middleware.ContextWithToken(req.Context(), "test-token"))
 }
 
 func TestGatewayHandler_Success(t *testing.T) {
 	h := &GatewayHandler{
 		Discoverer: &mockDiscoverer{
 			refs: []gateway.GatewayRef{
-				{Name: "gw1", Namespace: "infra", Listener: "https", Status: "Ready", DisplayName: "Shared Gateway", Description: "Edge ingress"},
+				{
+					Name:        "gw1",
+					Namespace:   "infra",
+					Listener:    "https",
+					Status:      "Ready",
+					DisplayName: "Shared Gateway",
+					Description: "Edge ingress",
+				},
 			},
 		},
 	}
 
-	req := requestWithToken(http.MethodGet, "/api/v1/gateways?namespace=my-project", "token")
+	req := requestWithToken(http.MethodGet, "/api/v1/gateways?namespace=my-project")
 	rec := httptest.NewRecorder()
 	h.ServeHTTP(rec, req)
 
@@ -60,7 +64,7 @@ func TestGatewayHandler_EmptyResult(t *testing.T) {
 		Discoverer: &mockDiscoverer{refs: []gateway.GatewayRef{}},
 	}
 
-	req := requestWithToken(http.MethodGet, "/api/v1/gateways?namespace=my-project", "token")
+	req := requestWithToken(http.MethodGet, "/api/v1/gateways?namespace=my-project")
 	rec := httptest.NewRecorder()
 	h.ServeHTTP(rec, req)
 
@@ -82,7 +86,7 @@ func TestGatewayHandler_DiscoveryError(t *testing.T) {
 		Discoverer: &mockDiscoverer{err: errors.New("k8s api error")},
 	}
 
-	req := requestWithToken(http.MethodGet, "/api/v1/gateways?namespace=my-project", "token")
+	req := requestWithToken(http.MethodGet, "/api/v1/gateways?namespace=my-project")
 	rec := httptest.NewRecorder()
 	h.ServeHTTP(rec, req)
 
@@ -94,7 +98,7 @@ func TestGatewayHandler_DiscoveryError(t *testing.T) {
 func TestGatewayHandler_MissingNamespace(t *testing.T) {
 	h := &GatewayHandler{Discoverer: &mockDiscoverer{}}
 
-	req := requestWithToken(http.MethodGet, "/api/v1/gateways", "token")
+	req := requestWithToken(http.MethodGet, "/api/v1/gateways")
 	rec := httptest.NewRecorder()
 	h.ServeHTTP(rec, req)
 
@@ -106,7 +110,7 @@ func TestGatewayHandler_MissingNamespace(t *testing.T) {
 func TestGatewayHandler_InvalidNamespace(t *testing.T) {
 	h := &GatewayHandler{Discoverer: &mockDiscoverer{}}
 
-	req := requestWithToken(http.MethodGet, "/api/v1/gateways?namespace=INVALID_NS", "token")
+	req := requestWithToken(http.MethodGet, "/api/v1/gateways?namespace=INVALID_NS")
 	rec := httptest.NewRecorder()
 	h.ServeHTTP(rec, req)
 
@@ -118,7 +122,7 @@ func TestGatewayHandler_InvalidNamespace(t *testing.T) {
 func TestGatewayHandler_WrongMethod(t *testing.T) {
 	h := &GatewayHandler{Discoverer: &mockDiscoverer{}}
 
-	req := requestWithToken(http.MethodPost, "/api/v1/gateways?namespace=my-project", "token")
+	req := requestWithToken(http.MethodPost, "/api/v1/gateways?namespace=my-project")
 	rec := httptest.NewRecorder()
 	h.ServeHTTP(rec, req)
 

@@ -9,7 +9,7 @@ import (
 func TestAuth(t *testing.T) {
 	inner := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		token := TokenFromContext(r.Context())
-		w.Write([]byte(token))
+		_, _ = w.Write([]byte(token))
 	})
 
 	handler := Auth(inner)

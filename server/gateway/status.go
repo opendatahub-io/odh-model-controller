@@ -5,9 +5,16 @@ import (
 	gatewayapiv1 "sigs.k8s.io/gateway-api/apis/v1"
 )
 
+// Gateway status values returned by ExtractStatus.
+const (
+	StatusReady    = "Ready"
+	StatusNotReady = "NotReady"
+	StatusUnknown  = "Unknown"
+)
+
 // ExtractStatus derives a human-readable status from Gateway conditions.
-// Returns "Ready" if both Accepted and Programmed are True,
-// "NotReady" if either is False, or "Unknown" otherwise.
+// Returns StatusReady if both Accepted and Programmed are True,
+// StatusNotReady if either is False, or StatusUnknown otherwise.
 func ExtractStatus(gw *gatewayapiv1.Gateway) string {
 	conditions := gw.Status.Conditions
 	accepted := findCondition(conditions, "Accepted")
@@ -15,13 +22,13 @@ func ExtractStatus(gw *gatewayapiv1.Gateway) string {
 
 	if accepted != nil && accepted.Status == metav1.ConditionTrue &&
 		programmed != nil && programmed.Status == metav1.ConditionTrue {
-		return "Ready"
+		return StatusReady
 	}
 	if (accepted != nil && accepted.Status == metav1.ConditionFalse) ||
 		(programmed != nil && programmed.Status == metav1.ConditionFalse) {
-		return "NotReady"
+		return StatusNotReady
 	}
-	return "Unknown"
+	return StatusUnknown
 }
 
 func findCondition(conditions []metav1.Condition, condType string) *metav1.Condition {

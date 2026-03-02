@@ -19,7 +19,7 @@ func TestExtractStatus(t *testing.T) {
 				{Type: "Accepted", Status: metav1.ConditionTrue},
 				{Type: "Programmed", Status: metav1.ConditionTrue},
 			},
-			want: "Ready",
+			want: StatusReady,
 		},
 		{
 			name: "Accepted false returns NotReady",
@@ -27,7 +27,7 @@ func TestExtractStatus(t *testing.T) {
 				{Type: "Accepted", Status: metav1.ConditionFalse},
 				{Type: "Programmed", Status: metav1.ConditionTrue},
 			},
-			want: "NotReady",
+			want: StatusNotReady,
 		},
 		{
 			name: "Programmed false returns NotReady",
@@ -35,7 +35,7 @@ func TestExtractStatus(t *testing.T) {
 				{Type: "Accepted", Status: metav1.ConditionTrue},
 				{Type: "Programmed", Status: metav1.ConditionFalse},
 			},
-			want: "NotReady",
+			want: StatusNotReady,
 		},
 		{
 			name: "both false returns NotReady",
@@ -43,12 +43,12 @@ func TestExtractStatus(t *testing.T) {
 				{Type: "Accepted", Status: metav1.ConditionFalse},
 				{Type: "Programmed", Status: metav1.ConditionFalse},
 			},
-			want: "NotReady",
+			want: StatusNotReady,
 		},
 		{
 			name:       "no conditions returns Unknown",
 			conditions: nil,
-			want:       "Unknown",
+			want:       StatusUnknown,
 		},
 		{
 			name: "only Accepted true returns Unknown",
