@@ -147,60 +147,19 @@ const (
 // Default timeout value for Openshift routes
 const DefaultOpenshiftRouteTimeout int64 = 30
 
-type AuthType string
-
-const (
-	UserDefined AuthType = "userdefined"
-	Anonymous   AuthType = "anonymous"
-)
-
 const (
 	AuthorinoLabel          = "AUTHORINO_LABEL"
-	AuthPolicyNameSuffix    = "-authn"
-	AuthPolicyGroup         = "kuadrant.io"
-	AuthPolicyVersion       = "v1"
-	AuthPolicyKind          = "AuthPolicy"
 	EnvoyFilterKind         = "EnvoyFilter"
 	EnvoyFilterNameSuffix   = "-authn-ssl"
-	HTTPRouteNameSuffix     = "-kserve-route"
-	KubernetesAudience      = "https://kubernetes.default.svc"
 	DefaultGatewayName      = "openshift-ai-inference"
 	DefaultGatewayNamespace = "openshift-ingress"
 
 	// AuthorinoTLSBootstrapAnnotation is a Gateway annotation that enables EnvoyFilter creation
 	// for Authorino TLS bootstrap even when the gateway has opendatahub.io/managed=false.
 	// This allows configuring TLS between the gateway and Authorino without creating AuthPolicies.
-	// This is in particular useful for MaaS gateway where custom policies are used, but we still need
-	// to configure TLS between the gateway and Authorino.
 	AuthorinoTLSBootstrapAnnotation = "security.opendatahub.io/authorino-tls-bootstrap"
-
-	// AuthPolicyObjectiveExpressionAnnotation is a Gateway annotation that allows customizing
-	// the CEL expression used to compute the objective value for inference.
-	// If not set, defaults to extracting the namespace from ServiceAccount usernames,
-	// or "authenticated" for non-SA users.
-	AuthPolicyObjectiveExpressionAnnotation = "inference.opendatahub.io/objective-expression"
-
-	// DefaultObjectiveExpression is the default CEL expression for computing the objective value.
-	// For ServiceAccount tokens, it extracts the namespace; for other users, it returns "authenticated".
-	DefaultObjectiveExpression = "auth.identity.user.username.startsWith('system:serviceaccount:') ? auth.identity.user.username.split(':')[2] : 'authenticated'"
 )
-
-func GetHTTPRouteAuthPolicyName(httpRouteName string) string {
-	return kmeta.ChildName(httpRouteName, AuthPolicyNameSuffix)
-}
-
-func GetGatewayAuthPolicyName(gatewayName string) string {
-	return kmeta.ChildName(gatewayName, AuthPolicyNameSuffix)
-}
 
 func GetGatewayEnvoyFilterName(gatewayName string) string {
 	return kmeta.ChildName(gatewayName, EnvoyFilterNameSuffix)
-}
-
-func GetHTTPRouteName(llmisvcName string) string {
-	return kmeta.ChildName(llmisvcName, HTTPRouteNameSuffix)
-}
-
-func GetAuthPolicyGroupVersion() string {
-	return AuthPolicyGroup + "/" + AuthPolicyVersion
 }

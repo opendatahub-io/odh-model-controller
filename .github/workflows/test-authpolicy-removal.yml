@@ -1,0 +1,40 @@
+name: AuthPolicy Removal Integration Test
+
+on:
+  workflow_dispatch:
+    inputs:
+      cluster_url:
+        description: 'OpenShift API server URL'
+        required: true
+        type: string
+      cluster_token:
+        description: 'OpenShift login token (use secrets for production)'
+        required: true
+        type: string
+      controller_image:
+        description: 'odh-model-controller image to test'
+        required: false
+        default: 'quay.io/maas/odh-model-controller:latest'
+        type: string
+
+jobs:
+  test-authpolicy-removal:
+    name: Verify AuthPolicy & Tier Removal
+    runs-on: ubuntu-latest
+    steps:
+      - name: Clone the code
+        uses: actions/checkout@v4
+
+      - name: Install oc CLI
+        run: |
+          curl -sLO https://mirror.openshift.com/pub/openshift-v4/clients/ocp/stable/openshift-client-linux.tar.gz
+          tar xzf openshift-client-linux.tar.gz
+          sudo mv oc kubectl /usr/local/bin/
+          oc version --client
+
+      - name: Login to OpenShift cluster
+        run: |
+          oc login --token="${{ inputs.cluster_token }}" --server="${{ inputs.cluster_url }}" --insecure-skip-tls-verify=true
+
+      - name: Run AuthPolicy removal integration test
+        run: make test-authpolicy-removal
