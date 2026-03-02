@@ -40,7 +40,6 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/webhook"
 
 	"github.com/opendatahub-io/odh-model-controller/internal/controller/utils"
-
 	// +kubebuilder:scaffold:imports
 )
 
@@ -122,8 +121,6 @@ var _ = BeforeSuite(func() {
 
 	err = SetupInferenceServiceWebhookWithManager(mgr)
 	Expect(err).NotTo(HaveOccurred())
-
-
 
 	// +kubebuilder:scaffold:webhook
 

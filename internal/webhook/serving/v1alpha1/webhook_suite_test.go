@@ -44,7 +44,6 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/webhook"
 
 	"github.com/opendatahub-io/odh-model-controller/internal/controller/utils"
-
 )
 
 // These tests use Ginkgo (BDD-style Go testing framework). Refer to
@@ -128,8 +127,6 @@ var _ = BeforeSuite(func() {
 
 	err = SetupInferenceGraphWebhookWithManager(mgr)
 	Expect(err).NotTo(HaveOccurred())
-
-
 
 	// +kubebuilder:scaffold:webhook
 
