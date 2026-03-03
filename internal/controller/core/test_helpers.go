@@ -27,42 +27,36 @@ import (
 )
 
 // GetResourceByName retrieves a Kubernetes resource by namespace and name
-func GetResourceByName[T client.Object](ctx context.Context, c client.Client, namespace, name string, obj T) (T, error) {
-	err := c.Get(ctx, types.NamespacedName{
+// The obj parameter is modified in-place since it's a pointer
+func GetResourceByName[T client.Object](ctx context.Context, c client.Client, namespace, name string, obj T) error {
+	return c.Get(ctx, types.NamespacedName{
 		Namespace: namespace,
 		Name:      name,
 	}, obj)
-	return obj, err
 }
 
 // WaitForResource waits for a Kubernetes resource to exist and returns it
 func WaitForResource[T client.Object](ctx context.Context, cli client.Client, namespace, name string, obj T) T {
 	gomega.Eventually(func() error {
-		_, err := GetResourceByName(ctx, cli, namespace, name, obj)
-		return err
+		return GetResourceByName(ctx, cli, namespace, name, obj)
 	}).WithContext(ctx).Should(gomega.Succeed())
-	// Retrieve one final time after Eventually succeeds to return the actual object with data
-	retrieved, _ := GetResourceByName(ctx, cli, namespace, name, obj)
-	return retrieved
+	return obj
 }
 
 // WaitForResourceWithCondition waits for a resource to exist and satisfy a custom condition
 func WaitForResourceWithCondition[T client.Object](ctx context.Context, cli client.Client, namespace, name string, obj T, condition func(T) error) T {
 	gomega.Eventually(func() error {
-		retrieved, err := GetResourceByName(ctx, cli, namespace, name, obj)
-		if err != nil {
+		if err := GetResourceByName(ctx, cli, namespace, name, obj); err != nil {
 			return err
 		}
-		return condition(retrieved)
+		return condition(obj)
 	}).WithContext(ctx).Should(gomega.Succeed())
-	// Retrieve one final time after Eventually succeeds to return the actual object
-	retrieved, _ := GetResourceByName(ctx, cli, namespace, name, obj)
-	return retrieved
+	return obj
 }
 
 // CheckResourceNotFound checks if a resource does not exist (is NotFound)
 func CheckResourceNotFound[T client.Object](ctx context.Context, cli client.Client, namespace, name string, obj T) error {
-	_, err := GetResourceByName(ctx, cli, namespace, name, obj)
+	err := GetResourceByName(ctx, cli, namespace, name, obj)
 	if err != nil {
 		if errors.IsNotFound(err) {
 			return nil

@@ -138,7 +138,7 @@ var _ = Describe("KServe Custom CA Cert ConfigMap Controller", func() {
 			expectedKserveCACertConfigmap.Data["cabundle.crt"] = strings.TrimSpace(expectedKserveCACertConfigmap.Data["cabundle.crt"])
 
 			// Wait for ConfigMap to be updated with new data
-			kserveCACertConfigmap := WaitForResourceWithCondition(ctx, k8sClient, WorkingNamespace,
+			WaitForResourceWithCondition(ctx, k8sClient, WorkingNamespace,
 				constants.KServeCACertConfigMapName, &corev1.ConfigMap{},
 				func(cm *corev1.ConfigMap) error {
 					if len(cm.Data) == 0 {
@@ -155,8 +155,6 @@ var _ = Describe("KServe Custom CA Cert ConfigMap Controller", func() {
 					}
 					return nil
 				})
-
-			Expect(compareConfigMap(kserveCACertConfigmap, expectedKserveCACertConfigmap)).Should((BeTrue()))
 		})
 	})
 })
