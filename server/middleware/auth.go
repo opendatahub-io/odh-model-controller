@@ -29,7 +29,7 @@ func Auth(next http.Handler) http.Handler {
 			return
 		}
 
-		token := strings.TrimPrefix(authHeader, "Bearer ")
+		token := strings.TrimSpace(strings.TrimPrefix(authHeader, "Bearer "))
 		if token == "" {
 			httputil.WriteJSONError(w, http.StatusUnauthorized, "missing or invalid authorization header")
 			return

@@ -16,6 +16,9 @@ const (
 // Returns StatusReady if both Accepted and Programmed are True,
 // StatusNotReady if either is False, or StatusUnknown otherwise.
 func ExtractStatus(gw *gatewayapiv1.Gateway) string {
+	if gw == nil {
+		return StatusUnknown
+	}
 	conditions := gw.Status.Conditions
 	accepted := findCondition(conditions, "Accepted")
 	programmed := findCondition(conditions, "Programmed")

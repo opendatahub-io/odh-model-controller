@@ -70,7 +70,14 @@ func parseDurationEnv(key string, defaultValue time.Duration) (time.Duration, er
 	if v == "" {
 		return defaultValue, nil
 	}
-	return time.ParseDuration(v)
+	d, err := time.ParseDuration(v)
+	if err != nil {
+		return 0, err
+	}
+	if d <= 0 {
+		return 0, fmt.Errorf("must be > 0")
+	}
+	return d, nil
 }
 
 // parseLabelSelector parses a comma-separated list of key=value pairs.

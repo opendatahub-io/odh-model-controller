@@ -1,6 +1,7 @@
 package middleware
 
 import (
+	"fmt"
 	"log/slog"
 	"net/http"
 	"runtime/debug"
@@ -14,7 +15,7 @@ func Recovery(next http.Handler) http.Handler {
 		defer func() {
 			if rec := recover(); rec != nil {
 				slog.Error("panic recovered",
-					"error", rec,
+					"panic_type", fmt.Sprintf("%T", rec),
 					"stack", string(debug.Stack()),
 				)
 				httputil.WriteJSONError(w, http.StatusInternalServerError, "internal server error")

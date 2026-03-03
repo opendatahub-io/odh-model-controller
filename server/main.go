@@ -62,17 +62,22 @@ func main() {
 		os.Exit(1)
 	}
 
+	errCh := make(chan error, 1)
 	go func() {
 		slog.Info("server starting", "addr", cfg.ListenAddr, "tls", true)
 		if err := srv.ListenAndServeTLS(cfg.TLSCertFile, cfg.TLSKeyFile); err != nil && err != http.ErrServerClosed {
-			slog.Error("server error", "error", err)
-			os.Exit(1)
+			errCh <- err
 		}
 	}()
 
-	<-ctx.Done()
-	slog.Info("shutting down")
+	select {
+	case err := <-errCh:
+		slog.Error("server error", "error", err)
+		os.Exit(1)
+	case <-ctx.Done():
+	}
 
+	slog.Info("shutting down")
 	shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 	if err := srv.Shutdown(shutdownCtx); err != nil {
