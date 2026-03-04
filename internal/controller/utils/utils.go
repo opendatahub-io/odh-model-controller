@@ -12,8 +12,6 @@ import (
 	ocpconfigv1 "github.com/openshift/api/config/v1"
 	gatewayapiv1 "sigs.k8s.io/gateway-api/apis/v1"
 
-	"knative.dev/pkg/kmeta"
-
 	"github.com/go-logr/logr"
 	kservev1alpha1 "github.com/kserve/kserve/pkg/apis/serving/v1alpha1"
 	kservev1beta1 "github.com/kserve/kserve/pkg/apis/serving/v1beta1"
@@ -351,16 +349,6 @@ func MergeUserLabelsAndAnnotations(desired, existing client.Object) {
 		}
 		desired.SetAnnotations(desiredAnnotations)
 	}
-}
-
-// GetMaaSRoleName returns the name of the related Role resource for MaaS RBAC use cases
-func GetMaaSRoleName(llmisvc *kservev1alpha1.LLMInferenceService) string {
-	return kmeta.ChildName(llmisvc.Name, "-model-post-access")
-}
-
-// GetMaaSRoleBindingName returns the name of the related RoleBinding resource for MaaS RBAC use cases
-func GetMaaSRoleBindingName(llmisvc *kservev1alpha1.LLMInferenceService) string {
-	return kmeta.ChildName(llmisvc.Name, "-model-post-access-tier-binding")
 }
 
 func IsManagedByOdhController(obj client.Object) bool {
