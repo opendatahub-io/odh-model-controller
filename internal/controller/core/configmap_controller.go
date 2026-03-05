@@ -52,7 +52,7 @@ type ConfigMapReconciler struct {
 	Scheme *runtime.Scheme
 }
 
-// +kubebuilder:rbac:groups=core,resources=configmaps,verbs=get;list;watch;create;update;patch;delete
+// +kubebuilder:rbac:groups=core,resources=configmaps,verbs=get;list;watch
 
 // reconcileConfigMap watch odh global ca cert and it will create/update/delete kserve custom cert configmap
 func (r *ConfigMapReconciler) reconcileConfigMap(configmap *corev1.ConfigMap, ctx context.Context, log logr.Logger) error {

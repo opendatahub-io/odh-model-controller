@@ -50,7 +50,7 @@ type SecretReconciler struct {
 	Scheme *runtime.Scheme
 }
 
-// +kubebuilder:rbac:groups=core,resources=secrets,verbs=get;list;watch;create;update;patch;delete
+// +kubebuilder:rbac:groups=core,resources=secrets,verbs=get;list;watch
 
 // newStorageSecret takes a list of data connection secrets and generates a single storage config secret
 func newStorageSecret(dataConnectionSecretsList *corev1.SecretList, kserveCustomCertData string) *corev1.Secret {

@@ -29,3 +29,6 @@ resources:
 # TODO: verify if it's needed for kube-rbac-proxy, otherwise remove them
 - auth_proxy_role.yaml
 - auth_proxy_role_binding.yaml
+- namespace_role.yaml
+- namespace_role_binding_permission.yaml
+- controller_namespace_rbac.yaml

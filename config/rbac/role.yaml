@@ -9,29 +9,14 @@ rules:
   - ""
   resources:
   - configmaps
+  - namespaces
+  - pods
   - secrets
   - serviceaccounts
   - services
   verbs:
-  - create
-  - delete
   - get
   - list
-  - patch
-  - update
-  - watch
-- apiGroups:
-  - ""
-  resources:
-  - endpoints
-  - namespaces
-  - pods
-  verbs:
-  - create
-  - get
-  - list
-  - patch
-  - update
   - watch
 - apiGroups:
   - ""
@@ -66,7 +51,6 @@ rules:
   - watch
 - apiGroups:
   - extensions
-  - networking.k8s.io
   resources:
   - ingresses
   verbs:
@@ -103,12 +87,8 @@ rules:
   resources:
   - triggerauthentications
   verbs:
-  - create
-  - delete
   - get
   - list
-  - patch
-  - update
   - watch
 - apiGroups:
   - kuadrant.io
@@ -153,12 +133,8 @@ rules:
   - podmonitors
   - servicemonitors
   verbs:
-  - create
-  - delete
   - get
   - list
-  - patch
-  - update
   - watch
 - apiGroups:
   - networking.istio.io
@@ -175,14 +151,11 @@ rules:
 - apiGroups:
   - networking.k8s.io
   resources:
+  - ingresses
   - networkpolicies
   verbs:
-  - create
-  - delete
   - get
   - list
-  - patch
-  - update
   - watch
 - apiGroups:
   - nim.opendatahub.io
@@ -222,33 +195,29 @@ rules:
   resources:
   - clusterrolebindings
   - rolebindings
-  - roles
   verbs:
   - create
   - delete
   - get
   - list
-  - patch
   - update
+  - watch
+- apiGroups:
+  - rbac.authorization.k8s.io
+  resources:
+  - roles
+  verbs:
+  - get
+  - list
   - watch
 - apiGroups:
   - route.openshift.io
   resources:
   - routes
   verbs:
-  - create
-  - delete
   - get
   - list
-  - patch
-  - update
   - watch
-- apiGroups:
-  - route.openshift.io
-  resources:
-  - routes/custom-host
-  verbs:
-  - create
 - apiGroups:
   - serving.kserve.io
   resources:
@@ -328,10 +297,6 @@ rules:
   resources:
   - templates
   verbs:
-  - create
-  - delete
   - get
   - list
-  - patch
-  - update
   - watch

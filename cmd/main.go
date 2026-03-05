@@ -49,6 +49,7 @@ import (
 	"github.com/opendatahub-io/odh-model-controller/internal/controller/nim"
 	servingcontroller "github.com/opendatahub-io/odh-model-controller/internal/controller/serving"
 	llmcontroller "github.com/opendatahub-io/odh-model-controller/internal/controller/serving/llm"
+	"github.com/opendatahub-io/odh-model-controller/internal/controller/serving/reconcilers"
 	"github.com/opendatahub-io/odh-model-controller/internal/controller/utils"
 
 	webhookcorev1 "github.com/opendatahub-io/odh-model-controller/internal/webhook/core/v1"
@@ -334,6 +335,8 @@ func setupInferenceServiceReconciler(mgr ctrl.Manager, cfg *rest.Config) error {
 		enableMRInferenceServiceReconcile = true
 	}
 
+	namespaceRBACReconciler := reconcilers.NewNamespaceRBACReconciler(mgr.GetClient())
+
 	return (servingcontroller.NewInferenceServiceReconciler(
 		setupLog,
 		mgr.GetClient(),
@@ -341,7 +344,8 @@ func setupInferenceServiceReconciler(mgr ctrl.Manager, cfg *rest.Config) error {
 		mgr.GetAPIReader(),
 		enableMRInferenceServiceReconcile,
 		getEnvAsBool("MR_SKIP_TLS_VERIFY", false),
-		cfg.BearerToken)).SetupWithManager(mgr, setupLog)
+		cfg.BearerToken,
+		namespaceRBACReconciler)).SetupWithManager(mgr, setupLog)
 }
 
 func setupSecretReconciler(mgr ctrl.Manager) error {
@@ -373,9 +377,11 @@ func setupServingRuntimeReconciler(mgr ctrl.Manager) error {
 }
 
 func setupLLMInferenceServiceReconciler(mgr ctrl.Manager) error {
+	namespaceRBACReconciler := reconcilers.NewNamespaceRBACReconciler(mgr.GetClient())
 	return llmcontroller.NewLLMInferenceServiceReconciler(
 		mgr.GetClient(),
 		mgr.GetScheme(),
 		mgr.GetEventRecorderFor("OpenDataHubModelController"),
+		namespaceRBACReconciler,
 	).SetupWithManager(mgr, setupLog)
 }
