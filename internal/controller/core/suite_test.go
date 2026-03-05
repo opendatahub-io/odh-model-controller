@@ -33,7 +33,6 @@ import (
 	monitoringv1 "github.com/prometheus-operator/prometheus-operator/pkg/apis/monitoring/v1"
 	corev1 "k8s.io/api/core/v1"
 	k8srbacv1 "k8s.io/api/rbac/v1"
-	apierrs "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/labels"
 	k8sRuntime "k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/client-go/kubernetes/scheme"
@@ -85,6 +84,11 @@ func TestControllers(t *testing.T) {
 
 var _ = BeforeSuite(func() {
 	logf.SetLogger(zap.New(zap.WriteTo(GinkgoWriter), zap.UseDevMode(true)))
+
+	// Configure default Eventually timeouts for consistent test behavior
+	SetDefaultEventuallyTimeout(30 * time.Second)
+	SetDefaultEventuallyPollingInterval(250 * time.Millisecond)
+	EnforceDefaultTimeoutsWhenUsingContexts()
 
 	ctx, cancel = context.WithCancel(context.TODO())
 
@@ -192,24 +196,4 @@ func convertToStructuredResource(path string, out k8sRuntime.Object) error {
 	}
 
 	return utils.ConvertToStructuredResource(data, out)
-}
-
-// nolint:unparam
-func waitForConfigMap(cli client.Client, namespace, configMapName string, maxTries int, delay time.Duration) (*corev1.ConfigMap, error) {
-	time.Sleep(delay)
-
-	ctx := context.Background()
-	configMap := &corev1.ConfigMap{}
-	var err error
-	for try := 1; try <= maxTries; try++ {
-		err = cli.Get(ctx, client.ObjectKey{Namespace: namespace, Name: configMapName}, configMap)
-		if err == nil {
-			return configMap, nil
-		}
-		if !apierrs.IsNotFound(err) {
-			return nil, fmt.Errorf("failed to get configmap %s/%s: %v", namespace, configMapName, err)
-		}
-	}
-	time.Sleep(1 * time.Second)
-	return nil, err
 }
