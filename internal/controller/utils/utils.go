@@ -303,7 +303,7 @@ func GetInferenceServiceConfigMap(ctx context.Context, cli client.Client) (*core
 	return inferenceServiceConfigMap, nil
 }
 
-func GetGatewayInfoFromConfigMap(ctx context.Context, cli client.Client) (namespace, name string, err error) {
+func GetDefaultGatewayRef(ctx context.Context, cli client.Client) (namespace, name string, err error) {
 	configMap, err := GetInferenceServiceConfigMap(ctx, cli)
 	if err != nil {
 		return "", "", err
@@ -370,10 +370,16 @@ func IsManagedByOdhController(obj client.Object) bool {
 	return false
 }
 
-// IsExplicitlyUnmanaged checks if "opendatahub.io/managed" label is explicitly set to "false"
+// IsExplicitlyUnmanaged checks if "opendatahub.io/managed" is explicitly set to "false"
+// via either a label or an annotation (both are supported for historical reasons).
 func IsExplicitlyUnmanaged(obj client.Object) bool {
 	if labels := obj.GetLabels(); labels != nil {
-		if managedValue, ok := labels["opendatahub.io/managed"]; ok {
+		if managedValue, ok := labels[constants.ODHManaged]; ok {
+			return strings.EqualFold(strings.TrimSpace(managedValue), "false")
+		}
+	}
+	if annotations := obj.GetAnnotations(); annotations != nil {
+		if managedValue, ok := annotations[constants.ODHManaged]; ok {
 			return strings.EqualFold(strings.TrimSpace(managedValue), "false")
 		}
 	}
@@ -441,7 +447,29 @@ func ValidateInferenceServiceNameLength(isvc *kservev1beta1.InferenceService) er
 }
 
 // ShouldCreateEnvoyFilterForGateway returns true if EnvoyFilter should be created for the gateway.
-// This is true when the gateway is managed OR has the authorino-tls-bootstrap opt-in annotation.
+// This is true when:
+// - Gateway has authorino-tls-bootstrap annotation (explicit opt-in, always respected), OR
+// - Gateway is managed (no explicit managed=false label) AND not owned by platform controller (GatewayConfig)
 func ShouldCreateEnvoyFilterForGateway(gateway *gatewayapiv1.Gateway) bool {
-	return !IsExplicitlyUnmanaged(gateway) || IsAuthorinoTLSBootstrapEnabled(gateway)
+	// Bootstrap annotation is explicit opt-in - always respect it
+	if IsAuthorinoTLSBootstrapEnabled(gateway) {
+		return true
+	}
+	// Skip platform gateways owned by GatewayConfig (unless bootstrap annotation is set above)
+	if IsOwnedByPlatformController(gateway) {
+		return false
+	}
+	return !IsExplicitlyUnmanaged(gateway)
+}
+
+// IsOwnedByPlatformController checks if the Gateway is owned by a platform controller (GatewayConfig).
+// Platform gateways are managed by a different controller and should not be reconciled by us
+// unless explicitly opted-in via the authorino-tls-bootstrap annotation.
+func IsOwnedByPlatformController(obj client.Object) bool {
+	for _, ownerRef := range obj.GetOwnerReferences() {
+		if ownerRef.Controller != nil && *ownerRef.Controller && ownerRef.Kind == "GatewayConfig" {
+			return true
+		}
+	}
+	return false
 }

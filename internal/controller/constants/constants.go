@@ -33,7 +33,7 @@ const (
 	RhoaiObservabilityLabel = "monitoring.opendatahub.io/scrape"
 	RuntimesBaseAnnotation  = "opendatahub.io"
 
-	ODHManagedLabel         = "opendatahub.io/managed"
+	ODHManaged              = "opendatahub.io/managed"
 	EnableAuthODHAnnotation = "security.opendatahub.io/enable-auth"
 
 	LabelEnableKserveRawRoute = "exposed"
@@ -157,10 +157,6 @@ const (
 const (
 	AuthorinoLabel          = "AUTHORINO_LABEL"
 	AuthPolicyNameSuffix    = "-authn"
-	AuthPolicyGroup         = "kuadrant.io"
-	AuthPolicyVersion       = "v1"
-	AuthPolicyKind          = "AuthPolicy"
-	EnvoyFilterKind         = "EnvoyFilter"
 	EnvoyFilterNameSuffix   = "-authn-ssl"
 	HTTPRouteNameSuffix     = "-kserve-route"
 	KubernetesAudience      = "https://kubernetes.default.svc"
@@ -185,12 +181,8 @@ const (
 	DefaultObjectiveExpression = "auth.identity.user.username.startsWith('system:serviceaccount:') ? auth.identity.user.username.split(':')[2] : 'authenticated'"
 )
 
-func GetHTTPRouteAuthPolicyName(httpRouteName string) string {
-	return kmeta.ChildName(httpRouteName, AuthPolicyNameSuffix)
-}
-
-func GetGatewayAuthPolicyName(gatewayName string) string {
-	return kmeta.ChildName(gatewayName, AuthPolicyNameSuffix)
+func GetAuthPolicyName(targetName string) string {
+	return kmeta.ChildName(targetName, AuthPolicyNameSuffix)
 }
 
 func GetGatewayEnvoyFilterName(gatewayName string) string {
@@ -199,8 +191,4 @@ func GetGatewayEnvoyFilterName(gatewayName string) string {
 
 func GetHTTPRouteName(llmisvcName string) string {
 	return kmeta.ChildName(llmisvcName, HTTPRouteNameSuffix)
-}
-
-func GetAuthPolicyGroupVersion() string {
-	return AuthPolicyGroup + "/" + AuthPolicyVersion
 }

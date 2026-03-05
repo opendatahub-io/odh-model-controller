@@ -78,7 +78,7 @@ var _ = Describe("IsExplicitlyUnmanaged", func() {
 				Name:      "test-resource",
 				Namespace: "test-ns",
 				Labels: map[string]string{
-					constants.ODHManagedLabel: "false",
+					constants.ODHManaged: "false",
 				},
 			},
 		}
@@ -91,7 +91,7 @@ var _ = Describe("IsExplicitlyUnmanaged", func() {
 				Name:      "test-resource",
 				Namespace: "test-ns",
 				Labels: map[string]string{
-					constants.ODHManagedLabel: "true",
+					constants.ODHManaged: "true",
 				},
 			},
 		}
@@ -104,7 +104,7 @@ var _ = Describe("IsExplicitlyUnmanaged", func() {
 				Name:      "test-resource",
 				Namespace: "test-ns",
 				Labels: map[string]string{
-					constants.ODHManagedLabel: "FALSE",
+					constants.ODHManaged: "FALSE",
 				},
 			},
 		}
@@ -117,7 +117,7 @@ var _ = Describe("IsExplicitlyUnmanaged", func() {
 				Name:      "test-resource",
 				Namespace: "test-ns",
 				Labels: map[string]string{
-					constants.ODHManagedLabel: "TRUE",
+					constants.ODHManaged: "TRUE",
 				},
 			},
 		}
@@ -130,7 +130,7 @@ var _ = Describe("IsExplicitlyUnmanaged", func() {
 				Name:      "test-resource",
 				Namespace: "test-ns",
 				Labels: map[string]string{
-					constants.ODHManagedLabel: "  false  ",
+					constants.ODHManaged: "  false  ",
 				},
 			},
 		}
@@ -166,7 +166,7 @@ var _ = Describe("IsExplicitlyUnmanaged", func() {
 				Name:      "test-resource",
 				Namespace: "test-ns",
 				Labels: map[string]string{
-					constants.ODHManagedLabel: "invalid-value",
+					constants.ODHManaged: "invalid-value",
 				},
 			},
 		}
@@ -264,7 +264,7 @@ var _ = Describe("IsManagedByOpenDataHub", func() {
 				Namespace: "test-ns",
 				Labels: map[string]string{
 					"app.kubernetes.io/managed-by": "odh-model-controller",
-					constants.ODHManagedLabel:      "true",
+					constants.ODHManaged:           "true",
 				},
 			},
 		}
@@ -278,7 +278,7 @@ var _ = Describe("IsManagedByOpenDataHub", func() {
 				Namespace: "test-ns",
 				Labels: map[string]string{
 					"app.kubernetes.io/managed-by": "odh-model-controller",
-					constants.ODHManagedLabel:      "false",
+					constants.ODHManaged:           "false",
 				},
 			},
 		}
@@ -292,7 +292,7 @@ var _ = Describe("IsManagedByOpenDataHub", func() {
 				Namespace: "test-ns",
 				Labels: map[string]string{
 					"app.kubernetes.io/managed-by": "odh-model-controller",
-					constants.ODHManagedLabel:      "FALSE",
+					constants.ODHManaged:           "FALSE",
 				},
 			},
 		}
@@ -306,7 +306,7 @@ var _ = Describe("IsManagedByOpenDataHub", func() {
 				Namespace: "test-ns",
 				Labels: map[string]string{
 					"app.kubernetes.io/managed-by": "odh-model-controller",
-					constants.ODHManagedLabel:      "  false  ",
+					constants.ODHManaged:           "  false  ",
 				},
 			},
 		}
@@ -576,7 +576,7 @@ var _ = Describe("ShouldCreateEnvoyFilterForGateway", func() {
 				Name:      "test-gateway",
 				Namespace: "test-ns",
 				Labels: map[string]string{
-					constants.ODHManagedLabel: "true",
+					constants.ODHManaged: "true",
 				},
 			},
 		}
@@ -589,7 +589,7 @@ var _ = Describe("ShouldCreateEnvoyFilterForGateway", func() {
 				Name:      "test-gateway",
 				Namespace: "test-ns",
 				Labels: map[string]string{
-					constants.ODHManagedLabel: "false",
+					constants.ODHManaged: "false",
 				},
 			},
 		}
@@ -602,7 +602,7 @@ var _ = Describe("ShouldCreateEnvoyFilterForGateway", func() {
 				Name:      "test-gateway",
 				Namespace: "test-ns",
 				Labels: map[string]string{
-					constants.ODHManagedLabel: "false",
+					constants.ODHManaged: "false",
 				},
 				Annotations: map[string]string{
 					constants.AuthorinoTLSBootstrapAnnotation: "true",
@@ -618,7 +618,7 @@ var _ = Describe("ShouldCreateEnvoyFilterForGateway", func() {
 				Name:      "test-gateway",
 				Namespace: "test-ns",
 				Labels: map[string]string{
-					constants.ODHManagedLabel: "false",
+					constants.ODHManaged: "false",
 				},
 				Annotations: map[string]string{
 					constants.AuthorinoTLSBootstrapAnnotation: "false",

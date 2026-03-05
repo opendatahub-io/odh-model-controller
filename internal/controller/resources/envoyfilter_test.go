@@ -18,7 +18,6 @@ package resources_test
 import (
 	"encoding/json"
 
-	kservev1alpha1 "github.com/kserve/kserve/pkg/apis/serving/v1alpha1"
 	kuadrantv1beta1 "github.com/kuadrant/kuadrant-operator/api/v1beta1"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
@@ -31,7 +30,6 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
-	gatewayapiv1 "sigs.k8s.io/gateway-api/apis/v1"
 
 	"github.com/opendatahub-io/odh-model-controller/internal/controller/constants"
 	"github.com/opendatahub-io/odh-model-controller/internal/controller/resources"
@@ -42,8 +40,6 @@ import (
 // setupTestScheme creates a runtime scheme with all necessary types registered
 func setupTestScheme() *runtime.Scheme {
 	scheme := runtime.NewScheme()
-	Expect(kservev1alpha1.AddToScheme(scheme)).To(Succeed())
-	Expect(gatewayapiv1.Install(scheme)).To(Succeed())
 	Expect(kuadrantv1beta1.AddToScheme(scheme)).To(Succeed())
 	Expect(istioclientv1alpha3.AddToScheme(scheme)).To(Succeed())
 	return scheme
@@ -290,162 +286,6 @@ var _ = Describe("EnvoyFilterStore", func() {
 				Namespace: "test-namespace",
 			})
 			Expect(err).ToNot(HaveOccurred())
-		})
-	})
-})
-
-var _ = Describe("EnvoyFilterMatcher", func() {
-	var (
-		fakeClient client.Client
-		matcher    resources.EnvoyFilterMatcher
-		scheme     *runtime.Scheme
-	)
-
-	BeforeEach(func() {
-		scheme = runtime.NewScheme()
-		Expect(kservev1alpha1.AddToScheme(scheme)).To(Succeed())
-		Expect(gatewayapiv1.Install(scheme)).To(Succeed())
-		Expect(istioclientv1alpha3.AddToScheme(scheme)).To(Succeed())
-	})
-
-	Describe("FindLLMServiceFromEnvoyFilter", func() {
-		It("should find matching LLMInferenceService when using default gateway", func(ctx SpecContext) {
-			llmSvc := &kservev1alpha1.LLMInferenceService{
-				ObjectMeta: v1.ObjectMeta{
-					Name:      "test-llm",
-					Namespace: "test-namespace",
-				},
-			}
-
-			envoyFilter := &istioclientv1alpha3.EnvoyFilter{
-				ObjectMeta: v1.ObjectMeta{
-					Name:      constants.GetGatewayEnvoyFilterName(constants.DefaultGatewayName),
-					Namespace: constants.DefaultGatewayNamespace,
-				},
-				Spec: istiov1alpha3.EnvoyFilter{
-					TargetRefs: []*istiotypev1beta1.PolicyTargetReference{
-						{
-							Kind: "Gateway",
-							Name: constants.DefaultGatewayName,
-						},
-					},
-				},
-			}
-
-			fakeClient = fake.NewClientBuilder().WithScheme(scheme).WithObjects(llmSvc, envoyFilter).Build()
-			matcher = resources.NewKServeEnvoyFilterMatcher(fakeClient)
-
-			services, err := matcher.FindLLMServiceFromEnvoyFilter(ctx, envoyFilter)
-			Expect(err).ToNot(HaveOccurred())
-			Expect(services).To(HaveLen(1))
-			Expect(services[0].Name).To(Equal("test-llm"))
-		})
-
-		It("should find matching LLMInferenceService with explicit gateway refs", func(ctx SpecContext) {
-			llmSvc := &kservev1alpha1.LLMInferenceService{
-				ObjectMeta: v1.ObjectMeta{
-					Name:      "test-llm",
-					Namespace: "test-namespace",
-				},
-				Spec: kservev1alpha1.LLMInferenceServiceSpec{
-					Router: &kservev1alpha1.RouterSpec{
-						Gateway: &kservev1alpha1.GatewaySpec{
-							Refs: []kservev1alpha1.UntypedObjectReference{
-								{Name: "custom-gateway", Namespace: "test-namespace"},
-							},
-						},
-					},
-				},
-			}
-
-			envoyFilter := &istioclientv1alpha3.EnvoyFilter{
-				ObjectMeta: v1.ObjectMeta{
-					Name:      constants.GetGatewayEnvoyFilterName("custom-gateway"),
-					Namespace: "test-namespace",
-				},
-				Spec: istiov1alpha3.EnvoyFilter{
-					TargetRefs: []*istiotypev1beta1.PolicyTargetReference{
-						{
-							Kind: "Gateway",
-							Name: "custom-gateway",
-						},
-					},
-				},
-			}
-
-			fakeClient = fake.NewClientBuilder().WithScheme(scheme).WithObjects(llmSvc, envoyFilter).Build()
-			matcher = resources.NewKServeEnvoyFilterMatcher(fakeClient)
-
-			services, err := matcher.FindLLMServiceFromEnvoyFilter(ctx, envoyFilter)
-			Expect(err).ToNot(HaveOccurred())
-			Expect(services).To(HaveLen(1))
-			Expect(services[0].Name).To(Equal("test-llm"))
-		})
-
-		It("should return empty list when no matching LLMInferenceService found", func(ctx SpecContext) {
-			llmSvc := &kservev1alpha1.LLMInferenceService{
-				ObjectMeta: v1.ObjectMeta{
-					Name:      "test-llm",
-					Namespace: "test-namespace",
-				},
-				Spec: kservev1alpha1.LLMInferenceServiceSpec{
-					Router: &kservev1alpha1.RouterSpec{
-						Gateway: &kservev1alpha1.GatewaySpec{
-							Refs: []kservev1alpha1.UntypedObjectReference{
-								{Name: "other-gateway", Namespace: "test-namespace"},
-							},
-						},
-					},
-				},
-			}
-
-			envoyFilter := &istioclientv1alpha3.EnvoyFilter{
-				ObjectMeta: v1.ObjectMeta{
-					Name:      constants.GetGatewayEnvoyFilterName("unrelated-gateway"),
-					Namespace: "some-namespace",
-				},
-				Spec: istiov1alpha3.EnvoyFilter{
-					TargetRefs: []*istiotypev1beta1.PolicyTargetReference{
-						{
-							Kind: "Gateway",
-							Name: "unrelated-gateway",
-						},
-					},
-				},
-			}
-
-			fakeClient = fake.NewClientBuilder().WithScheme(scheme).WithObjects(llmSvc, envoyFilter).Build()
-			matcher = resources.NewKServeEnvoyFilterMatcher(fakeClient)
-
-			services, err := matcher.FindLLMServiceFromEnvoyFilter(ctx, envoyFilter)
-			Expect(err).ToNot(HaveOccurred())
-			Expect(services).To(BeEmpty())
-		})
-
-		It("should return empty list when EnvoyFilter has no targetRefs", func(ctx SpecContext) {
-			llmSvc := &kservev1alpha1.LLMInferenceService{
-				ObjectMeta: v1.ObjectMeta{
-					Name:      "test-llm",
-					Namespace: "test-namespace",
-				},
-			}
-
-			envoyFilter := &istioclientv1alpha3.EnvoyFilter{
-				ObjectMeta: v1.ObjectMeta{
-					Name:      "empty-refs",
-					Namespace: "test-namespace",
-				},
-				Spec: istiov1alpha3.EnvoyFilter{
-					TargetRefs: []*istiotypev1beta1.PolicyTargetReference{},
-				},
-			}
-
-			fakeClient = fake.NewClientBuilder().WithScheme(scheme).WithObjects(llmSvc, envoyFilter).Build()
-			matcher = resources.NewKServeEnvoyFilterMatcher(fakeClient)
-
-			services, err := matcher.FindLLMServiceFromEnvoyFilter(ctx, envoyFilter)
-			Expect(err).ToNot(HaveOccurred())
-			Expect(services).To(BeEmpty())
 		})
 	})
 })
