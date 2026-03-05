@@ -49,6 +49,7 @@ func SetupTestEnv() *pkgtest.Client {
 			mgr.GetClient(),
 			mgr.GetScheme(),
 			mgr.GetEventRecorderFor("OpenDataHubModelController"),
+			nil, // namespace RBAC reconciler not needed in tests
 		).SetupWithManager(mgr, setupLog)
 	}
 

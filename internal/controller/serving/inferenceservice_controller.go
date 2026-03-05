@@ -59,9 +59,10 @@ type InferenceServiceReconciler struct {
 	ModelRegistryEnabled    bool
 	modelRegistrySkipTls    bool
 	kserveRawISVCReconciler *reconcilers.KserveRawInferenceServiceReconciler
+	namespaceRBACReconciler *reconcilers.NamespaceRBACReconciler
 }
 
-func NewInferenceServiceReconciler(setupLog logr.Logger, client client.Client, scheme *runtime.Scheme, clientReader client.Reader, modelRegistryReconcileEnabled, modelRegistrySkipTls bool, bearerToken string) *InferenceServiceReconciler {
+func NewInferenceServiceReconciler(setupLog logr.Logger, client client.Client, scheme *runtime.Scheme, clientReader client.Reader, modelRegistryReconcileEnabled, modelRegistrySkipTls bool, bearerToken string, namespaceRBACReconciler *reconcilers.NamespaceRBACReconciler) *InferenceServiceReconciler {
 	isvcReconciler := &InferenceServiceReconciler{
 		Client:                  client,
 		Scheme:                  scheme,
@@ -70,6 +71,7 @@ func NewInferenceServiceReconciler(setupLog logr.Logger, client client.Client, s
 		modelRegistrySkipTls:    modelRegistrySkipTls,
 		kserveRawISVCReconciler: reconcilers.NewKServeRawInferenceServiceReconciler(client),
 		bearerToken:             bearerToken,
+		namespaceRBACReconciler: namespaceRBACReconciler,
 	}
 
 	if modelRegistryReconcileEnabled {
@@ -85,18 +87,22 @@ func NewInferenceServiceReconciler(setupLog logr.Logger, client client.Client, s
 // +kubebuilder:rbac:groups=serving.kserve.io,resources=inferenceservices,verbs=get;list;watch;update;patch
 // +kubebuilder:rbac:groups=serving.kserve.io,resources=inferenceservices/finalizers,verbs=get;list;watch;update;create;patch;delete
 
-// +kubebuilder:rbac:groups=route.openshift.io,resources=routes,verbs=get;list;watch;create;update;patch;delete
-// +kubebuilder:rbac:groups=route.openshift.io,resources=routes/custom-host,verbs=create
-// +kubebuilder:rbac:groups=rbac.authorization.k8s.io,resources=clusterrolebindings;roles;rolebindings,verbs=get;list;watch;create;update;patch;watch;delete
-// +kubebuilder:rbac:groups=networking.k8s.io,resources=networkpolicies,verbs=get;list;watch;create;update;patch;delete
+// +kubebuilder:rbac:groups=route.openshift.io,resources=routes,verbs=get;list;watch
+
+// +kubebuilder:rbac:groups=rbac.authorization.k8s.io,resources=clusterrolebindings,verbs=get;list;watch;create;update;delete
+// +kubebuilder:rbac:groups=rbac.authorization.k8s.io,resources=rolebindings,verbs=get;list;watch;create;update;delete
+// +kubebuilder:rbac:groups=networking.k8s.io,resources=networkpolicies,verbs=get;list;watch
 // +kubebuilder:rbac:groups=networking.k8s.io,resources=ingresses,verbs=get;list;watch
-// +kubebuilder:rbac:groups=monitoring.coreos.com,resources=servicemonitors;podmonitors,verbs=get;list;watch;create;update;patch;delete
+// +kubebuilder:rbac:groups=monitoring.coreos.com,resources=servicemonitors;podmonitors,verbs=get;list;watch
 // +kubebuilder:rbac:groups=extensions,resources=ingresses,verbs=get;list;watch
-// +kubebuilder:rbac:groups="",resources=namespaces;pods;endpoints,verbs=get;list;watch;create;update;patch
-// +kubebuilder:rbac:groups="",resources=secrets;configmaps;serviceaccounts;services,verbs=get;list;watch;create;update;delete;patch
+// +kubebuilder:rbac:groups="",resources=namespaces,verbs=get;list;watch
+// +kubebuilder:rbac:groups="",resources=pods,verbs=get;list;watch
+// +kubebuilder:rbac:groups="",resources=secrets;configmaps;services,verbs=get;list;watch
+// +kubebuilder:rbac:groups="",resources=serviceaccounts,verbs=get;list;watch
+// +kubebuilder:rbac:groups="",resources=events,verbs=create;patch
 // +kubebuilder:rbac:groups=datasciencecluster.opendatahub.io,resources=datascienceclusters,verbs=get;list;watch
 // +kubebuilder:rbac:groups=dscinitialization.opendatahub.io,resources=dscinitializations,verbs=get;list;watch
-// +kubebuilder:rbac:groups=keda.sh,resources=triggerauthentications,verbs=get;list;watch;create;update;patch;watch;delete
+// +kubebuilder:rbac:groups=keda.sh,resources=triggerauthentications,verbs=get;list;watch
 // +kubebuilder:rbac:groups=metrics.k8s.io,resources=pods;nodes,verbs=get;list;watch
 
 // Reconcile performs the reconciling of the Openshift objects for a Kubeflow
@@ -120,6 +126,14 @@ func (r *InferenceServiceReconciler) ReconcileServing(ctx context.Context, req c
 	} else if err != nil {
 		logger.Error(err, "Unable to fetch the InferenceService")
 		return ctrl.Result{}, err
+	}
+
+	// Ensure namespace RBAC is in place before any write operations
+	if r.namespaceRBACReconciler != nil {
+		if err := r.namespaceRBACReconciler.ReconcileNamespaceRBAC(ctx, logger, req.Namespace); err != nil {
+			logger.Error(err, "Failed to reconcile namespace RBAC")
+			return ctrl.Result{}, err
+		}
 	}
 
 	if isvc.GetDeletionTimestamp() == nil {
@@ -306,5 +320,13 @@ func (r *InferenceServiceReconciler) DeleteResourcesIfNoIsvcExists(ctx context.C
 
 	// No active ISVCs found, cleanup shared namespace resources
 	log.V(1).Info("Triggering RawDeployment cleanup - no active InferenceServices found", "namespace", namespace)
-	return r.kserveRawISVCReconciler.CleanupNamespaceIfNoRawKserveIsvcExists(ctx, log, namespace)
+	if err := r.kserveRawISVCReconciler.CleanupNamespaceIfNoRawKserveIsvcExists(ctx, log, namespace); err != nil {
+		return err
+	}
+
+	// Cleanup namespace RBAC if no active services remain
+	if r.namespaceRBACReconciler != nil {
+		return r.namespaceRBACReconciler.CleanupNamespaceRBAC(ctx, log, namespace)
+	}
+	return nil
 }

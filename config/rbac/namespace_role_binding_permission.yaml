@@ -1,0 +1,29 @@
+# Grants the controller permission to create RoleBindings
+# referencing the odh-model-controller-namespace ClusterRole.
+# Scoped by resourceNames to prevent binding to arbitrary ClusterRoles.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: odh-model-controller-namespace-bind
+rules:
+- apiGroups:
+  - rbac.authorization.k8s.io
+  resources:
+  - clusterroles
+  verbs:
+  - bind
+  resourceNames:
+  - odh-model-controller-namespace
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: odh-model-controller-namespace-bind
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: odh-model-controller-namespace-bind
+subjects:
+- kind: ServiceAccount
+  name: odh-model-controller
+  namespace: system

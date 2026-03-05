@@ -60,18 +60,19 @@ const (
 
 type LLMInferenceServiceReconciler struct {
 	client.Client
-	Recorder               record.EventRecorder
-	Scheme                 *runtime.Scheme
-	subResourceReconcilers []parentreconcilers.LLMSubResourceReconciler
-	authPolicyMatcher      resources.AuthPolicyMatcher
-	envoyFilterMatcher     resources.EnvoyFilterMatcher
+	Recorder                record.EventRecorder
+	Scheme                  *runtime.Scheme
+	subResourceReconcilers  []parentreconcilers.LLMSubResourceReconciler
+	authPolicyMatcher       resources.AuthPolicyMatcher
+	envoyFilterMatcher      resources.EnvoyFilterMatcher
+	namespaceRBACReconciler *parentreconcilers.NamespaceRBACReconciler
 }
 
 var ownedBySelfPredicate = predicate.NewPredicateFuncs(func(o client.Object) bool {
 	return o.GetLabels()["app.kubernetes.io/managed-by"] == "odh-model-controller"
 })
 
-func NewLLMInferenceServiceReconciler(client client.Client, scheme *runtime.Scheme, recorder record.EventRecorder) *LLMInferenceServiceReconciler {
+func NewLLMInferenceServiceReconciler(client client.Client, scheme *runtime.Scheme, recorder record.EventRecorder, namespaceRBACReconciler *parentreconcilers.NamespaceRBACReconciler) *LLMInferenceServiceReconciler {
 	subResourceReconcilers := []parentreconcilers.LLMSubResourceReconciler{
 		parentreconcilers.NewLLMRoleReconciler(client),
 		parentreconcilers.NewLLMRoleBindingReconciler(client, recorder),
@@ -80,12 +81,13 @@ func NewLLMInferenceServiceReconciler(client client.Client, scheme *runtime.Sche
 	}
 
 	return &LLMInferenceServiceReconciler{
-		Client:                 client,
-		Recorder:               recorder,
-		Scheme:                 scheme,
-		subResourceReconcilers: subResourceReconcilers,
-		authPolicyMatcher:      resources.NewKServeAuthPolicyMatcher(client),
-		envoyFilterMatcher:     resources.NewKServeEnvoyFilterMatcher(client),
+		Client:                  client,
+		Recorder:                recorder,
+		Scheme:                  scheme,
+		subResourceReconcilers:  subResourceReconcilers,
+		authPolicyMatcher:       resources.NewKServeAuthPolicyMatcher(client),
+		envoyFilterMatcher:      resources.NewKServeEnvoyFilterMatcher(client),
+		namespaceRBACReconciler: namespaceRBACReconciler,
 	}
 }
 
@@ -100,6 +102,14 @@ func (r *LLMInferenceServiceReconciler) Reconcile(ctx context.Context, req ctrl.
 	} else if err != nil {
 		logger.Error(err, "Unable to fetch the LLMInferenceService")
 		return ctrl.Result{}, err
+	}
+
+	// Ensure namespace RBAC is in place before any write operations
+	if r.namespaceRBACReconciler != nil {
+		if err := r.namespaceRBACReconciler.ReconcileNamespaceRBAC(ctx, logger, req.Namespace); err != nil {
+			logger.Error(err, "Failed to reconcile namespace RBAC")
+			return ctrl.Result{}, err
+		}
 	}
 
 	if !llmisvc.GetDeletionTimestamp().IsZero() {
@@ -155,8 +165,8 @@ func (r *LLMInferenceServiceReconciler) Reconcile(ctx context.Context, req ctrl.
 // +kubebuilder:rbac:groups=serving.kserve.io,resources=llminferenceserviceconfigs,verbs=get;list;watch
 // +kubebuilder:rbac:groups=kuadrant.io,resources=authpolicies,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups=kuadrant.io,resources=authpolicies/status,verbs=get;update;patch
-// +kubebuilder:rbac:groups=rbac.authorization.k8s.io,resources=roles,verbs=get;list;watch;create;update;patch;delete
-// +kubebuilder:rbac:groups=rbac.authorization.k8s.io,resources=rolebindings,verbs=get;list;watch;create;update;patch;delete
+// +kubebuilder:rbac:groups=rbac.authorization.k8s.io,resources=roles,verbs=get;list;watch
+// +kubebuilder:rbac:groups=rbac.authorization.k8s.io,resources=rolebindings,verbs=get;list;watch
 // +kubebuilder:rbac:groups=networking.istio.io,resources=envoyfilters,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups=gateway.networking.k8s.io,resources=gateways,verbs=get;list;watch;update;patch
 // +kubebuilder:rbac:groups=gateway.networking.k8s.io,resources=gateways/finalizers,verbs=update;patch
@@ -475,6 +485,12 @@ func (r *LLMInferenceServiceReconciler) DeleteResourcesIfNoLLMIsvcExists(ctx con
 		log.V(1).Info("Triggering LLMInferenceService Cleanup for Namespace", "namespace", namespace)
 		if err := r.Cleanup(ctx, log, namespace); err != nil {
 			return err
+		}
+		// Cleanup namespace RBAC if no active LLMInferenceServices remain
+		if r.namespaceRBACReconciler != nil {
+			if err := r.namespaceRBACReconciler.CleanupNamespaceRBAC(ctx, log, namespace); err != nil {
+				return err
+			}
 		}
 	}
 

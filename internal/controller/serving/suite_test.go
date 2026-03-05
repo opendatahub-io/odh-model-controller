@@ -46,6 +46,7 @@ import (
 
 	// +kubebuilder:scaffold:imports
 
+	"github.com/opendatahub-io/odh-model-controller/internal/controller/serving/reconcilers"
 	"github.com/opendatahub-io/odh-model-controller/internal/controller/utils"
 	testutils "github.com/opendatahub-io/odh-model-controller/test/utils"
 )
@@ -139,6 +140,7 @@ var _ = BeforeSuite(func() {
 		true,
 		false,
 		"",
+		reconcilers.NewNamespaceRBACReconciler(mgr.GetClient()),
 	).SetupWithManager(mgr, ctrl.Log.WithName("setup"))
 	Expect(err).NotTo(HaveOccurred())
 
