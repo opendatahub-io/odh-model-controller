@@ -29,6 +29,9 @@ spec:
     value: Containerfile
   - name: path-context
     value: .
+  - name: additional-tags
+    value:
+    - 'odh-stable'
   pipelineRef:
     resolver: git
     params:
