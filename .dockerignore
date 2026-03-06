@@ -1,3 +1,10 @@
 # More info: https://docs.docker.com/engine/reference/builder/#dockerignore-file
 # Ignore build and test binaries.
 bin/
+
+test/
+server/test/e2e
+
+Makefile
+*.md
+OWNERS
