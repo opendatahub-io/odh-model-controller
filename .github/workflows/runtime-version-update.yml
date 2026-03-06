@@ -1,0 +1,143 @@
+name: Update Runtime Version in Template
+
+on:
+  workflow_dispatch:
+    inputs:
+      runtime_template:
+        description: 'Comma seperated list of runtime templates for which the runtime version will be updated. The format of each entry in the list should be the template file name with "-template.yaml" dropped'
+        required: true
+        type: string
+      runtime_version:
+        description: 'The version which all input runtime templates will have their runtime version updated to reflect'
+        required: true
+        type: string
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  update-runtime-version:
+    name: Update Runtime Version
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+
+      - name: Update runtime version in templates
+        run: |
+          import os
+          import re
+
+          runtime_templates = "${{ github.event.inputs.runtime_template }}"
+          runtime_version = "${{ github.event.inputs.runtime_version }}"
+
+          # Split comma-separated list and trim whitespace
+          templates = [t.strip() for t in runtime_templates.split(',') if t.strip()]
+
+          print(f"Updating runtime version to: {runtime_version}")
+          print(f"Templates to update: {templates}\n")
+
+          updated_files = []
+          errors = []
+
+          for template_name in templates:
+            # Construct the full file path
+            file_path = f"config/runtimes/{template_name}-template.yaml"
+
+            print(f"Processing: {file_path}")
+
+            if not os.path.exists(file_path):
+              errors.append(f"Runtime template file {file_path} not found")
+              print(f"  ✗ Runtime template file {file_path} not found")
+              continue
+
+            try:
+              with open(file_path, 'r') as f:
+                content = f.read()
+
+              # Pattern to match the opendatahub.io/runtime-version annotation
+              # This will match lines like: opendatahub.io/runtime-version: 'v0.10.1.1.6'
+              pattern = re.compile(
+                r"(opendatahub\.io/runtime-version:\s*)['\"]?[^'\"'\n]+['\"]?"
+              )
+
+              # Check if pattern exists
+              if not pattern.search(content):
+                errors.append(f"No runtime-version annotation found in {file_path}")
+                print(f"  ✗ No runtime-version annotation found in {file_path}")
+                continue
+
+              # Replace with new version, preserving the quote style
+              updated_content = pattern.sub(
+                rf"\1'{runtime_version}'",
+                content
+              )
+
+              # Write back if content changed
+              if updated_content != content:
+                with open(file_path, 'w') as f:
+                  f.write(updated_content)
+
+                updated_files.append(file_path)
+                print(f"  ✓ Updated runtime version to '{runtime_version}' in {file_path}")
+              else:
+                print(f"  - Already at runtime version '{runtime_version}' in {file_path}")
+
+            except Exception as e:
+              errors.append(f"Error processing version update for {file_path}: {str(e)}")
+              print(f"  ✗ Error processing version update for {file_path}: {str(e)}")
+
+          if errors:
+            print(f"\n⚠️  Errors encountered:")
+            for error in errors:
+              print(f"  - {error}")
+            exit(1)
+
+          print(f"\n✓ Updated {len(updated_files)} file(s)")
+        shell: python
+
+      - name: Create Pull Request
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          # Configure git
+          git config --global user.email "github-actions[bot]@users.noreply.github.com"
+          git config --global user.name "Version Update Bot"
+
+          # Stage all runtime template files
+          git add config/runtimes/*-template.yaml 2>/dev/null || true
+
+          if [[ -z "$(git status --porcelain)" ]]; then
+            echo "No changes to commit"
+            exit 0
+          fi
+
+          # Create a new branch for the PR
+          BRANCH_NAME="chore/update-runtime-version-${{ github.event.inputs.runtime_version }}"
+          git checkout -b "$BRANCH_NAME"
+
+          # Commit changes
+          git commit -m "chore(runtimes): Update runtime version to ${{ github.event.inputs.runtime_version }}"
+
+          # Force push the branch (handles both new and existing branches)
+          git push --force-with-lease origin "$BRANCH_NAME"
+          echo "✓ Branch pushed: $BRANCH_NAME"
+
+          # Create PR
+          PR_URL=$(gh pr create \
+            --base ${{ github.ref_name }} \
+            --head "$BRANCH_NAME" \
+            --title "chore(runtimes): Update runtime version to ${{ github.event.inputs.runtime_version }}" \
+            --body "## Summary
+
+          This PR updates the \`opendatahub.io/runtime-version\` annotation to \`${{ github.event.inputs.runtime_version }}\` in the following runtime templates:
+
+          - **Runtime templates:** \`${{ github.event.inputs.runtime_template }}\`
+
+          ---
+          *This PR was automatically created by the Runtime Version Update Workflow.*")
+
+          echo "✓ PR created: $PR_URL"

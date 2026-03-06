@@ -17,8 +17,9 @@ package testing
 
 import (
 	"context"
+	"crypto/rand"
 	"fmt"
-	"math/rand"
+	"math/big"
 	"os"
 	"path/filepath"
 
@@ -76,5 +77,9 @@ func CreateNamespaceIfNotExists(ctx context.Context, c client.Client, name strin
 
 // GenerateUniqueTestName generates a unique namespace name with prefix
 func GenerateUniqueTestName(prefix string) string {
-	return fmt.Sprintf("%s-%d", prefix, rand.Intn(99999))
+	n, err := rand.Int(rand.Reader, big.NewInt(99999))
+	if err != nil {
+		panic(err)
+	}
+	return fmt.Sprintf("%s-%d", prefix, n.Int64())
 }
