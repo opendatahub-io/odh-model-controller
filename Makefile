@@ -117,17 +117,24 @@ test-e2e: manifests generate fmt vet ## Run the e2e tests. Expected an isolated 
 
 .PHONY: test-e2e-server
 test-e2e-server: ## Run model-serving-api e2e tests. Requires the server deployed and oc logged in.
-	@echo "Creating passthrough route for model-serving-api..."
+	@echo "Creating passthrough routes for model-serving-api..."
 	@oc create route passthrough model-serving-api-e2e \
 		--service=model-serving-api --port=https -n $(NAMESPACE) 2>/dev/null || true
+	@oc create route passthrough model-serving-api-metrics-e2e \
+		--service=model-serving-api --port=metrics -n $(NAMESPACE) 2>/dev/null || true
 	@MODEL_SERVING_API_URL=https://$$(oc get route model-serving-api-e2e -n $(NAMESPACE) \
 		-o jsonpath='{.spec.host}') && \
+	MODEL_SERVING_API_METRICS_URL=https://$$(oc get route model-serving-api-metrics-e2e -n $(NAMESPACE) \
+		-o jsonpath='{.spec.host}') && \
 	echo "SERVER_URL=$$MODEL_SERVING_API_URL" && \
+	echo "METRICS_URL=$$MODEL_SERVING_API_METRICS_URL" && \
 	MODEL_SERVING_API_URL=$$MODEL_SERVING_API_URL \
+	MODEL_SERVING_API_METRICS_URL=$$MODEL_SERVING_API_METRICS_URL \
 		go test -v -tags=e2e -parallel=12 ./server/test/e2e/ -v -count=1 ; \
 	rc=$$? ; \
-	echo "Cleaning up route..." ; \
+	echo "Cleaning up routes..." ; \
 	oc delete route model-serving-api-e2e -n $(NAMESPACE) 2>/dev/null || true ; \
+	oc delete route model-serving-api-metrics-e2e -n $(NAMESPACE) 2>/dev/null || true ; \
 	exit $$rc
 
 .PHONY: lint
