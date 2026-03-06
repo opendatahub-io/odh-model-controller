@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"maps"
 	"net/http"
 	"os"
 	"testing"
@@ -36,6 +37,7 @@ const (
 // Env holds shared clients and configuration for e2e tests.
 type Env struct {
 	ServerURL    string
+	MetricsURL   string
 	GatewayClass string
 	Clientset    *kubernetes.Clientset
 	K8sClient    client.Client
@@ -47,7 +49,12 @@ type Env struct {
 func NewEnv() (*Env, error) {
 	serverURL := os.Getenv("MODEL_SERVING_API_URL")
 	if serverURL == "" {
-		return nil, nil
+		return nil, fmt.Errorf("MODEL_SERVING_API_URL must be set")
+	}
+
+	metricsURL := os.Getenv("MODEL_SERVING_API_METRICS_URL")
+	if metricsURL == "" {
+		return nil, fmt.Errorf("MODEL_SERVING_API_METRICS_URL must be set when MODEL_SERVING_API_URL is set")
 	}
 
 	gatewayClass := os.Getenv("MODEL_SERVING_API_GATEWAY_CLASS")
@@ -82,6 +89,7 @@ func NewEnv() (*Env, error) {
 
 	return &Env{
 		ServerURL:    serverURL,
+		MetricsURL:   metricsURL,
 		GatewayClass: gatewayClass,
 		Clientset:    clientset,
 		K8sClient:    k8sClient,
@@ -93,6 +101,10 @@ func NewEnv() (*Env, error) {
 // prefix. The namespace is deleted on test cleanup unless the test failed.
 func (e *Env) CreateNamespace(t *testing.T, prefix string, labels map[string]string) string {
 	t.Helper()
+
+	labels = maps.Clone(labels)
+	labels["env"] = "odh-test"
+
 	ns := &corev1.Namespace{
 		ObjectMeta: metav1.ObjectMeta{
 			GenerateName: prefix + "-",
