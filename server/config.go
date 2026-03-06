@@ -19,15 +19,19 @@ type Config struct {
 	WriteTimeout         time.Duration
 	IdleTimeout          time.Duration
 	GatewayLabelSelector map[string]string
+	MetricsAddr          string // HTTPS address for Prometheus /metrics endpoint
+	OTLPEndpoint         string // Optional OTLP collector endpoint; enables trace export when set
 }
 
 // LoadConfig reads configuration from environment variables with defaults.
 func LoadConfig() (Config, error) {
 	cfg := Config{
-		ListenAddr:  envOrDefault("LISTEN_ADDR", ":8443"),
-		TLSCertFile: os.Getenv("TLS_CERT_FILE"),
-		TLSKeyFile:  os.Getenv("TLS_KEY_FILE"),
-		LogLevel:    envOrDefault("LOG_LEVEL", "info"),
+		ListenAddr:   envOrDefault("LISTEN_ADDR", ":8443"),
+		TLSCertFile:  os.Getenv("TLS_CERT_FILE"),
+		TLSKeyFile:   os.Getenv("TLS_KEY_FILE"),
+		LogLevel:     envOrDefault("LOG_LEVEL", "info"),
+		MetricsAddr:  envOrDefault("METRICS_ADDR", ":9090"),
+		OTLPEndpoint: os.Getenv("OTEL_EXPORTER_OTLP_ENDPOINT"),
 	}
 
 	var err error

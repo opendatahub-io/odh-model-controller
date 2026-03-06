@@ -3,6 +3,8 @@ package main
 import (
 	"net/http"
 
+	"go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp"
+
 	"github.com/opendatahub-io/odh-model-controller/server/gateway"
 	"github.com/opendatahub-io/odh-model-controller/server/handlers"
 	"github.com/opendatahub-io/odh-model-controller/server/middleware"
@@ -18,7 +20,10 @@ func NewServer(cfg Config, discoverer gateway.Discoverer) *http.Server {
 	gatewayHandler := &handlers.GatewayHandler{Discoverer: discoverer}
 	mux.Handle("/api/v1/gateways", middleware.Auth(gatewayHandler))
 
-	handler := middleware.Recovery(middleware.SecurityHeaders(middleware.Logging(mux)))
+	handler := otelhttp.NewHandler(
+		middleware.Recovery(middleware.SecurityHeaders(middleware.Logging(mux))),
+		"model-serving-api",
+	)
 
 	return &http.Server{
 		Addr:           cfg.ListenAddr,

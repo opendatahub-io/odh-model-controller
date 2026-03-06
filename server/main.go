@@ -17,6 +17,7 @@ import (
 	gatewayapiv1 "sigs.k8s.io/gateway-api/apis/v1"
 
 	"github.com/opendatahub-io/odh-model-controller/server/gateway"
+	"github.com/opendatahub-io/odh-model-controller/server/telemetry"
 )
 
 func main() {
@@ -62,6 +63,17 @@ func main() {
 		os.Exit(1)
 	}
 
+	shutdownTelemetry, err := telemetry.Setup(ctx, telemetry.Config{
+		MetricsAddr:  cfg.MetricsAddr,
+		TLSCertFile:  cfg.TLSCertFile,
+		TLSKeyFile:   cfg.TLSKeyFile,
+		OTLPEndpoint: cfg.OTLPEndpoint,
+	})
+	if err != nil {
+		slog.Error("failed to setup telemetry", "error", err)
+		os.Exit(1)
+	}
+
 	errCh := make(chan error, 1)
 	go func() {
 		slog.Info("server starting", "addr", cfg.ListenAddr, "tls", true)
@@ -80,6 +92,11 @@ func main() {
 	slog.Info("shutting down")
 	shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
+
+	if err := shutdownTelemetry(shutdownCtx); err != nil {
+		slog.Error("telemetry shutdown error", "error", err)
+	}
+
 	if err := srv.Shutdown(shutdownCtx); err != nil {
 		slog.Error("shutdown error", "error", err)
 		os.Exit(1)
