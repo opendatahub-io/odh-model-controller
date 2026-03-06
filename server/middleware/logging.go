@@ -30,7 +30,12 @@ func Logging(next http.Handler) http.Handler {
 
 		next.ServeHTTP(rec, r)
 
-		slog.Info("request completed",
+		logFunc := slog.Info
+		if r.URL.Path == "/healthz" || r.URL.Path == "/readyz" {
+			logFunc = slog.Debug
+		}
+
+		logFunc("request completed",
 			"method", r.Method,
 			"path", r.URL.Path,
 			"status", rec.statusCode,
