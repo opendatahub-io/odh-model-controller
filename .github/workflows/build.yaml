@@ -14,7 +14,7 @@ on:
 
 env:
   IMAGE_NAME: "odh-model-controller"
-  MODEL_SERVING_API_IMAGE_NAME: "model-serving-api"
+  MODEL_SERVING_API_IMAGE_NAME: "odh-model-serving-api"
   REPO_NAME: "opendatahub"
   REGISTRY_NAME: "quay.io"
 
