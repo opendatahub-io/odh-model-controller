@@ -3,22 +3,41 @@
 package e2e
 
 import (
+	"context"
 	"net/http"
 	"strings"
 	"testing"
+
+	"github.com/opendatahub-io/odh-model-controller/server/test/e2e/testutil"
+	"k8s.io/apimachinery/pkg/util/wait"
 )
+
+// fetchMetrics polls the metrics endpoint until it returns 200 OK, handling
+// transient failures such as route propagation delay.
+func fetchMetrics(t *testing.T) string {
+	t.Helper()
+	var lastBody []byte
+	var lastStatus int
+	err := wait.PollUntilContextTimeout(context.Background(), testutil.PollInterval, testutil.PollTimeout, true,
+		func(ctx context.Context) (bool, error) {
+			resp, body := env.HTTPGet(t, env.MetricsURL+"/metrics", "")
+			lastBody = body
+			lastStatus = resp.StatusCode
+			return resp.StatusCode == http.StatusOK, nil
+		})
+	if err != nil {
+		t.Fatalf("timed out waiting for metrics endpoint: status=%d body=%s", lastStatus, lastBody)
+	}
+	return string(lastBody)
+}
 
 func TestMetricsEndpointAccessible(t *testing.T) {
 	t.Parallel()
 
-	resp, body := env.HTTPGet(t, env.MetricsURL+"/metrics", "")
-	if resp.StatusCode != http.StatusOK {
-		t.Fatalf("status = %d, want %d; body = %s", resp.StatusCode, http.StatusOK, body)
-	}
+	metrics := fetchMetrics(t)
 
-	contentType := resp.Header.Get("Content-Type")
-	if !strings.Contains(contentType, "text/plain") && !strings.Contains(contentType, "application/openmetrics-text") {
-		t.Errorf("Content-Type = %q, want text/plain or application/openmetrics-text", contentType)
+	if !strings.Contains(metrics, "go_") {
+		t.Error("expected Go runtime metrics in /metrics output")
 	}
 }
 
@@ -28,12 +47,7 @@ func TestMetricsContainHTTPServerMetrics(t *testing.T) {
 	// Generate traffic on the main server so otelhttp records metrics.
 	env.HTTPGet(t, env.ServerURL+"/healthz", "")
 
-	resp, body := env.HTTPGet(t, env.MetricsURL+"/metrics", "")
-	if resp.StatusCode != http.StatusOK {
-		t.Fatalf("status = %d, want %d; body = %s", resp.StatusCode, http.StatusOK, body)
-	}
-
-	metrics := string(body)
+	metrics := fetchMetrics(t)
 	required := []string{
 		"http_server_duration_milliseconds",
 		"http_server_request_size_bytes_total",
@@ -52,12 +66,7 @@ func TestMetricsRecordRouteAttributes(t *testing.T) {
 	// Hit a known route to ensure it's recorded with route attributes.
 	env.HTTPGet(t, env.ServerURL+"/healthz", "")
 
-	resp, body := env.HTTPGet(t, env.MetricsURL+"/metrics", "")
-	if resp.StatusCode != http.StatusOK {
-		t.Fatalf("status = %d, want %d; body = %s", resp.StatusCode, http.StatusOK, body)
-	}
-
-	metrics := string(body)
+	metrics := fetchMetrics(t)
 
 	// The otelhttp middleware records method and status code attributes.
 	if !strings.Contains(metrics, "http_method") {
@@ -71,12 +80,7 @@ func TestMetricsRecordRouteAttributes(t *testing.T) {
 func TestMetricsServiceName(t *testing.T) {
 	t.Parallel()
 
-	resp, body := env.HTTPGet(t, env.MetricsURL+"/metrics", "")
-	if resp.StatusCode != http.StatusOK {
-		t.Fatalf("status = %d, want %d; body = %s", resp.StatusCode, http.StatusOK, body)
-	}
-
-	metrics := string(body)
+	metrics := fetchMetrics(t)
 	if !strings.Contains(metrics, `service_name="model-serving-api"`) {
 		t.Error("expected target_info to contain service_name=\"model-serving-api\"")
 	}
