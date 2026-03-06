@@ -118,9 +118,11 @@ func NewSelfSubjectAccessChecker(baseCfg *rest.Config) (*SelfSubjectAccessChecke
 
 func (c *SelfSubjectAccessChecker) CheckAccess(ctx context.Context, userToken, namespace string) (bool, error) {
 	userCfg := rest.AnonymousClientConfig(c.baseCfg)
-	// Use a custom RoundTripper that injects the bearer token on top of the
-	// shared transport. This avoids version-dependent behavior when setting
-	// both Transport and BearerToken on a rest.Config.
+	// Clear TLS config since it's already handled by the shared transport.
+	// Setting both Transport and TLS options causes client-go to reject
+	// the config with "using a custom transport with TLS certificate options
+	// is not allowed".
+	userCfg.TLSClientConfig = rest.TLSClientConfig{}
 	userCfg.Transport = &bearerTokenRoundTripper{
 		token:    userToken,
 		delegate: c.transport,
