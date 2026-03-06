@@ -115,6 +115,21 @@ test-e2e: manifests generate fmt vet ## Run the e2e tests. Expected an isolated 
 	}
 	POD_NAMESPACE=default go test ./test/e2e/ -v -ginkgo.v
 
+.PHONY: test-e2e-server
+test-e2e-server: ## Run model-serving-api e2e tests. Requires the server deployed and oc logged in.
+	@echo "Creating passthrough route for model-serving-api..."
+	@oc create route passthrough model-serving-api-e2e \
+		--service=model-serving-api --port=https -n $(NAMESPACE) 2>/dev/null || true
+	@MODEL_SERVING_API_URL=https://$$(oc get route model-serving-api-e2e -n $(NAMESPACE) \
+		-o jsonpath='{.spec.host}') && \
+	echo "SERVER_URL=$$MODEL_SERVING_API_URL" && \
+	MODEL_SERVING_API_URL=$$MODEL_SERVING_API_URL \
+		go test -v -tags=e2e -parallel=12 ./server/test/e2e/ -v -count=1 ; \
+	rc=$$? ; \
+	echo "Cleaning up route..." ; \
+	oc delete route model-serving-api-e2e -n $(NAMESPACE) 2>/dev/null || true ; \
+	exit $$rc
+
 .PHONY: lint
 lint: golangci-lint ## Run golangci-lint linter
 	$(GOLANGCI_LINT) run

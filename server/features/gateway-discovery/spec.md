@@ -55,20 +55,20 @@ config/server/
 
 ### Application File Responsibilities
 
-| File                     | Responsibility                                                                                                                                                                                       |
-|--------------------------|------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| File                     | Responsibility                                                                                                                                                                                        |
+|--------------------------|-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
 | `main.go`                | Parse config, create K8s clients (`ctrl.GetConfigOrDie()`, `client.New()`, `kubernetes.NewForConfig()`), register Gateway API scheme, start HTTP server, graceful shutdown via `signal.NotifyContext` |
-| `config.go`              | `Config` struct, load from env vars with defaults, parse `GATEWAY_LABEL_SELECTOR` into `map[string]string`                                                                                           |
-| `server.go`              | Build `http.ServeMux`, register routes, apply middleware chain (recovery → logging → auth → handler)                                                                                                 |
-| `handlers/gateways.go`   | Validate input, orchestrate RBAC check → list gateways → filter → respond                                                                                                                           |
-| `handlers/health.go`     | Trivial health and readiness probes                                                                                                                                                                  |
-| `middleware/auth.go`     | Extract `Authorization: Bearer <token>`, store in request context, reject if missing                                                                                                                 |
-| `middleware/logging.go`  | Log method, path, status code, duration                                                                                                                                                              |
-| `middleware/recovery.go` | Catch panics, return 500                                                                                                                                                                             |
-| `gateway/discovery.go`   | `GatewayDiscoverer` interface + implementation wiring RBAC, listing, and filtering                                                                                                                   |
-| `gateway/filter.go`      | `FilterListeners()`, `listenerAllowsNamespace()`, `matchesSelector()`                                                                                                                               |
-| `gateway/status.go`      | `ExtractStatus()` from Gateway conditions                                                                                                                                                            |
-| `gateway/types.go`       | `GatewayRef`, `GatewaysResponse`, `ErrorResponse`                                                                                                                                                    |
+| `config.go`              | `Config` struct, load from env vars with defaults, parse `GATEWAY_LABEL_SELECTOR` into `map[string]string`                                                                                            |
+| `server.go`              | Build `http.ServeMux`, register routes, apply middleware chain (recovery → logging → auth → handler)                                                                                                  |
+| `handlers/gateways.go`   | Validate input, orchestrate RBAC check → list gateways → filter → respond                                                                                                                             |
+| `handlers/health.go`     | Trivial health and readiness probes                                                                                                                                                                   |
+| `middleware/auth.go`     | Extract `Authorization: Bearer <token>`, store in request context, reject if missing                                                                                                                  |
+| `middleware/logging.go`  | Log method, path, status code, duration                                                                                                                                                               |
+| `middleware/recovery.go` | Catch panics, return 500                                                                                                                                                                              |
+| `gateway/discovery.go`   | `GatewayDiscoverer` interface + implementation wiring RBAC, listing, and filtering                                                                                                                    |
+| `gateway/filter.go`      | `FilterListeners()`, `listenerAllowsNamespace()`, `matchesSelector()`                                                                                                                                 |
+| `gateway/status.go`      | `ExtractStatus()` from Gateway conditions                                                                                                                                                             |
+| `gateway/types.go`       | `GatewayRef`, `GatewaysResponse`, `ErrorResponse`                                                                                                                                                     |
 
 ### Manifest File Responsibilities
 
@@ -78,7 +78,7 @@ config/server/
 | `config/server/server.yaml`             | Deployment definition: container image, ports, probes, security context, resource limits |
 | `config/server/service.yaml`            | Service exposing port 8443, selector targeting server pods                               |
 | `config/server/service_account.yaml`    | ServiceAccount for the server pod                                                        |
-| `config/server/clusterrole.yaml`        | ClusterRole: `list` gateways, `get` namespaces                                          |
+| `config/server/clusterrole.yaml`        | ClusterRole: `list` gateways, `get` namespaces                                           |
 | `config/server/clusterrolebinding.yaml` | Binds the ClusterRole to the server ServiceAccount                                       |
 
 ---
@@ -134,15 +134,15 @@ When no gateways match (including when RBAC denies access):
 
 ### Response Fields
 
-| Field                      | Type   | Description                                                                                           |
-|----------------------------|--------|-------------------------------------------------------------------------------------------------------|
-| `gateways`                 | array  | Always present, may be empty                                                                          |
-| `gateways[].name`          | string | Gateway resource name                                                                                 |
-| `gateways[].namespace`     | string | Gateway resource namespace                                                                            |
-| `gateways[].listener`      | string | Name of the listener that permits the target namespace                                                |
-| `gateways[].status`        | string | `"Ready"`, `"NotReady"`, or `"Unknown"` — derived from Gateway `Accepted` and `Programmed` conditions |
-| `gateways[].displayName`   | string | Human-readable name from `openshift.io/display-name` annotation (omitted if not set)                  |
-| `gateways[].description`   | string | Human-readable description from `openshift.io/description` annotation (omitted if not set)            |
+| Field                    | Type   | Description                                                                                           |
+|--------------------------|--------|-------------------------------------------------------------------------------------------------------|
+| `gateways`               | array  | Always present, may be empty                                                                          |
+| `gateways[].name`        | string | Gateway resource name                                                                                 |
+| `gateways[].namespace`   | string | Gateway resource namespace                                                                            |
+| `gateways[].listener`    | string | Name of the listener that permits the target namespace                                                |
+| `gateways[].status`      | string | `"Ready"`, `"NotReady"`, or `"Unknown"` — derived from Gateway `Accepted` and `Programmed` conditions |
+| `gateways[].displayName` | string | Human-readable name from `openshift.io/display-name` annotation (omitted if not set)                  |
+| `gateways[].description` | string | Human-readable description from `openshift.io/description` annotation (omitted if not set)            |
 
 ### Error Responses
 
@@ -426,15 +426,15 @@ baseCfg := rest.CopyConfig(cfg)
 
 ## Configuration
 
-| Env Var                  | Default | Description                                                                                |
-|--------------------------|---------|--------------------------------------------------------------------------------------------|
-| `LISTEN_ADDR`            | `:8443` | HTTP server listen address                                                                 |
-| `TLS_CERT_FILE`          | `""`    | Path to TLS certificate (empty = no TLS)                                                   |
-| `TLS_KEY_FILE`           | `""`    | Path to TLS private key                                                                    |
-| `LOG_LEVEL`              | `info`  | Log verbosity: `debug`, `info`, `error`                                                    |
-| `READ_TIMEOUT`           | `10s`   | HTTP server read timeout                                                                   |
-| `WRITE_TIMEOUT`          | `10s`   | HTTP server write timeout                                                                  |
-| `GATEWAY_LABEL_SELECTOR` | `""`    | Only consider Gateways with this label. Format: `key=value`. Empty means all Gateways.     |
+| Env Var                  | Default | Description                                                                            |
+|--------------------------|---------|----------------------------------------------------------------------------------------|
+| `LISTEN_ADDR`            | `:8443` | HTTP server listen address                                                             |
+| `TLS_CERT_FILE`          | `""`    | Path to TLS certificate (empty = no TLS)                                               |
+| `TLS_KEY_FILE`           | `""`    | Path to TLS private key                                                                |
+| `LOG_LEVEL`              | `info`  | Log verbosity: `debug`, `info`, `error`                                                |
+| `READ_TIMEOUT`           | `10s`   | HTTP server read timeout                                                               |
+| `WRITE_TIMEOUT`          | `10s`   | HTTP server write timeout                                                              |
+| `GATEWAY_LABEL_SELECTOR` | `""`    | Only consider Gateways with this label. Format: `key=value`. Empty means all Gateways. |
 
 No K8s API host, CA, or token configuration is needed — `ctrl.GetConfigOrDie()` handles in-cluster setup automatically.
 
@@ -455,12 +455,12 @@ kind: ClusterRole
 metadata:
   name: gateway-discovery-api
 rules:
-  - apiGroups: ["gateway.networking.k8s.io"]
-    resources: ["gateways"]
-    verbs: ["list"]
-  - apiGroups: [""]
-    resources: ["namespaces"]
-    verbs: ["get"]
+  - apiGroups: [ "gateway.networking.k8s.io" ]
+    resources: [ "gateways" ]
+    verbs: [ "list" ]
+  - apiGroups: [ "" ]
+    resources: [ "namespaces" ]
+    verbs: [ "get" ]
 ```
 
 The `SelfSubjectAccessReview` create permission is implicitly available to all authenticated users via the K8s API
@@ -580,12 +580,12 @@ kind: ClusterRole
 metadata:
   name: gateway-discovery-api
 rules:
-  - apiGroups: ["gateway.networking.k8s.io"]
-    resources: ["gateways"]
-    verbs: ["list"]
-  - apiGroups: [""]
-    resources: ["namespaces"]
-    verbs: ["get"]
+  - apiGroups: [ "gateway.networking.k8s.io" ]
+    resources: [ "gateways" ]
+    verbs: [ "list" ]
+  - apiGroups: [ "" ]
+    resources: [ "namespaces" ]
+    verbs: [ "get" ]
 ```
 
 ### config/server/clusterrolebinding.yaml
@@ -731,24 +731,24 @@ func (h *GatewayHandler) checkAccess(ctx context.Context, userToken, namespace s
 
 ```go
 func main() {
-    cfg := LoadConfig()
+cfg := LoadConfig()
 
-    // K8s setup
-    scheme := runtime.NewScheme()
-    utilruntime.Must(gatewayapiv1.Install(scheme))
-    utilruntime.Must(corev1.AddToScheme(scheme))
+// K8s setup
+scheme := runtime.NewScheme()
+utilruntime.Must(gatewayapiv1.Install(scheme))
+utilruntime.Must(corev1.AddToScheme(scheme))
 
-    restCfg := ctrl.GetConfigOrDie()
-    saClient, err := client.New(restCfg, client.Options{Scheme: scheme})
-    if err != nil {
-        log.Fatalf("failed to create kubernetes client: %v", err)
-    }
+restCfg := ctrl.GetConfigOrDie()
+saClient, err := client.New(restCfg, client.Options{Scheme: scheme})
+if err != nil {
+log.Fatalf("failed to create kubernetes client: %v", err)
+}
 
-    srv := NewServer(cfg, saClient, restCfg)
+srv := NewServer(cfg, saClient, restCfg)
 
-    // Graceful shutdown
-    ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
-    defer stop()
+// Graceful shutdown
+ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+defer stop()
 
     go func() {
         log.Printf("listening on %s", cfg.ListenAddr)
@@ -801,6 +801,56 @@ Test `GatewayHandler` with a mock `GatewayDiscoverer` interface:
 
 Use `httptest.Server` to test the full middleware → handler chain, or use `envtest` for tests that need a real K8s API
 server.
+
+### E2E Tests
+
+**File:** `server/test/e2e/e2e_test.go`
+
+End-to-end tests run against a live Kubernetes cluster with the model-serving-api already deployed. Tests use Go k8s
+clients (`client-go`, `controller-runtime`) to create real resources per scenario and clean up via `t.Cleanup`.
+
+**Prerequisites:**
+
+- Kubernetes cluster with Gateway API CRDs installed and a running gateway controller
+- model-serving-api deployed (via `make deploy-server` or equivalent)
+- `MODEL_SERVING_API_URL` env var set to the server endpoint (e.g.
+  `https://model-serving-api.opendatahub.svc.cluster.local`)
+
+**Environment variables:**
+
+| Variable                          | Required | Default             | Description                           |
+|-----------------------------------|----------|---------------------|---------------------------------------|
+| `MODEL_SERVING_API_URL`           | Yes      | —                   | Base URL of the deployed server       |
+| `MODEL_SERVING_API_GATEWAY_CLASS` | No       | `openshift-default` | GatewayClass to use for test Gateways |
+
+**Test scenarios:**
+
+| Test                                | Description                                                                                        |
+|-------------------------------------|----------------------------------------------------------------------------------------------------|
+| `TestHealthEndpoints`               | `/healthz` and `/readyz` return 200 with `{"status":"ok"}`                                         |
+| `TestSecurityHeaders`               | Response includes `X-Content-Type-Options`, `X-Frame-Options`, `Cache-Control`, `HSTS` headers     |
+| `TestMissingAuth`                   | Request without `Authorization` header returns 401                                                 |
+| `TestValidation/missing_ns`         | Missing `namespace` query parameter returns 400                                                    |
+| `TestValidation/invalid_ns`         | Invalid namespace format returns 400                                                               |
+| `TestValidation/wrong_method`       | POST request returns 405                                                                           |
+| `TestAuthorizedUserSeesGateways`    | SA with `create llminferenceservices` RBAC sees Gateway with `From: All` listener                  |
+| `TestUnauthorizedUserGetsEmptyList` | SA without RBAC gets empty `{"gateways": []}`                                                      |
+| `TestListenerFromSame`              | `From: Same` — same namespace sees gateway, different namespace does not                           |
+| `TestListenerFromSelector`          | `From: Selector` — namespace with matching labels sees gateway, without does not                   |
+| `TestGatewayMetadata`               | Gateway annotations (`openshift.io/display-name`, `openshift.io/description`) returned in response |
+
+Tests use the `//go:build e2e` build tag and are excluded from normal `go test ./...` runs.
+
+**Running:**
+
+```bash
+# Via Makefile (creates a passthrough route, runs tests, cleans up):
+make test-e2e-server
+
+# Manually:
+export MODEL_SERVING_API_URL=https://model-serving-api.opendatahub.svc.cluster.local
+go test -tags e2e ./server/test/e2e/ -v -count=1
+```
 
 ### Testability Interface
 
