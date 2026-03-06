@@ -223,6 +223,7 @@ deploy-server: kustomize ## Deploy model-serving-api to the K8s cluster specifie
 	$(KUSTOMIZE) edit set namespace $(NAMESPACE) && \
 	$(KUSTOMIZE) edit set image controller=$(SERVER_IMG_DIGEST) && \
 	$(KUSTOMIZE) build . | $(KUBECTL) apply -f -
+	$(KUBECTL) rollout status deployment/model-serving-api -n $(NAMESPACE) --timeout=120s
 
 .PHONY: undeploy
 undeploy: kustomize ## Undeploy controller from the K8s cluster specified in ~/.kube/config. Call with ignore-not-found=true to ignore resource not found errors during deletion.
