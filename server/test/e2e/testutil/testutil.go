@@ -102,7 +102,11 @@ func NewEnv() (*Env, error) {
 func (e *Env) CreateNamespace(t *testing.T, prefix string, labels map[string]string) string {
 	t.Helper()
 
-	labels = maps.Clone(labels)
+	if labels != nil {
+		labels = maps.Clone(labels)
+	} else {
+		labels = make(map[string]string)
+	}
 	labels["env"] = "odh-test"
 
 	ns := &corev1.Namespace{

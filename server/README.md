@@ -5,6 +5,7 @@ Standalone REST API server that provides gateway discovery for the Model Serving
 ## Features
 
 - [Gateway Discovery](features/gateway-discovery/spec.md) — discover Kubernetes Gateway resources usable by a given user and target namespace
+- [Observability](features/observability/spec.md) — Prometheus metrics and optional OTLP tracing via OpenTelemetry
 
 ## Project Structure
 
@@ -33,13 +34,15 @@ make build-server
 
 The server requires a kubeconfig and TLS certificates. Environment variables:
 
-| Variable | Default | Description |
-|---|---|---|
-| `LISTEN_ADDR` | `:8443` | Address to listen on |
-| `TLS_CERT_FILE` | | Path to TLS certificate (required) |
-| `TLS_KEY_FILE` | | Path to TLS key (required) |
-| `LOG_LEVEL` | `info` | Log level (`debug`, `info`, `warn`, `error`) |
-| `GATEWAY_LABEL_SELECTOR` | | Comma-separated `key=value` pairs to filter Gateways |
+| Variable                      | Default | Description                                                                    |
+|-------------------------------|---------|--------------------------------------------------------------------------------|
+| `LISTEN_ADDR`                 | `:8443` | Address to listen on                                                           |
+| `TLS_CERT_FILE`               |         | Path to TLS certificate (required)                                             |
+| `TLS_KEY_FILE`                |         | Path to TLS key (required)                                                     |
+| `LOG_LEVEL`                   | `info`  | Log level (`debug`, `info`, `warn`, `error`)                                   |
+| `GATEWAY_LABEL_SELECTOR`      |         | Comma-separated `key=value` pairs to filter Gateways                           |
+| `METRICS_ADDR`                | `:9090` | HTTPS address for Prometheus `/metrics` endpoint (reuses main TLS certs)       |
+| `OTEL_EXPORTER_OTLP_ENDPOINT` |         | OTLP collector endpoint; enables trace export when set (e.g. `localhost:4317`) |
 
 ### Container Image
 
