@@ -2,7 +2,8 @@ package utils
 
 import (
 	"context"
-	"math/rand"
+	"crypto/rand"
+	"math/big"
 
 	. "github.com/onsi/gomega"
 	corev1 "k8s.io/api/core/v1"
@@ -26,7 +27,11 @@ func createTestNamespaceName() string {
 
 	b := make([]rune, n)
 	for i := range b {
-		b[i] = letterRunes[rand.Intn(len(letterRunes))]
+		idx, err := rand.Int(rand.Reader, big.NewInt(int64(len(letterRunes))))
+		if err != nil {
+			panic(err)
+		}
+		b[i] = letterRunes[idx.Int64()]
 	}
 	return "test-ns-" + string(b)
 }
