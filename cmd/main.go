@@ -281,11 +281,9 @@ func setupWebhooks(mgr ctrl.Manager, setupLog logr.Logger) error {
 		setupFn func(ctrl.Manager) error
 	}{
 		{"Pod", webhookcorev1.SetupPodWebhookWithManager},
-		{"TierConfigMap", webhookcorev1.SetupTierConfigMapWebhookWithManager},
 		{"NIMAccount", webhooknimv1.SetupAccountWebhookWithManager},
 		{"InferenceService", webhookservingv1beta1.SetupInferenceServiceWebhookWithManager},
 		{"InferenceGraph", webhookservingv1alpha1.SetupInferenceGraphWebhookWithManager},
-		{"LLMInferenceService", webhookservingv1alpha1.SetupLLMInferenceServiceWebhookWithManager},
 	}
 
 	for _, webhookSetup := range webhookSetups {
