@@ -1,5 +1,7 @@
 # Image URL to use all building/pushing image targets
 IMG ?= quay.io/${USER}/odh-model-controller:latest
+SERVER_IMG ?= quay.io/${USER}/odh-model-serving-api:latest
+NAMESPACE ?= opendatahub
 # ENVTEST_K8S_VERSION refers to the version of kubebuilder assets to be downloaded by envtest binary.
 ENVTEST_K8S_VERSION = 1.31.0
 
@@ -127,6 +129,10 @@ lint-fix: golangci-lint ## Run golangci-lint linter and perform fixes
 build: manifests generate fmt vet ## Build manager binary.
 	go build -o bin/manager cmd/main.go
 
+.PHONY: build-server
+build-server: fmt vet ## Build model-serving-api binary.
+	go build -o bin/model-serving-api ./server/
+
 .PHONY: run
 run: manifests generate fmt vet ## Run a controller from your host.
 	go run ./cmd/main.go
@@ -138,9 +144,17 @@ run: manifests generate fmt vet ## Run a controller from your host.
 container-build: ## Build docker image with the manager.
 	$(CONTAINER_TOOL) build -t ${IMG} -f ./Containerfile .
 
+.PHONY: container-build-server
+container-build-server: ## Build docker image with the model-serving-api.
+	$(CONTAINER_TOOL) build -t ${SERVER_IMG} -f ./Containerfile.server .
+
 .PHONY: container-push
 container-push: ## Push docker image with the manager.
 	$(CONTAINER_TOOL) push ${IMG}
+
+.PHONY: container-push-server
+container-push-server: ## Push docker image with the model-serving-api.
+	$(CONTAINER_TOOL) push ${SERVER_IMG}
 
 # PLATFORMS defines the target platforms for the manager image be built to provide support to multiple
 # architectures. (i.e. make docker-buildx IMG=myregistry/mypoperator:0.0.1). To use this option you need to:
@@ -183,6 +197,17 @@ uninstall: manifests kustomize ## Uninstall CRDs from the K8s cluster specified 
 deploy: manifests kustomize ## Deploy controller to the K8s cluster specified in ~/.kube/config.
 	cd config/manager && $(KUSTOMIZE) edit set image controller=${IMG}
 	$(KUSTOMIZE) build config/default | $(KUBECTL) apply -f -
+
+.PHONY: deploy-server
+deploy-server: kustomize ## Deploy model-serving-api to the K8s cluster specified in ~/.kube/config.
+	$(eval SERVER_IMG_DIGEST := $(shell $(CONTAINER_TOOL) inspect --format='{{index .RepoDigests 0}}' ${SERVER_IMG}))
+	@rm -rf $(LOCALBIN)/server-overlay && mkdir -p $(LOCALBIN)/server-overlay && \
+	cd $(LOCALBIN)/server-overlay && \
+	$(KUSTOMIZE) init && \
+	$(KUSTOMIZE) edit add resource ../../config/server && \
+	$(KUSTOMIZE) edit set namespace $(NAMESPACE) && \
+	$(KUSTOMIZE) edit set image controller=$(SERVER_IMG_DIGEST) && \
+	$(KUSTOMIZE) build . | $(KUBECTL) apply -f -
 
 .PHONY: undeploy
 undeploy: kustomize ## Undeploy controller from the K8s cluster specified in ~/.kube/config. Call with ignore-not-found=true to ignore resource not found errors during deletion.
