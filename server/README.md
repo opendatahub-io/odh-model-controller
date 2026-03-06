@@ -1,11 +1,13 @@
 # model-serving-api
 
-Standalone REST API server that provides gateway discovery for the Model Serving UI. It runs as a separate deployment alongside the odh-model-controller.
+Standalone REST API server that provides gateway discovery for the Model Serving UI. It runs as a separate deployment
+alongside the odh-model-controller.
 
 ## Features
 
-- [Gateway Discovery](features/gateway-discovery/spec.md) — discover Kubernetes Gateway resources usable by a given user and target namespace
-- [Observability](features/observability/spec.md) — Prometheus metrics and optional OTLP tracing via OpenTelemetry
+- [Gateway Discovery](features/gateway-discovery/README.md) — discover Kubernetes Gateway resources usable by a given
+  user and target namespace
+- [Observability](features/observability/README.md) — Prometheus metrics and optional OTLP tracing via OpenTelemetry
 
 ## Project Structure
 
@@ -70,8 +72,6 @@ E2E tests (requires a deployed server and `oc` login):
 ```shell
 make test-e2e-server
 ```
-
-See the [Gateway Discovery spec](features/gateway-discovery/spec.md) for details on e2e test scenarios.
 
 ## Manual Testing
 
