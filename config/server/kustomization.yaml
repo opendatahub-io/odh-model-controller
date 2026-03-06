@@ -7,3 +7,4 @@ resources:
   - service_account.yaml
   - clusterrole.yaml
   - clusterrolebinding.yaml
+  - servicemonitor.yaml
