@@ -6,6 +6,7 @@ import (
 	"errors"
 	"log/slog"
 	"net/http"
+	"time"
 
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"go.opentelemetry.io/otel"
@@ -61,10 +62,10 @@ func Setup(ctx context.Context, cfg Config) (shutdown func(context.Context) erro
 	shutdownFuncs = append(shutdownFuncs, meterProvider.Shutdown)
 
 	// Optional OTLP trace exporter.
+	// TLS is used by default; set OTEL_EXPORTER_OTLP_INSECURE=true to disable.
 	if cfg.OTLPEndpoint != "" {
 		traceExporter, err := otlpgrpc.New(ctx,
 			otlpgrpc.WithEndpoint(cfg.OTLPEndpoint),
-			otlpgrpc.WithInsecure(),
 		)
 		if err != nil {
 			return nil, errors.Join(errors.New("failed to create otlp trace exporter"), err)
@@ -85,9 +86,13 @@ func Setup(ctx context.Context, cfg Config) (shutdown func(context.Context) erro
 	mux.Handle("/metrics", promhttp.Handler())
 
 	metricsSrv := &http.Server{
-		Addr:      cfg.MetricsAddr,
-		Handler:   mux,
-		TLSConfig: cfg.TLSConfig,
+		Addr:              cfg.MetricsAddr,
+		Handler:           mux,
+		TLSConfig:         cfg.TLSConfig,
+		ReadTimeout:       10 * time.Second,
+		WriteTimeout:      10 * time.Second,
+		ReadHeaderTimeout: 5 * time.Second,
+		IdleTimeout:       120 * time.Second,
 	}
 
 	go func() {
