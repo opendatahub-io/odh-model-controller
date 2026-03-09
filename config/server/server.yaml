@@ -4,7 +4,6 @@ metadata:
   name: model-serving-api
   namespace: system
 spec:
-  replicas: 1
   selector:
     matchLabels:
       app: model-serving-api
@@ -14,6 +13,19 @@ spec:
         app: model-serving-api
     spec:
       serviceAccountName: model-serving-api
+      topologySpreadConstraints:
+        - maxSkew: 1
+          topologyKey: topology.kubernetes.io/zone
+          whenUnsatisfiable: ScheduleAnyway
+          labelSelector:
+            matchLabels:
+              app.kubernetes.io/name: model-serving-api
+        - maxSkew: 1
+          topologyKey: kubernetes.io/hostname
+          whenUnsatisfiable: ScheduleAnyway
+          labelSelector:
+            matchLabels:
+              app.kubernetes.io/name: model-serving-api
       securityContext:
         runAsNonRoot: true
         seccompProfile:
