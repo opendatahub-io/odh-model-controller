@@ -17,7 +17,7 @@ import (
 	gatewayapiv1 "sigs.k8s.io/gateway-api/apis/v1"
 
 	"github.com/opendatahub-io/odh-model-controller/server/gateway"
-	"github.com/opendatahub-io/odh-model-controller/server/telemetry"
+	"github.com/opendatahub-io/odh-model-controller/server/observability"
 )
 
 func main() {
@@ -63,7 +63,7 @@ func main() {
 		os.Exit(1)
 	}
 
-	shutdownTelemetry, err := telemetry.Setup(ctx, telemetry.Config{
+	shutdownTelemetry, err := observability.Setup(ctx, observability.Config{
 		MetricsAddr:  cfg.MetricsAddr,
 		TLSCertFile:  cfg.TLSCertFile,
 		TLSKeyFile:   cfg.TLSKeyFile,

@@ -1,4 +1,4 @@
-package telemetry
+package observability
 
 import (
 	"context"
@@ -18,7 +18,7 @@ import (
 	sdktrace "go.opentelemetry.io/otel/sdk/trace"
 )
 
-// Config holds the telemetry configuration.
+// Config holds the observability configuration.
 type Config struct {
 	MetricsAddr  string // HTTPS listen address for Prometheus /metrics endpoint (default ":9090")
 	TLSCertFile  string // TLS certificate file (reused from main server)
