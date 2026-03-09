@@ -41,7 +41,11 @@ func NewCertReloader(ctx context.Context, path string, init *tls.Certificate) (*
 	}
 
 	go func() {
-		defer w.Close()
+		defer func() {
+			if err := w.Close(); err != nil {
+				slog.Error("failed to close cert watcher", "path", path, "error", err)
+			}
+		}()
 
 		var debounceTimer *time.Timer
 
