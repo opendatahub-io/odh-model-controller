@@ -51,10 +51,10 @@ func main() {
 		os.Exit(1)
 	}
 
-	discoverer := &gateway.KubeDiscoverer{
-		SAClient:             saClient,
-		AccessChecker:        accessChecker,
-		GatewayLabelSelector: cfg.GatewayLabelSelector,
+	discoverer, err := gateway.NewKubeDiscoverer(saClient, accessChecker, cfg.GatewayLabelSelector)
+	if err != nil {
+		slog.Error("failed to create gateway discoverer", "error", err)
+		os.Exit(1)
 	}
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)

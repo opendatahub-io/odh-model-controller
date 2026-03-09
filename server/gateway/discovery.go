@@ -38,6 +38,22 @@ type KubeDiscoverer struct {
 	GatewayLabelSelector map[string]string
 }
 
+// NewKubeDiscoverer creates a KubeDiscoverer after validating that required
+// dependencies are non-nil.
+func NewKubeDiscoverer(saClient client.Client, accessChecker AccessChecker, labelSelector map[string]string) (*KubeDiscoverer, error) {
+	if saClient == nil {
+		return nil, fmt.Errorf("SAClient must not be nil")
+	}
+	if accessChecker == nil {
+		return nil, fmt.Errorf("AccessChecker must not be nil")
+	}
+	return &KubeDiscoverer{
+		SAClient:             saClient,
+		AccessChecker:        accessChecker,
+		GatewayLabelSelector: labelSelector,
+	}, nil
+}
+
 // Discover performs the full gateway discovery flow:
 // 1. RBAC check using the user's token
 // 2. List gateways using the ServiceAccount

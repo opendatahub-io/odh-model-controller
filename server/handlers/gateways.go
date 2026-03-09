@@ -3,6 +3,7 @@ package handlers
 import (
 	"log/slog"
 	"net/http"
+	"strings"
 
 	"k8s.io/apimachinery/pkg/util/validation"
 
@@ -33,6 +34,10 @@ func (h *GatewayHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 
 	userToken := middleware.TokenFromContext(r.Context())
+	if strings.TrimSpace(userToken) == "" {
+		common.WriteJSONError(w, http.StatusUnauthorized, "missing or invalid authorization header")
+		return
+	}
 
 	refs, err := h.Discoverer.Discover(r.Context(), userToken, namespace)
 	if err != nil {
