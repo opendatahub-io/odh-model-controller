@@ -1,6 +1,7 @@
 package main
 
 import (
+	"crypto/tls"
 	"net/http"
 
 	"go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp"
@@ -11,7 +12,7 @@ import (
 )
 
 // NewServer creates an http.Server with the full middleware chain and route registration.
-func NewServer(cfg Config, discoverer gateway.Discoverer) *http.Server {
+func NewServer(cfg Config, discoverer gateway.Discoverer, tlsConfig *tls.Config) *http.Server {
 	mux := http.NewServeMux()
 
 	mux.HandleFunc("/healthz", handlers.Healthz)
@@ -28,6 +29,7 @@ func NewServer(cfg Config, discoverer gateway.Discoverer) *http.Server {
 	return &http.Server{
 		Addr:           cfg.ListenAddr,
 		Handler:        handler,
+		TLSConfig:      tlsConfig,
 		ReadTimeout:    cfg.ReadTimeout,
 		WriteTimeout:   cfg.WriteTimeout,
 		IdleTimeout:    cfg.IdleTimeout,

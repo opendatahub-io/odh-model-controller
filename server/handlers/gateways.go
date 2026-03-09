@@ -6,8 +6,8 @@ import (
 
 	"k8s.io/apimachinery/pkg/util/validation"
 
+	"github.com/opendatahub-io/odh-model-controller/server/common"
 	"github.com/opendatahub-io/odh-model-controller/server/gateway"
-	"github.com/opendatahub-io/odh-model-controller/server/httputil"
 	"github.com/opendatahub-io/odh-model-controller/server/middleware"
 )
 
@@ -18,17 +18,17 @@ type GatewayHandler struct {
 
 func (h *GatewayHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
-		httputil.WriteJSONError(w, http.StatusMethodNotAllowed, "method not allowed")
+		common.WriteJSONError(w, http.StatusMethodNotAllowed, "method not allowed")
 		return
 	}
 
 	namespace := r.URL.Query().Get("namespace")
 	if namespace == "" {
-		httputil.WriteJSONError(w, http.StatusBadRequest, "missing required query parameter: namespace")
+		common.WriteJSONError(w, http.StatusBadRequest, "missing required query parameter: namespace")
 		return
 	}
 	if errs := validation.IsDNS1123Label(namespace); len(errs) > 0 {
-		httputil.WriteJSONError(w, http.StatusBadRequest, "invalid namespace: must match RFC 1123")
+		common.WriteJSONError(w, http.StatusBadRequest, "invalid namespace: must match RFC 1123")
 		return
 	}
 
@@ -37,9 +37,9 @@ func (h *GatewayHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	refs, err := h.Discoverer.Discover(r.Context(), userToken, namespace)
 	if err != nil {
 		slog.Error("gateway discovery failed", "error", err)
-		httputil.WriteJSONError(w, http.StatusInternalServerError, "internal server error")
+		common.WriteJSONError(w, http.StatusInternalServerError, "internal server error")
 		return
 	}
 
-	httputil.WriteJSON(w, http.StatusOK, gateway.GatewaysResponse{Gateways: refs})
+	common.WriteJSON(w, http.StatusOK, gateway.GatewaysResponse{Gateways: refs})
 }

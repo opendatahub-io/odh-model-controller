@@ -69,8 +69,7 @@ Each Gateway listener is checked against the target namespace using `allowedRout
 | Variable                 | Default | Description                                          |
 |--------------------------|---------|------------------------------------------------------|
 | `LISTEN_ADDR`            | `:8443` | Server listen address                                |
-| `TLS_CERT_FILE`          |         | TLS certificate path (required)                      |
-| `TLS_KEY_FILE`           |         | TLS key path (required)                              |
+| `TLS_CERT_DIR`           |         | Directory containing `tls.crt` and `tls.key` (required) |
 | `LOG_LEVEL`              | `info`  | `debug`, `info`, `warn`, `error`                     |
 | `GATEWAY_LABEL_SELECTOR` |         | Comma-separated `key=value` pairs to filter Gateways |
 

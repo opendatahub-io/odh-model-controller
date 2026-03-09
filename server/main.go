@@ -2,10 +2,13 @@ package main
 
 import (
 	"context"
+	"crypto/tls"
 	"log/slog"
+	"net"
 	"net/http"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"syscall"
 	"time"
 
@@ -16,6 +19,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	gatewayapiv1 "sigs.k8s.io/gateway-api/apis/v1"
 
+	"github.com/opendatahub-io/odh-model-controller/server/common"
 	"github.com/opendatahub-io/odh-model-controller/server/gateway"
 	"github.com/opendatahub-io/odh-model-controller/server/observability"
 )
@@ -53,20 +57,40 @@ func main() {
 		GatewayLabelSelector: cfg.GatewayLabelSelector,
 	}
 
-	srv := NewServer(cfg, discoverer)
-
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
-	if cfg.TLSCertFile == "" || cfg.TLSKeyFile == "" {
-		slog.Error("TLS is required: set TLS_CERT_FILE and TLS_KEY_FILE")
+	if cfg.TLSCertDir == "" {
+		slog.Error("TLS is required: set TLS_CERT_DIR")
 		os.Exit(1)
 	}
 
+	certFile := filepath.Join(cfg.TLSCertDir, "tls.crt")
+	keyFile := filepath.Join(cfg.TLSCertDir, "tls.key")
+
+	cert, err := tls.LoadX509KeyPair(certFile, keyFile)
+	if err != nil {
+		slog.Error("failed to load TLS key pair", "certFile", certFile, "keyFile", keyFile, "error", err)
+		os.Exit(1)
+	}
+
+	reloader, err := common.NewCertReloader(ctx, cfg.TLSCertDir, &cert)
+	if err != nil {
+		slog.Error("failed to start certificate reloader", "error", err)
+		os.Exit(1)
+	}
+
+	getCertificate := func(_ *tls.ClientHelloInfo) (*tls.Certificate, error) {
+		return reloader.Get(), nil
+	}
+
+	tlsConfig := common.NewTLSConfig(getCertificate)
+
+	srv := NewServer(cfg, discoverer, tlsConfig)
+
 	shutdownTelemetry, err := observability.Setup(ctx, observability.Config{
 		MetricsAddr:  cfg.MetricsAddr,
-		TLSCertFile:  cfg.TLSCertFile,
-		TLSKeyFile:   cfg.TLSKeyFile,
+		TLSConfig:    tlsConfig,
 		OTLPEndpoint: cfg.OTLPEndpoint,
 	})
 	if err != nil {
@@ -74,10 +98,16 @@ func main() {
 		os.Exit(1)
 	}
 
+	ln, err := net.Listen("tcp", cfg.ListenAddr)
+	if err != nil {
+		slog.Error("failed to listen", "addr", cfg.ListenAddr, "error", err)
+		os.Exit(1)
+	}
+
 	errCh := make(chan error, 1)
 	go func() {
 		slog.Info("server starting", "addr", cfg.ListenAddr, "tls", true)
-		if err := srv.ListenAndServeTLS(cfg.TLSCertFile, cfg.TLSKeyFile); err != nil && err != http.ErrServerClosed {
+		if err := srv.ServeTLS(ln, "", ""); err != nil && err != http.ErrServerClosed {
 			errCh <- err
 		}
 	}()

@@ -22,10 +22,8 @@ spec:
         - name: server
           image: controller:latest
           env:
-            - name: TLS_CERT_FILE
-              value: /tls/tls.crt
-            - name: TLS_KEY_FILE
-              value: /tls/tls.key
+            - name: TLS_CERT_DIR
+              value: /tls
             - name: GATEWAY_LABEL_SELECTOR
               value: ""  # e.g. "ai-platform.opendatahub.io/managed=true"
           volumeMounts:

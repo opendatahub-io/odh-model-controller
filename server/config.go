@@ -12,8 +12,7 @@ import (
 // Config holds the server configuration loaded from environment variables.
 type Config struct {
 	ListenAddr           string
-	TLSCertFile          string
-	TLSKeyFile           string
+	TLSCertDir           string // Directory containing tls.crt and tls.key
 	LogLevel             string
 	ReadTimeout          time.Duration
 	WriteTimeout         time.Duration
@@ -27,8 +26,7 @@ type Config struct {
 func LoadConfig() (Config, error) {
 	cfg := Config{
 		ListenAddr:   envOrDefault("LISTEN_ADDR", ":8443"),
-		TLSCertFile:  os.Getenv("TLS_CERT_FILE"),
-		TLSKeyFile:   os.Getenv("TLS_KEY_FILE"),
+		TLSCertDir:   os.Getenv("TLS_CERT_DIR"),
 		LogLevel:     envOrDefault("LOG_LEVEL", "info"),
 		MetricsAddr:  envOrDefault("METRICS_ADDR", ":9090"),
 		OTLPEndpoint: os.Getenv("OTEL_EXPORTER_OTLP_ENDPOINT"),

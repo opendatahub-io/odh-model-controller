@@ -39,8 +39,7 @@ The server requires a kubeconfig and TLS certificates. Environment variables:
 | Variable                      | Default | Description                                                                    |
 |-------------------------------|---------|--------------------------------------------------------------------------------|
 | `LISTEN_ADDR`                 | `:8443` | Address to listen on                                                           |
-| `TLS_CERT_FILE`               |         | Path to TLS certificate (required)                                             |
-| `TLS_KEY_FILE`                |         | Path to TLS key (required)                                                     |
+| `TLS_CERT_DIR`                |         | Directory containing `tls.crt` and `tls.key` (required)                        |
 | `LOG_LEVEL`                   | `info`  | Log level (`debug`, `info`, `warn`, `error`)                                   |
 | `GATEWAY_LABEL_SELECTOR`      |         | Comma-separated `key=value` pairs to filter Gateways                           |
 | `METRICS_ADDR`                | `:9090` | HTTPS address for Prometheus `/metrics` endpoint (reuses main TLS certs)       |

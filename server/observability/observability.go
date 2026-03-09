@@ -20,11 +20,10 @@ import (
 
 // Config holds the observability configuration.
 type Config struct {
-	MetricsAddr  string // HTTPS listen address for Prometheus /metrics endpoint (default ":9090")
-	TLSCertFile  string // TLS certificate file (reused from main server)
-	TLSKeyFile   string // TLS key file (reused from main server)
-	OTLPEndpoint string // Optional OTLP collector endpoint; enables trace export when set
-	ServiceName  string // OTel service name (default "model-serving-api")
+	MetricsAddr  string      // HTTPS listen address for Prometheus /metrics endpoint (default ":9090")
+	TLSConfig    *tls.Config // TLS configuration for the metrics server
+	OTLPEndpoint string      // Optional OTLP collector endpoint; enables trace export when set
+	ServiceName  string      // OTel service name (default "model-serving-api")
 }
 
 // Setup initializes OpenTelemetry metrics (Prometheus exporter) and optional
@@ -85,18 +84,10 @@ func Setup(ctx context.Context, cfg Config) (shutdown func(context.Context) erro
 	mux := http.NewServeMux()
 	mux.Handle("/metrics", promhttp.Handler())
 
-	cert, err := tls.LoadX509KeyPair(cfg.TLSCertFile, cfg.TLSKeyFile)
-	if err != nil {
-		return nil, errors.Join(errors.New("failed to load TLS certs for metrics server"), err)
-	}
-
 	metricsSrv := &http.Server{
-		Addr:    cfg.MetricsAddr,
-		Handler: mux,
-		TLSConfig: &tls.Config{
-			Certificates: []tls.Certificate{cert},
-			MinVersion:   tls.VersionTLS12,
-		},
+		Addr:      cfg.MetricsAddr,
+		Handler:   mux,
+		TLSConfig: cfg.TLSConfig,
 	}
 
 	go func() {

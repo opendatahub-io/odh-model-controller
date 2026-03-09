@@ -5,7 +5,7 @@ import (
 	"net/http"
 	"strings"
 
-	"github.com/opendatahub-io/odh-model-controller/server/httputil"
+	"github.com/opendatahub-io/odh-model-controller/server/common"
 )
 
 type contextKey string
@@ -25,13 +25,13 @@ func Auth(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		authHeader := r.Header.Get("Authorization")
 		if authHeader == "" || !strings.HasPrefix(authHeader, "Bearer ") {
-			httputil.WriteJSONError(w, http.StatusUnauthorized, "missing or invalid authorization header")
+			common.WriteJSONError(w, http.StatusUnauthorized, "missing or invalid authorization header")
 			return
 		}
 
 		token := strings.TrimSpace(strings.TrimPrefix(authHeader, "Bearer "))
 		if token == "" {
-			httputil.WriteJSONError(w, http.StatusUnauthorized, "missing or invalid authorization header")
+			common.WriteJSONError(w, http.StatusUnauthorized, "missing or invalid authorization header")
 			return
 		}
 
