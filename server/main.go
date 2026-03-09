@@ -45,13 +45,7 @@ func main() {
 		os.Exit(1)
 	}
 
-	accessChecker, err := gateway.NewSelfSubjectAccessChecker(restCfg)
-	if err != nil {
-		slog.Error("failed to create access checker", "error", err)
-		os.Exit(1)
-	}
-
-	discoverer, err := gateway.NewKubeDiscoverer(saClient, accessChecker, cfg.GatewayLabelSelector)
+	discoverer, err := gateway.NewKubeDiscoverer(restCfg, saClient, cfg.GatewayLabelSelector)
 	if err != nil {
 		slog.Error("failed to create gateway discoverer", "error", err)
 		os.Exit(1)

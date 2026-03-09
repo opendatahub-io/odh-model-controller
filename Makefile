@@ -119,20 +119,20 @@ test-e2e: manifests generate fmt vet ## Run the e2e tests. Expected an isolated 
 test-e2e-server: ## Run model-serving-api e2e tests. Requires the server deployed and oc logged in.
 	@echo "Creating passthrough routes for model-serving-api..."
 	@oc create route passthrough model-serving-api-e2e \
-		--service=model-serving-api --port=https -n $(NAMESPACE) 2>/dev/null || true
+		--service=model-serving-api --port=https -n '$(NAMESPACE)' 2>/dev/null || true
 	@oc create route passthrough model-serving-api-metrics-e2e \
-		--service=model-serving-api --port=metrics -n $(NAMESPACE) 2>/dev/null || true
+		--service=model-serving-api --port=metrics -n '$(NAMESPACE)' 2>/dev/null || true
 	@trap 'echo "Cleaning up routes..."; \
 		oc delete route model-serving-api-e2e -n $(NAMESPACE) 2>/dev/null || true; \
 		oc delete route model-serving-api-metrics-e2e -n $(NAMESPACE) 2>/dev/null || true' EXIT; \
 	echo "Waiting for routes to be admitted..." && \
 	oc wait --for='jsonpath={.status.ingress[0].conditions[?(@.type=="Admitted")].status}=True' \
-		route/model-serving-api-e2e -n $(NAMESPACE) --timeout=60s && \
+		route/model-serving-api-e2e -n '$(NAMESPACE)' --timeout=60s && \
 	oc wait --for='jsonpath={.status.ingress[0].conditions[?(@.type=="Admitted")].status}=True' \
-		route/model-serving-api-metrics-e2e -n $(NAMESPACE) --timeout=60s && \
-	MODEL_SERVING_API_URL=https://$$(oc get route model-serving-api-e2e -n $(NAMESPACE) \
+		route/model-serving-api-metrics-e2e -n '$(NAMESPACE)' --timeout=60s && \
+	MODEL_SERVING_API_URL=https://$$(oc get route model-serving-api-e2e -n '$(NAMESPACE)' \
 		-o jsonpath='{.spec.host}') && \
-	MODEL_SERVING_API_METRICS_URL=https://$$(oc get route model-serving-api-metrics-e2e -n $(NAMESPACE) \
+	MODEL_SERVING_API_METRICS_URL=https://$$(oc get route model-serving-api-metrics-e2e -n '$(NAMESPACE)' \
 		-o jsonpath='{.spec.host}') && \
 	echo "SERVER_URL=$$MODEL_SERVING_API_URL" && \
 	echo "METRICS_URL=$$MODEL_SERVING_API_METRICS_URL" && \
@@ -225,15 +225,19 @@ deploy: manifests kustomize ## Deploy controller to the K8s cluster specified in
 
 .PHONY: deploy-server
 deploy-server: kustomize ## Deploy model-serving-api to the K8s cluster specified in ~/.kube/config.
-	$(eval SERVER_IMG_DIGEST := $(shell $(CONTAINER_TOOL) inspect --format='{{index .RepoDigests 0}}' ${SERVER_IMG}))
-	@rm -rf $(LOCALBIN)/server-overlay && mkdir -p $(LOCALBIN)/server-overlay && \
-	cd $(LOCALBIN)/server-overlay && \
+	@SERVER_IMG_DIGEST="$$($(CONTAINER_TOOL) inspect --format='{{index .RepoDigests 0}}' '$(SERVER_IMG)' 2>/dev/null)"; \
+	if [ -z "$$SERVER_IMG_DIGEST" ]; then \
+		echo "Error: no repo digest found for '$(SERVER_IMG)'. Push the image first."; \
+		exit 1; \
+	fi; \
+	rm -rf '$(LOCALBIN)/server-overlay' && mkdir -p '$(LOCALBIN)/server-overlay' && \
+	cd '$(LOCALBIN)/server-overlay' && \
 	$(KUSTOMIZE) init && \
 	$(KUSTOMIZE) edit add resource ../../config/server && \
-	$(KUSTOMIZE) edit set namespace $(NAMESPACE) && \
-	$(KUSTOMIZE) edit set image controller=$(SERVER_IMG_DIGEST) && \
+	$(KUSTOMIZE) edit set namespace '$(NAMESPACE)' && \
+	$(KUSTOMIZE) edit set image "controller=$$SERVER_IMG_DIGEST" && \
 	$(KUSTOMIZE) build . | $(KUBECTL) apply -f -
-	$(KUBECTL) rollout status deployment/model-serving-api -n $(NAMESPACE) --timeout=120s
+	$(KUBECTL) rollout status deployment/model-serving-api -n '$(NAMESPACE)' --timeout=120s
 
 .PHONY: undeploy
 undeploy: kustomize ## Undeploy controller from the K8s cluster specified in ~/.kube/config. Call with ignore-not-found=true to ignore resource not found errors during deletion.

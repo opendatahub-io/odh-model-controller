@@ -38,14 +38,21 @@ type KubeDiscoverer struct {
 	GatewayLabelSelector map[string]string
 }
 
-// NewKubeDiscoverer creates a KubeDiscoverer after validating that required
-// dependencies are non-nil.
-func NewKubeDiscoverer(saClient client.Client, accessChecker AccessChecker, labelSelector map[string]string) (*KubeDiscoverer, error) {
-	if saClient == nil {
-		return nil, fmt.Errorf("SAClient must not be nil")
+// NewKubeDiscoverer creates a KubeDiscoverer with a SelfSubjectAccessChecker
+// built from the given REST config. It validates that required dependencies
+// are non-nil.
+func NewKubeDiscoverer(
+	restCfg *rest.Config, saClient client.Client, labelSelector map[string]string,
+) (*KubeDiscoverer, error) {
+	if restCfg == nil {
+		return nil, fmt.Errorf("rest config must not be nil")
 	}
-	if accessChecker == nil {
-		return nil, fmt.Errorf("AccessChecker must not be nil")
+	if saClient == nil {
+		return nil, fmt.Errorf("SA client must not be nil")
+	}
+	accessChecker, err := NewSelfSubjectAccessChecker(restCfg)
+	if err != nil {
+		return nil, fmt.Errorf("create access checker: %w", err)
 	}
 	return &KubeDiscoverer{
 		SAClient:             saClient,
