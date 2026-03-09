@@ -122,7 +122,15 @@ test-e2e-server: ## Run model-serving-api e2e tests. Requires the server deploye
 		--service=model-serving-api --port=https -n $(NAMESPACE) 2>/dev/null || true
 	@oc create route passthrough model-serving-api-metrics-e2e \
 		--service=model-serving-api --port=metrics -n $(NAMESPACE) 2>/dev/null || true
-	@MODEL_SERVING_API_URL=https://$$(oc get route model-serving-api-e2e -n $(NAMESPACE) \
+	@trap 'echo "Cleaning up routes..."; \
+		oc delete route model-serving-api-e2e -n $(NAMESPACE) 2>/dev/null || true; \
+		oc delete route model-serving-api-metrics-e2e -n $(NAMESPACE) 2>/dev/null || true' EXIT; \
+	echo "Waiting for routes to be admitted..." && \
+	oc wait --for='jsonpath={.status.ingress[0].conditions[?(@.type=="Admitted")].status}=True' \
+		route/model-serving-api-e2e -n $(NAMESPACE) --timeout=60s && \
+	oc wait --for='jsonpath={.status.ingress[0].conditions[?(@.type=="Admitted")].status}=True' \
+		route/model-serving-api-metrics-e2e -n $(NAMESPACE) --timeout=60s && \
+	MODEL_SERVING_API_URL=https://$$(oc get route model-serving-api-e2e -n $(NAMESPACE) \
 		-o jsonpath='{.spec.host}') && \
 	MODEL_SERVING_API_METRICS_URL=https://$$(oc get route model-serving-api-metrics-e2e -n $(NAMESPACE) \
 		-o jsonpath='{.spec.host}') && \
@@ -130,12 +138,7 @@ test-e2e-server: ## Run model-serving-api e2e tests. Requires the server deploye
 	echo "METRICS_URL=$$MODEL_SERVING_API_METRICS_URL" && \
 	MODEL_SERVING_API_URL=$$MODEL_SERVING_API_URL \
 	MODEL_SERVING_API_METRICS_URL=$$MODEL_SERVING_API_METRICS_URL \
-		go test -v -tags=e2e -parallel=12 ./server/test/e2e/ -v -count=1 ; \
-	rc=$$? ; \
-	echo "Cleaning up routes..." ; \
-	oc delete route model-serving-api-e2e -n $(NAMESPACE) 2>/dev/null || true ; \
-	oc delete route model-serving-api-metrics-e2e -n $(NAMESPACE) 2>/dev/null || true ; \
-	exit $$rc
+		go test -v -tags=e2e -parallel=12 ./server/test/e2e/ -v -count=1
 
 .PHONY: lint
 lint: golangci-lint ## Run golangci-lint linter
