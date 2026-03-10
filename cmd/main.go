@@ -148,6 +148,7 @@ func main() {
 		Logger: setupLog.WithName("MaaSRBACCleanup"),
 	}); err != nil {
 		setupLog.Error(err, "failed to add MaaS RBAC cleanup runner")
+		os.Exit(1)
 	}
 
 	if err := mgr.AddHealthzCheck("healthz", healthz.Ping); err != nil {

@@ -17,6 +17,7 @@ package llm
 
 import (
 	"context"
+	"fmt"
 	"strings"
 
 	"github.com/go-logr/logr"
@@ -62,25 +63,31 @@ type MaaSRBACCleanupRunner struct {
 func (r *MaaSRBACCleanupRunner) Start(ctx context.Context) error {
 	r.Logger.Info("Starting MaaS tier resource cleanup")
 
+	var errs []error
+
 	rolesRemoved, err := r.cleanupRoles(ctx)
 	if err != nil {
-		r.Logger.Error(err, "errors during Role cleanup")
+		errs = append(errs, fmt.Errorf("Role cleanup failed: %w", err))
 	}
 
 	roleBindingsRemoved, err := r.cleanupRoleBindings(ctx)
 	if err != nil {
-		r.Logger.Error(err, "errors during RoleBinding cleanup")
+		errs = append(errs, fmt.Errorf("RoleBinding cleanup failed: %w", err))
 	}
 
 	webhooksRemoved, err := r.cleanupWebhookEntries(ctx)
 	if err != nil {
-		r.Logger.Error(err, "errors during webhook cleanup")
+		errs = append(errs, fmt.Errorf("webhook cleanup failed: %w", err))
 	}
 
 	r.Logger.Info("MaaS tier resource cleanup completed",
 		"rolesRemoved", rolesRemoved,
 		"roleBindingsRemoved", roleBindingsRemoved,
 		"webhookEntriesRemoved", webhooksRemoved)
+
+	if len(errs) > 0 {
+		return fmt.Errorf("MaaS tier resource cleanup encountered errors: %v", errs)
+	}
 	return nil
 }
 
