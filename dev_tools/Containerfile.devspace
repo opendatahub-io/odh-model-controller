@@ -1,0 +1,5 @@
+FROM registry.access.redhat.com/ubi9/go-toolset:1.25
+USER root
+RUN mkdir /app && mkdir /.cache && chmod -R 777 /app && chmod -R 777 /.cache && chmod -R 777 /usr/local/bin
+RUN mkdir /.vscode-server && chmod 777 /.vscode-server && mkdir /.config && chmod 777 /.config
+RUN mkdir -p /opt/manifests && chmod -R 777 /opt/manifests
