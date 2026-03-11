@@ -101,6 +101,7 @@ func (r *MaaSRBACCleanupRunner) cleanupRoles(ctx context.Context) (int, error) {
 		return 0, err
 	}
 
+	var errs []error
 	removed := 0
 	for i := range roleList.Items {
 		role := &roleList.Items[i]
@@ -109,10 +110,13 @@ func (r *MaaSRBACCleanupRunner) cleanupRoles(ctx context.Context) (int, error) {
 		}
 		r.Logger.Info("Deleting legacy MaaS Role", "name", role.Name, "namespace", role.Namespace)
 		if err := r.Client.Delete(ctx, role); client.IgnoreNotFound(err) != nil {
-			r.Logger.Error(err, "failed to delete Role", "name", role.Name, "namespace", role.Namespace)
+			errs = append(errs, fmt.Errorf("failed to delete Role %s/%s: %w", role.Namespace, role.Name, err))
 			continue
 		}
 		removed++
+	}
+	if len(errs) > 0 {
+		return removed, fmt.Errorf("%v", errs)
 	}
 	return removed, nil
 }
@@ -123,6 +127,7 @@ func (r *MaaSRBACCleanupRunner) cleanupRoleBindings(ctx context.Context) (int, e
 		return 0, err
 	}
 
+	var errs []error
 	removed := 0
 	for i := range rbList.Items {
 		rb := &rbList.Items[i]
@@ -131,10 +136,13 @@ func (r *MaaSRBACCleanupRunner) cleanupRoleBindings(ctx context.Context) (int, e
 		}
 		r.Logger.Info("Deleting legacy MaaS RoleBinding", "name", rb.Name, "namespace", rb.Namespace)
 		if err := r.Client.Delete(ctx, rb); client.IgnoreNotFound(err) != nil {
-			r.Logger.Error(err, "failed to delete RoleBinding", "name", rb.Name, "namespace", rb.Namespace)
+			errs = append(errs, fmt.Errorf("failed to delete RoleBinding %s/%s: %w", rb.Namespace, rb.Name, err))
 			continue
 		}
 		removed++
+	}
+	if len(errs) > 0 {
+		return removed, fmt.Errorf("%v", errs)
 	}
 	return removed, nil
 }
