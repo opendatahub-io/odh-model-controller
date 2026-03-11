@@ -25,7 +25,8 @@ linters:
     - unused
   settings:
     goconst:
-      ignore-string-values: ^true$
+      ignore-string-values:
+        - ^true$
     revive:
       rules:
         - name: comment-spacings
