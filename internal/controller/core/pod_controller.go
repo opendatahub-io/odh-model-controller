@@ -106,7 +106,7 @@ func (r *PodReconciler) Reconcile(ctx context.Context, req reconcile.Request) (r
 	controllerNs := os.Getenv("POD_NAMESPACE")
 
 	pod := &corev1.Pod{}
-	if err := r.Client.Get(ctx, req.NamespacedName, pod); err != nil {
+	if err := r.Get(ctx, req.NamespacedName, pod); err != nil {
 		if errors.IsNotFound(err) {
 			return reconcile.Result{}, nil
 		}
@@ -123,7 +123,7 @@ func (r *PodReconciler) Reconcile(ctx context.Context, req reconcile.Request) (r
 func (r *PodReconciler) reconcileRayTls(ctx context.Context, logger logr.Logger, controllerNamespace, targetNamespace string, pod *corev1.Pod) error {
 	// Get the CA certificate secret
 	caCertSecret := &corev1.Secret{}
-	if err := r.Client.Get(ctx, types.NamespacedName{Name: constants.RayCASecretName, Namespace: controllerNamespace}, caCertSecret); err != nil {
+	if err := r.Get(ctx, types.NamespacedName{Name: constants.RayCASecretName, Namespace: controllerNamespace}, caCertSecret); err != nil {
 		logger.Error(err, "Failed to get ray CA secret", "secret", constants.RayCASecretName, "namespace", controllerNamespace)
 		return err
 	}

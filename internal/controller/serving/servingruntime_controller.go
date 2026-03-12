@@ -64,7 +64,7 @@ type ServingRuntimeReconciler struct {
 // RoleBindingsAreEqual checks if RoleBinding are equal, if not return false
 func RoleBindingsAreEqual(sm1 k8srbacv1.RoleBinding, sm2 k8srbacv1.RoleBinding) bool {
 	areEqual :=
-		reflect.DeepEqual(sm1.ObjectMeta.Labels, sm2.ObjectMeta.Labels) &&
+		reflect.DeepEqual(sm1.Labels, sm2.Labels) &&
 			reflect.DeepEqual(sm1.Subjects, sm2.Subjects) &&
 			reflect.DeepEqual(sm1.RoleRef, sm2.RoleRef)
 	return areEqual
@@ -97,7 +97,7 @@ func (r *ServingRuntimeReconciler) foundRB(ctx context.Context, actualRB *k8srba
 		Name:      RoleBindingName,
 		Namespace: ns,
 	}
-	err := r.Client.Get(ctx, namespacedName, actualRB)
+	err := r.Get(ctx, namespacedName, actualRB)
 	if apierrs.IsNotFound(err) {
 		return false, nil
 	} else if err != nil {
@@ -127,7 +127,7 @@ func (r *ServingRuntimeReconciler) createRBIfDNE(ctx context.Context, exists boo
 	}
 
 	// If it does exist but RoleBinding has changed, revert
-	err := r.Client.Update(ctx, desiredRB)
+	err := r.Update(ctx, desiredRB)
 	if apierrs.IsConflict(err) {
 		// may occur during if the RoleBinding was updated during this reconcile loop
 		logger.Error(err, "Failed to create/update RoleBinding: "+RoleBindingName+" due to resource conflict")
@@ -149,7 +149,7 @@ func (r *ServingRuntimeReconciler) reconcileRoleBinding(ctx context.Context, req
 	logger := log.FromContext(ctx)
 
 	ns := &corev1.Namespace{}
-	err := r.Client.Get(ctx, types.NamespacedName{Name: req.Namespace}, ns)
+	err := r.Get(ctx, types.NamespacedName{Name: req.Namespace}, ns)
 	if err != nil {
 		return err
 	}
@@ -245,7 +245,7 @@ func (r *ServingRuntimeReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 	namespacedName := types.NamespacedName{
 		Name: req.Namespace,
 	}
-	err := r.Client.Get(ctx, namespacedName, ns)
+	err := r.Get(ctx, namespacedName, ns)
 	if err != nil {
 		return ctrl.Result{}, err
 	}
@@ -262,7 +262,7 @@ func (r *ServingRuntimeReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 	}
 
 	var servingRuntimeList servingv1alpha1.ServingRuntimeList
-	if err := r.Client.List(ctx, &servingRuntimeList, &client.ListOptions{Namespace: req.Namespace}); err != nil {
+	if err := r.List(ctx, &servingRuntimeList, &client.ListOptions{Namespace: req.Namespace}); err != nil {
 		return ctrl.Result{}, err
 	}
 	multiNodeSRExistInNS := existMultiNodeServingRuntimeInNs(servingRuntimeList)
@@ -284,7 +284,7 @@ func (r *ServingRuntimeReconciler) reconcileMultiNodeSR(ctx context.Context, log
 		return createCaCertErr
 	}
 	caCertSecret := &corev1.Secret{}
-	err := r.Client.Get(ctx, types.NamespacedName{Name: constants.RayCASecretName, Namespace: controllerNamespace}, caCertSecret)
+	err := r.Get(ctx, types.NamespacedName{Name: constants.RayCASecretName, Namespace: controllerNamespace}, caCertSecret)
 	if err != nil {
 		logger.Error(err, "fail to get ray ca cert secret", "secret", constants.RayCASecretName, "namespace", controllerNamespace)
 		return err
@@ -304,14 +304,14 @@ func (r *ServingRuntimeReconciler) reconcileDefaultRayServerCertSecretInUserNS(c
 	if targetNamespace == controllerNamespace {
 		logger.Info("ray ca tls secret modified so ray tls cert need to be updated to sync ca.crt")
 		var servingRuntimeList servingv1alpha1.ServingRuntimeList
-		if err := r.Client.List(ctx, &servingRuntimeList); err != nil {
+		if err := r.List(ctx, &servingRuntimeList); err != nil {
 			return err
 		}
 		for _, sr := range servingRuntimeList.Items {
 			if isMultiNodeServingRuntime(sr) {
 				// Get existing secret from this namespace
 				existingSecret := &corev1.Secret{}
-				err := r.Client.Get(ctx, types.NamespacedName{
+				err := r.Get(ctx, types.NamespacedName{
 					Name:      constants.RayTLSSecretName,
 					Namespace: sr.Namespace,
 				}, existingSecret)
@@ -330,7 +330,7 @@ func (r *ServingRuntimeReconciler) reconcileDefaultRayServerCertSecretInUserNS(c
 					rayCaCertNameInUserNS: caCertSecret.Data[corev1.TLSCertKey],
 				}
 
-				if err := r.Client.Update(ctx, existingSecret); err != nil {
+				if err := r.Update(ctx, existingSecret); err != nil {
 					logger.Error(err, "fail to update ray tls secret", "secret", constants.RayTLSSecretName, "namespace", sr.Namespace)
 					return err
 				}
@@ -342,9 +342,9 @@ func (r *ServingRuntimeReconciler) reconcileDefaultRayServerCertSecretInUserNS(c
 	if multiNodeSRExistInNS {
 		// it creates a ray tls secret with ca cert in the user namespace where multinode runtime created.
 		defaultCertSecret := &corev1.Secret{}
-		if err := r.Client.Get(ctx, types.NamespacedName{Name: constants.RayTLSSecretName, Namespace: targetNamespace}, defaultCertSecret); err != nil {
+		if err := r.Get(ctx, types.NamespacedName{Name: constants.RayTLSSecretName, Namespace: targetNamespace}, defaultCertSecret); err != nil {
 			if apierrs.IsNotFound(err) {
-				if err := r.Client.Create(ctx, rayDefaultSecret); err != nil {
+				if err := r.Create(ctx, rayDefaultSecret); err != nil {
 					logger.Error(err, "fail to create ray tls secret", "secret", constants.RayTLSSecretName, "namespace", targetNamespace)
 					return err
 				}
@@ -357,7 +357,7 @@ func (r *ServingRuntimeReconciler) reconcileDefaultRayServerCertSecretInUserNS(c
 			if !bytes.Equal(caCertSecret.Data[corev1.TLSCertKey], defaultCertSecret.Data[rayCaCertNameInUserNS]) {
 				updatedDefaultCertSecret := defaultCertSecret.DeepCopy()
 				updatedDefaultCertSecret.Data[rayCaCertNameInUserNS] = caCertSecret.Data[corev1.TLSCertKey]
-				if err := r.Client.Update(ctx, updatedDefaultCertSecret); err != nil {
+				if err := r.Update(ctx, updatedDefaultCertSecret); err != nil {
 					logger.Error(err, "fail to update ray tls secret", "secret", constants.RayTLSSecretName, "namespace", targetNamespace)
 					return err
 				}
@@ -365,7 +365,7 @@ func (r *ServingRuntimeReconciler) reconcileDefaultRayServerCertSecretInUserNS(c
 		}
 	} else {
 		if !utils.IsRayTLSSecret(reqName) {
-			if err := r.Client.Delete(ctx, rayDefaultSecret); err != nil {
+			if err := r.Delete(ctx, rayDefaultSecret); err != nil {
 				if apierrs.IsNotFound(err) {
 					return nil
 				}

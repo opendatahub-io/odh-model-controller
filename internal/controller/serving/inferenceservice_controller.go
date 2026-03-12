@@ -107,7 +107,7 @@ func (r *InferenceServiceReconciler) ReconcileServing(ctx context.Context, req c
 	// Get the InferenceService object when a reconciliation event is triggered (create,
 	// update, delete)
 	isvc := &kservev1beta1.InferenceService{}
-	err := r.Client.Get(ctx, req.NamespacedName, isvc)
+	err := r.Get(ctx, req.NamespacedName, isvc)
 	if err != nil && apierrs.IsNotFound(err) {
 		logger.Info("Stop InferenceService reconciliation")
 		// InferenceService not found, so we check for any other inference services that might be using Kserve
@@ -129,7 +129,7 @@ func (r *InferenceServiceReconciler) ReconcileServing(ctx context.Context, req c
 		logger.Info("Adding Finalizer")
 		if !controllerutil.ContainsFinalizer(isvc, constants.InferenceServiceODHFinalizerName) {
 			controllerutil.AddFinalizer(isvc, constants.InferenceServiceODHFinalizerName)
-			patchYaml := "metadata:\n  finalizers: [" + strings.Join(isvc.ObjectMeta.Finalizers, ",") + "]"
+			patchYaml := "metadata:\n  finalizers: [" + strings.Join(isvc.Finalizers, ",") + "]"
 			patchJson, _ := yaml.YAMLToJSON([]byte(patchYaml))
 			if err := r.Patch(ctx, isvc, client.RawPatch(types.MergePatchType, patchJson)); err != nil {
 				return reconcile.Result{}, err
@@ -149,7 +149,7 @@ func (r *InferenceServiceReconciler) ReconcileServing(ctx context.Context, req c
 				deleteErrors = multierror.Append(deleteErrors, err1)
 			}
 			controllerutil.RemoveFinalizer(isvc, constants.InferenceServiceODHFinalizerName)
-			patchYaml := "metadata:\n  finalizers: [" + strings.Join(isvc.ObjectMeta.Finalizers, ",") + "]"
+			patchYaml := "metadata:\n  finalizers: [" + strings.Join(isvc.Finalizers, ",") + "]"
 			patchJson, _ := yaml.YAMLToJSON([]byte(patchYaml))
 			if err := r.Patch(ctx, isvc, client.RawPatch(types.MergePatchType, patchJson)); err != nil {
 				return reconcile.Result{}, err
@@ -255,7 +255,7 @@ func (r *InferenceServiceReconciler) SetupWithManager(mgr ctrl.Manager, setupLog
 				logger := log.FromContext(ctx)
 				logger.Info("Reconcile event triggered by Secret: " + o.GetName())
 				isvc := &kservev1beta1.InferenceService{}
-				err := r.Client.Get(ctx, types.NamespacedName{Name: o.GetName(), Namespace: o.GetNamespace()}, isvc)
+				err := r.Get(ctx, types.NamespacedName{Name: o.GetName(), Namespace: o.GetNamespace()}, isvc)
 				if err != nil {
 					if apierrs.IsNotFound(err) {
 						return []reconcile.Request{}
@@ -293,7 +293,7 @@ func (r *InferenceServiceReconciler) onDeletion(ctx context.Context, log logr.Lo
 func (r *InferenceServiceReconciler) DeleteResourcesIfNoIsvcExists(ctx context.Context, log logr.Logger, namespace string) error {
 	// Get all InferenceServices in the namespace
 	inferenceServiceList := &kservev1beta1.InferenceServiceList{}
-	if err := r.Client.List(ctx, inferenceServiceList, client.InNamespace(namespace)); err != nil {
+	if err := r.List(ctx, inferenceServiceList, client.InNamespace(namespace)); err != nil {
 		return err
 	}
 
