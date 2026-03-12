@@ -41,7 +41,7 @@ deployments:
 vars:
   GOCACHE:
     source: env
-    default: /tmp/.cache
+    default: /tmp/.cache/go-build
   GOPROXY:
     source: env
     default: https://proxy.golang.org,direct
@@ -55,7 +55,7 @@ dev:
     labelSelector:
       control-plane: odh-model-controller
     # Replace the container image with this dev-optimized image (allows to skip image building during development)
-    devImage: quay.io/rh-ee-allausas/golang:1.24.6-devspace-toolset
+    devImage: quay.io/jostrandquay/golang:1.25-devspace-toolset
     # Sync files between the local filesystem and the development container
     sync:
       - path: ../:/app
@@ -82,6 +82,13 @@ dev:
       limits:
         cpu: "2.5"
         memory: 4Gi
+    env:
+      - name: GOCACHE
+        value: ${GOCACHE}
+      - name: GOPATH
+        value: /tmp/go
+      - name: GOPROXY
+        value: ${GOPROXY}
     patches:
       - op: replace
         path: spec.securityContext.runAsNonRoot
