@@ -1,8 +1,6 @@
 version: "2"
-
 run:
   allow-parallel-runners: true
-
 linters:
   default: none
   enable:
@@ -45,11 +43,14 @@ linters:
           - dupl
           - lll
         path: internal/*
+      - linters:
+          - staticcheck
+        text: "ST1001"
+        path: "(test/|_test\\.go|internal/controller/testing/)"
     paths:
       - third_party$
       - builtin$
       - examples$
-
 formatters:
   enable:
     - gofmt
