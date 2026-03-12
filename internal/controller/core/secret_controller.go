@@ -82,7 +82,7 @@ func newStorageSecret(dataConnectionSecretsList *corev1.SecretList, kserveCustom
 
 // CompareStorageSecrets checks if two secrets are equal, if not return false
 func CompareStorageSecrets(s1 corev1.Secret, s2 corev1.Secret) bool {
-	return reflect.DeepEqual(s1.ObjectMeta.Labels, s2.ObjectMeta.Labels) && reflect.DeepEqual(s1.Data, s2.Data)
+	return reflect.DeepEqual(s1.Labels, s2.Labels) && reflect.DeepEqual(s1.Data, s2.Data)
 }
 
 // reconcileSecret grabs all data connection secrets in the triggering namespace and
@@ -172,7 +172,7 @@ func (r *SecretReconciler) reconcileSecret(secret *corev1.Secret,
 			}
 			// Reconcile labels and spec field
 			foundStorageSecret.Data = desiredStorageSecret.Data
-			foundStorageSecret.ObjectMeta.Labels = desiredStorageSecret.ObjectMeta.Labels
+			foundStorageSecret.Labels = desiredStorageSecret.Labels
 			return r.Update(ctx, foundStorageSecret)
 		})
 		if err != nil {

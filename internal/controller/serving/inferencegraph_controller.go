@@ -57,7 +57,7 @@ func (r *InferenceGraphReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 	logger := log.FromContext(ctx).WithValues("InferenceGraph", req.Name, "namespace", req.Namespace)
 
 	ig := &servingv1alpha1.InferenceGraph{}
-	err := r.Client.Get(ctx, req.NamespacedName, ig)
+	err := r.Get(ctx, req.NamespacedName, ig)
 	if err != nil && apierrs.IsNotFound(err) {
 		if apierrs.IsNotFound(err) {
 			return ctrl.Result{}, nil

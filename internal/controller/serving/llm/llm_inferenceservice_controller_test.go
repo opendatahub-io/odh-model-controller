@@ -60,9 +60,9 @@ var _ = Describe("LLMInferenceService Controller", func() {
 		// Clean up LLMInferenceServices to prevent cross-test interference
 		// from watches (Gateway, ConfigMap) that list all services
 		llmList := &kservev1alpha1.LLMInferenceServiceList{}
-		if err := envTest.Client.List(ctx, llmList, client.InNamespace(testNs)); err == nil {
+		if err := envTest.List(ctx, llmList, client.InNamespace(testNs)); err == nil {
 			for i := range llmList.Items {
-				_ = envTest.Client.Delete(ctx, &llmList.Items[i])
+				_ = envTest.Delete(ctx, &llmList.Items[i])
 			}
 		}
 	})

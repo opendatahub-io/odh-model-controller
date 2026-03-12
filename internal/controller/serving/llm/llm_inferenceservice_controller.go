@@ -80,7 +80,7 @@ func (r *LLMInferenceServiceReconciler) Reconcile(ctx context.Context, req ctrl.
 	logger := log.FromContext(ctx).WithValues("LLMInferenceService", req.Name, "namespace", req.Namespace)
 
 	llmisvc := &kservev1alpha1.LLMInferenceService{}
-	err := r.Client.Get(ctx, req.NamespacedName, llmisvc)
+	err := r.Get(ctx, req.NamespacedName, llmisvc)
 	if err != nil && apierrs.IsNotFound(err) {
 		logger.Info("Stop LLMInferenceService reconciliation")
 		return ctrl.Result{}, nil
@@ -263,7 +263,7 @@ func (r *LLMInferenceServiceReconciler) globalResync(setupLog logr.Logger) handl
 	return handler.EnqueueRequestsFromMapFunc(func(ctx context.Context, object client.Object) []reconcile.Request {
 
 		llmSvcList := &kservev1alpha1.LLMInferenceServiceList{}
-		if err := r.Client.List(ctx, llmSvcList); err != nil {
+		if err := r.List(ctx, llmSvcList); err != nil {
 			setupLog.Error(err, "Failed to list LLMInferenceService")
 			return nil
 		}
@@ -305,7 +305,7 @@ func (r *LLMInferenceServiceReconciler) enqueueOnGatewayChange() handler.EventHa
 		// Use pagination to handle large numbers of services efficiently
 		for {
 			llmSvcList := &kservev1alpha1.LLMInferenceServiceList{}
-			if err := r.Client.List(ctx, llmSvcList, &client.ListOptions{Continue: continueToken}); err != nil {
+			if err := r.List(ctx, llmSvcList, &client.ListOptions{Continue: continueToken}); err != nil {
 				logger.Error(err, "Failed to list LLMInferenceService for gateway change")
 				return nil
 			}
@@ -375,7 +375,7 @@ func (r *LLMInferenceServiceReconciler) Cleanup(ctx context.Context, log logr.Lo
 
 func (r *LLMInferenceServiceReconciler) DeleteResourcesIfNoLLMIsvcExists(ctx context.Context, log logr.Logger, namespace string) error {
 	llmInferenceServiceList := &kservev1alpha1.LLMInferenceServiceList{}
-	if err := r.Client.List(ctx, llmInferenceServiceList, client.InNamespace(namespace)); err != nil {
+	if err := r.List(ctx, llmInferenceServiceList, client.InNamespace(namespace)); err != nil {
 		return err
 	}
 
@@ -401,14 +401,14 @@ func (r *LLMInferenceServiceReconciler) DeleteResourcesIfNoLLMIsvcExists(ctx con
 // TODO: Reuse logic in Kserve, currently private and not very reusable.
 func (k *LLMInferenceServiceReconciler) getConfig(ctx context.Context, llmisvc *kservev1alpha1.LLMInferenceService, name string) (*kservev1alpha1.LLMInferenceServiceConfig, error) {
 	cfg := &kservev1alpha1.LLMInferenceServiceConfig{}
-	if err := k.Client.Get(ctx, client.ObjectKey{Name: name, Namespace: llmisvc.Namespace}, cfg); err != nil {
+	if err := k.Get(ctx, client.ObjectKey{Name: name, Namespace: llmisvc.Namespace}, cfg); err != nil {
 		if apierrs.IsNotFound(err) {
 			systemNamespace := os.Getenv("POD_NAMESPACE")
 			if systemNamespace == "" {
 				return nil, nil
 			}
 			cfg = &kservev1alpha1.LLMInferenceServiceConfig{}
-			if err := k.Client.Get(ctx, client.ObjectKey{Name: name, Namespace: systemNamespace}, cfg); err != nil {
+			if err := k.Get(ctx, client.ObjectKey{Name: name, Namespace: systemNamespace}, cfg); err != nil {
 				return nil, fmt.Errorf("failed to get LLMInferenceServiceConfig %q from namespaces [%q, %q]: %w", name, llmisvc.Namespace, systemNamespace, err)
 			}
 			return cfg, nil
