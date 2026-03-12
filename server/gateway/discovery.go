@@ -33,7 +33,7 @@ const discoveryTimeout = 5 * time.Second
 
 // KubeDiscoverer implements Discoverer using Kubernetes API calls.
 type KubeDiscoverer struct {
-	SAClient             client.Client
+	Client               client.Client
 	AccessChecker        AccessChecker
 	GatewayLabelSelector map[string]string
 }
@@ -42,12 +42,12 @@ type KubeDiscoverer struct {
 // built from the given REST config. It validates that required dependencies
 // are non-nil.
 func NewKubeDiscoverer(
-	restCfg *rest.Config, saClient client.Client, labelSelector map[string]string,
+	restCfg *rest.Config, cli client.Client, labelSelector map[string]string,
 ) (*KubeDiscoverer, error) {
 	if restCfg == nil {
 		return nil, fmt.Errorf("rest config must not be nil")
 	}
-	if saClient == nil {
+	if cli == nil {
 		return nil, fmt.Errorf("SA client must not be nil")
 	}
 	accessChecker, err := NewSelfSubjectAccessChecker(restCfg)
@@ -55,7 +55,7 @@ func NewKubeDiscoverer(
 		return nil, fmt.Errorf("create access checker: %w", err)
 	}
 	return &KubeDiscoverer{
-		SAClient:             saClient,
+		Client:               cli,
 		AccessChecker:        accessChecker,
 		GatewayLabelSelector: labelSelector,
 	}, nil
@@ -88,7 +88,7 @@ func (d *KubeDiscoverer) Discover(ctx context.Context, userToken, targetNamespac
 	var nsLabels map[string]string
 	if NeedsNamespaceLabels(gateways) {
 		var ns corev1.Namespace
-		if err := d.SAClient.Get(ctx, types.NamespacedName{Name: targetNamespace}, &ns); err != nil {
+		if err := d.Client.Get(ctx, types.NamespacedName{Name: targetNamespace}, &ns); err != nil {
 			return nil, fmt.Errorf("get namespace: %w", err)
 		}
 		nsLabels = ns.Labels
@@ -111,7 +111,7 @@ func (d *KubeDiscoverer) listAllGateways(ctx context.Context) ([]gatewayapiv1.Ga
 	if len(d.GatewayLabelSelector) > 0 {
 		opts = append(opts, client.MatchingLabels(d.GatewayLabelSelector))
 	}
-	if err := d.SAClient.List(ctx, &list, opts...); err != nil {
+	if err := d.Client.List(ctx, &list, opts...); err != nil {
 		return nil, err
 	}
 	return list.Items, nil
@@ -172,6 +172,10 @@ func (c *SelfSubjectAccessChecker) CheckAccess(ctx context.Context, userToken, n
 		Create(ctx, review, metav1.CreateOptions{})
 	if err != nil {
 		return false, fmt.Errorf("self subject access review: %w", err)
+	}
+
+	if result.Status.EvaluationError != "" {
+		return false, fmt.Errorf("access review evaluation error: %s", result.Status.EvaluationError)
 	}
 
 	return result.Status.Allowed, nil

@@ -8,11 +8,15 @@ import (
 
 type statusRecorder struct {
 	http.ResponseWriter
-	statusCode int
+	statusCode  int
+	wroteHeader bool
 }
 
 func (r *statusRecorder) WriteHeader(code int) {
-	r.statusCode = code
+	if !r.wroteHeader {
+		r.statusCode = code
+		r.wroteHeader = true
+	}
 	r.ResponseWriter.WriteHeader(code)
 }
 

@@ -19,13 +19,13 @@ spec:
           whenUnsatisfiable: ScheduleAnyway
           labelSelector:
             matchLabels:
-              app.kubernetes.io/name: model-serving-api
+              app: model-serving-api
         - maxSkew: 1
           topologyKey: kubernetes.io/hostname
           whenUnsatisfiable: ScheduleAnyway
           labelSelector:
             matchLabels:
-              app.kubernetes.io/name: model-serving-api
+              app: model-serving-api
       securityContext:
         runAsNonRoot: true
         seccompProfile:

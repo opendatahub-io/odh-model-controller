@@ -18,6 +18,10 @@ type GatewayHandler struct {
 }
 
 func (h *GatewayHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	if h == nil || h.Discoverer == nil {
+		common.WriteJSONError(w, http.StatusInternalServerError, "service unavailable")
+		return
+	}
 	if r.Method != http.MethodGet {
 		common.WriteJSONError(w, http.StatusMethodNotAllowed, "method not allowed")
 		return

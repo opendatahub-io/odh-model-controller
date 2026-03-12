@@ -5,9 +5,9 @@ alongside the odh-model-controller.
 
 ## Features
 
-- [Gateway Discovery](features/gateway-discovery/README.md) — discover Kubernetes Gateway resources usable by a given
+- [Gateway Discovery](docs/features/gateway-discovery/README.md) — discover Kubernetes Gateway resources usable by a given
   user and target namespace
-- [Observability](features/observability/README.md) — Prometheus metrics and optional OTLP tracing via OpenTelemetry
+- [Observability](docs/features/observability/README.md) — Prometheus metrics and optional OTLP tracing via OpenTelemetry
 
 ## Project Structure
 

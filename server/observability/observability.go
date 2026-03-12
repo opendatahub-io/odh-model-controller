@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/tls"
 	"errors"
+	"fmt"
 	"log/slog"
 	"net/http"
 	"time"
@@ -45,13 +46,13 @@ func Setup(ctx context.Context, cfg Config) (shutdown func(context.Context) erro
 		),
 	)
 	if err != nil {
-		return nil, errors.Join(errors.New("failed to create otel resource"), err)
+		return nil, fmt.Errorf("failed to create otel resource: %w", err)
 	}
 
 	// Prometheus exporter registers a collector with the default Prometheus registry.
 	promExporter, err := otelprometheus.New()
 	if err != nil {
-		return nil, errors.Join(errors.New("failed to create prometheus exporter"), err)
+		return nil, fmt.Errorf("failed to create prometheus exporter: %w", err)
 	}
 
 	meterProvider := metric.NewMeterProvider(
@@ -68,7 +69,7 @@ func Setup(ctx context.Context, cfg Config) (shutdown func(context.Context) erro
 			otlpgrpc.WithEndpoint(cfg.OTLPEndpoint),
 		)
 		if err != nil {
-			return nil, errors.Join(errors.New("failed to create otlp trace exporter"), err)
+			return nil, fmt.Errorf("failed to create otlp trace exporter: %w", err)
 		}
 
 		tracerProvider := sdktrace.NewTracerProvider(

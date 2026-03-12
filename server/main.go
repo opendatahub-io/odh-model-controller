@@ -38,14 +38,20 @@ func main() {
 	utilruntime.Must(corev1.AddToScheme(scheme))
 
 	restCfg := ctrl.GetConfigOrDie()
+	if cfg.KubeQPS > 0 {
+		restCfg.QPS = cfg.KubeQPS
+	}
+	if cfg.KubeBurst > 0 {
+		restCfg.Burst = cfg.KubeBurst
+	}
 
-	saClient, err := client.New(restCfg, client.Options{Scheme: scheme})
+	cli, err := client.New(restCfg, client.Options{Scheme: scheme})
 	if err != nil {
 		slog.Error("failed to create kubernetes client", "error", err)
 		os.Exit(1)
 	}
 
-	discoverer, err := gateway.NewKubeDiscoverer(restCfg, saClient, cfg.GatewayLabelSelector)
+	discoverer, err := gateway.NewKubeDiscoverer(restCfg, cli, cfg.GatewayLabelSelector)
 	if err != nil {
 		slog.Error("failed to create gateway discoverer", "error", err)
 		os.Exit(1)
@@ -117,13 +123,13 @@ func main() {
 	shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
-	if err := shutdownTelemetry(shutdownCtx); err != nil {
-		slog.Error("telemetry shutdown error", "error", err)
-	}
-
 	if err := srv.Shutdown(shutdownCtx); err != nil {
 		slog.Error("shutdown error", "error", err)
 		os.Exit(1)
+	}
+
+	if err := shutdownTelemetry(shutdownCtx); err != nil {
+		slog.Error("telemetry shutdown error", "error", err)
 	}
 }
 

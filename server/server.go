@@ -3,6 +3,7 @@ package main
 import (
 	"crypto/tls"
 	"net/http"
+	"time"
 
 	"go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp"
 
@@ -27,12 +28,13 @@ func NewServer(cfg Config, discoverer gateway.Discoverer, tlsConfig *tls.Config)
 	)
 
 	return &http.Server{
-		Addr:           cfg.ListenAddr,
-		Handler:        handler,
-		TLSConfig:      tlsConfig,
-		ReadTimeout:    cfg.ReadTimeout,
-		WriteTimeout:   cfg.WriteTimeout,
-		IdleTimeout:    cfg.IdleTimeout,
-		MaxHeaderBytes: 8 << 10, // 8 KB
+		Addr:              cfg.ListenAddr,
+		Handler:           handler,
+		TLSConfig:         tlsConfig,
+		ReadHeaderTimeout: 5 * time.Second,
+		ReadTimeout:       cfg.ReadTimeout,
+		WriteTimeout:      cfg.WriteTimeout,
+		IdleTimeout:       cfg.IdleTimeout,
+		MaxHeaderBytes:    8 << 10, // 8 KB
 	}
 }

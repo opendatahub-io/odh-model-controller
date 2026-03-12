@@ -3,6 +3,7 @@ package main
 import (
 	"fmt"
 	"os"
+	"strconv"
 	"strings"
 	"time"
 
@@ -18,8 +19,10 @@ type Config struct {
 	WriteTimeout         time.Duration
 	IdleTimeout          time.Duration
 	GatewayLabelSelector map[string]string
-	MetricsAddr          string // HTTPS address for Prometheus /metrics endpoint
-	OTLPEndpoint         string // Optional OTLP collector endpoint; enables trace export when set
+	MetricsAddr          string  // HTTPS address for Prometheus /metrics endpoint
+	OTLPEndpoint         string  // Optional OTLP collector endpoint; enables trace export when set
+	KubeQPS              float32 // K8s client QPS throttle (default: 50)
+	KubeBurst            int     // K8s client burst above QPS (default: 100)
 }
 
 // LoadConfig reads configuration from environment variables with defaults.
@@ -46,6 +49,16 @@ func LoadConfig() (Config, error) {
 	cfg.IdleTimeout, err = parseDurationEnv("IDLE_TIMEOUT", 120*time.Second)
 	if err != nil {
 		return Config{}, fmt.Errorf("invalid IDLE_TIMEOUT: %w", err)
+	}
+
+	cfg.KubeQPS, err = parseFloat32Env("KUBE_QPS", 50)
+	if err != nil {
+		return Config{}, fmt.Errorf("invalid KUBE_QPS: %w", err)
+	}
+
+	cfg.KubeBurst, err = parseIntEnv("KUBE_BURST", 100)
+	if err != nil {
+		return Config{}, fmt.Errorf("invalid KUBE_BURST: %w", err)
 	}
 
 	labelSelector := os.Getenv("GATEWAY_LABEL_SELECTOR")
@@ -80,6 +93,36 @@ func parseDurationEnv(key string, defaultValue time.Duration) (time.Duration, er
 		return 0, fmt.Errorf("must be > 0")
 	}
 	return d, nil
+}
+
+func parseFloat32Env(key string, defaultValue float32) (float32, error) {
+	v := os.Getenv(key)
+	if v == "" {
+		return defaultValue, nil
+	}
+	f, err := strconv.ParseFloat(v, 32)
+	if err != nil {
+		return 0, err
+	}
+	if f < 0 {
+		return 0, fmt.Errorf("must be >= 0")
+	}
+	return float32(f), nil
+}
+
+func parseIntEnv(key string, defaultValue int) (int, error) {
+	v := os.Getenv(key)
+	if v == "" {
+		return defaultValue, nil
+	}
+	n, err := strconv.Atoi(v)
+	if err != nil {
+		return 0, err
+	}
+	if n < 0 {
+		return 0, fmt.Errorf("must be >= 0")
+	}
+	return n, nil
 }
 
 // parseLabelSelector parses a comma-separated list of key=value pairs.

@@ -54,7 +54,7 @@ func NewCertReloader(ctx context.Context, path string, init *tls.Certificate) (*
 			case ev := <-w.Events:
 				slog.Debug("cert changed", "event", ev, "path", path)
 
-				if ev.Op&(fsnotify.Write|fsnotify.Create) == 0 {
+				if ev.Op&(fsnotify.Write|fsnotify.Create|fsnotify.Rename|fsnotify.Remove) == 0 {
 					continue
 				}
 
@@ -78,6 +78,9 @@ func NewCertReloader(ctx context.Context, path string, init *tls.Certificate) (*
 					slog.Error("cert watcher failed", "path", path, "error", err)
 				}
 			case <-ctx.Done():
+				if debounceTimer != nil {
+					debounceTimer.Stop()
+				}
 				return
 			}
 		}

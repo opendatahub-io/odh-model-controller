@@ -65,7 +65,6 @@ jobs:
             ${{ env.REGISTRY_NAME }}/${{ env.REPO_NAME }}/${{ env.IMAGE_NAME }}:${{ env.TAG }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
-          debug: true
 
       - name: Build and push model-serving-api image
         uses: docker/build-push-action@v6
@@ -78,4 +77,3 @@ jobs:
             ${{ env.REGISTRY_NAME }}/${{ env.REPO_NAME }}/${{ env.MODEL_SERVING_API_IMAGE_NAME }}:${{ env.TAG }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
-          debug: true
