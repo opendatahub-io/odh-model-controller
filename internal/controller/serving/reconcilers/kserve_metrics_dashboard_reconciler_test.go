@@ -316,7 +316,7 @@ func createServingRuntime(name string, annotations map[string]string) *kservev1a
 		},
 	}
 	if strings.Contains(name, "nim") {
-		sr.ObjectMeta.Annotations = annotations
+		sr.Annotations = annotations
 	} else {
 		sr.Spec.Annotations = annotations
 	}

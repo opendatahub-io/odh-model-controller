@@ -168,13 +168,13 @@ func HTTPRoute(name string, opts ...HTTPRouteOption) *gatewayapi.HTTPRoute {
 
 func WithParentRef(ref gatewayapi.ParentReference) HTTPRouteOption {
 	return func(route *gatewayapi.HTTPRoute) {
-		route.Spec.CommonRouteSpec.ParentRefs = append(route.Spec.CommonRouteSpec.ParentRefs, ref)
+		route.Spec.ParentRefs = append(route.Spec.ParentRefs, ref)
 	}
 }
 
 func WithParentRefs(refs ...gatewayapi.ParentReference) HTTPRouteOption {
 	return func(route *gatewayapi.HTTPRoute) {
-		route.Spec.CommonRouteSpec.ParentRefs = refs
+		route.Spec.ParentRefs = refs
 	}
 }
 
@@ -480,7 +480,7 @@ func WithHTTPRouteParentStatus(parentRef gatewayapi.ParentReference, controllerN
 			ControllerName: gatewayapi.GatewayController(controllerName),
 			Conditions:     conditions,
 		}
-		route.Status.RouteStatus.Parents = append(route.Status.RouteStatus.Parents, parentStatus)
+		route.Status.Parents = append(route.Status.Parents, parentStatus)
 	}
 }
 
@@ -488,9 +488,9 @@ func WithHTTPRouteParentStatus(parentRef gatewayapi.ParentReference, controllerN
 func WithHTTPRouteReadyStatus(controllerName string) HTTPRouteOption {
 	return func(route *gatewayapi.HTTPRoute) {
 		if len(route.Spec.ParentRefs) > 0 {
-			route.Status.RouteStatus.Parents = make([]gatewayapi.RouteParentStatus, len(route.Spec.ParentRefs))
+			route.Status.Parents = make([]gatewayapi.RouteParentStatus, len(route.Spec.ParentRefs))
 			for i, parentRef := range route.Spec.ParentRefs {
-				route.Status.RouteStatus.Parents[i] = gatewayapi.RouteParentStatus{
+				route.Status.Parents[i] = gatewayapi.RouteParentStatus{
 					ParentRef:      parentRef,
 					ControllerName: gatewayapi.GatewayController(controllerName),
 					Conditions: []metav1.Condition{
@@ -570,9 +570,9 @@ func WithGatewayNotReadyStatus(reason, message string) GatewayOption {
 func WithHTTPRouteNotReadyStatus(controllerName, reason, message string) HTTPRouteOption {
 	return func(route *gatewayapi.HTTPRoute) {
 		if len(route.Spec.ParentRefs) > 0 {
-			route.Status.RouteStatus.Parents = make([]gatewayapi.RouteParentStatus, len(route.Spec.ParentRefs))
+			route.Status.Parents = make([]gatewayapi.RouteParentStatus, len(route.Spec.ParentRefs))
 			for i, parentRef := range route.Spec.ParentRefs {
-				route.Status.RouteStatus.Parents[i] = gatewayapi.RouteParentStatus{
+				route.Status.Parents[i] = gatewayapi.RouteParentStatus{
 					ParentRef:      parentRef,
 					ControllerName: gatewayapi.GatewayController(controllerName),
 					Conditions: []metav1.Condition{
