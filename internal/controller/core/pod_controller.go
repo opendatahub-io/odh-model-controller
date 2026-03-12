@@ -78,7 +78,7 @@ func reconcileServingPod() predicate.Predicate {
 
 func checkPodHasIP(oldPod *corev1.Pod, newPod *corev1.Pod) bool {
 	if oldPod != nil {
-		return !(oldPod.Status.PodIP == newPod.Status.PodIP)
+		return oldPod.Status.PodIP != newPod.Status.PodIP
 	}
 
 	return newPod.Status.PodIP != ""
