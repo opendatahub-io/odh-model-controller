@@ -20,7 +20,7 @@ import (
 	"fmt"
 
 	"github.com/go-logr/logr"
-	kservev1alpha1 "github.com/kserve/kserve/pkg/apis/serving/v1alpha1"
+	kservev1alpha2 "github.com/kserve/kserve/pkg/apis/serving/v1alpha2"
 	istioclientv1alpha3 "istio.io/client-go/pkg/apis/networking/v1alpha3"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -57,7 +57,7 @@ func NewKserveEnvoyFilterReconciler(client client.Client, scheme *runtime.Scheme
 	}
 }
 
-func (r *KserveEnvoyFilterReconciler) Reconcile(ctx context.Context, log logr.Logger, llmisvc *kservev1alpha1.LLMInferenceService) error {
+func (r *KserveEnvoyFilterReconciler) Reconcile(ctx context.Context, log logr.Logger, llmisvc *kservev1alpha2.LLMInferenceService) error {
 	log.V(1).Info("Starting EnvoyFilter reconciliation for LLMInferenceService")
 
 	if err := r.reconcileGatewayEnvoyFilter(ctx, log, llmisvc); err != nil {
@@ -68,7 +68,7 @@ func (r *KserveEnvoyFilterReconciler) Reconcile(ctx context.Context, log logr.Lo
 	return nil
 }
 
-func (r *KserveEnvoyFilterReconciler) reconcileGatewayEnvoyFilter(ctx context.Context, log logr.Logger, llmisvc *kservev1alpha1.LLMInferenceService) error {
+func (r *KserveEnvoyFilterReconciler) reconcileGatewayEnvoyFilter(ctx context.Context, log logr.Logger, llmisvc *kservev1alpha2.LLMInferenceService) error {
 	log.V(1).Info("Reconciling Gateway EnvoyFilter")
 
 	gateways := utils.GetGatewaysForLLMIsvc(ctx, r.client, llmisvc)
@@ -138,7 +138,7 @@ func (r *KserveEnvoyFilterReconciler) deleteEnvoyFilterIfManaged(ctx context.Con
 	return nil
 }
 
-func (r *KserveEnvoyFilterReconciler) Delete(ctx context.Context, log logr.Logger, llmisvc *kservev1alpha1.LLMInferenceService) error {
+func (r *KserveEnvoyFilterReconciler) Delete(ctx context.Context, log logr.Logger, llmisvc *kservev1alpha2.LLMInferenceService) error {
 	log.V(1).Info("EnvoyFilter cleanup is handled by Gateway OwnerReference")
 	// Gateway OwnerReference handles cleanup automatically when Gateway is deleted
 	// EnvoyFilters persist as long as Gateway exists, even if LLMInferenceService is deleted

@@ -10,7 +10,7 @@ else
 GOBIN=$(shell go env GOBIN)
 endif
 
-KSERVE_MANIFESTS_REVISION ?= 3a1dc463c63c03bb2e8d63ac9d2c3167f25d1e68
+KSERVE_MANIFESTS_REVISION ?= v0.17.0-rc1
 # Define the file to store the last used KServe revision
 KSERVE_REVISION_FILE = config/crd/external/.kserve_manifests_revision
 
@@ -68,6 +68,10 @@ manifests-update:
 			| tail -n +2 > config/crd/external/serving.kserve.io_inferenceservices.yaml; \
 		wget -O - https://raw.githubusercontent.com/kserve/kserve/$(KSERVE_MANIFESTS_REVISION)/config/crd/full/serving.kserve.io_servingruntimes.yaml \
 			| tail -n +2 > config/crd/external/serving.kserve.io_servingruntimes.yaml; \
+		wget -O - https://raw.githubusercontent.com/kserve/kserve/$(KSERVE_MANIFESTS_REVISION)/config/crd/full/llmisvc/serving.kserve.io_llminferenceservices.yaml \
+			| tail -n +2 > config/crd/external/serving.kserve.io_llminferenceservices.yaml; \
+		wget -O - https://raw.githubusercontent.com/kserve/kserve/$(KSERVE_MANIFESTS_REVISION)/config/crd/full/llmisvc/serving.kserve.io_llminferenceserviceconfigs.yaml \
+			| tail -n +2 > config/crd/external/serving.kserve.io_llminferenceserviceconfigs.yaml; \
 		echo "$(KSERVE_MANIFESTS_REVISION)" > "$(KSERVE_REVISION_FILE)"; \
 		echo "KServe manifests updated to revision $(KSERVE_MANIFESTS_REVISION) and revision stored in $(KSERVE_REVISION_FILE)."; \
 	else \

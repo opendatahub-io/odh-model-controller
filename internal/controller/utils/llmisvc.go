@@ -18,7 +18,7 @@ package utils
 import (
 	"context"
 
-	kservev1alpha1 "github.com/kserve/kserve/pkg/apis/serving/v1alpha1"
+	kservev1alpha2 "github.com/kserve/kserve/pkg/apis/serving/v1alpha2"
 	"github.com/opendatahub-io/odh-model-controller/internal/controller/constants"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/log"
@@ -27,7 +27,7 @@ import (
 
 // GetGatewaysForLLMIsvc returns gateways referenced by the LLMInferenceService.
 // If explicit refs are provided, returns those gateways. Otherwise falls back to the default gateway.
-func GetGatewaysForLLMIsvc(ctx context.Context, c client.Client, llmisvc *kservev1alpha1.LLMInferenceService) []*gatewayapiv1.Gateway {
+func GetGatewaysForLLMIsvc(ctx context.Context, c client.Client, llmisvc *kservev1alpha2.LLMInferenceService) []*gatewayapiv1.Gateway {
 	logger := log.FromContext(ctx)
 	var gateways []*gatewayapiv1.Gateway
 
@@ -73,7 +73,7 @@ func GetGatewaysForLLMIsvc(ctx context.Context, c client.Client, llmisvc *kserve
 // LLMIsvcUsesGateway checks if an LLMInferenceService uses the specified gateway.
 // Returns true if the service explicitly references the gateway, or if the service
 // uses the default gateway and the specified gateway matches the default.
-func LLMIsvcUsesGateway(ctx context.Context, c client.Client, llmisvc *kservev1alpha1.LLMInferenceService, gatewayNamespace, gatewayName string) bool {
+func LLMIsvcUsesGateway(ctx context.Context, c client.Client, llmisvc *kservev1alpha2.LLMInferenceService, gatewayNamespace, gatewayName string) bool {
 	// Check if service explicitly references gateways
 	if llmisvc.Spec.Router != nil && llmisvc.Spec.Router.Gateway != nil && llmisvc.Spec.Router.Gateway.HasRefs() {
 		for _, ref := range llmisvc.Spec.Router.Gateway.Refs {

@@ -4,7 +4,7 @@ import (
 	"context"
 	"fmt"
 
-	kservev1alpha1 "github.com/kserve/kserve/pkg/apis/serving/v1alpha1"
+	kservev1alpha2 "github.com/kserve/kserve/pkg/apis/serving/v1alpha2"
 	"github.com/onsi/gomega"
 
 	"github.com/opendatahub-io/odh-model-controller/internal/controller/constants"
@@ -14,9 +14,9 @@ import (
 	gatewayapiv1 "sigs.k8s.io/gateway-api/apis/v1"
 )
 
-func CreateBasicLLMInferenceService(ctx context.Context, c client.Client, testNs string, llmisvcName string, enableAuth *bool) *kservev1alpha1.LLMInferenceService {
+func CreateBasicLLMInferenceService(ctx context.Context, c client.Client, testNs string, llmisvcName string, enableAuth *bool) *kservev1alpha2.LLMInferenceService {
 	opts := []LLMInferenceServiceOption{
-		InNamespace[*kservev1alpha1.LLMInferenceService](testNs),
+		InNamespace[*kservev1alpha2.LLMInferenceService](testNs),
 	}
 	if enableAuth != nil {
 		opts = append(opts, WithEnableAuth(*enableAuth))
