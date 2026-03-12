@@ -93,6 +93,7 @@ vet: ## Run go vet against code.
 
 .PHONY: test
 test: manifests generate fmt vet envtest ## Run tests.
+	@go tool covdata >/dev/null 2>&1 || true
 	KUBEBUILDER_ASSETS="$(shell $(ENVTEST) use $(ENVTEST_K8S_VERSION) --bin-dir $(LOCALBIN) -p path)" POD_NAMESPACE=default \
 		go test $$(go list ./... | grep -v /e2e) -coverprofile cover.out -coverpkg=./...
 
