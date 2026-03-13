@@ -23,7 +23,7 @@ import (
 	"strings"
 	"text/template"
 
-	kservev1alpha1 "github.com/kserve/kserve/pkg/apis/serving/v1alpha1"
+	kservev1alpha2 "github.com/kserve/kserve/pkg/apis/serving/v1alpha2"
 	"github.com/opendatahub-io/odh-model-controller/internal/controller/constants"
 	controllerutils "github.com/opendatahub-io/odh-model-controller/internal/controller/utils"
 	istioclientv1alpha3 "istio.io/client-go/pkg/apis/networking/v1alpha3"
@@ -176,7 +176,7 @@ func (k *kserveEnvoyFilterMatcher) FindLLMServiceFromEnvoyFilter(ctx context.Con
 	var matchedServices []types.NamespacedName
 	continueToken := ""
 	for {
-		llmSvcList := &kservev1alpha1.LLMInferenceServiceList{}
+		llmSvcList := &kservev1alpha2.LLMInferenceServiceList{}
 		if err := k.client.List(ctx, llmSvcList, &client.ListOptions{Namespace: metav1.NamespaceAll, Continue: continueToken}); err != nil {
 			return nil, err
 		}

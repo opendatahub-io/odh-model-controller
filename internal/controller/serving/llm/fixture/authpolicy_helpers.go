@@ -59,7 +59,7 @@ func VerifyHTTPRouteAuthPolicyOwnerRef(ctx context.Context, c client.Client, tes
 		gomega.Expect(ownerRefs).To(gomega.HaveLen(1))
 		gomega.Expect(ownerRefs[0].Name).To(gomega.Equal(llmisvcName))
 		gomega.Expect(ownerRefs[0].Kind).To(gomega.Equal("LLMInferenceService"))
-		gomega.Expect(ownerRefs[0].APIVersion).To(gomega.Equal("serving.kserve.io/v1alpha1"))
+		gomega.Expect(ownerRefs[0].APIVersion).To(gomega.Equal("serving.kserve.io/v1alpha2"))
 		return nil
 	}).WithContext(ctx).Should(gomega.Succeed())
 }
