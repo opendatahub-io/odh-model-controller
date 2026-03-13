@@ -71,7 +71,10 @@ func (r *KserveEnvoyFilterReconciler) Reconcile(ctx context.Context, log logr.Lo
 func (r *KserveEnvoyFilterReconciler) reconcileGatewayEnvoyFilter(ctx context.Context, log logr.Logger, llmisvc *kservev1alpha2.LLMInferenceService) error {
 	log.V(1).Info("Reconciling Gateway EnvoyFilter")
 
-	gateways := utils.GetGatewaysForLLMIsvc(ctx, r.client, llmisvc)
+	gateways, err := utils.GetGatewaysForLLMIsvc(ctx, r.client, llmisvc)
+	if err != nil {
+		return err
+	}
 
 	for _, gateway := range gateways {
 		envoyFilterName := constants.GetGatewayEnvoyFilterName(gateway.Name)

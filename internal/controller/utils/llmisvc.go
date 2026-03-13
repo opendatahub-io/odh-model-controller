@@ -17,6 +17,7 @@ package utils
 
 import (
 	"context"
+	"fmt"
 
 	kservev1alpha2 "github.com/kserve/kserve/pkg/apis/serving/v1alpha2"
 	"github.com/opendatahub-io/odh-model-controller/internal/controller/constants"
@@ -27,7 +28,8 @@ import (
 
 // GetGatewaysForLLMIsvc returns gateways referenced by the LLMInferenceService.
 // If explicit refs are provided, returns those gateways. Otherwise falls back to the default gateway.
-func GetGatewaysForLLMIsvc(ctx context.Context, c client.Client, llmisvc *kservev1alpha2.LLMInferenceService) []*gatewayapiv1.Gateway {
+// Returns an error if any explicitly referenced gateway cannot be found, allowing the caller to requeue.
+func GetGatewaysForLLMIsvc(ctx context.Context, c client.Client, llmisvc *kservev1alpha2.LLMInferenceService) ([]*gatewayapiv1.Gateway, error) {
 	logger := log.FromContext(ctx)
 	var gateways []*gatewayapiv1.Gateway
 
@@ -37,13 +39,12 @@ func GetGatewaysForLLMIsvc(ctx context.Context, c client.Client, llmisvc *kserve
 	if hasExplicitRefs {
 		for _, ref := range llmisvc.Spec.Router.Gateway.Refs {
 			gateway := &gatewayapiv1.Gateway{}
-			if err := GetResource(ctx, c, string(ref.Namespace), string(ref.Name), gateway); err == nil {
-				gateways = append(gateways, gateway)
-			} else {
-				logger.V(1).Info("Failed to get gateway", "namespace", ref.Namespace, "name", ref.Name, "error", err)
+			if err := GetResource(ctx, c, string(ref.Namespace), string(ref.Name), gateway); err != nil {
+				return nil, fmt.Errorf("failed to get referenced gateway %s/%s: %w", ref.Namespace, ref.Name, err)
 			}
+			gateways = append(gateways, gateway)
 		}
-		return gateways
+		return gateways, nil
 	}
 
 	// Fall back to default gateway
@@ -67,7 +68,7 @@ func GetGatewaysForLLMIsvc(ctx context.Context, c client.Client, llmisvc *kserve
 		logger.V(1).Info("Failed to get default gateway", "namespace", ns, "name", name, "error", err)
 	}
 
-	return gateways
+	return gateways, nil
 }
 
 // LLMIsvcUsesGateway checks if an LLMInferenceService uses the specified gateway.
