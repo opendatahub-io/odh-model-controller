@@ -18,7 +18,7 @@ package resources_test
 import (
 	"os"
 
-	kservev1alpha1 "github.com/kserve/kserve/pkg/apis/serving/v1alpha1"
+	kservev1alpha2 "github.com/kserve/kserve/pkg/apis/serving/v1alpha2"
 	kuadrantv1 "github.com/kuadrant/kuadrant-operator/api/v1"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
@@ -127,11 +127,11 @@ var _ = Describe("AuthPolicyDetector", func() {
 var _ = Describe("AuthPolicyTemplateLoader", func() {
 	Context("Template loading", func() {
 		var loader resources.AuthPolicyTemplateLoader
-		var dummyLLMISvc kservev1alpha1.LLMInferenceService
+		var dummyLLMISvc kservev1alpha2.LLMInferenceService
 		var fakeClient client.Client
 		BeforeEach(func() {
 			scheme := runtime.NewScheme()
-			Expect(kservev1alpha1.AddToScheme(scheme)).To(Succeed())
+			Expect(kservev1alpha2.AddToScheme(scheme)).To(Succeed())
 			Expect(ocpconfigv1.AddToScheme(scheme)).To(Succeed())
 			Expect(gwapiv1alpha2.Install(scheme)).To(Succeed())
 			Expect(gatewayapiv1.Install(scheme)).To(Succeed())
@@ -147,7 +147,7 @@ var _ = Describe("AuthPolicyTemplateLoader", func() {
 			fakeClient = fake.NewClientBuilder().WithScheme(scheme).WithObjects(defaultGateway).Build()
 			loader = resources.NewKServeAuthPolicyTemplateLoader(fakeClient)
 
-			dummyLLMISvc = kservev1alpha1.LLMInferenceService{
+			dummyLLMISvc = kservev1alpha2.LLMInferenceService{
 				ObjectMeta: v1.ObjectMeta{
 					Namespace: "test-ns",
 					Name:      "test-llm",
@@ -248,7 +248,7 @@ var _ = Describe("AuthPolicyTemplateLoader", func() {
 
 		BeforeEach(func() {
 			scheme = runtime.NewScheme()
-			Expect(kservev1alpha1.AddToScheme(scheme)).To(Succeed())
+			Expect(kservev1alpha2.AddToScheme(scheme)).To(Succeed())
 			Expect(ocpconfigv1.AddToScheme(scheme)).To(Succeed())
 			Expect(gwapiv1alpha2.Install(scheme)).To(Succeed())
 			Expect(gatewayapiv1.Install(scheme)).To(Succeed())
@@ -268,15 +268,15 @@ var _ = Describe("AuthPolicyTemplateLoader", func() {
 			fakeClient = fake.NewClientBuilder().WithScheme(scheme).WithObjects(gateway).Build()
 			loader = resources.NewKServeAuthPolicyTemplateLoader(fakeClient)
 
-			llmisvc := &kservev1alpha1.LLMInferenceService{
+			llmisvc := &kservev1alpha2.LLMInferenceService{
 				ObjectMeta: v1.ObjectMeta{
 					Namespace: "test-ns",
 					Name:      "test-llm",
 				},
-				Spec: kservev1alpha1.LLMInferenceServiceSpec{
-					Router: &kservev1alpha1.RouterSpec{
-						Gateway: &kservev1alpha1.GatewaySpec{
-							Refs: []kservev1alpha1.UntypedObjectReference{
+				Spec: kservev1alpha2.LLMInferenceServiceSpec{
+					Router: &kservev1alpha2.RouterSpec{
+						Gateway: &kservev1alpha2.GatewaySpec{
+							Refs: []kservev1alpha2.UntypedObjectReference{
 								{
 									Name:      "test-gateway",
 									Namespace: "test-gateway-ns",
@@ -432,7 +432,7 @@ var _ = Describe("AuthPolicyMatcher", func() {
 
 	BeforeEach(func() {
 		scheme = runtime.NewScheme()
-		Expect(kservev1alpha1.AddToScheme(scheme)).To(Succeed())
+		Expect(kservev1alpha2.AddToScheme(scheme)).To(Succeed())
 		Expect(kuadrantv1.AddToScheme(scheme)).To(Succeed())
 
 		fakeClient = fake.NewClientBuilder().WithScheme(scheme).Build()
@@ -446,7 +446,7 @@ var _ = Describe("AuthPolicyMatcher", func() {
 					Name:      "test-auth-policy",
 					Namespace: "test-namespace",
 					OwnerReferences: []v1.OwnerReference{{
-						APIVersion: "serving.kserve.io/v1alpha1",
+						APIVersion: "serving.kserve.io/v1alpha2",
 						Kind:       "LLMInferenceService",
 						Name:       "my-llm-service",
 					}},
@@ -499,7 +499,7 @@ var _ = Describe("AuthPolicyMatcher", func() {
 					Name:      "test-auth-policy",
 					Namespace: "test-namespace",
 					OwnerReferences: []v1.OwnerReference{{
-						APIVersion: "serving.kserve.io/v1alpha1",
+						APIVersion: "serving.kserve.io/v1alpha2",
 						Kind:       "LLMInferenceService",
 						Name:       "owner-ref-service",
 					}},
@@ -600,12 +600,12 @@ var _ = Describe("AuthPolicyMatcher", func() {
 		})
 
 		It("should find LLMInferenceService with default gateway", func(ctx SpecContext) {
-			llmService := &kservev1alpha1.LLMInferenceService{
+			llmService := &kservev1alpha2.LLMInferenceService{
 				ObjectMeta: v1.ObjectMeta{
 					Name:      "test-llm-service",
 					Namespace: "test-namespace",
 				},
-				Spec: kservev1alpha1.LLMInferenceServiceSpec{},
+				Spec: kservev1alpha2.LLMInferenceServiceSpec{},
 			}
 			err := fakeClient.Create(ctx, llmService)
 			Expect(err).ToNot(HaveOccurred())
@@ -636,22 +636,22 @@ var _ = Describe("AuthPolicyMatcher", func() {
 
 		It("should find multiple LLMInferenceServices with default gateway", func(ctx SpecContext) {
 			// Create multiple LLM services
-			llmService1 := &kservev1alpha1.LLMInferenceService{
+			llmService1 := &kservev1alpha2.LLMInferenceService{
 				ObjectMeta: v1.ObjectMeta{
 					Name:      "test-llm-service-1",
 					Namespace: "test-namespace",
 				},
-				Spec: kservev1alpha1.LLMInferenceServiceSpec{},
+				Spec: kservev1alpha2.LLMInferenceServiceSpec{},
 			}
 			err := fakeClient.Create(ctx, llmService1)
 			Expect(err).ToNot(HaveOccurred())
 
-			llmService2 := &kservev1alpha1.LLMInferenceService{
+			llmService2 := &kservev1alpha2.LLMInferenceService{
 				ObjectMeta: v1.ObjectMeta{
 					Name:      "test-llm-service-2",
 					Namespace: "test-namespace",
 				},
-				Spec: kservev1alpha1.LLMInferenceServiceSpec{},
+				Spec: kservev1alpha2.LLMInferenceServiceSpec{},
 			}
 			err = fakeClient.Create(ctx, llmService2)
 			Expect(err).ToNot(HaveOccurred())

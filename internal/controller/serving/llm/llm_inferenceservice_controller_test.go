@@ -20,7 +20,7 @@ import (
 	"context"
 	"os"
 
-	kservev1alpha1 "github.com/kserve/kserve/pkg/apis/serving/v1alpha1"
+	kservev1alpha2 "github.com/kserve/kserve/pkg/apis/serving/v1alpha2"
 	kuadrantv1 "github.com/kuadrant/kuadrant-operator/api/v1"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
@@ -59,7 +59,7 @@ var _ = Describe("LLMInferenceService Controller", func() {
 	AfterEach(func(ctx SpecContext) {
 		// Clean up LLMInferenceServices to prevent cross-test interference
 		// from watches (Gateway, ConfigMap) that list all services
-		llmList := &kservev1alpha1.LLMInferenceServiceList{}
+		llmList := &kservev1alpha2.LLMInferenceServiceList{}
 		if err := envTest.Client.List(ctx, llmList, client.InNamespace(testNs)); err == nil {
 			for i := range llmList.Items {
 				_ = envTest.Client.Delete(ctx, &llmList.Items[i])
@@ -121,8 +121,8 @@ var _ = Describe("LLMInferenceService Controller", func() {
 				Expect(envTest.Client.Create(ctx, customGateway)).Should(Succeed())
 
 				llmisvc := fixture.LLMInferenceService(LLMInferenceServiceName,
-					fixture.InNamespace[*kservev1alpha1.LLMInferenceService](testNs),
-					fixture.WithGatewayRefs(kservev1alpha1.UntypedObjectReference{
+					fixture.InNamespace[*kservev1alpha2.LLMInferenceService](testNs),
+					fixture.WithGatewayRefs(kservev1alpha2.UntypedObjectReference{
 						Name:      gatewayapiv1.ObjectName(customGatewayName),
 						Namespace: gatewayapiv1.Namespace(customGatewayNamespace),
 					}),
@@ -139,7 +139,7 @@ var _ = Describe("LLMInferenceService Controller", func() {
 				Expect(envTest.Client.Create(ctx, customHTTPRoute)).Should(Succeed())
 
 				llmisvc := fixture.LLMInferenceService(LLMInferenceServiceName,
-					fixture.InNamespace[*kservev1alpha1.LLMInferenceService](testNs),
+					fixture.InNamespace[*kservev1alpha2.LLMInferenceService](testNs),
 					fixture.WithEnableAuth(false),
 					fixture.WithHTTPRouteRefs(fixture.HTTPRouteRef(customHTTPRouteName)),
 				)
@@ -183,8 +183,8 @@ var _ = Describe("LLMInferenceService Controller", func() {
 					Expect(envTest.Client.Create(ctx, customGateway)).Should(Succeed())
 
 					llmisvc := fixture.LLMInferenceService(LLMInferenceServiceName,
-						fixture.InNamespace[*kservev1alpha1.LLMInferenceService](testNs),
-						fixture.WithGatewayRefs(kservev1alpha1.UntypedObjectReference{
+						fixture.InNamespace[*kservev1alpha2.LLMInferenceService](testNs),
+						fixture.WithGatewayRefs(kservev1alpha2.UntypedObjectReference{
 							Name:      gatewayapiv1.ObjectName(customGatewayName),
 							Namespace: gatewayapiv1.Namespace(customGatewayNamespace),
 						}),
@@ -212,8 +212,8 @@ var _ = Describe("LLMInferenceService Controller", func() {
 					Expect(envTest.Client.Create(ctx, customGateway)).Should(Succeed())
 
 					llmisvc := fixture.LLMInferenceService(LLMInferenceServiceName,
-						fixture.InNamespace[*kservev1alpha1.LLMInferenceService](testNs),
-						fixture.WithGatewayRefs(kservev1alpha1.UntypedObjectReference{
+						fixture.InNamespace[*kservev1alpha2.LLMInferenceService](testNs),
+						fixture.WithGatewayRefs(kservev1alpha2.UntypedObjectReference{
 							Name:      gatewayapiv1.ObjectName(customGatewayName),
 							Namespace: gatewayapiv1.Namespace(customGatewayNamespace),
 						}),
@@ -266,7 +266,7 @@ var _ = Describe("LLMInferenceService Controller", func() {
 					Expect(envTest.Client.Create(ctx, customHTTPRoute)).Should(Succeed())
 
 					llmisvc := fixture.LLMInferenceService(LLMInferenceServiceName,
-						fixture.InNamespace[*kservev1alpha1.LLMInferenceService](testNs),
+						fixture.InNamespace[*kservev1alpha2.LLMInferenceService](testNs),
 						fixture.WithEnableAuth(false),
 						fixture.WithHTTPRouteRefs(fixture.HTTPRouteRef(customHTTPRouteName)),
 					)
@@ -292,7 +292,7 @@ var _ = Describe("LLMInferenceService Controller", func() {
 					Expect(envTest.Client.Create(ctx, customHTTPRoute)).Should(Succeed())
 
 					llmisvc := fixture.LLMInferenceService(LLMInferenceServiceName,
-						fixture.InNamespace[*kservev1alpha1.LLMInferenceService](testNs),
+						fixture.InNamespace[*kservev1alpha2.LLMInferenceService](testNs),
 						fixture.WithEnableAuth(false),
 						fixture.WithHTTPRouteRefs(fixture.HTTPRouteRef(customHTTPRouteName)),
 					)
@@ -324,8 +324,8 @@ var _ = Describe("LLMInferenceService Controller", func() {
 				Expect(envTest.Client.Create(ctx, customGateway)).Should(Succeed())
 
 				llmisvc := fixture.LLMInferenceService(LLMInferenceServiceName,
-					fixture.InNamespace[*kservev1alpha1.LLMInferenceService](testNs),
-					fixture.WithGatewayRefs(kservev1alpha1.UntypedObjectReference{
+					fixture.InNamespace[*kservev1alpha2.LLMInferenceService](testNs),
+					fixture.WithGatewayRefs(kservev1alpha2.UntypedObjectReference{
 						Name:      gatewayapiv1.ObjectName(customGatewayName),
 						Namespace: gatewayapiv1.Namespace(constants.DefaultGatewayNamespace),
 					}),
@@ -373,8 +373,8 @@ var _ = Describe("LLMInferenceService Controller", func() {
 				Expect(envTest.Client.Create(ctx, customGateway)).Should(Succeed())
 
 				llmisvc := fixture.LLMInferenceService(LLMInferenceServiceName,
-					fixture.InNamespace[*kservev1alpha1.LLMInferenceService](testNs),
-					fixture.WithGatewayRefs(kservev1alpha1.UntypedObjectReference{
+					fixture.InNamespace[*kservev1alpha2.LLMInferenceService](testNs),
+					fixture.WithGatewayRefs(kservev1alpha2.UntypedObjectReference{
 						Name:      gatewayapiv1.ObjectName(customGatewayName),
 						Namespace: gatewayapiv1.Namespace(customGatewayNamespace),
 					}),
@@ -403,8 +403,8 @@ var _ = Describe("LLMInferenceService Controller", func() {
 				Expect(envTest.Client.Create(ctx, customGateway)).Should(Succeed())
 
 				llmisvc := fixture.LLMInferenceService(LLMInferenceServiceName,
-					fixture.InNamespace[*kservev1alpha1.LLMInferenceService](testNs),
-					fixture.WithGatewayRefs(kservev1alpha1.UntypedObjectReference{
+					fixture.InNamespace[*kservev1alpha2.LLMInferenceService](testNs),
+					fixture.WithGatewayRefs(kservev1alpha2.UntypedObjectReference{
 						Name:      gatewayapiv1.ObjectName(customGatewayName),
 						Namespace: gatewayapiv1.Namespace(constants.DefaultGatewayNamespace),
 					}),
@@ -432,8 +432,8 @@ var _ = Describe("LLMInferenceService Controller", func() {
 				Expect(envTest.Client.Create(ctx, unmanagedGateway)).Should(Succeed())
 
 				llmisvc := fixture.LLMInferenceService(LLMInferenceServiceName,
-					fixture.InNamespace[*kservev1alpha1.LLMInferenceService](testNs),
-					fixture.WithGatewayRefs(kservev1alpha1.UntypedObjectReference{
+					fixture.InNamespace[*kservev1alpha2.LLMInferenceService](testNs),
+					fixture.WithGatewayRefs(kservev1alpha2.UntypedObjectReference{
 						Name:      gatewayapiv1.ObjectName(unmanagedGatewayName),
 						Namespace: gatewayapiv1.Namespace(testNs),
 					}),
@@ -456,8 +456,8 @@ var _ = Describe("LLMInferenceService Controller", func() {
 				Expect(envTest.Client.Create(ctx, optInGateway)).Should(Succeed())
 
 				llmisvc := fixture.LLMInferenceService(LLMInferenceServiceName,
-					fixture.InNamespace[*kservev1alpha1.LLMInferenceService](testNs),
-					fixture.WithGatewayRefs(kservev1alpha1.UntypedObjectReference{
+					fixture.InNamespace[*kservev1alpha2.LLMInferenceService](testNs),
+					fixture.WithGatewayRefs(kservev1alpha2.UntypedObjectReference{
 						Name:      gatewayapiv1.ObjectName(optInGatewayName),
 						Namespace: gatewayapiv1.Namespace(testNs),
 					}),
@@ -480,8 +480,8 @@ var _ = Describe("LLMInferenceService Controller", func() {
 				Expect(envTest.Client.Create(ctx, optInGateway)).Should(Succeed())
 
 				llmisvc := fixture.LLMInferenceService(LLMInferenceServiceName,
-					fixture.InNamespace[*kservev1alpha1.LLMInferenceService](testNs),
-					fixture.WithGatewayRefs(kservev1alpha1.UntypedObjectReference{
+					fixture.InNamespace[*kservev1alpha2.LLMInferenceService](testNs),
+					fixture.WithGatewayRefs(kservev1alpha2.UntypedObjectReference{
 						Name:      gatewayapiv1.ObjectName(optInGatewayName),
 						Namespace: gatewayapiv1.Namespace(testNs),
 					}),
@@ -514,8 +514,8 @@ var _ = Describe("LLMInferenceService Controller", func() {
 				Expect(envTest.Client.Create(ctx, optInGateway)).Should(Succeed())
 
 				llmisvc := fixture.LLMInferenceService(LLMInferenceServiceName,
-					fixture.InNamespace[*kservev1alpha1.LLMInferenceService](testNs),
-					fixture.WithGatewayRefs(kservev1alpha1.UntypedObjectReference{
+					fixture.InNamespace[*kservev1alpha2.LLMInferenceService](testNs),
+					fixture.WithGatewayRefs(kservev1alpha2.UntypedObjectReference{
 						Name:      gatewayapiv1.ObjectName(optInGatewayName),
 						Namespace: gatewayapiv1.Namespace(testNs),
 					}),
@@ -562,11 +562,11 @@ var _ = Describe("BaseRefs and Spec Merging", func() {
 
 			// Create LLMInferenceServiceConfig with a gateway reference
 			config := fixture.LLMInferenceServiceConfig("test-config",
-				fixture.InNamespace[*kservev1alpha1.LLMInferenceServiceConfig](testNs),
+				fixture.InNamespace[*kservev1alpha2.LLMInferenceServiceConfig](testNs),
 			)
-			config.Spec.Router = &kservev1alpha1.RouterSpec{
-				Gateway: &kservev1alpha1.GatewaySpec{
-					Refs: []kservev1alpha1.UntypedObjectReference{
+			config.Spec.Router = &kservev1alpha2.RouterSpec{
+				Gateway: &kservev1alpha2.GatewaySpec{
+					Refs: []kservev1alpha2.UntypedObjectReference{
 						{
 							Name:      gatewayapiv1.ObjectName(customGatewayName),
 							Namespace: gatewayapiv1.Namespace(customGatewayNamespace),
@@ -578,7 +578,7 @@ var _ = Describe("BaseRefs and Spec Merging", func() {
 
 			// Create LLMInferenceService with BaseRefs
 			llmisvc := fixture.LLMInferenceService(LLMInferenceServiceName,
-				fixture.InNamespace[*kservev1alpha1.LLMInferenceService](testNs),
+				fixture.InNamespace[*kservev1alpha2.LLMInferenceService](testNs),
 				fixture.WithBaseRefs(corev1.LocalObjectReference{Name: "test-config"}),
 			)
 			Expect(envTest.Client.Create(ctx, llmisvc)).Should(Succeed())
@@ -610,11 +610,11 @@ var _ = Describe("BaseRefs and Spec Merging", func() {
 
 			// Create LLMInferenceServiceConfig in system namespace
 			config := fixture.LLMInferenceServiceConfig("system-config",
-				fixture.InNamespace[*kservev1alpha1.LLMInferenceServiceConfig](systemNamespace),
+				fixture.InNamespace[*kservev1alpha2.LLMInferenceServiceConfig](systemNamespace),
 			)
-			config.Spec.Router = &kservev1alpha1.RouterSpec{
-				Gateway: &kservev1alpha1.GatewaySpec{
-					Refs: []kservev1alpha1.UntypedObjectReference{
+			config.Spec.Router = &kservev1alpha2.RouterSpec{
+				Gateway: &kservev1alpha2.GatewaySpec{
+					Refs: []kservev1alpha2.UntypedObjectReference{
 						{
 							Name:      gatewayapiv1.ObjectName(customGatewayName),
 							Namespace: gatewayapiv1.Namespace(systemNamespace),
@@ -626,7 +626,7 @@ var _ = Describe("BaseRefs and Spec Merging", func() {
 
 			// Create LLMInferenceService with BaseRefs in a different namespace
 			llmisvc := fixture.LLMInferenceService(LLMInferenceServiceName,
-				fixture.InNamespace[*kservev1alpha1.LLMInferenceService](testNs),
+				fixture.InNamespace[*kservev1alpha2.LLMInferenceService](testNs),
 				fixture.WithBaseRefs(corev1.LocalObjectReference{Name: "system-config"}),
 			)
 			Expect(envTest.Client.Create(ctx, llmisvc)).Should(Succeed())
@@ -666,11 +666,11 @@ var _ = Describe("BaseRefs and Spec Merging", func() {
 
 			// Create configs in both namespaces with same name
 			serviceConfig := fixture.LLMInferenceServiceConfig("shared-config",
-				fixture.InNamespace[*kservev1alpha1.LLMInferenceServiceConfig](testNs),
+				fixture.InNamespace[*kservev1alpha2.LLMInferenceServiceConfig](testNs),
 			)
-			serviceConfig.Spec.Router = &kservev1alpha1.RouterSpec{
-				Gateway: &kservev1alpha1.GatewaySpec{
-					Refs: []kservev1alpha1.UntypedObjectReference{
+			serviceConfig.Spec.Router = &kservev1alpha2.RouterSpec{
+				Gateway: &kservev1alpha2.GatewaySpec{
+					Refs: []kservev1alpha2.UntypedObjectReference{
 						{
 							Name:      gatewayapiv1.ObjectName(serviceGatewayName),
 							Namespace: gatewayapiv1.Namespace(testNs),
@@ -681,11 +681,11 @@ var _ = Describe("BaseRefs and Spec Merging", func() {
 			Expect(envTest.Client.Create(ctx, serviceConfig)).Should(Succeed())
 
 			systemConfig := fixture.LLMInferenceServiceConfig("shared-config",
-				fixture.InNamespace[*kservev1alpha1.LLMInferenceServiceConfig](systemNamespace),
+				fixture.InNamespace[*kservev1alpha2.LLMInferenceServiceConfig](systemNamespace),
 			)
-			systemConfig.Spec.Router = &kservev1alpha1.RouterSpec{
-				Gateway: &kservev1alpha1.GatewaySpec{
-					Refs: []kservev1alpha1.UntypedObjectReference{
+			systemConfig.Spec.Router = &kservev1alpha2.RouterSpec{
+				Gateway: &kservev1alpha2.GatewaySpec{
+					Refs: []kservev1alpha2.UntypedObjectReference{
 						{
 							Name:      gatewayapiv1.ObjectName(systemGatewayName),
 							Namespace: gatewayapiv1.Namespace(systemNamespace),
@@ -697,7 +697,7 @@ var _ = Describe("BaseRefs and Spec Merging", func() {
 
 			// Create LLMInferenceService with BaseRefs
 			llmisvc := fixture.LLMInferenceService(LLMInferenceServiceName,
-				fixture.InNamespace[*kservev1alpha1.LLMInferenceService](testNs),
+				fixture.InNamespace[*kservev1alpha2.LLMInferenceService](testNs),
 				fixture.WithBaseRefs(corev1.LocalObjectReference{Name: "shared-config"}),
 			)
 			Expect(envTest.Client.Create(ctx, llmisvc)).Should(Succeed())
@@ -723,7 +723,7 @@ var _ = Describe("BaseRefs and Spec Merging", func() {
 
 			// Create LLMInferenceService with BaseRefs pointing to non-existent config
 			llmisvc := fixture.LLMInferenceService(LLMInferenceServiceName,
-				fixture.InNamespace[*kservev1alpha1.LLMInferenceService](testNs),
+				fixture.InNamespace[*kservev1alpha2.LLMInferenceService](testNs),
 				fixture.WithBaseRefs(corev1.LocalObjectReference{Name: "missing-config"}),
 			)
 			Expect(envTest.Client.Create(ctx, llmisvc)).Should(Succeed())
@@ -749,11 +749,11 @@ var _ = Describe("BaseRefs and Spec Merging", func() {
 
 			// Create first config with gateway reference
 			config1 := fixture.LLMInferenceServiceConfig("config1",
-				fixture.InNamespace[*kservev1alpha1.LLMInferenceServiceConfig](testNs),
+				fixture.InNamespace[*kservev1alpha2.LLMInferenceServiceConfig](testNs),
 			)
-			config1.Spec.Router = &kservev1alpha1.RouterSpec{
-				Gateway: &kservev1alpha1.GatewaySpec{
-					Refs: []kservev1alpha1.UntypedObjectReference{
+			config1.Spec.Router = &kservev1alpha2.RouterSpec{
+				Gateway: &kservev1alpha2.GatewaySpec{
+					Refs: []kservev1alpha2.UntypedObjectReference{
 						{
 							Name:      gatewayapiv1.ObjectName(gateway1Name),
 							Namespace: gatewayapiv1.Namespace(testNs),
@@ -765,13 +765,13 @@ var _ = Describe("BaseRefs and Spec Merging", func() {
 
 			// Create second config (will be merged but config1 gateway takes precedence)
 			config2 := fixture.LLMInferenceServiceConfig("config2",
-				fixture.InNamespace[*kservev1alpha1.LLMInferenceServiceConfig](testNs),
+				fixture.InNamespace[*kservev1alpha2.LLMInferenceServiceConfig](testNs),
 			)
 			Expect(envTest.Client.Create(ctx, config2)).Should(Succeed())
 
 			// Create LLMInferenceService with multiple BaseRefs
 			llmisvc := fixture.LLMInferenceService(LLMInferenceServiceName,
-				fixture.InNamespace[*kservev1alpha1.LLMInferenceService](testNs),
+				fixture.InNamespace[*kservev1alpha2.LLMInferenceService](testNs),
 				fixture.WithBaseRefs(
 					corev1.LocalObjectReference{Name: "config1"},
 					corev1.LocalObjectReference{Name: "config2"},
@@ -804,11 +804,11 @@ var _ = Describe("BaseRefs and Spec Merging", func() {
 
 			// Create config with gateway reference
 			config := fixture.LLMInferenceServiceConfig("test-config",
-				fixture.InNamespace[*kservev1alpha1.LLMInferenceServiceConfig](testNs),
+				fixture.InNamespace[*kservev1alpha2.LLMInferenceServiceConfig](testNs),
 			)
-			config.Spec.Router = &kservev1alpha1.RouterSpec{
-				Gateway: &kservev1alpha1.GatewaySpec{
-					Refs: []kservev1alpha1.UntypedObjectReference{
+			config.Spec.Router = &kservev1alpha2.RouterSpec{
+				Gateway: &kservev1alpha2.GatewaySpec{
+					Refs: []kservev1alpha2.UntypedObjectReference{
 						{
 							Name:      gatewayapiv1.ObjectName(configGatewayName),
 							Namespace: gatewayapiv1.Namespace(testNs),
@@ -820,9 +820,9 @@ var _ = Describe("BaseRefs and Spec Merging", func() {
 
 			// Create LLMInferenceService with BaseRefs but also with its own gateway spec
 			llmisvc := fixture.LLMInferenceService(LLMInferenceServiceName,
-				fixture.InNamespace[*kservev1alpha1.LLMInferenceService](testNs),
+				fixture.InNamespace[*kservev1alpha2.LLMInferenceService](testNs),
 				fixture.WithBaseRefs(corev1.LocalObjectReference{Name: "test-config"}),
-				fixture.WithGatewayRefs(kservev1alpha1.UntypedObjectReference{
+				fixture.WithGatewayRefs(kservev1alpha2.UntypedObjectReference{
 					Name:      gatewayapiv1.ObjectName(serviceGatewayName),
 					Namespace: gatewayapiv1.Namespace(testNs),
 				}),
@@ -858,11 +858,11 @@ var _ = Describe("BaseRefs and Spec Merging", func() {
 
 			// Create only config2, config1 will fail to fetch
 			config2 := fixture.LLMInferenceServiceConfig("config2",
-				fixture.InNamespace[*kservev1alpha1.LLMInferenceServiceConfig](testNs),
+				fixture.InNamespace[*kservev1alpha2.LLMInferenceServiceConfig](testNs),
 			)
-			config2.Spec.Router = &kservev1alpha1.RouterSpec{
-				Gateway: &kservev1alpha1.GatewaySpec{
-					Refs: []kservev1alpha1.UntypedObjectReference{
+			config2.Spec.Router = &kservev1alpha2.RouterSpec{
+				Gateway: &kservev1alpha2.GatewaySpec{
+					Refs: []kservev1alpha2.UntypedObjectReference{
 						{
 							Name:      gatewayapiv1.ObjectName(gatewayName),
 							Namespace: gatewayapiv1.Namespace(testNs),
@@ -874,7 +874,7 @@ var _ = Describe("BaseRefs and Spec Merging", func() {
 
 			// Create LLMInferenceService with BaseRefs including a non-existent config
 			llmisvc := fixture.LLMInferenceService(LLMInferenceServiceName,
-				fixture.InNamespace[*kservev1alpha1.LLMInferenceService](testNs),
+				fixture.InNamespace[*kservev1alpha2.LLMInferenceService](testNs),
 				fixture.WithBaseRefs(
 					corev1.LocalObjectReference{Name: "config1"}, // Will fail
 					corev1.LocalObjectReference{Name: "config2"}, // Will succeed
@@ -904,11 +904,11 @@ var _ = Describe("BaseRefs and Spec Merging", func() {
 
 			// Create config with reference to unmanaged gateway
 			config := fixture.LLMInferenceServiceConfig("test-config",
-				fixture.InNamespace[*kservev1alpha1.LLMInferenceServiceConfig](testNs),
+				fixture.InNamespace[*kservev1alpha2.LLMInferenceServiceConfig](testNs),
 			)
-			config.Spec.Router = &kservev1alpha1.RouterSpec{
-				Gateway: &kservev1alpha1.GatewaySpec{
-					Refs: []kservev1alpha1.UntypedObjectReference{
+			config.Spec.Router = &kservev1alpha2.RouterSpec{
+				Gateway: &kservev1alpha2.GatewaySpec{
+					Refs: []kservev1alpha2.UntypedObjectReference{
 						{
 							Name:      gatewayapiv1.ObjectName(unmanagedGatewayName),
 							Namespace: gatewayapiv1.Namespace(testNs),
@@ -920,7 +920,7 @@ var _ = Describe("BaseRefs and Spec Merging", func() {
 
 			// Create LLMInferenceService with BaseRefs
 			llmisvc := fixture.LLMInferenceService(LLMInferenceServiceName,
-				fixture.InNamespace[*kservev1alpha1.LLMInferenceService](testNs),
+				fixture.InNamespace[*kservev1alpha2.LLMInferenceService](testNs),
 				fixture.WithBaseRefs(corev1.LocalObjectReference{Name: "test-config"}),
 			)
 			Expect(envTest.Client.Create(ctx, llmisvc)).Should(Succeed())
