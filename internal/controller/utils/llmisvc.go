@@ -17,8 +17,9 @@ package utils
 
 import (
 	"context"
+	"fmt"
 
-	kservev1alpha1 "github.com/kserve/kserve/pkg/apis/serving/v1alpha1"
+	kservev1alpha2 "github.com/kserve/kserve/pkg/apis/serving/v1alpha2"
 	"github.com/opendatahub-io/odh-model-controller/internal/controller/constants"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/log"
@@ -27,7 +28,8 @@ import (
 
 // GetGatewaysForLLMIsvc returns gateways referenced by the LLMInferenceService.
 // If explicit refs are provided, returns those gateways. Otherwise falls back to the default gateway.
-func GetGatewaysForLLMIsvc(ctx context.Context, c client.Client, llmisvc *kservev1alpha1.LLMInferenceService) []*gatewayapiv1.Gateway {
+// Returns an error if any explicitly referenced gateway cannot be found, allowing the caller to requeue.
+func GetGatewaysForLLMIsvc(ctx context.Context, c client.Client, llmisvc *kservev1alpha2.LLMInferenceService) ([]*gatewayapiv1.Gateway, error) {
 	logger := log.FromContext(ctx)
 	var gateways []*gatewayapiv1.Gateway
 
@@ -37,13 +39,12 @@ func GetGatewaysForLLMIsvc(ctx context.Context, c client.Client, llmisvc *kserve
 	if hasExplicitRefs {
 		for _, ref := range llmisvc.Spec.Router.Gateway.Refs {
 			gateway := &gatewayapiv1.Gateway{}
-			if err := GetResource(ctx, c, string(ref.Namespace), string(ref.Name), gateway); err == nil {
-				gateways = append(gateways, gateway)
-			} else {
-				logger.V(1).Info("Failed to get gateway", "namespace", ref.Namespace, "name", ref.Name, "error", err)
+			if err := GetResource(ctx, c, string(ref.Namespace), string(ref.Name), gateway); err != nil {
+				return nil, fmt.Errorf("failed to get referenced gateway %s/%s: %w", ref.Namespace, ref.Name, err)
 			}
+			gateways = append(gateways, gateway)
 		}
-		return gateways
+		return gateways, nil
 	}
 
 	// Fall back to default gateway
@@ -67,13 +68,13 @@ func GetGatewaysForLLMIsvc(ctx context.Context, c client.Client, llmisvc *kserve
 		logger.V(1).Info("Failed to get default gateway", "namespace", ns, "name", name, "error", err)
 	}
 
-	return gateways
+	return gateways, nil
 }
 
 // LLMIsvcUsesGateway checks if an LLMInferenceService uses the specified gateway.
 // Returns true if the service explicitly references the gateway, or if the service
 // uses the default gateway and the specified gateway matches the default.
-func LLMIsvcUsesGateway(ctx context.Context, c client.Client, llmisvc *kservev1alpha1.LLMInferenceService, gatewayNamespace, gatewayName string) bool {
+func LLMIsvcUsesGateway(ctx context.Context, c client.Client, llmisvc *kservev1alpha2.LLMInferenceService, gatewayNamespace, gatewayName string) bool {
 	// Check if service explicitly references gateways
 	if llmisvc.Spec.Router != nil && llmisvc.Spec.Router.Gateway != nil && llmisvc.Spec.Router.Gateway.HasRefs() {
 		for _, ref := range llmisvc.Spec.Router.Gateway.Refs {

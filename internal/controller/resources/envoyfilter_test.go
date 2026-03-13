@@ -18,7 +18,7 @@ package resources_test
 import (
 	"encoding/json"
 
-	kservev1alpha1 "github.com/kserve/kserve/pkg/apis/serving/v1alpha1"
+	kservev1alpha2 "github.com/kserve/kserve/pkg/apis/serving/v1alpha2"
 	kuadrantv1beta1 "github.com/kuadrant/kuadrant-operator/api/v1beta1"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
@@ -42,7 +42,7 @@ import (
 // setupTestScheme creates a runtime scheme with all necessary types registered
 func setupTestScheme() *runtime.Scheme {
 	scheme := runtime.NewScheme()
-	Expect(kservev1alpha1.AddToScheme(scheme)).To(Succeed())
+	Expect(kservev1alpha2.AddToScheme(scheme)).To(Succeed())
 	Expect(gatewayapiv1.Install(scheme)).To(Succeed())
 	Expect(kuadrantv1beta1.AddToScheme(scheme)).To(Succeed())
 	Expect(istioclientv1alpha3.AddToScheme(scheme)).To(Succeed())
@@ -303,14 +303,14 @@ var _ = Describe("EnvoyFilterMatcher", func() {
 
 	BeforeEach(func() {
 		scheme = runtime.NewScheme()
-		Expect(kservev1alpha1.AddToScheme(scheme)).To(Succeed())
+		Expect(kservev1alpha2.AddToScheme(scheme)).To(Succeed())
 		Expect(gatewayapiv1.Install(scheme)).To(Succeed())
 		Expect(istioclientv1alpha3.AddToScheme(scheme)).To(Succeed())
 	})
 
 	Describe("FindLLMServiceFromEnvoyFilter", func() {
 		It("should find matching LLMInferenceService when using default gateway", func(ctx SpecContext) {
-			llmSvc := &kservev1alpha1.LLMInferenceService{
+			llmSvc := &kservev1alpha2.LLMInferenceService{
 				ObjectMeta: v1.ObjectMeta{
 					Name:      "test-llm",
 					Namespace: "test-namespace",
@@ -342,15 +342,15 @@ var _ = Describe("EnvoyFilterMatcher", func() {
 		})
 
 		It("should find matching LLMInferenceService with explicit gateway refs", func(ctx SpecContext) {
-			llmSvc := &kservev1alpha1.LLMInferenceService{
+			llmSvc := &kservev1alpha2.LLMInferenceService{
 				ObjectMeta: v1.ObjectMeta{
 					Name:      "test-llm",
 					Namespace: "test-namespace",
 				},
-				Spec: kservev1alpha1.LLMInferenceServiceSpec{
-					Router: &kservev1alpha1.RouterSpec{
-						Gateway: &kservev1alpha1.GatewaySpec{
-							Refs: []kservev1alpha1.UntypedObjectReference{
+				Spec: kservev1alpha2.LLMInferenceServiceSpec{
+					Router: &kservev1alpha2.RouterSpec{
+						Gateway: &kservev1alpha2.GatewaySpec{
+							Refs: []kservev1alpha2.UntypedObjectReference{
 								{Name: "custom-gateway", Namespace: "test-namespace"},
 							},
 						},
@@ -383,15 +383,15 @@ var _ = Describe("EnvoyFilterMatcher", func() {
 		})
 
 		It("should return empty list when no matching LLMInferenceService found", func(ctx SpecContext) {
-			llmSvc := &kservev1alpha1.LLMInferenceService{
+			llmSvc := &kservev1alpha2.LLMInferenceService{
 				ObjectMeta: v1.ObjectMeta{
 					Name:      "test-llm",
 					Namespace: "test-namespace",
 				},
-				Spec: kservev1alpha1.LLMInferenceServiceSpec{
-					Router: &kservev1alpha1.RouterSpec{
-						Gateway: &kservev1alpha1.GatewaySpec{
-							Refs: []kservev1alpha1.UntypedObjectReference{
+				Spec: kservev1alpha2.LLMInferenceServiceSpec{
+					Router: &kservev1alpha2.RouterSpec{
+						Gateway: &kservev1alpha2.GatewaySpec{
+							Refs: []kservev1alpha2.UntypedObjectReference{
 								{Name: "other-gateway", Namespace: "test-namespace"},
 							},
 						},
@@ -423,7 +423,7 @@ var _ = Describe("EnvoyFilterMatcher", func() {
 		})
 
 		It("should return empty list when EnvoyFilter has no targetRefs", func(ctx SpecContext) {
-			llmSvc := &kservev1alpha1.LLMInferenceService{
+			llmSvc := &kservev1alpha2.LLMInferenceService{
 				ObjectMeta: v1.ObjectMeta{
 					Name:      "test-llm",
 					Namespace: "test-namespace",

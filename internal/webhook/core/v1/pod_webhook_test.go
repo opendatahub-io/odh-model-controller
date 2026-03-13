@@ -31,6 +31,7 @@ var _ = Describe("Pod Mutator Webhook", func() {
 	var defaulter PodMutatorDefaultor
 	var multinodePod *corev1.Pod
 	BeforeEach(func() {
+		GinkgoT().Setenv("POD_NAMESPACE", "default")
 		defaulter = PodMutatorDefaultor{client: k8sClient}
 
 		multinodePod = &corev1.Pod{
