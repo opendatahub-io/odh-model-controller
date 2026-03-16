@@ -349,4 +349,58 @@ const (
 			}
 		]
     }`
+
+	// MLServer
+	MLServerMetricsData = `{
+        "config": [
+			{
+				"title": "Requests per 5 minutes",
+				"type": "REQUEST_COUNT",
+				"queries": [
+					{
+						"title": "Number of successful incoming requests",
+						"query": "round(sum(increase(model_infer_request_success_total{namespace='${NAMESPACE}', pod=~'${MODEL_NAME}-predictor-.*'}[${REQUEST_RATE_INTERVAL}])))"
+					},
+					{
+						"title": "Number of failed incoming requests",
+						"query": "round(sum(increase(model_infer_request_failure_total{namespace='${NAMESPACE}', pod=~'${MODEL_NAME}-predictor-.*'}[${REQUEST_RATE_INTERVAL}])))"
+					}
+				]
+			},
+			{
+				"title": "Average response time (ms)",
+				"type": "MEAN_LATENCY",
+				"queries": [
+					{
+						"title": "Average inference latency",
+						"query": "sum by (pod) (rate(model_infer_request_duration_sum{namespace='${NAMESPACE}', pod=~'${MODEL_NAME}-predictor-.*'}[${RATE_INTERVAL}])) / sum by (pod) (rate(model_infer_request_duration_count{namespace='${NAMESPACE}', pod=~'${MODEL_NAME}-predictor-.*'}[${RATE_INTERVAL}]))"
+					},
+					{
+						"title": "Average e2e latency",
+						"query": "sum by (pod) (rate(rest_server_request_duration_seconds_sum{namespace='${NAMESPACE}', pod=~'${MODEL_NAME}-predictor-.*', path='/v2/models/{model_name}/infer'}[${RATE_INTERVAL}])) / sum by (pod) (rate(rest_server_request_duration_seconds_count{namespace='${NAMESPACE}', pod=~'${MODEL_NAME}-predictor-.*', path='/v2/models/{model_name}/infer'}[${RATE_INTERVAL}]))"
+					}
+				]
+			},
+			{
+				"title": "CPU utilization %",
+				"type": "CPU_USAGE",
+				"queries": [
+					{
+						"title": "CPU usage",
+						"query":  "sum(pod:container_cpu_usage:sum{namespace='${NAMESPACE}', pod=~'${MODEL_NAME}-predictor-.*'})/sum(kube_pod_resource_limit{resource='cpu', pod=~'${MODEL_NAME}-predictor-.*', namespace='${NAMESPACE}'})"
+					}
+				]
+			},
+			{
+				"title": "Memory utilization %",
+				"type": "MEMORY_USAGE",
+				"queries": [
+					{
+						"title": "Memory usage",
+						"query":  "sum(container_memory_working_set_bytes{namespace='${NAMESPACE}', pod=~'${MODEL_NAME}-predictor-.*'})/sum(kube_pod_resource_limit{resource='memory', pod=~'${MODEL_NAME}-predictor-.*', namespace='${NAMESPACE}'})"
+					}
+				]
+			}
+		]
+    }`
 )

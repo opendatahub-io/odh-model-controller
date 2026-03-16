@@ -19,7 +19,7 @@ import (
 	"context"
 
 	"github.com/go-logr/logr"
-	kservev1alpha1 "github.com/kserve/kserve/pkg/apis/serving/v1alpha1"
+	kservev1alpha2 "github.com/kserve/kserve/pkg/apis/serving/v1alpha2"
 	kservev1beta1 "github.com/kserve/kserve/pkg/apis/serving/v1beta1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
@@ -40,7 +40,7 @@ type GenericSubResourceReconciler[T client.Object] interface {
 type SubResourceReconciler = GenericSubResourceReconciler[*kservev1beta1.InferenceService]
 
 // LLMSubResourceReconciler interface for LLMInferenceService-specific reconcilers
-type LLMSubResourceReconciler = GenericSubResourceReconciler[*kservev1alpha1.LLMInferenceService]
+type LLMSubResourceReconciler = GenericSubResourceReconciler[*kservev1alpha2.LLMInferenceService]
 
 type NoResourceRemoval struct{}
 
@@ -49,16 +49,6 @@ func (r *NoResourceRemoval) Delete(_ context.Context, _ logr.Logger, _ *kservev1
 }
 
 func (r *NoResourceRemoval) Cleanup(_ context.Context, _ logr.Logger, _ string) error {
-	return nil
-}
-
-type LLMNoResourceRemoval struct{}
-
-func (r *LLMNoResourceRemoval) Delete(_ context.Context, _ logr.Logger, _ *kservev1alpha1.LLMInferenceService) error {
-	return nil
-}
-
-func (r *LLMNoResourceRemoval) Cleanup(_ context.Context, _ logr.Logger, _ string) error {
 	return nil
 }
 

@@ -23,14 +23,13 @@ import (
 
 	"github.com/go-logr/logr"
 	"github.com/hashicorp/go-multierror"
-	kservev1alpha1 "github.com/kserve/kserve/pkg/apis/serving/v1alpha1"
-	kservellmisvc "github.com/kserve/kserve/pkg/controller/llmisvc"
+	kservev1alpha2 "github.com/kserve/kserve/pkg/apis/serving/v1alpha2"
+	kservellmisvc "github.com/kserve/kserve/pkg/controller/v1alpha2/llmisvc"
 	authorinooperatorv1beta1 "github.com/kuadrant/authorino-operator/api/v1beta1"
 	kuadrantv1 "github.com/kuadrant/kuadrant-operator/api/v1"
 	kuadrantv1beta1 "github.com/kuadrant/kuadrant-operator/api/v1beta1"
 	istioclientv1alpha3 "istio.io/client-go/pkg/apis/networking/v1alpha3"
 	corev1 "k8s.io/api/core/v1"
-	v1 "k8s.io/api/rbac/v1"
 	apierrs "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
@@ -52,12 +51,6 @@ import (
 	"github.com/opendatahub-io/odh-model-controller/internal/controller/utils"
 )
 
-const (
-	// Field indexer key and value for tier annotation lookup
-	tierAnnotationIndexKey   = "metadata.annotations[alpha.maas.opendatahub.io/tiers]"
-	tierAnnotationIndexValue = "__has_tier__"
-)
-
 type LLMInferenceServiceReconciler struct {
 	client.Client
 	Recorder               record.EventRecorder
@@ -67,14 +60,8 @@ type LLMInferenceServiceReconciler struct {
 	envoyFilterMatcher     resources.EnvoyFilterMatcher
 }
 
-var ownedBySelfPredicate = predicate.NewPredicateFuncs(func(o client.Object) bool {
-	return o.GetLabels()["app.kubernetes.io/managed-by"] == "odh-model-controller"
-})
-
 func NewLLMInferenceServiceReconciler(client client.Client, scheme *runtime.Scheme, recorder record.EventRecorder) *LLMInferenceServiceReconciler {
 	subResourceReconcilers := []parentreconcilers.LLMSubResourceReconciler{
-		parentreconcilers.NewLLMRoleReconciler(client),
-		parentreconcilers.NewLLMRoleBindingReconciler(client, recorder),
 		reconcilers.NewKserveAuthPolicyReconciler(client, scheme),
 		reconcilers.NewKserveEnvoyFilterReconciler(client, scheme),
 	}
@@ -92,7 +79,7 @@ func NewLLMInferenceServiceReconciler(client client.Client, scheme *runtime.Sche
 func (r *LLMInferenceServiceReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
 	logger := log.FromContext(ctx).WithValues("LLMInferenceService", req.Name, "namespace", req.Namespace)
 
-	llmisvc := &kservev1alpha1.LLMInferenceService{}
+	llmisvc := &kservev1alpha2.LLMInferenceService{}
 	err := r.Client.Get(ctx, req.NamespacedName, llmisvc)
 	if err != nil && apierrs.IsNotFound(err) {
 		logger.Info("Stop LLMInferenceService reconciliation")
@@ -116,7 +103,7 @@ func (r *LLMInferenceServiceReconciler) Reconcile(ctx context.Context, req ctrl.
 	}
 
 	// TODO: Reuse logic in Kserve, currently private and not very reusable.
-	specs := make([]kservev1alpha1.LLMInferenceServiceSpec, 0, 1)
+	specs := make([]kservev1alpha2.LLMInferenceServiceSpec, 0, 1)
 	for _, ref := range llmisvc.Spec.BaseRefs {
 		cfg, err := r.getConfig(ctx, llmisvc, ref.Name)
 		if err != nil {
@@ -155,8 +142,6 @@ func (r *LLMInferenceServiceReconciler) Reconcile(ctx context.Context, req ctrl.
 // +kubebuilder:rbac:groups=serving.kserve.io,resources=llminferenceserviceconfigs,verbs=get;list;watch
 // +kubebuilder:rbac:groups=kuadrant.io,resources=authpolicies,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups=kuadrant.io,resources=authpolicies/status,verbs=get;update;patch
-// +kubebuilder:rbac:groups=rbac.authorization.k8s.io,resources=roles,verbs=get;list;watch;create;update;patch;delete
-// +kubebuilder:rbac:groups=rbac.authorization.k8s.io,resources=rolebindings,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups=networking.istio.io,resources=envoyfilters,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups=gateway.networking.k8s.io,resources=gateways,verbs=get;list;watch;update;patch
 // +kubebuilder:rbac:groups=gateway.networking.k8s.io,resources=gateways/finalizers,verbs=update;patch
@@ -168,44 +153,10 @@ func (r *LLMInferenceServiceReconciler) Reconcile(ctx context.Context, req ctrl.
 
 func (r *LLMInferenceServiceReconciler) SetupWithManager(mgr ctrl.Manager, setupLog logr.Logger) error {
 	b := ctrl.NewControllerManagedBy(mgr).
-		For(&kservev1alpha1.LLMInferenceService{}).
-		Owns(&v1.Role{}, ctrlbuilder.WithPredicates(ownedBySelfPredicate)).
-		Owns(&v1.RoleBinding{}, ctrlbuilder.WithPredicates(ownedBySelfPredicate)).
+		For(&kservev1alpha2.LLMInferenceService{}).
 		Named("llminferenceservice")
 
 	setupLog.Info("Setting up LLMInferenceService controller")
-
-	// Setup field indexer for tier annotation BEFORE registering watch
-	// This enables fast lookups when tier ConfigMap changes
-	ctx := context.Background()
-	if err := mgr.GetFieldIndexer().IndexField(ctx, &kservev1alpha1.LLMInferenceService{},
-		tierAnnotationIndexKey, func(obj client.Object) []string {
-			llmisvc := obj.(*kservev1alpha1.LLMInferenceService)
-			if annotations := llmisvc.GetAnnotations(); annotations != nil {
-				if _, found := annotations[parentreconcilers.TierAnnotationKey]; found {
-					return []string{tierAnnotationIndexValue}
-				}
-			}
-			return nil
-		}); err != nil {
-		setupLog.Error(err, "Failed to setup tier annotation field indexer")
-		return err
-	}
-
-	// Watch tier mapping ConfigMap with namespace-scoped predicates
-	b = b.Watches(&corev1.ConfigMap{},
-		r.enqueueOnTierConfigMapChange(),
-		ctrlbuilder.WithPredicates(predicate.Funcs{
-			CreateFunc: func(e event.CreateEvent) bool {
-				return parentreconcilers.IsTierConfigMap(e.Object)
-			},
-			UpdateFunc: func(e event.UpdateEvent) bool {
-				return parentreconcilers.IsTierConfigMap(e.ObjectNew)
-			},
-			DeleteFunc: func(e event.DeleteEvent) bool {
-				return parentreconcilers.IsTierConfigMap(e.Object)
-			},
-		}))
 
 	if ok, err := utils.IsCrdAvailable(mgr.GetConfig(), kuadrantv1.GroupVersion.String(), "AuthPolicy"); err != nil {
 		setupLog.Error(err, "Failed to check CRD availability for AuthPolicy")
@@ -311,7 +262,7 @@ func (r *LLMInferenceServiceReconciler) enqueueOnAuthPolicyChange() handler.Even
 func (r *LLMInferenceServiceReconciler) globalResync(setupLog logr.Logger) handler.EventHandler {
 	return handler.EnqueueRequestsFromMapFunc(func(ctx context.Context, object client.Object) []reconcile.Request {
 
-		llmSvcList := &kservev1alpha1.LLMInferenceServiceList{}
+		llmSvcList := &kservev1alpha2.LLMInferenceServiceList{}
 		if err := r.Client.List(ctx, llmSvcList); err != nil {
 			setupLog.Error(err, "Failed to list LLMInferenceService")
 			return nil
@@ -343,42 +294,6 @@ func (r *LLMInferenceServiceReconciler) enqueueOnEnvoyFilterChange() handler.Eve
 	})
 }
 
-// enqueueOnTierConfigMapChange returns a handler that enqueues LLMInferenceServices
-// with tier annotations when the tier mapping ConfigMap changes.
-func (r *LLMInferenceServiceReconciler) enqueueOnTierConfigMapChange() handler.EventHandler {
-	return handler.EnqueueRequestsFromMapFunc(func(ctx context.Context, object client.Object) []reconcile.Request {
-		logger := log.FromContext(ctx)
-
-		// Namespace and name scoping done in predicate, double-check here
-		if !parentreconcilers.IsTierConfigMap(object) {
-			return []reconcile.Request{}
-		}
-
-		logger.Info("Tier ConfigMap changed, enqueueing affected services",
-			"configmap", object.GetName())
-
-		llmSvcList := &kservev1alpha1.LLMInferenceServiceList{}
-		if err := r.Client.List(ctx, llmSvcList,
-			client.MatchingFields{tierAnnotationIndexKey: tierAnnotationIndexValue}); err != nil {
-			logger.Error(err, "Failed to list indexed services")
-			return []reconcile.Request{}
-		}
-
-		requests := make([]reconcile.Request, 0, len(llmSvcList.Items))
-		for _, llmSvc := range llmSvcList.Items {
-			requests = append(requests, reconcile.Request{
-				NamespacedName: types.NamespacedName{
-					Name:      llmSvc.Name,
-					Namespace: llmSvc.Namespace,
-				},
-			})
-		}
-
-		logger.Info("Enqueued services for reconciliation", "count", len(requests))
-		return requests
-	})
-}
-
 func (r *LLMInferenceServiceReconciler) enqueueOnGatewayChange() handler.EventHandler {
 	return handler.EnqueueRequestsFromMapFunc(func(ctx context.Context, object client.Object) []reconcile.Request {
 		gateway := object.(*gatewayapiv1.Gateway)
@@ -389,7 +304,7 @@ func (r *LLMInferenceServiceReconciler) enqueueOnGatewayChange() handler.EventHa
 
 		// Use pagination to handle large numbers of services efficiently
 		for {
-			llmSvcList := &kservev1alpha1.LLMInferenceServiceList{}
+			llmSvcList := &kservev1alpha2.LLMInferenceServiceList{}
 			if err := r.Client.List(ctx, llmSvcList, &client.ListOptions{Continue: continueToken}); err != nil {
 				logger.Error(err, "Failed to list LLMInferenceService for gateway change")
 				return nil
@@ -416,7 +331,7 @@ func (r *LLMInferenceServiceReconciler) enqueueOnGatewayChange() handler.EventHa
 	})
 }
 
-func (r *LLMInferenceServiceReconciler) onDeletion(ctx context.Context, log logr.Logger, llmisvc *kservev1alpha1.LLMInferenceService) error {
+func (r *LLMInferenceServiceReconciler) onDeletion(ctx context.Context, log logr.Logger, llmisvc *kservev1alpha2.LLMInferenceService) error {
 	log.V(1).Info("Triggering Delete for LLMInferenceService", "name", llmisvc.Name)
 	var deleteErrors *multierror.Error
 
@@ -430,7 +345,7 @@ func (r *LLMInferenceServiceReconciler) onDeletion(ctx context.Context, log logr
 	return deleteErrors.ErrorOrNil()
 }
 
-func (r *LLMInferenceServiceReconciler) reconcileSubResources(ctx context.Context, log logr.Logger, llmisvc *kservev1alpha1.LLMInferenceService) error {
+func (r *LLMInferenceServiceReconciler) reconcileSubResources(ctx context.Context, log logr.Logger, llmisvc *kservev1alpha2.LLMInferenceService) error {
 	log.V(1).Info("Reconciling LLMInferenceService sub-resources")
 	var reconcileErrors *multierror.Error
 
@@ -459,12 +374,12 @@ func (r *LLMInferenceServiceReconciler) Cleanup(ctx context.Context, log logr.Lo
 }
 
 func (r *LLMInferenceServiceReconciler) DeleteResourcesIfNoLLMIsvcExists(ctx context.Context, log logr.Logger, namespace string) error {
-	llmInferenceServiceList := &kservev1alpha1.LLMInferenceServiceList{}
+	llmInferenceServiceList := &kservev1alpha2.LLMInferenceServiceList{}
 	if err := r.Client.List(ctx, llmInferenceServiceList, client.InNamespace(namespace)); err != nil {
 		return err
 	}
 
-	var existingLLMIsvcs []kservev1alpha1.LLMInferenceService
+	var existingLLMIsvcs []kservev1alpha2.LLMInferenceService
 	for _, llmisvc := range llmInferenceServiceList.Items {
 		if llmisvc.GetDeletionTimestamp() == nil {
 			existingLLMIsvcs = append(existingLLMIsvcs, llmisvc)
@@ -484,15 +399,15 @@ func (r *LLMInferenceServiceReconciler) DeleteResourcesIfNoLLMIsvcExists(ctx con
 // getConfig retrieves kserveapis.LLMInferenceServiceConfig with the given name from either the kserveapis.LLMInferenceService
 // namespace or from the SystemNamespace (e.g. 'kserve'), prioritizing the former.
 // TODO: Reuse logic in Kserve, currently private and not very reusable.
-func (k *LLMInferenceServiceReconciler) getConfig(ctx context.Context, llmisvc *kservev1alpha1.LLMInferenceService, name string) (*kservev1alpha1.LLMInferenceServiceConfig, error) {
-	cfg := &kservev1alpha1.LLMInferenceServiceConfig{}
+func (k *LLMInferenceServiceReconciler) getConfig(ctx context.Context, llmisvc *kservev1alpha2.LLMInferenceService, name string) (*kservev1alpha2.LLMInferenceServiceConfig, error) {
+	cfg := &kservev1alpha2.LLMInferenceServiceConfig{}
 	if err := k.Client.Get(ctx, client.ObjectKey{Name: name, Namespace: llmisvc.Namespace}, cfg); err != nil {
 		if apierrs.IsNotFound(err) {
 			systemNamespace := os.Getenv("POD_NAMESPACE")
 			if systemNamespace == "" {
 				return nil, nil
 			}
-			cfg = &kservev1alpha1.LLMInferenceServiceConfig{}
+			cfg = &kservev1alpha2.LLMInferenceServiceConfig{}
 			if err := k.Client.Get(ctx, client.ObjectKey{Name: name, Namespace: systemNamespace}, cfg); err != nil {
 				return nil, fmt.Errorf("failed to get LLMInferenceServiceConfig %q from namespaces [%q, %q]: %w", name, llmisvc.Namespace, systemNamespace, err)
 			}

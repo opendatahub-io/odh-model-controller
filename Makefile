@@ -12,7 +12,7 @@ else
 GOBIN=$(shell go env GOBIN)
 endif
 
-KSERVE_MANIFESTS_REVISION ?= 3a1dc463c63c03bb2e8d63ac9d2c3167f25d1e68
+KSERVE_MANIFESTS_REVISION ?= v0.17.0-rc1
 # Define the file to store the last used KServe revision
 KSERVE_REVISION_FILE = config/crd/external/.kserve_manifests_revision
 
@@ -70,6 +70,10 @@ manifests-update:
 			| tail -n +2 > config/crd/external/serving.kserve.io_inferenceservices.yaml; \
 		wget -O - https://raw.githubusercontent.com/kserve/kserve/$(KSERVE_MANIFESTS_REVISION)/config/crd/full/serving.kserve.io_servingruntimes.yaml \
 			| tail -n +2 > config/crd/external/serving.kserve.io_servingruntimes.yaml; \
+		wget -O - https://raw.githubusercontent.com/kserve/kserve/$(KSERVE_MANIFESTS_REVISION)/config/crd/full/llmisvc/serving.kserve.io_llminferenceservices.yaml \
+			| tail -n +2 > config/crd/external/serving.kserve.io_llminferenceservices.yaml; \
+		wget -O - https://raw.githubusercontent.com/kserve/kserve/$(KSERVE_MANIFESTS_REVISION)/config/crd/full/llmisvc/serving.kserve.io_llminferenceserviceconfigs.yaml \
+			| tail -n +2 > config/crd/external/serving.kserve.io_llminferenceserviceconfigs.yaml; \
 		echo "$(KSERVE_MANIFESTS_REVISION)" > "$(KSERVE_REVISION_FILE)"; \
 		echo "KServe manifests updated to revision $(KSERVE_MANIFESTS_REVISION) and revision stored in $(KSERVE_REVISION_FILE)."; \
 	else \
@@ -95,6 +99,7 @@ vet: ## Run go vet against code.
 
 .PHONY: test
 test: manifests generate fmt vet envtest ## Run tests.
+	@go tool covdata >/dev/null 2>&1 || true
 	KUBEBUILDER_ASSETS="$(shell $(ENVTEST) use $(ENVTEST_K8S_VERSION) --bin-dir $(LOCALBIN) -p path)" POD_NAMESPACE=default \
 		go test $$(go list ./... | grep -v /e2e) -coverprofile cover.out -coverpkg=./...
 
@@ -261,7 +266,7 @@ GOLANGCI_LINT = $(LOCALBIN)/golangci-lint
 KUSTOMIZE_VERSION ?= v5.5.0
 CONTROLLER_TOOLS_VERSION ?= v0.16.4
 ENVTEST_VERSION ?= release-0.19
-GOLANGCI_LINT_VERSION ?= v1.64.8
+GOLANGCI_LINT_VERSION ?= v2.11.3
 
 .PHONY: kustomize
 kustomize: $(KUSTOMIZE) ## Download kustomize locally if necessary.
@@ -281,7 +286,7 @@ $(ENVTEST): $(LOCALBIN)
 .PHONY: golangci-lint
 golangci-lint: $(GOLANGCI_LINT) ## Download golangci-lint locally if necessary.
 $(GOLANGCI_LINT): $(LOCALBIN)
-	$(call go-install-tool,$(GOLANGCI_LINT),github.com/golangci/golangci-lint/cmd/golangci-lint,$(GOLANGCI_LINT_VERSION))
+	$(call go-install-tool,$(GOLANGCI_LINT),github.com/golangci/golangci-lint/v2/cmd/golangci-lint,$(GOLANGCI_LINT_VERSION))
 
 # Macro `go-install-tool` installs a specific version of a Go package and ensures that
 # invoking the binary at the given path uses that version.

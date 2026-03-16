@@ -20,24 +20,20 @@ import (
 	"context"
 	"os"
 
-	kservev1alpha1 "github.com/kserve/kserve/pkg/apis/serving/v1alpha1"
+	kservev1alpha2 "github.com/kserve/kserve/pkg/apis/serving/v1alpha2"
 	kuadrantv1 "github.com/kuadrant/kuadrant-operator/api/v1"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	istioclientv1alpha3 "istio.io/client-go/pkg/apis/networking/v1alpha3"
 	corev1 "k8s.io/api/core/v1"
-	rbacv1 "k8s.io/api/rbac/v1"
 	"k8s.io/apimachinery/pkg/api/errors"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	gatewayapiv1 "sigs.k8s.io/gateway-api/apis/v1"
 
 	"github.com/opendatahub-io/odh-model-controller/internal/controller/constants"
 	"github.com/opendatahub-io/odh-model-controller/internal/controller/serving/llm/fixture"
-	"github.com/opendatahub-io/odh-model-controller/internal/controller/serving/reconcilers"
 	pkgtest "github.com/opendatahub-io/odh-model-controller/internal/controller/testing"
-	controllerutils "github.com/opendatahub-io/odh-model-controller/internal/controller/utils"
 	testutils "github.com/opendatahub-io/odh-model-controller/test/utils"
 )
 
@@ -45,8 +41,6 @@ const (
 	LLMInferenceServiceName = "test-llmisvc"
 	CustomGatewayName       = "ready-gateway"
 	CustomHTTPRouteName     = "custom-httproute"
-	LLMServicePath1         = "./testdata/deploy/test-llm-inference-service.yaml"
-	LLMServicePath2         = "./testdata/deploy/test-llm-inference-service-2.yaml"
 	GatewayClassName        = "openshift-default"
 )
 
@@ -65,7 +59,7 @@ var _ = Describe("LLMInferenceService Controller", func() {
 	AfterEach(func(ctx SpecContext) {
 		// Clean up LLMInferenceServices to prevent cross-test interference
 		// from watches (Gateway, ConfigMap) that list all services
-		llmList := &kservev1alpha1.LLMInferenceServiceList{}
+		llmList := &kservev1alpha2.LLMInferenceServiceList{}
 		if err := envTest.Client.List(ctx, llmList, client.InNamespace(testNs)); err == nil {
 			for i := range llmList.Items {
 				_ = envTest.Client.Delete(ctx, &llmList.Items[i])
@@ -127,8 +121,8 @@ var _ = Describe("LLMInferenceService Controller", func() {
 				Expect(envTest.Client.Create(ctx, customGateway)).Should(Succeed())
 
 				llmisvc := fixture.LLMInferenceService(LLMInferenceServiceName,
-					fixture.InNamespace[*kservev1alpha1.LLMInferenceService](testNs),
-					fixture.WithGatewayRefs(kservev1alpha1.UntypedObjectReference{
+					fixture.InNamespace[*kservev1alpha2.LLMInferenceService](testNs),
+					fixture.WithGatewayRefs(kservev1alpha2.UntypedObjectReference{
 						Name:      gatewayapiv1.ObjectName(customGatewayName),
 						Namespace: gatewayapiv1.Namespace(customGatewayNamespace),
 					}),
@@ -145,7 +139,7 @@ var _ = Describe("LLMInferenceService Controller", func() {
 				Expect(envTest.Client.Create(ctx, customHTTPRoute)).Should(Succeed())
 
 				llmisvc := fixture.LLMInferenceService(LLMInferenceServiceName,
-					fixture.InNamespace[*kservev1alpha1.LLMInferenceService](testNs),
+					fixture.InNamespace[*kservev1alpha2.LLMInferenceService](testNs),
 					fixture.WithEnableAuth(false),
 					fixture.WithHTTPRouteRefs(fixture.HTTPRouteRef(customHTTPRouteName)),
 				)
@@ -189,8 +183,8 @@ var _ = Describe("LLMInferenceService Controller", func() {
 					Expect(envTest.Client.Create(ctx, customGateway)).Should(Succeed())
 
 					llmisvc := fixture.LLMInferenceService(LLMInferenceServiceName,
-						fixture.InNamespace[*kservev1alpha1.LLMInferenceService](testNs),
-						fixture.WithGatewayRefs(kservev1alpha1.UntypedObjectReference{
+						fixture.InNamespace[*kservev1alpha2.LLMInferenceService](testNs),
+						fixture.WithGatewayRefs(kservev1alpha2.UntypedObjectReference{
 							Name:      gatewayapiv1.ObjectName(customGatewayName),
 							Namespace: gatewayapiv1.Namespace(customGatewayNamespace),
 						}),
@@ -218,8 +212,8 @@ var _ = Describe("LLMInferenceService Controller", func() {
 					Expect(envTest.Client.Create(ctx, customGateway)).Should(Succeed())
 
 					llmisvc := fixture.LLMInferenceService(LLMInferenceServiceName,
-						fixture.InNamespace[*kservev1alpha1.LLMInferenceService](testNs),
-						fixture.WithGatewayRefs(kservev1alpha1.UntypedObjectReference{
+						fixture.InNamespace[*kservev1alpha2.LLMInferenceService](testNs),
+						fixture.WithGatewayRefs(kservev1alpha2.UntypedObjectReference{
 							Name:      gatewayapiv1.ObjectName(customGatewayName),
 							Namespace: gatewayapiv1.Namespace(customGatewayNamespace),
 						}),
@@ -272,7 +266,7 @@ var _ = Describe("LLMInferenceService Controller", func() {
 					Expect(envTest.Client.Create(ctx, customHTTPRoute)).Should(Succeed())
 
 					llmisvc := fixture.LLMInferenceService(LLMInferenceServiceName,
-						fixture.InNamespace[*kservev1alpha1.LLMInferenceService](testNs),
+						fixture.InNamespace[*kservev1alpha2.LLMInferenceService](testNs),
 						fixture.WithEnableAuth(false),
 						fixture.WithHTTPRouteRefs(fixture.HTTPRouteRef(customHTTPRouteName)),
 					)
@@ -298,7 +292,7 @@ var _ = Describe("LLMInferenceService Controller", func() {
 					Expect(envTest.Client.Create(ctx, customHTTPRoute)).Should(Succeed())
 
 					llmisvc := fixture.LLMInferenceService(LLMInferenceServiceName,
-						fixture.InNamespace[*kservev1alpha1.LLMInferenceService](testNs),
+						fixture.InNamespace[*kservev1alpha2.LLMInferenceService](testNs),
 						fixture.WithEnableAuth(false),
 						fixture.WithHTTPRouteRefs(fixture.HTTPRouteRef(customHTTPRouteName)),
 					)
@@ -330,8 +324,8 @@ var _ = Describe("LLMInferenceService Controller", func() {
 				Expect(envTest.Client.Create(ctx, customGateway)).Should(Succeed())
 
 				llmisvc := fixture.LLMInferenceService(LLMInferenceServiceName,
-					fixture.InNamespace[*kservev1alpha1.LLMInferenceService](testNs),
-					fixture.WithGatewayRefs(kservev1alpha1.UntypedObjectReference{
+					fixture.InNamespace[*kservev1alpha2.LLMInferenceService](testNs),
+					fixture.WithGatewayRefs(kservev1alpha2.UntypedObjectReference{
 						Name:      gatewayapiv1.ObjectName(customGatewayName),
 						Namespace: gatewayapiv1.Namespace(constants.DefaultGatewayNamespace),
 					}),
@@ -379,8 +373,8 @@ var _ = Describe("LLMInferenceService Controller", func() {
 				Expect(envTest.Client.Create(ctx, customGateway)).Should(Succeed())
 
 				llmisvc := fixture.LLMInferenceService(LLMInferenceServiceName,
-					fixture.InNamespace[*kservev1alpha1.LLMInferenceService](testNs),
-					fixture.WithGatewayRefs(kservev1alpha1.UntypedObjectReference{
+					fixture.InNamespace[*kservev1alpha2.LLMInferenceService](testNs),
+					fixture.WithGatewayRefs(kservev1alpha2.UntypedObjectReference{
 						Name:      gatewayapiv1.ObjectName(customGatewayName),
 						Namespace: gatewayapiv1.Namespace(customGatewayNamespace),
 					}),
@@ -409,8 +403,8 @@ var _ = Describe("LLMInferenceService Controller", func() {
 				Expect(envTest.Client.Create(ctx, customGateway)).Should(Succeed())
 
 				llmisvc := fixture.LLMInferenceService(LLMInferenceServiceName,
-					fixture.InNamespace[*kservev1alpha1.LLMInferenceService](testNs),
-					fixture.WithGatewayRefs(kservev1alpha1.UntypedObjectReference{
+					fixture.InNamespace[*kservev1alpha2.LLMInferenceService](testNs),
+					fixture.WithGatewayRefs(kservev1alpha2.UntypedObjectReference{
 						Name:      gatewayapiv1.ObjectName(customGatewayName),
 						Namespace: gatewayapiv1.Namespace(constants.DefaultGatewayNamespace),
 					}),
@@ -438,8 +432,8 @@ var _ = Describe("LLMInferenceService Controller", func() {
 				Expect(envTest.Client.Create(ctx, unmanagedGateway)).Should(Succeed())
 
 				llmisvc := fixture.LLMInferenceService(LLMInferenceServiceName,
-					fixture.InNamespace[*kservev1alpha1.LLMInferenceService](testNs),
-					fixture.WithGatewayRefs(kservev1alpha1.UntypedObjectReference{
+					fixture.InNamespace[*kservev1alpha2.LLMInferenceService](testNs),
+					fixture.WithGatewayRefs(kservev1alpha2.UntypedObjectReference{
 						Name:      gatewayapiv1.ObjectName(unmanagedGatewayName),
 						Namespace: gatewayapiv1.Namespace(testNs),
 					}),
@@ -462,8 +456,8 @@ var _ = Describe("LLMInferenceService Controller", func() {
 				Expect(envTest.Client.Create(ctx, optInGateway)).Should(Succeed())
 
 				llmisvc := fixture.LLMInferenceService(LLMInferenceServiceName,
-					fixture.InNamespace[*kservev1alpha1.LLMInferenceService](testNs),
-					fixture.WithGatewayRefs(kservev1alpha1.UntypedObjectReference{
+					fixture.InNamespace[*kservev1alpha2.LLMInferenceService](testNs),
+					fixture.WithGatewayRefs(kservev1alpha2.UntypedObjectReference{
 						Name:      gatewayapiv1.ObjectName(optInGatewayName),
 						Namespace: gatewayapiv1.Namespace(testNs),
 					}),
@@ -486,8 +480,8 @@ var _ = Describe("LLMInferenceService Controller", func() {
 				Expect(envTest.Client.Create(ctx, optInGateway)).Should(Succeed())
 
 				llmisvc := fixture.LLMInferenceService(LLMInferenceServiceName,
-					fixture.InNamespace[*kservev1alpha1.LLMInferenceService](testNs),
-					fixture.WithGatewayRefs(kservev1alpha1.UntypedObjectReference{
+					fixture.InNamespace[*kservev1alpha2.LLMInferenceService](testNs),
+					fixture.WithGatewayRefs(kservev1alpha2.UntypedObjectReference{
 						Name:      gatewayapiv1.ObjectName(optInGatewayName),
 						Namespace: gatewayapiv1.Namespace(testNs),
 					}),
@@ -520,8 +514,8 @@ var _ = Describe("LLMInferenceService Controller", func() {
 				Expect(envTest.Client.Create(ctx, optInGateway)).Should(Succeed())
 
 				llmisvc := fixture.LLMInferenceService(LLMInferenceServiceName,
-					fixture.InNamespace[*kservev1alpha1.LLMInferenceService](testNs),
-					fixture.WithGatewayRefs(kservev1alpha1.UntypedObjectReference{
+					fixture.InNamespace[*kservev1alpha2.LLMInferenceService](testNs),
+					fixture.WithGatewayRefs(kservev1alpha2.UntypedObjectReference{
 						Name:      gatewayapiv1.ObjectName(optInGatewayName),
 						Namespace: gatewayapiv1.Namespace(testNs),
 					}),
@@ -542,586 +536,7 @@ var _ = Describe("LLMInferenceService Controller", func() {
 			})
 		})
 	})
-
-	Describe("Model-as-a-Service Integration", func() {
-		Describe("Role Reconciler", func() {
-			When("creating an LLMInferenceService", func() {
-				It("should create a Role with correct specifications and proper owner references", func(ctx SpecContext) {
-					// Create LLMInferenceService
-					llmisvc := createLLMInferenceService(testNs, "test-llm-service", LLMServicePath1)
-					Expect(envTest.Create(ctx, llmisvc)).Should(Succeed())
-
-					// Wait for Role to be created and verify its specification
-					role := waitForRole(testNs, controllerutils.GetMaaSRoleName(llmisvc))
-					verifyRoleSpecification(role, llmisvc)
-
-					// Verify owner reference
-					Expect(role.GetOwnerReferences()).To(HaveLen(1))
-					ownerRef := role.GetOwnerReferences()[0]
-					Expect(ownerRef.UID).To(Equal(llmisvc.UID))
-					Expect(ownerRef.Kind).To(Equal("LLMInferenceService"))
-					Expect(ownerRef.APIVersion).To(Equal("serving.kserve.io/v1alpha1"))
-					Expect(*ownerRef.Controller).To(BeTrue())
-				})
-			})
-
-			When("Role is manually modified", func() {
-				It("should reconcile back to desired state", func(ctx SpecContext) {
-					// Create LLMInferenceService with Role
-					llmisvc := createLLMInferenceService(testNs, "test-llm-service", LLMServicePath1)
-					Expect(envTest.Create(ctx, llmisvc)).Should(Succeed())
-
-					roleName := controllerutils.GetMaaSRoleName(llmisvc)
-					role := waitForRole(testNs, roleName)
-
-					// Manually modify Role (change verb from "post" to "get")
-					role.Rules[0].Verbs = []string{"get"}
-					Expect(envTest.Update(ctx, role)).Should(Succeed())
-
-					// Verify the role is restored to the correct state
-					Eventually(func() bool {
-						updatedRole := &rbacv1.Role{}
-						err := envTest.Get(ctx, types.NamespacedName{
-							Name:      roleName,
-							Namespace: testNs,
-						}, updatedRole)
-						if err != nil {
-							return false
-						}
-
-						// Check if the role has been reconciled back to the correct state
-						return len(updatedRole.Rules) > 0 &&
-							len(updatedRole.Rules[0].Verbs) > 0 &&
-							updatedRole.Rules[0].Verbs[0] == "post"
-					}).WithContext(ctx).Should(BeTrue())
-				})
-			})
-
-			When("multiple LLMInferenceServices exist", func() {
-				It("should create individual Roles with correct specifications", func(ctx SpecContext) {
-					// Create multiple LLMInferenceServices in the same namespace
-					llmisvc1 := createLLMInferenceService(testNs, "test-llm-service-1", LLMServicePath1)
-					llmisvc1.Name = "test-llm-service-1"
-					Expect(envTest.Create(ctx, llmisvc1)).Should(Succeed())
-
-					llmisvc2 := createLLMInferenceService(testNs, "test-llm-service-2", LLMServicePath2)
-					llmisvc2.Name = "test-llm-service-2"
-					Expect(envTest.Create(ctx, llmisvc2)).Should(Succeed())
-
-					// Verify each has its own Role with correct resource names
-					role1Name := controllerutils.GetMaaSRoleName(llmisvc1)
-					role2Name := controllerutils.GetMaaSRoleName(llmisvc2)
-
-					role1 := waitForRole(testNs, role1Name)
-					verifyRoleSpecification(role1, llmisvc1)
-
-					role2 := waitForRole(testNs, role2Name)
-					verifyRoleSpecification(role2, llmisvc2)
-				})
-			})
-
-			When("tier annotation is removed", func() {
-				It("should delete existing managed Role", func(ctx SpecContext) {
-					// Create LLMInferenceService with tier annotation and wait for Role to be created
-					llmisvc := createLLMInferenceService(testNs, "test-llm-service", LLMServicePath1)
-					Expect(envTest.Create(ctx, llmisvc)).Should(Succeed())
-
-					roleName := controllerutils.GetMaaSRoleName(llmisvc)
-					waitForRole(testNs, roleName)
-
-					// Remove tier annotation and verify Role is deleted
-					delete(llmisvc.Annotations, reconcilers.TierAnnotationKey)
-					Expect(envTest.Update(ctx, llmisvc)).Should(Succeed())
-
-					// Verify Role is deleted
-					Eventually(func() error {
-						deletedRole := &rbacv1.Role{}
-						return envTest.Get(ctx, types.NamespacedName{
-							Name:      roleName,
-							Namespace: testNs,
-						}, deletedRole)
-					}).WithContext(ctx).Should(And(
-						Not(Succeed()),
-						WithTransform(errors.IsNotFound, BeTrue()),
-					))
-				})
-
-				It("should not delete existing unmanaged Role", func(ctx SpecContext) {
-					// Create an LLMInferenceService with tier annotation, and an unmanaged Role
-					llmisvc := createLLMInferenceService(testNs, "test-llm-service", LLMServicePath1)
-
-					unmanagedRole := &rbacv1.Role{
-						ObjectMeta: metav1.ObjectMeta{
-							Name:      controllerutils.GetMaaSRoleName(llmisvc),
-							Namespace: testNs,
-						},
-						Rules: []rbacv1.PolicyRule{
-							{
-								APIGroups:     []string{"serving.kserve.io"},
-								Resources:     []string{"llminferenceservices"},
-								ResourceNames: []string{llmisvc.Name},
-								Verbs:         []string{"post"},
-							},
-						},
-					}
-
-					Expect(envTest.Create(ctx, unmanagedRole)).Should(Succeed())
-					Expect(envTest.Create(ctx, llmisvc)).Should(Succeed())
-
-					delete(llmisvc.Annotations, reconcilers.TierAnnotationKey)
-					Expect(envTest.Update(ctx, llmisvc)).Should(Succeed())
-
-					// Verify unmanaged Role is not deleted
-					Consistently(func() error {
-						role := &rbacv1.Role{}
-						return envTest.Get(ctx, types.NamespacedName{
-							Name:      unmanagedRole.Name,
-							Namespace: testNs,
-						}, role)
-					}).WithContext(ctx).Should(Succeed())
-				})
-			})
-		})
-
-		Describe("RoleBinding Reconciler", func() {
-			When("creating an LLMInferenceService", func() {
-				It("should create a RoleBinding with correct MaaS tier specifications and proper owner references, and should reference the Role created by LLMRoleReconciler", func(ctx SpecContext) {
-					// Create LLMInferenceService
-					llmisvc := createLLMInferenceService(testNs, "test-llm-service", LLMServicePath1)
-					Expect(envTest.Create(ctx, llmisvc)).Should(Succeed())
-
-					// Wait for RoleBinding to be created and verify its specification
-					roleBindingName := controllerutils.GetMaaSRoleBindingName(llmisvc)
-					roleBinding := waitForRoleBinding(testNs, roleBindingName)
-					verifyRoleBindingSpecification(Default, roleBinding, llmisvc)
-
-					// Verify owner reference
-					Expect(roleBinding.GetOwnerReferences()).To(HaveLen(1))
-					ownerRef := roleBinding.GetOwnerReferences()[0]
-					Expect(ownerRef.UID).To(Equal(llmisvc.UID))
-					Expect(ownerRef.Kind).To(Equal("LLMInferenceService"))
-					Expect(ownerRef.APIVersion).To(Equal("serving.kserve.io/v1alpha1"))
-					Expect(*ownerRef.Controller).To(BeTrue())
-				})
-			})
-
-			When("RoleBinding is manually modified", func() {
-				It("should reconcile back to desired state and restore correct MaaS tier subjects when changed", func(ctx SpecContext) {
-					// Create LLMInferenceService with RoleBinding
-					llmisvc := createLLMInferenceService(testNs, "test-llm-service", LLMServicePath1)
-					Expect(envTest.Create(ctx, llmisvc)).Should(Succeed())
-
-					roleBindingName := controllerutils.GetMaaSRoleBindingName(llmisvc)
-					roleBinding := waitForRoleBinding(testNs, roleBindingName)
-
-					// Manually modify RoleBinding subjects (remove a MaaS tier)
-					roleBinding.Subjects = []rbacv1.Subject{
-						{
-							Kind:      "Group",
-							APIGroup:  "rbac.authorization.k8s.io",
-							Name:      "system:serviceaccounts:maas-default-gateway-tier-free",
-							Namespace: "",
-						},
-					}
-					Expect(envTest.Update(ctx, roleBinding)).Should(Succeed())
-
-					// Verify RoleBinding is restored to include all three tiers
-					Eventually(func(g Gomega) {
-						updatedRoleBinding := &rbacv1.RoleBinding{}
-						err := envTest.Get(ctx, types.NamespacedName{
-							Name:      roleBindingName,
-							Namespace: testNs,
-						}, updatedRoleBinding)
-						g.Expect(err).ToNot(HaveOccurred())
-
-						// Check RoleBinding is restored
-						verifyRoleBindingSpecification(g, updatedRoleBinding, llmisvc)
-					}).Should(Succeed())
-				})
-			})
-
-			When("multiple LLMInferenceServices exist", func() {
-				It("should create individual RoleBindings with correct Role references", func(ctx SpecContext) {
-					// Create multiple LLMInferenceServices in the same namespace
-					llmisvc1 := createLLMInferenceService(testNs, "test-llm-service-1", LLMServicePath1)
-					llmisvc1.Name = "test-llm-service-1"
-					Expect(envTest.Create(ctx, llmisvc1)).Should(Succeed())
-
-					llmisvc2 := createLLMInferenceService(testNs, "test-llm-service-2", LLMServicePath2)
-					llmisvc2.Name = "test-llm-service-2"
-					Expect(envTest.Create(ctx, llmisvc2)).Should(Succeed())
-
-					// Verify each has its own RoleBinding with correct Role reference
-					roleBinding1Name := controllerutils.GetMaaSRoleBindingName(llmisvc1)
-					roleBinding2Name := controllerutils.GetMaaSRoleBindingName(llmisvc2)
-
-					roleBinding1 := waitForRoleBinding(testNs, roleBinding1Name)
-					verifyRoleBindingSpecification(Default, roleBinding1, llmisvc1)
-
-					roleBinding2 := waitForRoleBinding(testNs, roleBinding2Name)
-					verifyRoleBinding2Specification(Default, roleBinding2, llmisvc2)
-				})
-			})
-
-			When("tier annotation is removed", func() {
-				It("should delete existing managed RoleBinding", func(ctx SpecContext) {
-					// Create LLMInferenceService with tier annotation and wait for its RoleBinding to be created
-					llmisvc := createLLMInferenceService(testNs, "test-llm-service", LLMServicePath1)
-					Expect(envTest.Create(ctx, llmisvc)).Should(Succeed())
-
-					roleBindingName := controllerutils.GetMaaSRoleBindingName(llmisvc)
-					waitForRoleBinding(testNs, roleBindingName)
-
-					// Remove tier annotation and check the RoleBinding is deleted
-					delete(llmisvc.Annotations, reconcilers.TierAnnotationKey)
-					Expect(envTest.Update(ctx, llmisvc)).Should(Succeed())
-
-					Eventually(func() error {
-						deletedRoleBinding := &rbacv1.RoleBinding{}
-						return envTest.Get(ctx, types.NamespacedName{
-							Name:      roleBindingName,
-							Namespace: testNs,
-						}, deletedRoleBinding)
-					}).WithContext(ctx).Should(And(
-						Not(Succeed()),
-						WithTransform(errors.IsNotFound, BeTrue()),
-					))
-				})
-
-				It("should not delete existing unmanaged RoleBinding", func(ctx SpecContext) {
-					// Create LLMInferenceService with tier annotation and an unmanaged RoleBinding
-					llmisvc := createLLMInferenceService(testNs, "test-llm-service", LLMServicePath1)
-
-					unmanagedRoleBinding := &rbacv1.RoleBinding{
-						ObjectMeta: metav1.ObjectMeta{
-							Name:      controllerutils.GetMaaSRoleBindingName(llmisvc),
-							Namespace: testNs,
-						},
-						Subjects: []rbacv1.Subject{
-							{
-								Kind:      "Group",
-								APIGroup:  "rbac.authorization.k8s.io",
-								Name:      "system:serviceaccounts:maas-default-gateway-tier-free",
-								Namespace: "",
-							},
-						},
-						RoleRef: rbacv1.RoleRef{
-							Kind:     "Role",
-							Name:     controllerutils.GetMaaSRoleName(llmisvc),
-							APIGroup: "rbac.authorization.k8s.io",
-						},
-					}
-
-					Expect(envTest.Create(ctx, unmanagedRoleBinding)).Should(Succeed())
-					Expect(envTest.Create(ctx, llmisvc)).Should(Succeed())
-
-					// Remove tier annotation and verify unmanaged RoleBinding is not deleted
-					delete(llmisvc.Annotations, reconcilers.TierAnnotationKey)
-					Expect(envTest.Update(ctx, llmisvc)).Should(Succeed())
-
-					Consistently(func() error {
-						rb := &rbacv1.RoleBinding{}
-						return envTest.Get(ctx, types.NamespacedName{
-							Name:      unmanagedRoleBinding.Name,
-							Namespace: testNs,
-						}, rb)
-					}).WithContext(ctx).Should(Succeed())
-				})
-			})
-
-			When("specific tiers are requested via annotation", func() {
-				It("should create RoleBinding with only the requested tier subjects", func(ctx SpecContext) {
-					llmisvc := fixture.LLMInferenceService("specific-tiers-test",
-						fixture.InNamespace[*kservev1alpha1.LLMInferenceService](testNs),
-						fixture.WithAnnotation(reconcilers.TierAnnotationKey, `["free", "premium"]`),
-					)
-					Expect(envTest.Create(ctx, llmisvc)).Should(Succeed())
-
-					roleBindingName := controllerutils.GetMaaSRoleBindingName(llmisvc)
-					roleBinding := waitForRoleBinding(testNs, roleBindingName)
-					Expect(roleBinding.Subjects).To(HaveLen(2))
-					Expect(roleBinding.Subjects).To(HaveExactElements([]rbacv1.Subject{
-						{Kind: "Group", APIGroup: "rbac.authorization.k8s.io", Name: "system:serviceaccounts:maas-default-gateway-tier-free"},
-						{Kind: "Group", APIGroup: "rbac.authorization.k8s.io", Name: "system:serviceaccounts:maas-default-gateway-tier-premium"},
-					}))
-				})
-			})
-
-			When("requested tier does not exist in ConfigMap", func() {
-				It("should not create RoleBinding", func(ctx SpecContext) {
-					llmisvc := fixture.LLMInferenceService("nonexistent-tier-test",
-						fixture.InNamespace[*kservev1alpha1.LLMInferenceService](testNs),
-						fixture.WithAnnotation(reconcilers.TierAnnotationKey, `["nonexistent-tier"]`),
-					)
-					Expect(envTest.Create(ctx, llmisvc)).Should(Succeed())
-
-					roleBindingName := controllerutils.GetMaaSRoleBindingName(llmisvc)
-					Consistently(func() error {
-						return envTest.Get(ctx, types.NamespacedName{Name: roleBindingName, Namespace: testNs}, &rbacv1.RoleBinding{})
-					}).WithContext(ctx).Should(And(
-						Not(Succeed()),
-						WithTransform(errors.IsNotFound, BeTrue()),
-					))
-				})
-			})
-		})
-	})
 })
-
-var _ = Describe("Tier ConfigMap Watch", func() {
-	var testNs string
-
-	BeforeEach(func(ctx SpecContext) {
-		testNamespace := testutils.Namespaces.Create(ctx, envTest.Client)
-		testNs = testNamespace.Name
-	})
-
-	Context("ConfigMap update triggers re-reconciliation", func() {
-		It("should update RoleBinding subjects when ConfigMap tiers are modified", func(ctx SpecContext) {
-			llmisvc := createLLMInferenceService(testNs, "tier-update-test", LLMServicePath1)
-			Expect(envTest.Create(ctx, llmisvc)).Should(Succeed())
-
-			roleBindingName := controllerutils.GetMaaSRoleBindingName(llmisvc)
-			roleBinding := waitForRoleBinding(testNs, roleBindingName)
-			Expect(roleBinding.Subjects).To(HaveLen(3))
-
-			tierCM := &corev1.ConfigMap{}
-			Expect(envTest.Get(ctx, types.NamespacedName{
-				Name:      reconcilers.TierConfigMapName,
-				Namespace: reconcilers.DefaultTenantNamespace,
-			}, tierCM)).Should(Succeed())
-
-			originalTiers := tierCM.Data["tiers"]
-			DeferCleanup(func(ctx SpecContext) {
-				tierCM.Data["tiers"] = originalTiers
-				_ = envTest.Update(ctx, tierCM)
-			})
-
-			tierCM.Data["tiers"] = `
-- name: free
-  level: 1
-- name: premium
-  level: 10
-- name: enterprise
-  level: 20
-- name: ultimate
-  level: 30
-`
-			Expect(envTest.Update(ctx, tierCM)).Should(Succeed())
-
-			Eventually(func(g Gomega, ctx context.Context) {
-				updatedRB := &rbacv1.RoleBinding{}
-				g.Expect(envTest.Get(ctx, types.NamespacedName{Name: roleBindingName, Namespace: testNs}, updatedRB)).To(Succeed())
-				g.Expect(updatedRB.Subjects).To(HaveLen(4))
-				subjectNames := make([]string, len(updatedRB.Subjects))
-				for i, s := range updatedRB.Subjects {
-					subjectNames[i] = s.Name
-				}
-				g.Expect(subjectNames).To(ContainElement("system:serviceaccounts:maas-default-gateway-tier-ultimate"))
-			}).WithContext(ctx).Should(Succeed())
-		})
-	})
-
-	Context("ConfigMap deletion behavior", func() {
-		It("should delete RoleBinding when tier ConfigMap is deleted (fail-closed)", func(ctx SpecContext) {
-			llmisvc := fixture.LLMInferenceService("delete-cm-test",
-				fixture.InNamespace[*kservev1alpha1.LLMInferenceService](testNs),
-				fixture.WithAnnotation(reconcilers.TierAnnotationKey, `["free"]`),
-			)
-			Expect(envTest.Create(ctx, llmisvc)).Should(Succeed())
-
-			roleBindingName := controllerutils.GetMaaSRoleBindingName(llmisvc)
-			roleBinding := waitForRoleBinding(testNs, roleBindingName)
-			Expect(roleBinding.Subjects).To(HaveLen(1))
-
-			tierCM := &corev1.ConfigMap{}
-			Expect(envTest.Get(ctx, types.NamespacedName{
-				Name:      reconcilers.TierConfigMapName,
-				Namespace: reconcilers.DefaultTenantNamespace,
-			}, tierCM)).Should(Succeed())
-
-			originalData := tierCM.Data["tiers"]
-			DeferCleanup(func(ctx SpecContext) {
-				// Restore ConfigMap - recreate if deleted, or update if exists
-				cm := &corev1.ConfigMap{}
-				err := envTest.Get(ctx, types.NamespacedName{
-					Name:      reconcilers.TierConfigMapName,
-					Namespace: reconcilers.DefaultTenantNamespace,
-				}, cm)
-				if errors.IsNotFound(err) {
-					cm = &corev1.ConfigMap{
-						ObjectMeta: metav1.ObjectMeta{
-							Name:      reconcilers.TierConfigMapName,
-							Namespace: reconcilers.DefaultTenantNamespace,
-						},
-						Data: map[string]string{"tiers": originalData},
-					}
-					_ = envTest.Create(ctx, cm)
-				}
-			})
-
-			Expect(envTest.Delete(ctx, tierCM)).Should(Succeed())
-
-			Eventually(func(g Gomega, ctx context.Context) {
-				rb := &rbacv1.RoleBinding{}
-				err := envTest.Get(ctx, types.NamespacedName{Name: roleBindingName, Namespace: testNs}, rb)
-				g.Expect(errors.IsNotFound(err)).To(BeTrue(), "RoleBinding should be deleted when ConfigMap is missing")
-			}).WithContext(ctx).Should(Succeed())
-		})
-	})
-
-})
-
-// Helper Functions
-
-// createLLMInferenceService creates an LLMInferenceService from a testdata file
-func createLLMInferenceService(namespace, name, path string) *kservev1alpha1.LLMInferenceService {
-	llmisvc := &kservev1alpha1.LLMInferenceService{}
-	err := testutils.ConvertToStructuredResource(path, llmisvc)
-	Expect(err).NotTo(HaveOccurred())
-	llmisvc.SetNamespace(namespace)
-	if name != "" {
-		llmisvc.Name = name
-	}
-	return llmisvc
-}
-
-func waitForRole(namespace, name string) *rbacv1.Role {
-	GinkgoHelper()
-
-	role := &rbacv1.Role{}
-	Eventually(func() error {
-		return envTest.Get(context.Background(), types.NamespacedName{
-			Name:      name,
-			Namespace: namespace,
-		}, role)
-	}).Should(Succeed())
-
-	return role
-}
-
-// verifyRoleSpecification validates Role matches expected template
-func verifyRoleSpecification(role *rbacv1.Role, llmIsvc *kservev1alpha1.LLMInferenceService) {
-	GinkgoHelper()
-
-	// Verify Role name
-	expectedName := controllerutils.GetMaaSRoleName(llmIsvc)
-	Expect(role.GetName()).To(Equal(expectedName))
-
-	// Verify Role labels
-	Expect(role.GetLabels()).To(HaveKeyWithValue("app.kubernetes.io/managed-by", "odh-model-controller"))
-
-	// Verify Role rules
-	Expect(role.Rules).To(HaveLen(1))
-
-	rule := role.Rules[0]
-
-	// Verify API Groups, Resources, Resource Names and Verbs
-	Expect(rule.APIGroups).To(HaveExactElements("serving.kserve.io"))
-	Expect(rule.Resources).To(HaveExactElements("llminferenceservices"))
-	Expect(rule.ResourceNames).To(HaveExactElements(llmIsvc.Name))
-	Expect(rule.Verbs).To(HaveExactElements("post"))
-}
-
-// waitForRoleBinding waits for RoleBinding to be created and returns it
-func waitForRoleBinding(namespace, name string) *rbacv1.RoleBinding {
-	GinkgoHelper()
-
-	roleBinding := &rbacv1.RoleBinding{}
-	Eventually(func() error {
-		return envTest.Get(context.Background(), types.NamespacedName{
-			Name:      name,
-			Namespace: namespace,
-		}, roleBinding)
-	}).Should(Succeed())
-
-	return roleBinding
-}
-
-// verifyRoleBindingSpecification validates RoleBinding matches MaaS template
-func verifyRoleBindingSpecification(g Gomega, roleBinding *rbacv1.RoleBinding, llmIsvc *kservev1alpha1.LLMInferenceService) {
-	GinkgoHelper()
-
-	verifyRoleBindingMetadata(g, roleBinding, llmIsvc)
-	verifyMaaSTierSubjects(g, roleBinding.Subjects)
-	verifyRoleBindingRoleRef(g, roleBinding, llmIsvc)
-}
-
-// verifyRoleBindingSpecification validates RoleBinding matches MaaS template for the fixture "2"
-func verifyRoleBinding2Specification(g Gomega, roleBinding *rbacv1.RoleBinding, llmIsvc *kservev1alpha1.LLMInferenceService) {
-	GinkgoHelper()
-
-	verifyRoleBindingMetadata(g, roleBinding, llmIsvc)
-	verifyMaaSTierSubjects2(g, roleBinding.Subjects)
-	verifyRoleBindingRoleRef(g, roleBinding, llmIsvc)
-}
-
-func verifyRoleBindingMetadata(g Gomega, roleBinding *rbacv1.RoleBinding, llmIsvc *kservev1alpha1.LLMInferenceService) {
-	GinkgoHelper()
-
-	expectedName := controllerutils.GetMaaSRoleBindingName(llmIsvc)
-	g.Expect(roleBinding.GetName()).To(Equal(expectedName))
-	g.Expect(roleBinding.GetLabels()).To(HaveKeyWithValue("app.kubernetes.io/managed-by", "odh-model-controller"))
-}
-
-func verifyRoleBindingRoleRef(g Gomega, roleBinding *rbacv1.RoleBinding, llmIsvc *kservev1alpha1.LLMInferenceService) {
-	GinkgoHelper()
-
-	expectedRoleName := controllerutils.GetMaaSRoleName(llmIsvc)
-	g.Expect(roleBinding.RoleRef.Name).To(Equal(expectedRoleName))
-	g.Expect(roleBinding.RoleRef.Kind).To(Equal("Role"))
-	g.Expect(roleBinding.RoleRef.APIGroup).To(Equal("rbac.authorization.k8s.io"))
-}
-
-// verifyMaaSTierSubjects validates all three MaaS tier groups are present
-func verifyMaaSTierSubjects(g Gomega, subjects []rbacv1.Subject) {
-	GinkgoHelper()
-
-	expectedSubjects := []rbacv1.Subject{
-		{
-			Kind:      "Group",
-			APIGroup:  "rbac.authorization.k8s.io",
-			Name:      "system:serviceaccounts:maas-default-gateway-tier-free",
-			Namespace: "",
-		},
-		{
-			Kind:      "Group",
-			APIGroup:  "rbac.authorization.k8s.io",
-			Name:      "system:serviceaccounts:maas-default-gateway-tier-premium",
-			Namespace: "",
-		},
-		{
-			Kind:      "Group",
-			APIGroup:  "rbac.authorization.k8s.io",
-			Name:      "system:serviceaccounts:maas-default-gateway-tier-enterprise",
-			Namespace: "",
-		},
-	}
-
-	g.Expect(subjects).To(HaveExactElements(expectedSubjects))
-}
-
-// verifyMaaSTierSubjects2 validates all three MaaS tier groups are present for the fixture "2"
-func verifyMaaSTierSubjects2(g Gomega, subjects []rbacv1.Subject) {
-	GinkgoHelper()
-
-	expectedSubjects := []rbacv1.Subject{
-		{
-			Kind:      "Group",
-			APIGroup:  "rbac.authorization.k8s.io",
-			Name:      "system:serviceaccounts:maas-default-gateway-tier-free",
-			Namespace: "",
-		},
-		{
-			Kind:      "Group",
-			APIGroup:  "rbac.authorization.k8s.io",
-			Name:      "system:serviceaccounts:maas-default-gateway-tier-enterprise",
-			Namespace: "",
-		},
-	}
-
-	g.Expect(subjects).To(HaveExactElements(expectedSubjects))
-}
 
 var _ = Describe("BaseRefs and Spec Merging", func() {
 	var testNs string
@@ -1147,11 +562,11 @@ var _ = Describe("BaseRefs and Spec Merging", func() {
 
 			// Create LLMInferenceServiceConfig with a gateway reference
 			config := fixture.LLMInferenceServiceConfig("test-config",
-				fixture.InNamespace[*kservev1alpha1.LLMInferenceServiceConfig](testNs),
+				fixture.InNamespace[*kservev1alpha2.LLMInferenceServiceConfig](testNs),
 			)
-			config.Spec.Router = &kservev1alpha1.RouterSpec{
-				Gateway: &kservev1alpha1.GatewaySpec{
-					Refs: []kservev1alpha1.UntypedObjectReference{
+			config.Spec.Router = &kservev1alpha2.RouterSpec{
+				Gateway: &kservev1alpha2.GatewaySpec{
+					Refs: []kservev1alpha2.UntypedObjectReference{
 						{
 							Name:      gatewayapiv1.ObjectName(customGatewayName),
 							Namespace: gatewayapiv1.Namespace(customGatewayNamespace),
@@ -1163,7 +578,7 @@ var _ = Describe("BaseRefs and Spec Merging", func() {
 
 			// Create LLMInferenceService with BaseRefs
 			llmisvc := fixture.LLMInferenceService(LLMInferenceServiceName,
-				fixture.InNamespace[*kservev1alpha1.LLMInferenceService](testNs),
+				fixture.InNamespace[*kservev1alpha2.LLMInferenceService](testNs),
 				fixture.WithBaseRefs(corev1.LocalObjectReference{Name: "test-config"}),
 			)
 			Expect(envTest.Client.Create(ctx, llmisvc)).Should(Succeed())
@@ -1195,11 +610,11 @@ var _ = Describe("BaseRefs and Spec Merging", func() {
 
 			// Create LLMInferenceServiceConfig in system namespace
 			config := fixture.LLMInferenceServiceConfig("system-config",
-				fixture.InNamespace[*kservev1alpha1.LLMInferenceServiceConfig](systemNamespace),
+				fixture.InNamespace[*kservev1alpha2.LLMInferenceServiceConfig](systemNamespace),
 			)
-			config.Spec.Router = &kservev1alpha1.RouterSpec{
-				Gateway: &kservev1alpha1.GatewaySpec{
-					Refs: []kservev1alpha1.UntypedObjectReference{
+			config.Spec.Router = &kservev1alpha2.RouterSpec{
+				Gateway: &kservev1alpha2.GatewaySpec{
+					Refs: []kservev1alpha2.UntypedObjectReference{
 						{
 							Name:      gatewayapiv1.ObjectName(customGatewayName),
 							Namespace: gatewayapiv1.Namespace(systemNamespace),
@@ -1211,7 +626,7 @@ var _ = Describe("BaseRefs and Spec Merging", func() {
 
 			// Create LLMInferenceService with BaseRefs in a different namespace
 			llmisvc := fixture.LLMInferenceService(LLMInferenceServiceName,
-				fixture.InNamespace[*kservev1alpha1.LLMInferenceService](testNs),
+				fixture.InNamespace[*kservev1alpha2.LLMInferenceService](testNs),
 				fixture.WithBaseRefs(corev1.LocalObjectReference{Name: "system-config"}),
 			)
 			Expect(envTest.Client.Create(ctx, llmisvc)).Should(Succeed())
@@ -1251,11 +666,11 @@ var _ = Describe("BaseRefs and Spec Merging", func() {
 
 			// Create configs in both namespaces with same name
 			serviceConfig := fixture.LLMInferenceServiceConfig("shared-config",
-				fixture.InNamespace[*kservev1alpha1.LLMInferenceServiceConfig](testNs),
+				fixture.InNamespace[*kservev1alpha2.LLMInferenceServiceConfig](testNs),
 			)
-			serviceConfig.Spec.Router = &kservev1alpha1.RouterSpec{
-				Gateway: &kservev1alpha1.GatewaySpec{
-					Refs: []kservev1alpha1.UntypedObjectReference{
+			serviceConfig.Spec.Router = &kservev1alpha2.RouterSpec{
+				Gateway: &kservev1alpha2.GatewaySpec{
+					Refs: []kservev1alpha2.UntypedObjectReference{
 						{
 							Name:      gatewayapiv1.ObjectName(serviceGatewayName),
 							Namespace: gatewayapiv1.Namespace(testNs),
@@ -1266,11 +681,11 @@ var _ = Describe("BaseRefs and Spec Merging", func() {
 			Expect(envTest.Client.Create(ctx, serviceConfig)).Should(Succeed())
 
 			systemConfig := fixture.LLMInferenceServiceConfig("shared-config",
-				fixture.InNamespace[*kservev1alpha1.LLMInferenceServiceConfig](systemNamespace),
+				fixture.InNamespace[*kservev1alpha2.LLMInferenceServiceConfig](systemNamespace),
 			)
-			systemConfig.Spec.Router = &kservev1alpha1.RouterSpec{
-				Gateway: &kservev1alpha1.GatewaySpec{
-					Refs: []kservev1alpha1.UntypedObjectReference{
+			systemConfig.Spec.Router = &kservev1alpha2.RouterSpec{
+				Gateway: &kservev1alpha2.GatewaySpec{
+					Refs: []kservev1alpha2.UntypedObjectReference{
 						{
 							Name:      gatewayapiv1.ObjectName(systemGatewayName),
 							Namespace: gatewayapiv1.Namespace(systemNamespace),
@@ -1282,7 +697,7 @@ var _ = Describe("BaseRefs and Spec Merging", func() {
 
 			// Create LLMInferenceService with BaseRefs
 			llmisvc := fixture.LLMInferenceService(LLMInferenceServiceName,
-				fixture.InNamespace[*kservev1alpha1.LLMInferenceService](testNs),
+				fixture.InNamespace[*kservev1alpha2.LLMInferenceService](testNs),
 				fixture.WithBaseRefs(corev1.LocalObjectReference{Name: "shared-config"}),
 			)
 			Expect(envTest.Client.Create(ctx, llmisvc)).Should(Succeed())
@@ -1308,7 +723,7 @@ var _ = Describe("BaseRefs and Spec Merging", func() {
 
 			// Create LLMInferenceService with BaseRefs pointing to non-existent config
 			llmisvc := fixture.LLMInferenceService(LLMInferenceServiceName,
-				fixture.InNamespace[*kservev1alpha1.LLMInferenceService](testNs),
+				fixture.InNamespace[*kservev1alpha2.LLMInferenceService](testNs),
 				fixture.WithBaseRefs(corev1.LocalObjectReference{Name: "missing-config"}),
 			)
 			Expect(envTest.Client.Create(ctx, llmisvc)).Should(Succeed())
@@ -1334,11 +749,11 @@ var _ = Describe("BaseRefs and Spec Merging", func() {
 
 			// Create first config with gateway reference
 			config1 := fixture.LLMInferenceServiceConfig("config1",
-				fixture.InNamespace[*kservev1alpha1.LLMInferenceServiceConfig](testNs),
+				fixture.InNamespace[*kservev1alpha2.LLMInferenceServiceConfig](testNs),
 			)
-			config1.Spec.Router = &kservev1alpha1.RouterSpec{
-				Gateway: &kservev1alpha1.GatewaySpec{
-					Refs: []kservev1alpha1.UntypedObjectReference{
+			config1.Spec.Router = &kservev1alpha2.RouterSpec{
+				Gateway: &kservev1alpha2.GatewaySpec{
+					Refs: []kservev1alpha2.UntypedObjectReference{
 						{
 							Name:      gatewayapiv1.ObjectName(gateway1Name),
 							Namespace: gatewayapiv1.Namespace(testNs),
@@ -1350,13 +765,13 @@ var _ = Describe("BaseRefs and Spec Merging", func() {
 
 			// Create second config (will be merged but config1 gateway takes precedence)
 			config2 := fixture.LLMInferenceServiceConfig("config2",
-				fixture.InNamespace[*kservev1alpha1.LLMInferenceServiceConfig](testNs),
+				fixture.InNamespace[*kservev1alpha2.LLMInferenceServiceConfig](testNs),
 			)
 			Expect(envTest.Client.Create(ctx, config2)).Should(Succeed())
 
 			// Create LLMInferenceService with multiple BaseRefs
 			llmisvc := fixture.LLMInferenceService(LLMInferenceServiceName,
-				fixture.InNamespace[*kservev1alpha1.LLMInferenceService](testNs),
+				fixture.InNamespace[*kservev1alpha2.LLMInferenceService](testNs),
 				fixture.WithBaseRefs(
 					corev1.LocalObjectReference{Name: "config1"},
 					corev1.LocalObjectReference{Name: "config2"},
@@ -1389,11 +804,11 @@ var _ = Describe("BaseRefs and Spec Merging", func() {
 
 			// Create config with gateway reference
 			config := fixture.LLMInferenceServiceConfig("test-config",
-				fixture.InNamespace[*kservev1alpha1.LLMInferenceServiceConfig](testNs),
+				fixture.InNamespace[*kservev1alpha2.LLMInferenceServiceConfig](testNs),
 			)
-			config.Spec.Router = &kservev1alpha1.RouterSpec{
-				Gateway: &kservev1alpha1.GatewaySpec{
-					Refs: []kservev1alpha1.UntypedObjectReference{
+			config.Spec.Router = &kservev1alpha2.RouterSpec{
+				Gateway: &kservev1alpha2.GatewaySpec{
+					Refs: []kservev1alpha2.UntypedObjectReference{
 						{
 							Name:      gatewayapiv1.ObjectName(configGatewayName),
 							Namespace: gatewayapiv1.Namespace(testNs),
@@ -1405,9 +820,9 @@ var _ = Describe("BaseRefs and Spec Merging", func() {
 
 			// Create LLMInferenceService with BaseRefs but also with its own gateway spec
 			llmisvc := fixture.LLMInferenceService(LLMInferenceServiceName,
-				fixture.InNamespace[*kservev1alpha1.LLMInferenceService](testNs),
+				fixture.InNamespace[*kservev1alpha2.LLMInferenceService](testNs),
 				fixture.WithBaseRefs(corev1.LocalObjectReference{Name: "test-config"}),
-				fixture.WithGatewayRefs(kservev1alpha1.UntypedObjectReference{
+				fixture.WithGatewayRefs(kservev1alpha2.UntypedObjectReference{
 					Name:      gatewayapiv1.ObjectName(serviceGatewayName),
 					Namespace: gatewayapiv1.Namespace(testNs),
 				}),
@@ -1443,11 +858,11 @@ var _ = Describe("BaseRefs and Spec Merging", func() {
 
 			// Create only config2, config1 will fail to fetch
 			config2 := fixture.LLMInferenceServiceConfig("config2",
-				fixture.InNamespace[*kservev1alpha1.LLMInferenceServiceConfig](testNs),
+				fixture.InNamespace[*kservev1alpha2.LLMInferenceServiceConfig](testNs),
 			)
-			config2.Spec.Router = &kservev1alpha1.RouterSpec{
-				Gateway: &kservev1alpha1.GatewaySpec{
-					Refs: []kservev1alpha1.UntypedObjectReference{
+			config2.Spec.Router = &kservev1alpha2.RouterSpec{
+				Gateway: &kservev1alpha2.GatewaySpec{
+					Refs: []kservev1alpha2.UntypedObjectReference{
 						{
 							Name:      gatewayapiv1.ObjectName(gatewayName),
 							Namespace: gatewayapiv1.Namespace(testNs),
@@ -1459,7 +874,7 @@ var _ = Describe("BaseRefs and Spec Merging", func() {
 
 			// Create LLMInferenceService with BaseRefs including a non-existent config
 			llmisvc := fixture.LLMInferenceService(LLMInferenceServiceName,
-				fixture.InNamespace[*kservev1alpha1.LLMInferenceService](testNs),
+				fixture.InNamespace[*kservev1alpha2.LLMInferenceService](testNs),
 				fixture.WithBaseRefs(
 					corev1.LocalObjectReference{Name: "config1"}, // Will fail
 					corev1.LocalObjectReference{Name: "config2"}, // Will succeed
@@ -1489,11 +904,11 @@ var _ = Describe("BaseRefs and Spec Merging", func() {
 
 			// Create config with reference to unmanaged gateway
 			config := fixture.LLMInferenceServiceConfig("test-config",
-				fixture.InNamespace[*kservev1alpha1.LLMInferenceServiceConfig](testNs),
+				fixture.InNamespace[*kservev1alpha2.LLMInferenceServiceConfig](testNs),
 			)
-			config.Spec.Router = &kservev1alpha1.RouterSpec{
-				Gateway: &kservev1alpha1.GatewaySpec{
-					Refs: []kservev1alpha1.UntypedObjectReference{
+			config.Spec.Router = &kservev1alpha2.RouterSpec{
+				Gateway: &kservev1alpha2.GatewaySpec{
+					Refs: []kservev1alpha2.UntypedObjectReference{
 						{
 							Name:      gatewayapiv1.ObjectName(unmanagedGatewayName),
 							Namespace: gatewayapiv1.Namespace(testNs),
@@ -1505,7 +920,7 @@ var _ = Describe("BaseRefs and Spec Merging", func() {
 
 			// Create LLMInferenceService with BaseRefs
 			llmisvc := fixture.LLMInferenceService(LLMInferenceServiceName,
-				fixture.InNamespace[*kservev1alpha1.LLMInferenceService](testNs),
+				fixture.InNamespace[*kservev1alpha2.LLMInferenceService](testNs),
 				fixture.WithBaseRefs(corev1.LocalObjectReference{Name: "test-config"}),
 			)
 			Expect(envTest.Client.Create(ctx, llmisvc)).Should(Succeed())
