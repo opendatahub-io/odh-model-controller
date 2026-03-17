@@ -19,7 +19,7 @@ require (
 	github.com/openshift/api v0.0.0-20260306002634-d3bbdada155c
 	github.com/openshift/client-go v0.0.0-20260306160707-3935d929fc7d
 	github.com/pkg/errors v0.9.1
-	github.com/prometheus-operator/prometheus-operator/pkg/apis/monitoring v0.76.2
+	github.com/prometheus-operator/prometheus-operator/pkg/apis/monitoring v0.78.2
 	github.com/prometheus/client_golang v1.23.2
 	github.com/stretchr/testify v1.11.1
 	go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp v0.64.0
@@ -112,6 +112,7 @@ require (
 	github.com/kuadrant/policy-machinery v0.7.1-0.20251119154946-1ca17a075dd2 // indirect
 	github.com/kylelemons/godebug v1.1.0 // indirect
 	github.com/leodido/go-urn v1.4.0 // indirect
+	github.com/llm-d/llm-d-workload-variant-autoscaler v0.5.1 // indirect
 	github.com/mailru/easyjson v0.9.0 // indirect
 	github.com/martinlindhe/base36 v1.1.1 // indirect
 	github.com/modern-go/concurrent v0.0.0-20180306012644-bacd9c7ef1dd // indirect
@@ -182,8 +183,7 @@ require (
 replace sigs.k8s.io/controller-runtime => sigs.k8s.io/controller-runtime v0.19.7
 
 // Use ODH release branch instead
-// TODO: update to stable release once v0.17.0 is cut
-replace github.com/kserve/kserve => github.com/opendatahub-io/kserve v0.0.0-20260312115415-1d98515c6764
+replace github.com/kserve/kserve => github.com/opendatahub-io/kserve v0.0.0-20260317174925-7def2a2f1787
 
 // CVE-2025-68156: Update expr-lang/expr to v1.17.7
 replace github.com/expr-lang/expr => github.com/expr-lang/expr v1.17.7
