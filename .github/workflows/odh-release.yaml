@@ -203,7 +203,7 @@ jobs:
           if repo_name == "odh-model-controller":
             # Only update odh-model-controller and mlserver images
             image_pattern = re.compile(
-              r'([\w.-]+(?:\.[\w.-]+)*/[\w.-]+/(?:odh-model-controller|mlserver)):(fast|v[\d.]+-latest|release-v[\d.]+|odh-v[\d.]+(?:-EA\d)?)'
+              r'([\w.-]+(?:\.[\w.-]+)*/[\w.-]+/(?:odh-model-controller|odh-model-serving-api|mlserver)):(fast|v[\d.]+-latest|release-v[\d.]+|odh-v[\d.]+(?:-EA\d)?)'
             )
           else:
             # For kserve and others: update all matching images except llm-d-* images
