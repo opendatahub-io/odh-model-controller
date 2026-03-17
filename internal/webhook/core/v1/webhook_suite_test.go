@@ -19,6 +19,7 @@ package v1
 import (
 	"context"
 	"crypto/tls"
+	"crypto/x509"
 	"fmt"
 	"net"
 	"os"
@@ -125,10 +126,12 @@ var _ = BeforeSuite(func() {
 	}()
 
 	// wait for the webhook server to get ready.
+	certPool := x509.NewCertPool()
+	certPool.AppendCertsFromPEM(webhookInstallOptions.LocalServingCAData)
 	dialer := &net.Dialer{Timeout: time.Second}
 	addrPort := fmt.Sprintf("%s:%d", webhookInstallOptions.LocalServingHost, webhookInstallOptions.LocalServingPort)
 	Eventually(func() error {
-		conn, err := tls.DialWithDialer(dialer, "tcp", addrPort, &tls.Config{InsecureSkipVerify: true})
+		conn, err := tls.DialWithDialer(dialer, "tcp", addrPort, &tls.Config{RootCAs: certPool})
 		if err != nil {
 			return err
 		}
