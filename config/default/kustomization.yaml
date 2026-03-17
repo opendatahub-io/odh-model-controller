@@ -28,6 +28,7 @@ resources:
 # [METRICS] Expose the controller manager metrics service.
 - metrics_service.yaml
 - ../runtimes
+- ../server
 
 # Uncomment the patches line if you enable Metrics, and/or are using webhooks and cert-manager
 patches:
@@ -36,6 +37,7 @@ patches:
 - path: manager_metrics_patch.yaml
   target:
     kind: Deployment
+    name: odh-model-controller
 
 # [WEBHOOK] To enable webhook, uncomment all the sections with [WEBHOOK] prefix including the one in
 # crd/kustomization.yaml
