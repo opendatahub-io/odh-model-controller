@@ -18,6 +18,7 @@ package testing
 import (
 	"context"
 	"crypto/tls"
+	"crypto/x509"
 	"fmt"
 	"net"
 	"os"
@@ -155,10 +156,12 @@ func (e *Config) Start(ctx context.Context) *Client {
 
 	if len(e.webhooksSetupFuncs) > 0 {
 		// wait for the webhook server to get ready
+		certPool := x509.NewCertPool()
+		certPool.AppendCertsFromPEM(envTest.WebhookInstallOptions.LocalServingCAData)
 		dialer := &net.Dialer{Timeout: time.Second}
 		addrPort := fmt.Sprintf("%s:%d", envTest.WebhookInstallOptions.LocalServingHost, envTest.WebhookInstallOptions.LocalServingPort)
 		gomega.Eventually(func() error {
-			conn, err := tls.DialWithDialer(dialer, "tcp", addrPort, &tls.Config{InsecureSkipVerify: true}) //nolint:gosec //reason testing infra code.
+			conn, err := tls.DialWithDialer(dialer, "tcp", addrPort, &tls.Config{RootCAs: certPool})
 			if err != nil {
 				return err
 			}
