@@ -19,7 +19,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
-	igwapi "sigs.k8s.io/gateway-api-inference-extension/api/v1"
+	igwapi "sigs.k8s.io/gateway-api-inference-extension/api/v1alpha2"
 	gatewayapi "sigs.k8s.io/gateway-api/apis/v1"
 )
 
@@ -571,13 +571,11 @@ func InferencePool(name string, opts ...InferencePoolOption) *igwapi.InferencePo
 			Name: name,
 		},
 		Spec: igwapi.InferencePoolSpec{
-			Selector: igwapi.LabelSelector{
-				MatchLabels: make(map[igwapi.LabelKey]igwapi.LabelValue),
-			},
-			TargetPorts: []igwapi.Port{{Number: 8000}},
+			Selector:         make(map[igwapi.LabelKey]igwapi.LabelValue),
+			TargetPortNumber: 8000,
 		},
 		Status: igwapi.InferencePoolStatus{
-			Parents: []igwapi.ParentStatus{},
+			Parents: []igwapi.PoolStatus{},
 		},
 	}
 
@@ -590,32 +588,39 @@ func InferencePool(name string, opts ...InferencePoolOption) *igwapi.InferencePo
 
 func WithSelector(key, value string) InferencePoolOption {
 	return func(pool *igwapi.InferencePool) {
-		if pool.Spec.Selector.MatchLabels == nil {
-			pool.Spec.Selector.MatchLabels = make(map[igwapi.LabelKey]igwapi.LabelValue)
+		if pool.Spec.Selector == nil {
+			pool.Spec.Selector = make(map[igwapi.LabelKey]igwapi.LabelValue)
 		}
-		pool.Spec.Selector.MatchLabels[igwapi.LabelKey(key)] = igwapi.LabelValue(value)
+		pool.Spec.Selector[igwapi.LabelKey(key)] = igwapi.LabelValue(value)
 	}
 }
 
 func WithTargetPort(port int32) InferencePoolOption {
 	return func(pool *igwapi.InferencePool) {
-		pool.Spec.TargetPorts = []igwapi.Port{{Number: igwapi.PortNumber(port)}}
+		pool.Spec.TargetPortNumber = port
 	}
 }
 
 func WithExtensionRef(group, kind, name string) InferencePoolOption {
 	return func(pool *igwapi.InferencePool) {
-		pool.Spec.EndpointPickerRef = igwapi.EndpointPickerRef{
-			Group: ptr.To(igwapi.Group(group)),
-			Kind:  igwapi.Kind(kind),
-			Name:  igwapi.ObjectName(name),
+		pool.Spec.EndpointPickerConfig = igwapi.EndpointPickerConfig{
+			ExtensionRef: &igwapi.Extension{
+				ExtensionReference: igwapi.ExtensionReference{
+					Group: ptr.To(igwapi.Group(group)),
+					Kind:  ptr.To(igwapi.Kind(kind)),
+					Name:  igwapi.ObjectName(name),
+				},
+				ExtensionConnection: igwapi.ExtensionConnection{
+					FailureMode: ptr.To(igwapi.FailOpen),
+				},
+			},
 		}
 	}
 }
 
 func WithInferencePoolReadyStatus() InferencePoolOption {
 	return func(pool *igwapi.InferencePool) {
-		pool.Status.Parents = []igwapi.ParentStatus{
+		pool.Status.Parents = []igwapi.PoolStatus{
 			{
 				Conditions: []metav1.Condition{
 					{

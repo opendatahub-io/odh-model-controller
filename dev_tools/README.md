@@ -35,25 +35,6 @@ This will also add .devspace to your .gitignore file. If it doesn't, please add 
 - The path to the manifest and what tool to use to deploy (helm or kustomize)
   - in this repos case `../config/manager` is the path `kustomize` is being used
 
-## Building the Dev Image
-
-The devspace dev image is defined in `Containerfile.devspace`. It is based on the same `ubi9/go-toolset` image used in the production `Containerfile`, with additional directory permissions for devspace compatibility.
-
-To build and push a new version:
-
-```bash
-podman build -t quay.io/<your-namespace>/golang:<tag>-devspace-toolset -f dev_tools/Containerfile.devspace .
-podman push quay.io/<your-namespace>/golang:<tag>-devspace-toolset
-```
-
-Then update the `devImage` field in `devspace.yaml`:
-
-```yaml
-devImage: quay.io/<your-namespace>/golang:<tag>-devspace-toolset
-```
-
-When updating the Go version, make sure both `Containerfile.devspace` and the production `Containerfile` use the same base image version.
-
 ### Common commands
 
 [More Development Commands](https://www.devspace.sh/docs/getting-started/development)

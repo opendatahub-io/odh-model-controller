@@ -29,10 +29,9 @@ import (
 	apiextv1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
 
 	kservev1alpha1 "github.com/kserve/kserve/pkg/apis/serving/v1alpha1"
-	kservev1alpha2 "github.com/kserve/kserve/pkg/apis/serving/v1alpha2"
 
 	istioclientv1alpha3 "istio.io/client-go/pkg/apis/networking/v1alpha3"
-	igwapi "sigs.k8s.io/gateway-api-inference-extension/api/v1"
+	igwapi "sigs.k8s.io/gateway-api-inference-extension/api/v1alpha2"
 	gatewayapiv1 "sigs.k8s.io/gateway-api/apis/v1"
 )
 
@@ -44,7 +43,6 @@ func NewEnvTest(options ...Option) *Config {
 	schemes := WithScheme(
 		// KServe Schemes
 		kservev1alpha1.AddToScheme,
-		kservev1alpha2.AddToScheme,
 		// Kubernetes Schemes
 		corev1.AddToScheme,
 		rbacv1.AddToScheme,

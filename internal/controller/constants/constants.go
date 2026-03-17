@@ -103,7 +103,6 @@ const (
 	OvmsRuntimeName         = "ovms"
 	TgisRuntimeName         = "tgis"
 	VllmRuntimeName         = "vllm"
-	MLServerRuntimeName     = "mlserver"
 )
 
 // openshift

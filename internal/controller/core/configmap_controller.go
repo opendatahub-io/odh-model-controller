@@ -18,9 +18,7 @@ package core
 
 import (
 	"context"
-	"maps"
 	"reflect"
-	"slices"
 	"strings"
 
 	"github.com/go-logr/logr"
@@ -60,9 +58,7 @@ type ConfigMapReconciler struct {
 func (r *ConfigMapReconciler) reconcileConfigMap(configmap *corev1.ConfigMap, ctx context.Context, log logr.Logger) error {
 
 	var certData string
-	sortedNames := slices.Sorted(maps.Keys(caBundleConfigmaps))
-	for _, caBundleConfigmapName := range sortedNames {
-		caBundleFiles := caBundleConfigmaps[caBundleConfigmapName]
+	for caBundleConfigmapName, caBundleFiles := range caBundleConfigmaps {
 		cabundleConfigmap := &corev1.ConfigMap{}
 		if caBundleConfigmapName == configmap.Name {
 			cabundleConfigmap = configmap

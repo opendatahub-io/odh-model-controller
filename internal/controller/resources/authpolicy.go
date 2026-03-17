@@ -25,7 +25,7 @@ import (
 	"text/template"
 
 	"github.com/go-logr/logr"
-	kservev1alpha2 "github.com/kserve/kserve/pkg/apis/serving/v1alpha2"
+	kservev1alpha1 "github.com/kserve/kserve/pkg/apis/serving/v1alpha1"
 	kuadrantv1 "github.com/kuadrant/kuadrant-operator/api/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -44,7 +44,7 @@ type AuthPolicyDetector interface {
 }
 
 type AuthPolicyTemplateLoader interface {
-	Load(ctx context.Context, authType constants.AuthType, llmisvc *kservev1alpha2.LLMInferenceService) ([]*kuadrantv1.AuthPolicy, error)
+	Load(ctx context.Context, authType constants.AuthType, llmisvc *kservev1alpha1.LLMInferenceService) ([]*kuadrantv1.AuthPolicy, error)
 }
 
 type AuthPolicyStore interface {
@@ -94,7 +94,7 @@ func NewKServeAuthPolicyTemplateLoader(client client.Client) AuthPolicyTemplateL
 	}
 }
 
-func (k *kserveAuthPolicyTemplateLoader) Load(ctx context.Context, authType constants.AuthType, llmisvc *kservev1alpha2.LLMInferenceService) ([]*kuadrantv1.AuthPolicy, error) {
+func (k *kserveAuthPolicyTemplateLoader) Load(ctx context.Context, authType constants.AuthType, llmisvc *kservev1alpha1.LLMInferenceService) ([]*kuadrantv1.AuthPolicy, error) {
 	switch authType {
 	case constants.UserDefined:
 		return k.loadUserDefinedTemplates(ctx, llmisvc)
@@ -105,7 +105,7 @@ func (k *kserveAuthPolicyTemplateLoader) Load(ctx context.Context, authType cons
 	}
 }
 
-func (k *kserveAuthPolicyTemplateLoader) loadUserDefinedTemplates(ctx context.Context, llmisvc *kservev1alpha2.LLMInferenceService) ([]*kuadrantv1.AuthPolicy, error) {
+func (k *kserveAuthPolicyTemplateLoader) loadUserDefinedTemplates(ctx context.Context, llmisvc *kservev1alpha1.LLMInferenceService) ([]*kuadrantv1.AuthPolicy, error) {
 	logger := logr.FromContextOrDiscard(ctx).WithName("authpolicy")
 	gateways := k.getGatewayInfo(ctx, logger, llmisvc)
 
@@ -174,7 +174,7 @@ func (k *kserveAuthPolicyTemplateLoader) renderUserDefinedTemplate(ctx context.C
 	return authPolicy, nil
 }
 
-func (k *kserveAuthPolicyTemplateLoader) loadAnonymousTemplate(llmisvc *kservev1alpha2.LLMInferenceService) ([]*kuadrantv1.AuthPolicy, error) {
+func (k *kserveAuthPolicyTemplateLoader) loadAnonymousTemplate(llmisvc *kservev1alpha1.LLMInferenceService) ([]*kuadrantv1.AuthPolicy, error) {
 	httpRoutes := k.getHTTPRouteInfo(llmisvc)
 
 	authPolicies := make([]*kuadrantv1.AuthPolicy, 0, len(httpRoutes))
@@ -190,7 +190,7 @@ func (k *kserveAuthPolicyTemplateLoader) loadAnonymousTemplate(llmisvc *kservev1
 	return authPolicies, nil
 }
 
-func (k *kserveAuthPolicyTemplateLoader) renderAnonymousTemplate(llmisvc *kservev1alpha2.LLMInferenceService, httpRouteName string) (*kuadrantv1.AuthPolicy, error) {
+func (k *kserveAuthPolicyTemplateLoader) renderAnonymousTemplate(llmisvc *kservev1alpha1.LLMInferenceService, httpRouteName string) (*kuadrantv1.AuthPolicy, error) {
 	tmpl, err := template.New("authpolicy").Parse(string(authPolicyTemplateAnonymous))
 	if err != nil {
 		return nil, fmt.Errorf("failed to parse AuthPolicy anonymous template: %w", err)
@@ -222,7 +222,7 @@ func (k *kserveAuthPolicyTemplateLoader) renderAnonymousTemplate(llmisvc *kserve
 }
 
 // getHTTPRouteInfo returns HTTPRoute list with fallback logic
-func (k *kserveAuthPolicyTemplateLoader) getHTTPRouteInfo(llmisvc *kservev1alpha2.LLMInferenceService) []struct{ Name string } {
+func (k *kserveAuthPolicyTemplateLoader) getHTTPRouteInfo(llmisvc *kservev1alpha1.LLMInferenceService) []struct{ Name string } {
 	var httpRoutes []struct{ Name string }
 
 	if llmisvc.Spec.Router != nil && llmisvc.Spec.Router.Route != nil && llmisvc.Spec.Router.Route.HTTP != nil && llmisvc.Spec.Router.Route.HTTP.HasRefs() {
@@ -243,7 +243,7 @@ func (k *kserveAuthPolicyTemplateLoader) getHTTPRouteInfo(llmisvc *kservev1alpha
 }
 
 // getGatewayInfo returns gateway list with fallback logic, filtering out gateways with opendatahub.io/managed: false
-func (k *kserveAuthPolicyTemplateLoader) getGatewayInfo(ctx context.Context, log logr.Logger, llmisvc *kservev1alpha2.LLMInferenceService) []struct{ Namespace, Name string } {
+func (k *kserveAuthPolicyTemplateLoader) getGatewayInfo(ctx context.Context, log logr.Logger, llmisvc *kservev1alpha1.LLMInferenceService) []struct{ Namespace, Name string } {
 	var gateways []struct{ Namespace, Name string }
 
 	if llmisvc.Spec.Router != nil && llmisvc.Spec.Router.Gateway != nil && llmisvc.Spec.Router.Gateway.HasRefs() {
@@ -374,7 +374,7 @@ func (k *kserveAuthPolicyMatcher) FindLLMServiceFromGatewayAuthPolicy(ctx contex
 	var matchedServices []types.NamespacedName
 	continueToken := ""
 	for {
-		llmSvcList := &kservev1alpha2.LLMInferenceServiceList{}
+		llmSvcList := &kservev1alpha1.LLMInferenceServiceList{}
 		if err := k.client.List(ctx, llmSvcList, &client.ListOptions{Namespace: metav1.NamespaceAll, Continue: continueToken}); err != nil {
 			return nil, err
 		}

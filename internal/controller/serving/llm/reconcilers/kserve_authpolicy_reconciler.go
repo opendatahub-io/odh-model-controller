@@ -20,7 +20,7 @@ import (
 	"fmt"
 
 	"github.com/go-logr/logr"
-	kservev1alpha2 "github.com/kserve/kserve/pkg/apis/serving/v1alpha2"
+	kservev1alpha1 "github.com/kserve/kserve/pkg/apis/serving/v1alpha1"
 	kuadrantv1 "github.com/kuadrant/kuadrant-operator/api/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -61,7 +61,7 @@ func NewKserveAuthPolicyReconciler(client client.Client, scheme *runtime.Scheme)
 	}
 }
 
-func (r *KserveAuthPolicyReconciler) Reconcile(ctx context.Context, log logr.Logger, llmisvc *kservev1alpha2.LLMInferenceService) error {
+func (r *KserveAuthPolicyReconciler) Reconcile(ctx context.Context, log logr.Logger, llmisvc *kservev1alpha1.LLMInferenceService) error {
 	log.V(1).Info("Starting AuthPolicy reconciliation for LLMInferenceService")
 
 	if err := r.reconcileGatewayAuthpolicy(ctx, log, llmisvc); err != nil {
@@ -77,7 +77,7 @@ func (r *KserveAuthPolicyReconciler) Reconcile(ctx context.Context, log logr.Log
 	return nil
 }
 
-func (r *KserveAuthPolicyReconciler) reconcileGatewayAuthpolicy(ctx context.Context, log logr.Logger, llmisvc *kservev1alpha2.LLMInferenceService) error {
+func (r *KserveAuthPolicyReconciler) reconcileGatewayAuthpolicy(ctx context.Context, log logr.Logger, llmisvc *kservev1alpha1.LLMInferenceService) error {
 	log.V(1).Info("Reconciling Gateway AuthPolicy")
 
 	desiredAuthPolicies, err := r.templateLoader.Load(ctx, constants.UserDefined, llmisvc)
@@ -107,7 +107,7 @@ func (r *KserveAuthPolicyReconciler) reconcileGatewayAuthpolicy(ctx context.Cont
 	return nil
 }
 
-func (r *KserveAuthPolicyReconciler) reconcileHTTPRouteAuthpolicy(ctx context.Context, log logr.Logger, llmisvc *kservev1alpha2.LLMInferenceService) error {
+func (r *KserveAuthPolicyReconciler) reconcileHTTPRouteAuthpolicy(ctx context.Context, log logr.Logger, llmisvc *kservev1alpha1.LLMInferenceService) error {
 	log.V(1).Info("Reconciling HTTPRoute AuthPolicy")
 
 	desiredAuthPolicies, err := r.templateLoader.Load(ctx, constants.Anonymous, llmisvc)
@@ -137,7 +137,7 @@ func (r *KserveAuthPolicyReconciler) reconcileHTTPRouteAuthpolicy(ctx context.Co
 	return nil
 }
 
-func (r *KserveAuthPolicyReconciler) Delete(ctx context.Context, log logr.Logger, llmisvc *kservev1alpha2.LLMInferenceService) error {
+func (r *KserveAuthPolicyReconciler) Delete(ctx context.Context, log logr.Logger, llmisvc *kservev1alpha1.LLMInferenceService) error {
 	log.V(1).Info("Deleting AuthPolicies for LLMInferenceService")
 
 	// 1. Delete HTTPRoute AuthPolicies (always delete)
@@ -153,7 +153,7 @@ func (r *KserveAuthPolicyReconciler) Delete(ctx context.Context, log logr.Logger
 	return nil
 }
 
-func (r *KserveAuthPolicyReconciler) deleteHTTPRouteAuthPolicies(ctx context.Context, log logr.Logger, llmisvc *kservev1alpha2.LLMInferenceService) error {
+func (r *KserveAuthPolicyReconciler) deleteHTTPRouteAuthPolicies(ctx context.Context, log logr.Logger, llmisvc *kservev1alpha1.LLMInferenceService) error {
 	log.V(1).Info("Deleting HTTPRoute AuthPolicy for LLMInferenceService")
 
 	httpRouteAuthPolicies, err := r.templateLoader.Load(ctx, constants.Anonymous, llmisvc)
@@ -184,7 +184,7 @@ func (r *KserveAuthPolicyReconciler) deleteHTTPRouteAuthPolicies(ctx context.Con
 	return nil
 }
 
-func (r *KserveAuthPolicyReconciler) deleteGatewayAuthPoliciesIfUnused(ctx context.Context, log logr.Logger, llmisvc *kservev1alpha2.LLMInferenceService) error {
+func (r *KserveAuthPolicyReconciler) deleteGatewayAuthPoliciesIfUnused(ctx context.Context, log logr.Logger, llmisvc *kservev1alpha1.LLMInferenceService) error {
 	log.V(1).Info("Checking Gateway AuthPolicies for deletion")
 
 	gatewayAuthPolicies, err := r.templateLoader.Load(ctx, constants.UserDefined, llmisvc)
@@ -334,7 +334,7 @@ func (r *KserveAuthPolicyReconciler) gatewayAuthPolicyProcessDelta(ctx context.C
 	return nil
 }
 
-func (r *KserveAuthPolicyReconciler) httpRouteAuthPolicyProcessDelta(ctx context.Context, log logr.Logger, llmisvc *kservev1alpha2.LLMInferenceService, desired *kuadrantv1.AuthPolicy, existing *kuadrantv1.AuthPolicy) error {
+func (r *KserveAuthPolicyReconciler) httpRouteAuthPolicyProcessDelta(ctx context.Context, log logr.Logger, llmisvc *kservev1alpha1.LLMInferenceService, desired *kuadrantv1.AuthPolicy, existing *kuadrantv1.AuthPolicy) error {
 	log.V(1).Info("Processing HTTPRoute AuthPolicy delta", "name", desired.GetName())
 
 	authType := r.detector.Detect(ctx, llmisvc.GetAnnotations())

@@ -681,15 +681,8 @@ var _ = Describe("InferenceService Controller", func() {
 
 			AfterEach(func() {
 				Expect(k8sClient.Delete(ctx, isvc)).Should(Succeed())
+
 				Expect(kedaReconciler.Delete(ctx, GinkgoLogr, isvc)).To(Succeed())
-
-				// isvc2 may already be deleted by specific tests (e.g., owner reference removal test)
-				if err := k8sClient.Delete(ctx, isvc2); err == nil {
-					Expect(kedaReconciler.Delete(ctx, GinkgoLogr, isvc2)).To(Succeed())
-				} else if !k8sErrors.IsNotFound(err) {
-					Expect(err).ToNot(HaveOccurred())
-				}
-
 				Expect(kedaReconciler.Cleanup(ctx, GinkgoLogr, testNs)).To(Succeed())
 
 				Expect(getAllKedaTestResources(ctx, k8sClient, testNs)).To(BeEmpty())

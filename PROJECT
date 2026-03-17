@@ -83,5 +83,5 @@ resources:
   domain: opendatahub.io
   group: serving
   kind: LLMInferenceService
-  version: v1alpha2
+  version: v1alpha1    
 version: "3"

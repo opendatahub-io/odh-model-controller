@@ -6,6 +6,7 @@ import (
 	kedaapi "github.com/kedacore/keda/v2/apis/keda/v1alpha1"
 	. "github.com/onsi/gomega"
 	rbacv1 "k8s.io/api/rbac/v1"
+	"k8s.io/apimachinery/pkg/api/resource"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/utils/ptr"
 
@@ -53,7 +54,7 @@ func makeKedaTestISVC(namespace, name string, enableKedaMetrics bool) *kservev1b
 						},
 						Target: kservev1beta1.MetricTarget{
 							Type:  kservev1beta1.AverageValueMetricType,
-							Value: kservev1beta1.NewMetricQuantity("2"),
+							Value: ptr.To(resource.MustParse("2")),
 						},
 					},
 				},
