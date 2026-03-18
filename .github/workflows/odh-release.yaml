@@ -24,6 +24,11 @@ on:
         required: false
         type: string
         default: 'main'
+      allow_existing_tag:
+        description: 'Allow overwriting an existing tag and release (for re-releases)'
+        required: false
+        type: boolean
+        default: false
     #
     # Note: This workflow assumes the release tag and image tags are in sync.
     #       'tag_name' is used to create the release and as the value to find in konflux files.
@@ -105,8 +110,12 @@ jobs:
           )
           
           if result.stdout.decode().strip():
-            print(f"::error::Tag '{tag_name}' already exists on remote.")
-            sys.exit(1)
+            allow_existing = "${{ github.event.inputs.allow_existing_tag }}" == "true"
+            if allow_existing:
+              print(f"⚠ Tag '{tag_name}' exists but allow_existing_tag is set — will overwrite")
+            else:
+              print(f"::error::Tag '{tag_name}' already exists on remote.")
+              sys.exit(1)
           
           print(f"✓ All validations passed")
           print(f"  Repository: {repository}")
@@ -259,8 +268,12 @@ jobs:
 
       - name: Create and push Tag
         run: |
-          git tag -a ${{ github.event.inputs.tag_name }} -m "ODH release ${{ github.event.inputs.tag_name }}"
-          git push origin ${{ github.event.inputs.tag_name }}
+          FORCE_FLAG=""
+          if [[ "${{ github.event.inputs.allow_existing_tag }}" == "true" ]]; then
+            FORCE_FLAG="-f"
+          fi
+          git tag ${FORCE_FLAG} -a ${{ github.event.inputs.tag_name }} -m "ODH release ${{ github.event.inputs.tag_name }}"
+          git push ${FORCE_FLAG} origin ${{ github.event.inputs.tag_name }}
           echo "✓ Tag created and pushed: ${{ github.event.inputs.tag_name }}"
 
       - name: Create Release
