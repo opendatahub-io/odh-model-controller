@@ -20,7 +20,6 @@ import (
 
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
-	admissionregistrationv1 "k8s.io/api/admissionregistration/v1"
 	rbacv1 "k8s.io/api/rbac/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
@@ -30,7 +29,7 @@ import (
 	testutils "github.com/opendatahub-io/odh-model-controller/test/utils"
 )
 
-var _ = Describe("MaaS Tier Resource Cleanup", func() {
+var _ = Describe("MaaS RBAC Cleanup", func() {
 	var testNs string
 
 	BeforeEach(func() {
@@ -46,194 +45,116 @@ var _ = Describe("MaaS Tier Resource Cleanup", func() {
 		}
 	}
 
-	Describe("Role and RoleBinding cleanup", func() {
-		It("should delete legacy MaaS Roles and RoleBindings", func(ctx SpecContext) {
-			role := &rbacv1.Role{
-				ObjectMeta: metav1.ObjectMeta{
-					Name:      "my-llmisvc-model-post-access",
-					Namespace: testNs,
-					Labels:    map[string]string{"app.kubernetes.io/managed-by": "odh-model-controller"},
-				},
-				Rules: []rbacv1.PolicyRule{
-					{APIGroups: []string{"serving.kserve.io"}, Resources: []string{"llminferenceservices"}, Verbs: []string{"post"}},
-				},
-			}
-			Expect(envTest.Create(ctx, role)).To(Succeed())
+	It("should delete legacy MaaS Roles and RoleBindings", func(ctx SpecContext) {
+		role := &rbacv1.Role{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      "my-llmisvc-model-post-access",
+				Namespace: testNs,
+				Labels:    map[string]string{"app.kubernetes.io/managed-by": "odh-model-controller"},
+			},
+			Rules: []rbacv1.PolicyRule{
+				{APIGroups: []string{"serving.kserve.io"}, Resources: []string{"llminferenceservices"}, Verbs: []string{"post"}},
+			},
+		}
+		Expect(envTest.Create(ctx, role)).To(Succeed())
 
-			rb := &rbacv1.RoleBinding{
-				ObjectMeta: metav1.ObjectMeta{
-					Name:      "my-llmisvc-model-post-access-tier-binding",
-					Namespace: testNs,
-					Labels:    map[string]string{"app.kubernetes.io/managed-by": "odh-model-controller"},
-				},
-				Subjects: []rbacv1.Subject{{Kind: "Group", Name: "test-group", APIGroup: "rbac.authorization.k8s.io"}},
-				RoleRef:  rbacv1.RoleRef{Kind: "Role", Name: "my-llmisvc-model-post-access", APIGroup: "rbac.authorization.k8s.io"},
-			}
-			Expect(envTest.Create(ctx, rb)).To(Succeed())
+		rb := &rbacv1.RoleBinding{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      "my-llmisvc-model-post-access-tier-binding",
+				Namespace: testNs,
+				Labels:    map[string]string{"app.kubernetes.io/managed-by": "odh-model-controller"},
+			},
+			Subjects: []rbacv1.Subject{{Kind: "Group", Name: "test-group", APIGroup: "rbac.authorization.k8s.io"}},
+			RoleRef:  rbacv1.RoleRef{Kind: "Role", Name: "my-llmisvc-model-post-access", APIGroup: "rbac.authorization.k8s.io"},
+		}
+		Expect(envTest.Create(ctx, rb)).To(Succeed())
 
-			Expect(newRunner().Start(ctx)).To(Succeed())
+		Expect(newRunner().Start(ctx)).To(Succeed())
 
-			Eventually(func() bool {
-				err := envTest.Get(ctx, types.NamespacedName{Name: role.Name, Namespace: testNs}, &rbacv1.Role{})
-				return err != nil
-			}).WithContext(ctx).Should(BeTrue())
+		Eventually(func() bool {
+			err := envTest.Get(ctx, types.NamespacedName{Name: role.Name, Namespace: testNs}, &rbacv1.Role{})
+			return err != nil
+		}).WithContext(ctx).Should(BeTrue())
 
-			Eventually(func() bool {
-				err := envTest.Get(ctx, types.NamespacedName{Name: rb.Name, Namespace: testNs}, &rbacv1.RoleBinding{})
-				return err != nil
-			}).WithContext(ctx).Should(BeTrue())
-		})
-
-		It("should not delete Roles or RoleBindings without the managed-by label", func(ctx SpecContext) {
-			role := &rbacv1.Role{
-				ObjectMeta: metav1.ObjectMeta{
-					Name:      "unmanaged-model-post-access",
-					Namespace: testNs,
-				},
-				Rules: []rbacv1.PolicyRule{
-					{APIGroups: []string{"serving.kserve.io"}, Resources: []string{"llminferenceservices"}, Verbs: []string{"post"}},
-				},
-			}
-			Expect(envTest.Create(ctx, role)).To(Succeed())
-
-			Expect(newRunner().Start(ctx)).To(Succeed())
-
-			Consistently(func() error {
-				return envTest.Get(ctx, types.NamespacedName{Name: role.Name, Namespace: testNs}, &rbacv1.Role{})
-			}).WithContext(ctx).Should(Succeed())
-		})
-
-		It("should not delete managed Roles with different name patterns", func(ctx SpecContext) {
-			role := &rbacv1.Role{
-				ObjectMeta: metav1.ObjectMeta{
-					Name:      "some-other-role",
-					Namespace: testNs,
-					Labels:    map[string]string{"app.kubernetes.io/managed-by": "odh-model-controller"},
-				},
-				Rules: []rbacv1.PolicyRule{
-					{APIGroups: []string{""}, Resources: []string{"pods"}, Verbs: []string{"get"}},
-				},
-			}
-			Expect(envTest.Create(ctx, role)).To(Succeed())
-
-			Expect(newRunner().Start(ctx)).To(Succeed())
-
-			Consistently(func() error {
-				return envTest.Get(ctx, types.NamespacedName{Name: role.Name, Namespace: testNs}, &rbacv1.Role{})
-			}).WithContext(ctx).Should(Succeed())
-		})
-
-		It("should handle empty cluster gracefully", func(ctx SpecContext) {
-			Expect(newRunner().Start(ctx)).To(Succeed())
-		})
-
-		It("should clean up resources across multiple namespaces", func(ctx SpecContext) {
-			ns2 := testutils.Namespaces.Create(ctx, envTest.Client)
-
-			role1 := &rbacv1.Role{
-				ObjectMeta: metav1.ObjectMeta{
-					Name: "svc1-model-post-access", Namespace: testNs,
-					Labels: map[string]string{"app.kubernetes.io/managed-by": "odh-model-controller"},
-				},
-				Rules: []rbacv1.PolicyRule{{APIGroups: []string{"serving.kserve.io"}, Resources: []string{"llminferenceservices"}, Verbs: []string{"post"}}},
-			}
-			role2 := &rbacv1.Role{
-				ObjectMeta: metav1.ObjectMeta{
-					Name: "svc2-model-post-access", Namespace: ns2.Name,
-					Labels: map[string]string{"app.kubernetes.io/managed-by": "odh-model-controller"},
-				},
-				Rules: []rbacv1.PolicyRule{{APIGroups: []string{"serving.kserve.io"}, Resources: []string{"llminferenceservices"}, Verbs: []string{"post"}}},
-			}
-			Expect(envTest.Create(ctx, role1)).To(Succeed())
-			Expect(envTest.Create(ctx, role2)).To(Succeed())
-
-			Expect(newRunner().Start(ctx)).To(Succeed())
-
-			Eventually(func() bool {
-				err := envTest.Get(ctx, types.NamespacedName{Name: role1.Name, Namespace: testNs}, &rbacv1.Role{})
-				return err != nil
-			}).WithContext(ctx).Should(BeTrue())
-
-			Eventually(func() bool {
-				err := envTest.Get(ctx, types.NamespacedName{Name: role2.Name, Namespace: ns2.Name}, &rbacv1.Role{})
-				return err != nil
-			}).WithContext(ctx).Should(BeTrue())
-		})
+		Eventually(func() bool {
+			err := envTest.Get(ctx, types.NamespacedName{Name: rb.Name, Namespace: testNs}, &rbacv1.RoleBinding{})
+			return err != nil
+		}).WithContext(ctx).Should(BeTrue())
 	})
 
-	Describe("Webhook entry cleanup", func() {
-		const vwcName = "validating.odh-model-controller.opendatahub.io"
+	It("should not delete Roles or RoleBindings without the managed-by label", func(ctx SpecContext) {
+		role := &rbacv1.Role{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      "unmanaged-model-post-access",
+				Namespace: testNs,
+			},
+			Rules: []rbacv1.PolicyRule{
+				{APIGroups: []string{"serving.kserve.io"}, Resources: []string{"llminferenceservices"}, Verbs: []string{"post"}},
+			},
+		}
+		Expect(envTest.Create(ctx, role)).To(Succeed())
 
-		sideEffects := admissionregistrationv1.SideEffectClassNone
+		Expect(newRunner().Start(ctx)).To(Succeed())
 
-		AfterEach(func(ctx SpecContext) {
-			vwc := &admissionregistrationv1.ValidatingWebhookConfiguration{}
-			if err := envTest.Get(ctx, types.NamespacedName{Name: vwcName}, vwc); err == nil {
-				_ = envTest.Delete(ctx, vwc)
-			}
-		})
+		Consistently(func() error {
+			return envTest.Get(ctx, types.NamespacedName{Name: role.Name, Namespace: testNs}, &rbacv1.Role{})
+		}).WithContext(ctx).Should(Succeed())
+	})
 
-		It("should remove stale MaaS webhook entries and keep others", func(ctx SpecContext) {
-			vwc := &admissionregistrationv1.ValidatingWebhookConfiguration{
-				ObjectMeta: metav1.ObjectMeta{Name: vwcName},
-				Webhooks: []admissionregistrationv1.ValidatingWebhook{
-					{
-						Name:                    "validating.configmap.odh-model-controller.opendatahub.io",
-						SideEffects:             &sideEffects,
-						AdmissionReviewVersions: []string{"v1"},
-						ClientConfig:            admissionregistrationv1.WebhookClientConfig{URL: strPtr("https://localhost/validate-configmap")},
-					},
-					{
-						Name:                    "validating.llmisvc.odh-model-controller.opendatahub.io",
-						SideEffects:             &sideEffects,
-						AdmissionReviewVersions: []string{"v1"},
-						ClientConfig:            admissionregistrationv1.WebhookClientConfig{URL: strPtr("https://localhost/validate-llmisvc")},
-					},
-					{
-						Name:                    "validating.nim.account.odh-model-controller.opendatahub.io",
-						SideEffects:             &sideEffects,
-						AdmissionReviewVersions: []string{"v1"},
-						ClientConfig:            admissionregistrationv1.WebhookClientConfig{URL: strPtr("https://localhost/validate-nim")},
-					},
-				},
-			}
-			Expect(envTest.Create(ctx, vwc)).To(Succeed())
+	It("should not delete managed Roles with different name patterns", func(ctx SpecContext) {
+		role := &rbacv1.Role{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      "some-other-role",
+				Namespace: testNs,
+				Labels:    map[string]string{"app.kubernetes.io/managed-by": "odh-model-controller"},
+			},
+			Rules: []rbacv1.PolicyRule{
+				{APIGroups: []string{""}, Resources: []string{"pods"}, Verbs: []string{"get"}},
+			},
+		}
+		Expect(envTest.Create(ctx, role)).To(Succeed())
 
-			Expect(newRunner().Start(ctx)).To(Succeed())
+		Expect(newRunner().Start(ctx)).To(Succeed())
 
-			updated := &admissionregistrationv1.ValidatingWebhookConfiguration{}
-			Expect(envTest.Get(ctx, types.NamespacedName{Name: vwcName}, updated)).To(Succeed())
-			Expect(updated.Webhooks).To(HaveLen(1))
-			Expect(updated.Webhooks[0].Name).To(Equal("validating.nim.account.odh-model-controller.opendatahub.io"))
-		})
+		Consistently(func() error {
+			return envTest.Get(ctx, types.NamespacedName{Name: role.Name, Namespace: testNs}, &rbacv1.Role{})
+		}).WithContext(ctx).Should(Succeed())
+	})
 
-		It("should not modify webhook config when no stale entries exist", func(ctx SpecContext) {
-			vwc := &admissionregistrationv1.ValidatingWebhookConfiguration{
-				ObjectMeta: metav1.ObjectMeta{Name: vwcName},
-				Webhooks: []admissionregistrationv1.ValidatingWebhook{
-					{
-						Name:                    "validating.nim.account.odh-model-controller.opendatahub.io",
-						SideEffects:             &sideEffects,
-						AdmissionReviewVersions: []string{"v1"},
-						ClientConfig:            admissionregistrationv1.WebhookClientConfig{URL: strPtr("https://localhost/validate-nim")},
-					},
-				},
-			}
-			Expect(envTest.Create(ctx, vwc)).To(Succeed())
+	It("should handle empty cluster gracefully", func(ctx SpecContext) {
+		Expect(newRunner().Start(ctx)).To(Succeed())
+	})
 
-			Expect(newRunner().Start(ctx)).To(Succeed())
+	It("should clean up resources across multiple namespaces", func(ctx SpecContext) {
+		ns2 := testutils.Namespaces.Create(ctx, envTest.Client)
 
-			updated := &admissionregistrationv1.ValidatingWebhookConfiguration{}
-			Expect(envTest.Get(ctx, types.NamespacedName{Name: vwcName}, updated)).To(Succeed())
-			Expect(updated.Webhooks).To(HaveLen(1))
-		})
+		role1 := &rbacv1.Role{
+			ObjectMeta: metav1.ObjectMeta{
+				Name: "svc1-model-post-access", Namespace: testNs,
+				Labels: map[string]string{"app.kubernetes.io/managed-by": "odh-model-controller"},
+			},
+			Rules: []rbacv1.PolicyRule{{APIGroups: []string{"serving.kserve.io"}, Resources: []string{"llminferenceservices"}, Verbs: []string{"post"}}},
+		}
+		role2 := &rbacv1.Role{
+			ObjectMeta: metav1.ObjectMeta{
+				Name: "svc2-model-post-access", Namespace: ns2.Name,
+				Labels: map[string]string{"app.kubernetes.io/managed-by": "odh-model-controller"},
+			},
+			Rules: []rbacv1.PolicyRule{{APIGroups: []string{"serving.kserve.io"}, Resources: []string{"llminferenceservices"}, Verbs: []string{"post"}}},
+		}
+		Expect(envTest.Create(ctx, role1)).To(Succeed())
+		Expect(envTest.Create(ctx, role2)).To(Succeed())
 
-		It("should handle missing webhook config gracefully", func(ctx SpecContext) {
-			Expect(newRunner().Start(ctx)).To(Succeed())
-		})
+		Expect(newRunner().Start(ctx)).To(Succeed())
+
+		Eventually(func() bool {
+			err := envTest.Get(ctx, types.NamespacedName{Name: role1.Name, Namespace: testNs}, &rbacv1.Role{})
+			return err != nil
+		}).WithContext(ctx).Should(BeTrue())
+
+		Eventually(func() bool {
+			err := envTest.Get(ctx, types.NamespacedName{Name: role2.Name, Namespace: ns2.Name}, &rbacv1.Role{})
+			return err != nil
+		}).WithContext(ctx).Should(BeTrue())
 	})
 })
-
-func strPtr(s string) *string {
-	return &s
-}

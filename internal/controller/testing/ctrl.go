@@ -22,7 +22,6 @@ import (
 	authorinooperatorv1beta1 "github.com/kuadrant/authorino-operator/api/v1beta1"
 	kuadrantv1 "github.com/kuadrant/kuadrant-operator/api/v1"
 	kuadrantv1beta1 "github.com/kuadrant/kuadrant-operator/api/v1beta1"
-	admissionregistrationv1 "k8s.io/api/admissionregistration/v1"
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	netv1 "k8s.io/api/networking/v1"
@@ -47,7 +46,6 @@ func NewEnvTest(options ...Option) *Config {
 		// Kubernetes Schemes
 		corev1.AddToScheme,
 		rbacv1.AddToScheme,
-		admissionregistrationv1.AddToScheme,
 		appsv1.AddToScheme,
 		apiextv1.AddToScheme,
 		netv1.AddToScheme,

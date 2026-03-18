@@ -41,14 +41,6 @@ rules:
   - create
   - patch
 - apiGroups:
-  - admissionregistration.k8s.io
-  resources:
-  - validatingwebhookconfigurations
-  verbs:
-  - get
-  - patch
-  - update
-- apiGroups:
   - config.openshift.io
   resources:
   - authentications

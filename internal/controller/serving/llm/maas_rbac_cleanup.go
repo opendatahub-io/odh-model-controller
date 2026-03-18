@@ -21,10 +21,7 @@ import (
 	"strings"
 
 	"github.com/go-logr/logr"
-	admissionregistrationv1 "k8s.io/api/admissionregistration/v1"
 	rbacv1 "k8s.io/api/rbac/v1"
-	apierrs "k8s.io/apimachinery/pkg/api/errors"
-	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
@@ -33,35 +30,23 @@ const (
 	roleBindingSuffix = "-model-post-access-tier-binding"
 	managedByLabel    = "app.kubernetes.io/managed-by"
 	managedByValue    = "odh-model-controller"
-
-	validatingWebhookConfigName = "validating.odh-model-controller.opendatahub.io"
 )
 
-// Webhook entry names from the MaaS tier model (3.3) that must be removed on upgrade.
-var staleWebhookNames = map[string]bool{
-	"validating.configmap.odh-model-controller.opendatahub.io": true,
-	"validating.llmisvc.odh-model-controller.opendatahub.io":   true,
-}
-
-// MaaSRBACCleanupRunner removes resources that were previously created by
-// odh-model-controller for the MaaS tier-based RBAC model.
+// MaaSRBACCleanupRunner removes Roles and RoleBindings that were previously
+// created by odh-model-controller for the MaaS tier-based RBAC model.
 // This handles migration from 3.3 (which created these resources) to 3.4+
 // (which no longer manages them).
 //
-// Resources cleaned up:
-//   - Roles named *-model-post-access (per-namespace, per-LLMInferenceService)
-//   - RoleBindings named *-model-post-access-tier-binding (same)
-//   - Stale webhook entries in the ValidatingWebhookConfiguration
-//     (validating.configmap and validating.llmisvc, both failurePolicy:Fail)
+// Stale webhook entries (validating.configmap and validating.llmisvc) are
+// cleaned up by the ODH operator via Server-Side Apply when it deploys the
+// updated manifests.
 type MaaSRBACCleanupRunner struct {
 	Client client.Client
 	Logger logr.Logger
 }
 
-// +kubebuilder:rbac:groups=admissionregistration.k8s.io,resources=validatingwebhookconfigurations,verbs=get;update;patch
-
 func (r *MaaSRBACCleanupRunner) Start(ctx context.Context) error {
-	r.Logger.Info("Starting MaaS tier resource cleanup")
+	r.Logger.Info("Starting MaaS RBAC cleanup")
 
 	var errs []error
 
@@ -75,18 +60,12 @@ func (r *MaaSRBACCleanupRunner) Start(ctx context.Context) error {
 		errs = append(errs, fmt.Errorf("RoleBinding cleanup failed: %w", err))
 	}
 
-	webhooksRemoved, err := r.cleanupWebhookEntries(ctx)
-	if err != nil {
-		errs = append(errs, fmt.Errorf("webhook cleanup failed: %w", err))
-	}
-
-	r.Logger.Info("MaaS tier resource cleanup completed",
+	r.Logger.Info("MaaS RBAC cleanup completed",
 		"rolesRemoved", rolesRemoved,
-		"roleBindingsRemoved", roleBindingsRemoved,
-		"webhookEntriesRemoved", webhooksRemoved)
+		"roleBindingsRemoved", roleBindingsRemoved)
 
 	if len(errs) > 0 {
-		return fmt.Errorf("MaaS tier resource cleanup encountered errors: %v", errs)
+		return fmt.Errorf("MaaS RBAC cleanup encountered errors: %v", errs)
 	}
 	return nil
 }
@@ -144,37 +123,5 @@ func (r *MaaSRBACCleanupRunner) cleanupRoleBindings(ctx context.Context) (int, e
 	if len(errs) > 0 {
 		return removed, fmt.Errorf("%v", errs)
 	}
-	return removed, nil
-}
-
-func (r *MaaSRBACCleanupRunner) cleanupWebhookEntries(ctx context.Context) (int, error) {
-	vwc := &admissionregistrationv1.ValidatingWebhookConfiguration{}
-	if err := r.Client.Get(ctx, types.NamespacedName{Name: validatingWebhookConfigName}, vwc); err != nil {
-		if apierrs.IsNotFound(err) {
-			return 0, nil
-		}
-		return 0, err
-	}
-
-	filtered := make([]admissionregistrationv1.ValidatingWebhook, 0, len(vwc.Webhooks))
-	removed := 0
-	for i := range vwc.Webhooks {
-		if staleWebhookNames[vwc.Webhooks[i].Name] {
-			r.Logger.Info("Removing stale webhook entry", "name", vwc.Webhooks[i].Name)
-			removed++
-			continue
-		}
-		filtered = append(filtered, vwc.Webhooks[i])
-	}
-
-	if removed == 0 {
-		return 0, nil
-	}
-
-	vwc.Webhooks = filtered
-	if err := r.Client.Update(ctx, vwc); err != nil {
-		return 0, err
-	}
-
 	return removed, nil
 }
