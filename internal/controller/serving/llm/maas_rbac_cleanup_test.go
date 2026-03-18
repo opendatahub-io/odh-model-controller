@@ -94,10 +94,24 @@ var _ = Describe("MaaS RBAC Cleanup", func() {
 		}
 		Expect(envTest.Create(ctx, role)).To(Succeed())
 
+		rb := &rbacv1.RoleBinding{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      "unmanaged-model-post-access-tier-binding",
+				Namespace: testNs,
+			},
+			Subjects: []rbacv1.Subject{{Kind: "Group", Name: "test-group", APIGroup: "rbac.authorization.k8s.io"}},
+			RoleRef:  rbacv1.RoleRef{Kind: "Role", Name: "unmanaged-model-post-access", APIGroup: "rbac.authorization.k8s.io"},
+		}
+		Expect(envTest.Create(ctx, rb)).To(Succeed())
+
 		Expect(newRunner().Start(ctx)).To(Succeed())
 
 		Consistently(func() error {
 			return envTest.Get(ctx, types.NamespacedName{Name: role.Name, Namespace: testNs}, &rbacv1.Role{})
+		}).WithContext(ctx).Should(Succeed())
+
+		Consistently(func() error {
+			return envTest.Get(ctx, types.NamespacedName{Name: rb.Name, Namespace: testNs}, &rbacv1.RoleBinding{})
 		}).WithContext(ctx).Should(Succeed())
 	})
 

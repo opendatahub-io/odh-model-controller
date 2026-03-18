@@ -60,13 +60,16 @@ func (r *MaaSRBACCleanupRunner) Start(ctx context.Context) error {
 		errs = append(errs, fmt.Errorf("RoleBinding cleanup failed: %w", err))
 	}
 
+	if len(errs) > 0 {
+		r.Logger.Error(nil, "MaaS RBAC cleanup finished with errors",
+			"rolesRemoved", rolesRemoved,
+			"roleBindingsRemoved", roleBindingsRemoved)
+		return fmt.Errorf("MaaS RBAC cleanup encountered errors: %v", errs)
+	}
+
 	r.Logger.Info("MaaS RBAC cleanup completed",
 		"rolesRemoved", rolesRemoved,
 		"roleBindingsRemoved", roleBindingsRemoved)
-
-	if len(errs) > 0 {
-		return fmt.Errorf("MaaS RBAC cleanup encountered errors: %v", errs)
-	}
 	return nil
 }
 
