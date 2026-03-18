@@ -150,7 +150,7 @@ replacements:
       name: odh-model-controller-parameters
       fieldPath: data.odh-model-controller
     targets:
-      - select: 
+      - select:
           kind: Deployment
           name: odh-model-controller
         fieldPaths:
