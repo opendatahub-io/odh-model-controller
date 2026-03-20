@@ -198,6 +198,36 @@ func setupNim(mgr manager.Manager, signalHandlerCtx context.Context,
 	}
 }
 
+// stripConfigMapData removes data payloads from cached ConfigMaps to reduce
+// memory consumption. Watch events still trigger reconciliation; actual data
+// is read via direct API calls (DisableFor).
+func stripConfigMapData(i interface{}) (interface{}, error) {
+	if cm, ok := i.(*corev1.ConfigMap); ok {
+		cm.Data = nil
+		cm.BinaryData = nil
+		if cm.Annotations != nil {
+			delete(cm.Annotations, "kubectl.kubernetes.io/last-applied-configuration")
+		}
+		cm.SetManagedFields(nil)
+	}
+	return i, nil
+}
+
+// stripSecretData removes data payloads from cached Secrets to reduce
+// memory consumption. Watch events still trigger reconciliation; actual data
+// is read via direct API calls (DisableFor).
+func stripSecretData(i interface{}) (interface{}, error) {
+	if s, ok := i.(*corev1.Secret); ok {
+		s.Data = nil
+		s.StringData = nil
+		if s.Annotations != nil {
+			delete(s.Annotations, "kubectl.kubernetes.io/last-applied-configuration")
+		}
+		s.SetManagedFields(nil)
+	}
+	return i, nil
+}
+
 func createManager(cfg *rest.Config, metricsAddr, probeAddr string,
 	enableLeaderElection, secureMetrics bool, tlsOpts []func(*tls.Config)) ctrl.Manager {
 	webhookServer := webhook.NewServer(webhook.Options{
@@ -245,14 +275,30 @@ func createManager(cfg *rest.Config, metricsAddr, probeAddr string,
 		// after the manager stops then its usage might be unsafe.
 		// LeaderElectionReleaseOnCancel: true,
 		Client: client.Options{
-			Cache: &client.CacheOptions{},
+			Cache: &client.CacheOptions{
+				// ConfigMap and Secret client reads bypass the cache
+				// entirely for direct API reads, since the informer
+				// caches stripped-down objects (no .data/.binaryData)
+				// to prevent unbounded memory growth.
+				DisableFor: []client.Object{
+					&corev1.ConfigMap{},
+					&corev1.Secret{},
+				},
+			},
 		},
 		Cache: cache.Options{
 			ByObject: map[client.Object]cache.ByObject{
+				// Strip data payloads from cached ConfigMaps and Secrets
+				// to prevent OOM from cluster-wide caching. The informer
+				// still delivers watch events for all objects (including
+				// external ones like odh-trusted-ca-bundle, NIM API key
+				// secrets, etc.), but cached objects are metadata-only.
+				// Actual data is read via direct API calls (DisableFor).
+				&corev1.ConfigMap{}: {
+					Transform: stripConfigMapData,
+				},
 				&corev1.Secret{}: {
-					Label: labels.SelectorFromSet(labels.Set{
-						"opendatahub.io/managed": "true",
-					}),
+					Transform: stripSecretData,
 				},
 				&corev1.Pod{}: {
 					Label: labels.SelectorFromSet(labels.Set{
