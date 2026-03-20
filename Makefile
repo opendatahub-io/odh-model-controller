@@ -1,6 +1,7 @@
 # Image URL to use all building/pushing image targets
 IMG ?= quay.io/${USER}/odh-model-controller:latest
-SERVER_IMG ?= quay.io/${USER}/odh-model-serving-api:latest
+SERVER_IMG_TAG ?= latest
+SERVER_IMG ?= quay.io/${USER}/odh-model-serving-api:${SERVER_IMG_TAG}
 NAMESPACE ?= opendatahub
 # ENVTEST_K8S_VERSION refers to the version of kubebuilder assets to be downloaded by envtest binary.
 ENVTEST_K8S_VERSION = 1.31.0
@@ -230,18 +231,21 @@ deploy: manifests kustomize ## Deploy controller to the K8s cluster specified in
 
 .PHONY: deploy-server
 deploy-server: kustomize ## Deploy model-serving-api to the K8s cluster specified in ~/.kube/config.
-	@SERVER_IMG_DIGEST="$$($(CONTAINER_TOOL) inspect --format='{{index .RepoDigests 0}}' '$(SERVER_IMG)' 2>/dev/null)"; \
-	if [ -z "$$SERVER_IMG_DIGEST" ]; then \
-		echo "Error: no repo digest found for '$(SERVER_IMG)'. Push the image first."; \
-		exit 1; \
+	@SERVER_IMG_REF="$(SERVER_IMG)"; \
+	if command -v $(CONTAINER_TOOL) >/dev/null 2>&1; then \
+		digest="$$($(CONTAINER_TOOL) inspect --format='{{index .RepoDigests 0}}' '$(SERVER_IMG)' 2>/dev/null)"; \
+		if [ -n "$$digest" ]; then \
+			SERVER_IMG_REF="$$digest"; \
+		fi; \
 	fi; \
 	rm -rf '$(LOCALBIN)/server-overlay' && mkdir -p '$(LOCALBIN)/server-overlay' && \
 	cd '$(LOCALBIN)/server-overlay' && \
 	$(KUSTOMIZE) init && \
 	$(KUSTOMIZE) edit add resource ../../config/server && \
 	$(KUSTOMIZE) edit set namespace '$(NAMESPACE)' && \
-	$(KUSTOMIZE) edit set image "controller=$$SERVER_IMG_DIGEST" && \
-	$(KUSTOMIZE) build . | $(KUBECTL) apply -f -
+	$(KUSTOMIZE) edit set image "controller=$$SERVER_IMG_REF" && \
+	$(KUSTOMIZE) build . > server-bundle.yaml && \
+	$(KUBECTL) apply -f server-bundle.yaml
 	$(KUBECTL) rollout status deployment/model-serving-api -n '$(NAMESPACE)' --timeout=120s
 
 .PHONY: undeploy
