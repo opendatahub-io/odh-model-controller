@@ -245,9 +245,17 @@ func createManager(cfg *rest.Config, metricsAddr, probeAddr string,
 		// after the manager stops then its usage might be unsafe.
 		// LeaderElectionReleaseOnCancel: true,
 		Client: client.Options{
-			Cache: &client.CacheOptions{},
+			Cache: &client.CacheOptions{
+				// ConfigMap client reads bypass the cache entirely for
+				// direct API reads, since the informer only caches
+				// operator-managed ConfigMaps.
+				DisableFor: []client.Object{
+					&corev1.ConfigMap{},
+				},
+			},
 		},
 		Cache: cache.Options{
+			DefaultTransform: cache.TransformStripManagedFields(),
 			ByObject: map[client.Object]cache.ByObject{
 				&corev1.Secret{}: {
 					Label: labels.SelectorFromSet(labels.Set{
@@ -257,6 +265,15 @@ func createManager(cfg *rest.Config, metricsAddr, probeAddr string,
 				&corev1.Pod{}: {
 					Label: labels.SelectorFromSet(labels.Set{
 						"component": "predictor",
+					}),
+				},
+				// ConfigMap informer is restricted to operator-managed resources
+				// to prevent unbounded memory growth from cluster-wide caching.
+				// External ConfigMaps (odh-trusted-ca-bundle, openshift-service-ca.crt)
+				// are read via direct API calls through DisableFor.
+				&corev1.ConfigMap{}: {
+					Label: labels.SelectorFromSet(labels.Set{
+						"opendatahub.io/managed": "true",
 					}),
 				},
 			},
