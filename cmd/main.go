@@ -143,6 +143,14 @@ func main() {
 		os.Exit(1)
 	}
 
+	if err = mgr.Add(&llmcontroller.MaaSRBACCleanupRunner{
+		Client: mgr.GetClient(),
+		Logger: setupLog.WithName("MaaSRBACCleanup"),
+	}); err != nil {
+		setupLog.Error(err, "failed to add MaaS RBAC cleanup runner")
+		os.Exit(1)
+	}
+
 	if err := mgr.AddHealthzCheck("healthz", healthz.Ping); err != nil {
 		setupLog.Error(err, "unable to set up health check")
 		os.Exit(1)
