@@ -318,82 +318,81 @@ req.Header.Set("X-MaaS-Groups", job.UserContext.Groups)
 
 **File**: `inference/client.go` (replace API key auth with SA token + forwarded headers)
 
-#### 3. Delegated authorization in AuthPolicy
+#### 3. Single authorization rule with conditional resource attributes
 
 The gateway's existing `inference-access` rule uses the bearer token's identity for
-SubjectAccessReview. When the batch processor calls, the bearer token belongs to the
-processor's ServiceAccount — not the original user. The AuthPolicy needs a **delegated
-authorization** rule that:
+SubjectAccessReview. Instead of two separate rules (one for direct users, one for the
+batch processor), a **single rule** uses conditional CEL expressions to vary the SAR
+based on the presence of `x-maas-user` headers.
 
-1. Recognizes the caller as the batch processor (by ServiceAccount name)
-2. Uses the forwarded `X-MaaS-User` / `X-MaaS-Groups` headers for the SAR instead of
-   the token identity
+When the batch processor forwards a request through the gateway, it sets `X-MaaS-User`
+and `X-MaaS-Groups` headers with the original user's identity. The single rule detects
+this and switches to a delegated SAR:
+
+| Condition                    | SAR user                         | SAR groups                                    | Resource                        | Verb   |
+|------------------------------|----------------------------------|-----------------------------------------------|---------------------------------|--------|
+| No `x-maas-user` header      | `auth.identity.user.username`    | `auth.identity.user.groups`                   | `llminferenceservices`          | `get`  |
+| `x-maas-user` header present | `request.headers['x-maas-user']` | `request.headers['x-maas-groups'].split(',')` | `llminferenceservices/delegate` | `post` |
 
 ```yaml
 authorization:
-  # Existing rule — for direct user requests
   inference-access:
     when:
-      - predicate: >-
-          !(request.path.startsWith('/v1/files') || request.path.startsWith('/v1/batches'))
-          && !auth.identity.user.username.startsWith('system:serviceaccount:{{.BatchProcessorNamespace}}:{{.BatchProcessorServiceAccount}}')
+      - predicate: "!(request.path.startsWith('/v1/files') || request.path.startsWith('/v1/batches'))"
     kubernetesSubjectAccessReview:
       user:
-        expression: auth.identity.user.username
+        expression: "has(request.headers['x-maas-user']) ? request.headers['x-maas-user'] : auth.identity.user.username"
       authorizationGroups:
-        expression: auth.identity.user.groups
+        expression: "has(request.headers['x-maas-groups']) ? request.headers['x-maas-groups'].split(',') : auth.identity.user.groups"
       resourceAttributes:
         group:
           value: serving.kserve.io
         resource:
-          value: llminferenceservices
+          expression: "has(request.headers['x-maas-user']) ? 'llminferenceservices/delegate' : 'llminferenceservices'"
         namespace:
           expression: request.path.split("/")[1]
         name:
           expression: request.path.split("/")[2]
         verb:
-          value: get
-    priority: 1
-
-  # Delegated rule — for batch processor requests
-  inference-access-delegated-batch:
-    when:
-      - predicate: >-
-          !(request.path.startsWith('/v1/files') || request.path.startsWith('/v1/batches'))
-          && auth.identity.user.username == 'system:serviceaccount:{{.BatchProcessorNamespace}}:{{.BatchProcessorServiceAccount}}'
-    kubernetesSubjectAccessReview:
-      user:
-        expression: request.headers['x-maas-username']
-      authorizationGroups:
-        expression: "request.headers['x-maas-groups'].split(',')"
-      resourceAttributes:
-        group:
-          value: serving.kserve.io
-        resource:
-          value: llminferenceservices
-        namespace:
-          expression: request.path.split("/")[1]
-        name:
-          expression: request.path.split("/")[2]
-        verb:
-          value: get
+          expression: "has(request.headers['x-maas-user']) ? 'post' : 'get'"
     priority: 1
 ```
 
-**Security**: the delegated rule is gated by `auth.identity.user.username == 'system:serviceaccount:...'`
-— only requests authenticated as the batch processor's ServiceAccount can use forwarded
-headers for authorization. Regular users always hit the `inference-access` rule which uses
-their own token identity. This prevents header-injection attacks from external clients.
+**Security model**: the delegated path uses a distinct resource (`llminferenceservices/delegate`)
+and verb (`post`). This means RBAC controls which identities can perform delegated access:
+
+- The batch processor SA needs a `ClusterRole` granting `post` on `llminferenceservices/delegate`.
+  The SAR checks the **forwarded user** (from `x-maas-user`) for this permission, not the
+  processor SA itself. So the users who should be eligible for batch inference need the
+  `post llminferenceservices/delegate` permission (or the existing `get llminferenceservices`
+  role can be extended to also grant `post` on the `delegate` subresource).
+- A regular user spoofing `x-maas-user` headers on a direct request would trigger the delegated
+  path, but the SAR would check the spoofed username for `post llminferenceservices/delegate`.
+  This limits the blast radius to what the spoofed identity has access to, not the attacker's
+  own permissions.
+
+**Header spoofing mitigation**: to prevent a regular user from impersonating another user
+via `x-maas-user` headers, the `post llminferenceservices/delegate` permission should **not**
+be granted to regular users directly. Instead, only the batch processor ServiceAccount should
+hold this permission. The SAR then needs to check the **authenticated caller** (processor SA)
+for the `delegate` permission, and the **forwarded user** for the base `get llminferenceservices`
+permission. This can be achieved with two approaches:
+
+1. **Two SARs in one rule** (if Authorino supports it): check both the caller's `delegate`
+   permission and the forwarded user's `get` permission.
+2. **Accept the risk**: if all users who have `get llminferenceservices` should also be able
+   to use batch, grant them `post llminferenceservices/delegate` too. Header spoofing then
+   only allows accessing models the spoofed user has access to — which may be acceptable
+   given the threat model.
 
 **Open items**:
 
-- Verify that `request.headers['x-maas-username']` is accessible in Authorino CEL
-  expressions for `kubernetesSubjectAccessReview.user`. The `request` context should be
-  available, but this needs validation.
-- Verify that `request.headers['x-maas-groups'].split(',')` produces a list that Authorino
-  accepts for `authorizationGroups`. The `split()` CEL function returns `list(string)`.
-- The processor ServiceAccount name/namespace must be known at template render time. Add
-  `{{.BatchProcessorNamespace}}` and `{{.BatchProcessorServiceAccount}}` template variables.
+- Verify that `has(request.headers['x-maas-user'])` works in Authorino CEL expressions.
+  The `has()` macro should work on map-like objects, but this needs validation.
+- Determine whether `resource: 'llminferenceservices/delegate'` is treated as a resource
+  with subresource in the SAR, or if separate `resource` and `subResource` fields are needed.
+- Define the RBAC policy for `post llminferenceservices/delegate` — decide between
+  granting it to all inference users vs. only the batch processor SA (see security discussion above).
 
 #### 4. Flow control: Fairness and objective
 
@@ -443,52 +442,26 @@ spec:
             expression: "auth.identity.user.username.startsWith('system:serviceaccount:') ? auth.identity.user.username.split(':')[2] : 'authenticated'"
 
     authorization:
-      # Direct user requests — skip for batch paths and batch processor SA
+      # Single rule — conditional resource attributes based on x-maas-user header presence
       inference-access:
         when:
-          - predicate: >-
-              !(request.path.startsWith('/v1/files') || request.path.startsWith('/v1/batches'))
-              && !auth.identity.user.username.startsWith('system:serviceaccount:batch-gateway:batch-processor')
+          - predicate: "!(request.path.startsWith('/v1/files') || request.path.startsWith('/v1/batches'))"
         kubernetesSubjectAccessReview:
           user:
-            expression: auth.identity.user.username
+            expression: "has(request.headers['x-maas-user']) ? request.headers['x-maas-user'] : auth.identity.user.username"
           authorizationGroups:
-            expression: auth.identity.user.groups
+            expression: "has(request.headers['x-maas-groups']) ? request.headers['x-maas-groups'].split(',') : auth.identity.user.groups"
           resourceAttributes:
             group:
               value: serving.kserve.io
             resource:
-              value: llminferenceservices
+              expression: "has(request.headers['x-maas-user']) ? 'llminferenceservices/delegate' : 'llminferenceservices'"
             namespace:
               expression: request.path.split("/")[1]
             name:
               expression: request.path.split("/")[2]
             verb:
-              value: get
-        priority: 1
-
-      # Delegated rule — batch processor forwards original user identity via headers
-      inference-access-delegated-batch:
-        when:
-          - predicate: >-
-              !(request.path.startsWith('/v1/files') || request.path.startsWith('/v1/batches'))
-              && auth.identity.user.username == 'system:serviceaccount:batch-gateway:batch-processor'
-        kubernetesSubjectAccessReview:
-          user:
-            expression: request.headers['x-maas-user']
-          authorizationGroups:
-            expression: "request.headers['x-maas-groups'].split(',')"
-          resourceAttributes:
-            group:
-              value: serving.kserve.io
-            resource:
-              value: llminferenceservices
-            namespace:
-              expression: request.path.split("/")[1]
-            name:
-              expression: request.path.split("/")[2]
-            verb:
-              value: get
+              expression: "has(request.headers['x-maas-user']) ? 'post' : 'get'"
         priority: 1
 
     response:
@@ -531,6 +504,3 @@ spec:
 | `{{.AudiencesJSON}}`                | `["https://kubernetes.default.svc"]`                                                                                             |
 | `{{.Issuer}}`                       | `https://kubernetes.default.svc`                                                                                                 |
 | `{{.ObjectiveExpression}}`          | `auth.identity.user.username.startsWith('system:serviceaccount:') ? auth.identity.user.username.split(':')[2] : 'authenticated'` |
-| `{{.BatchProcessorNamespace}}`      | `batch-gateway`                                                                                                                  |
-| `{{.BatchProcessorServiceAccount}}` | `batch-processor`                                                                                                                |
-
