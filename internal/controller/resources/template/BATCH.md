@@ -504,3 +504,331 @@ spec:
 | `{{.AudiencesJSON}}`                | `["https://kubernetes.default.svc"]`                                                                                             |
 | `{{.Issuer}}`                       | `https://kubernetes.default.svc`                                                                                                 |
 | `{{.ObjectiveExpression}}`          | `auth.identity.user.username.startsWith('system:serviceaccount:') ? auth.identity.user.username.split(':')[2] : 'authenticated'` |
+
+## Testing
+
+### Test infrastructure: echo service
+
+Deploy an echo server behind the gateway to verify Authorino behavior. The echo server
+reflects request headers and body, making it easy to inspect what Authorino injected.
+
+All test identities are ServiceAccounts with specific RBAC — no dependency on logged-in
+user tokens or `oc whoami -t`.
+
+#### ServiceAccounts
+
+| SA                   | Namespace      | Purpose                                           | RBAC                                                   |
+|----------------------|----------------|---------------------------------------------------|--------------------------------------------------------|
+| `test-user`          | `echo-service` | Regular user with standard inference access only  | `get llminferenceservices` in `echo-service`           |
+| `test-user-delegate` | `echo-service` | User eligible for batch (has delegate permission) | `post llminferenceservices/delegate` in `echo-service` |
+
+#### Test scenarios
+
+| # | Scenario                                                     | SA token             | Path                            | Extra headers                        | Expected SAR                                                  | Expected                                                 |
+|---|--------------------------------------------------------------|----------------------|---------------------------------|--------------------------------------|---------------------------------------------------------------|----------------------------------------------------------|
+| 1 | SA → batch path                                              | `test-user`          | `/v1/batches`                   | —                                    | Skipped (batch path)                                          | 200, `x-maas-user` and `x-maas-groups` injected          |
+| 2 | SA → inference path (standard)                               | `test-user`          | `/echo-service/echo-server/...` | —                                    | `get llminferenceservices` for `test-user`                    | 200                                                      |
+| 3 | SA → inference with `x-maas-user` (user has delegate RBAC)   | `test-user`          | `/echo-service/echo-server/...` | `x-maas-user: ...test-user-delegate` | `post llminferenceservices/delegate` for `test-user-delegate` | 200                                                      |
+| 4 | SA → batch path with spoofed header                          | `test-user`          | `/v1/batches`                   | `x-maas-user: spoofed`               | Skipped (batch path)                                          | 200, Authorino appends real identity after spoofed value |
+| 5 | SA → inference with `x-maas-user` (user has no RBAC)         | `test-user`          | `/echo-service/echo-server/...` | `x-maas-user: nonexistent-user`      | `post llminferenceservices/delegate` for `nonexistent-user`   | 403                                                      |
+| 6 | SA → inference with `x-maas-user` (user lacks delegate RBAC) | `test-user-delegate` | `/echo-service/echo-server/...` | `x-maas-user: ...test-user`          | `post llminferenceservices/delegate` for `test-user`          | 403                                                      |
+
+#### echo-service.yaml
+
+```yaml
+# Echo service + test ServiceAccounts for verifying Authorino batch authn/z.
+#
+# Apply:
+#   oc apply -f echo-service.yaml
+#
+# --- Namespace ---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: echo-service
+---
+# --- ServiceAccounts ---
+# Regular user — has standard inference access only
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: test-user
+  namespace: echo-service
+---
+# User with delegate permission — eligible for batch inference
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: test-user-delegate
+  namespace: echo-service
+---
+# --- Echo server ---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: echo-server
+  namespace: echo-service
+  labels:
+    app.kubernetes.io/name: echo-server
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: echo-server
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: echo-server
+    spec:
+      containers:
+        - name: echo-server
+          image: ealen/echo-server:0.9.2
+          ports:
+            - containerPort: 8080
+              protocol: TCP
+          env:
+            - name: PORT
+              value: "8080"
+          resources:
+            requests:
+              cpu: 50m
+              memory: 64Mi
+            limits:
+              cpu: 200m
+              memory: 128Mi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: echo-server
+  namespace: echo-service
+spec:
+  selector:
+    app.kubernetes.io/name: echo-server
+  ports:
+    - port: 80
+      targetPort: 8080
+      protocol: TCP
+---
+# --- HTTPRoutes ---
+# Route batch API paths to the echo server
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: echo-server-batch
+  namespace: echo-service
+spec:
+  parentRefs:
+    - name: openshift-ai-inference
+      namespace: openshift-ingress
+  rules:
+    - matches:
+        - path:
+            type: PathPrefix
+            value: /v1/batches
+      backendRefs:
+        - name: echo-server
+          port: 80
+    - matches:
+        - path:
+            type: PathPrefix
+            value: /v1/files
+      backendRefs:
+        - name: echo-server
+          port: 80
+---
+# Route a fake inference path to the echo server for testing the
+# conditional authorization rule (standard vs delegated SAR).
+# Path format: /echo-service/echo-server/... so the SAR extracts
+# namespace=echo-service, name=echo-server from the path.
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: echo-server-inference
+  namespace: echo-service
+spec:
+  parentRefs:
+    - name: openshift-ai-inference
+      namespace: openshift-ingress
+  rules:
+    - matches:
+        - path:
+            type: PathPrefix
+            value: /echo-service/echo-server
+      backendRefs:
+        - name: echo-server
+          port: 80
+```
+
+#### echo-service-rbac.yaml
+
+RBAC resources for the test ServiceAccounts. Two ClusterRoles define the two
+permission levels; RoleBindings in `echo-service` namespace grant them to specific SAs.
+
+```yaml
+# RBAC for testing the conditional authorization rule.
+#
+# Apply:
+#   oc apply -f echo-service-rbac.yaml
+#
+# --- ClusterRoles ---
+# Standard inference access: get llminferenceservices
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: llminferenceservices-reader
+rules:
+  - apiGroups: ["serving.kserve.io"]
+    resources: ["llminferenceservices"]
+    verbs: ["get"]
+---
+# Delegated inference access: post llminferenceservices/delegate
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: llminferenceservices-delegate
+rules:
+  - apiGroups: ["serving.kserve.io"]
+    resources: ["llminferenceservices/delegate"]
+    verbs: ["post"]
+---
+# --- RoleBindings for test-user (standard access only) ---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: test-user-inference-access
+  namespace: echo-service
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: llminferenceservices-reader
+subjects:
+  - kind: ServiceAccount
+    name: test-user
+    namespace: echo-service
+---
+# --- RoleBindings for test-user-delegate (standard + delegate access) ---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: test-user-delegate-inference-access
+  namespace: echo-service
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: llminferenceservices-reader
+subjects:
+  - kind: ServiceAccount
+    name: test-user-delegate
+    namespace: echo-service
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: test-user-delegate-delegate-access
+  namespace: echo-service
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: llminferenceservices-delegate
+subjects:
+  - kind: ServiceAccount
+    name: test-user-delegate
+    namespace: echo-service
+```
+
+#### Test commands
+
+```bash
+# Gateway internal address (from dnsutils pod in default namespace)
+GW=http://openshift-ai-inference-openshift-default.openshift-ingress.svc.cluster.local
+
+# --- Create tokens ---
+TEST_USER_TOKEN=$(oc create token test-user -n echo-service)
+TEST_USER_DELEGATE_TOKEN=$(oc create token test-user-delegate -n echo-service)
+
+# Scenario 1: SA → batch path (authn only, headers injected)
+# Expected: 200, echo shows x-maas-user = system:serviceaccount:echo-service:test-user
+oc exec -n default dnsutils -- curl -s \
+  -H "Authorization: Bearer $TEST_USER_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"hello":"world"}' \
+  $GW/v1/batches | jq
+
+# Scenario 2: SA → inference path (standard SAR: get llminferenceservices)
+# Expected: 200 (test-user has get llminferenceservices in echo-service)
+oc exec -n default dnsutils -- curl -s \
+  -H "Authorization: Bearer $TEST_USER_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"hello":"world"}' \
+  $GW/echo-service/echo-server/v1/chat/completions | jq
+
+# Scenario 3: SA → inference with x-maas-user pointing to user WITH delegate RBAC
+# Expected: 200 (test-user-delegate has post llminferenceservices/delegate in echo-service)
+oc exec -n default dnsutils -- curl -s \
+  -H "Authorization: Bearer $TEST_USER_TOKEN" \
+  -H "Content-Type: application/json" \
+  -H "x-maas-user: system:serviceaccount:echo-service:test-user-delegate" \
+  -H "x-maas-groups: system:serviceaccounts,system:serviceaccounts:echo-service,system:authenticated" \
+  -d '{"hello":"world"}' \
+  $GW/echo-service/echo-server/v1/chat/completions | jq
+
+# Scenario 4: SA → batch path with spoofed x-maas-user (batch path — authz skipped)
+# Expected: 200, Authorino appends real identity after spoofed value
+oc exec -n default dnsutils -- curl -s \
+  -H "Authorization: Bearer $TEST_USER_TOKEN" \
+  -H "Content-Type: application/json" \
+  -H "x-maas-user: spoofed-user" \
+  -d '{"hello":"world"}' \
+  $GW/v1/batches | jq
+
+# Scenario 5: SA → inference with x-maas-user pointing to nonexistent user (should fail)
+# Expected: 403 (nonexistent-user has no RBAC)
+oc exec -n default dnsutils -- curl -s \
+  -H "Authorization: Bearer $TEST_USER_TOKEN" \
+  -H "Content-Type: application/json" \
+  -H "x-maas-user: nonexistent-user" \
+  -d '{"hello":"world"}' \
+  $GW/echo-service/echo-server/v1/chat/completions | jq
+
+# Scenario 6: SA → inference with x-maas-user pointing to user WITHOUT delegate RBAC (should fail)
+# Expected: 403 (test-user has get but NOT post llminferenceservices/delegate)
+oc exec -n default dnsutils -- curl -s \
+  -H "Authorization: Bearer $TEST_USER_DELEGATE_TOKEN" \
+  -H "Content-Type: application/json" \
+  -H "x-maas-user: system:serviceaccount:echo-service:test-user" \
+  -H "x-maas-groups: system:serviceaccounts,system:serviceaccounts:echo-service,system:authenticated" \
+  -d '{"hello":"world"}' \
+  $GW/echo-service/echo-server/v1/chat/completions | jq
+```
+
+
+#### What to verify
+
+**Scenario 1** (SA → batch path): Response should include injected headers.
+Look for `x-maas-user: system:serviceaccount:echo-service:test-user` and `x-maas-groups`
+with the SA's groups. No authorization check happens (batch path excluded).
+
+**Scenario 2** (SA → inference path, standard): Standard SAR fires — checks
+`system:serviceaccount:echo-service:test-user` for `get llminferenceservices` resource
+`echo-server` in namespace `echo-service`. Should succeed (RBAC granted). Response should
+include flow control headers but NOT `x-maas-user`/`x-maas-groups`.
+
+**Scenario 3** (SA → inference with `x-maas-user`, user has delegate RBAC): Delegated SAR
+fires — checks `system:serviceaccount:echo-service:test-user-delegate` (from `x-maas-user`
+header) for `post llminferenceservices/delegate`. Should succeed (`test-user-delegate` has
+delegate RBAC).
+
+**Scenario 4** (SA → batch path with spoofed header): Batch path is excluded from
+authorization, so the spoofed header has no effect on authz. Authorino appends the real
+identity after the spoofed value (upstream append bug). Echo shows both values.
+
+**Scenario 5** (SA → inference with spoofed header): The `x-maas-user` header triggers
+the delegated SAR path. SAR checks `nonexistent-user` for `post llminferenceservices/delegate`
+— fails with 403.
+
+**Scenario 6** (SA → inference with `x-maas-user`, user lacks delegate RBAC): Delegated SAR
+checks `system:serviceaccount:echo-service:test-user` for `post llminferenceservices/delegate`
+— fails with 403 because `test-user` only has `get llminferenceservices`, not the delegate
+permission. This validates that standard inference access does not automatically grant
+delegated access.

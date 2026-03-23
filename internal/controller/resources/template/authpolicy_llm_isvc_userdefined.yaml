@@ -25,22 +25,24 @@ spec:
             expression: "{{.ObjectiveExpression}}"
     authorization:
       inference-access:
+        when:
+          - predicate: "!(request.path.startsWith('/v1/files') || request.path.startsWith('/v1/batches'))"
         kubernetesSubjectAccessReview:
           user:
-            expression: auth.identity.user.username
+            expression: "has(request.headers['x-maas-user']) ? request.headers['x-maas-user'] : auth.identity.user.username"
           authorizationGroups:
-            expression: auth.identity.user.groups
+            expression: "has(request.headers['x-maas-groups']) ? request.headers['x-maas-groups'].split(',') : auth.identity.user.groups"
           resourceAttributes:
             group:
               value: serving.kserve.io
             resource:
-              value: llminferenceservices
+              expression: "has(request.headers['x-maas-user']) ? 'llminferenceservices/delegate' : 'llminferenceservices'"
             namespace:
               expression: request.path.split("/")[1]
             name:
               expression: request.path.split("/")[2]
             verb:
-              value: get
+              expression: "has(request.headers['x-maas-user']) ? 'post' : 'get'"
         priority: 1
     response:
       success:
@@ -54,4 +56,16 @@ spec:
             metrics: false
             plain:
               expression: auth.identity.objective
+            priority: 0
+          x-maas-user:
+            when:
+              - predicate: "request.path.startsWith('/v1/files') || request.path.startsWith('/v1/batches')"
+            plain:
+              expression: auth.identity.user.username
+            priority: 0
+          x-maas-groups:
+            when:
+              - predicate: "request.path.startsWith('/v1/files') || request.path.startsWith('/v1/batches')"
+            plain:
+              expression: "auth.identity.user.groups.join(',')"
             priority: 0
