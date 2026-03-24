@@ -341,20 +341,20 @@ authorization:
       - predicate: "!(request.path.startsWith('/v1/files') || request.path.startsWith('/v1/batches'))"
     kubernetesSubjectAccessReview:
       user:
-        expression: "has(request.headers['x-maas-user']) ? request.headers['x-maas-user'] : auth.identity.user.username"
+        expression: "'x-maas-user' in request.headers ? request.headers['x-maas-user'] : auth.identity.user.username"
       authorizationGroups:
-        expression: "has(request.headers['x-maas-groups']) ? request.headers['x-maas-groups'].split(',') : auth.identity.user.groups"
+        expression: "'x-maas-groups' in request.headers ? request.headers['x-maas-groups'].split(',') : auth.identity.user.groups"
       resourceAttributes:
         group:
           value: serving.kserve.io
         resource:
-          expression: "has(request.headers['x-maas-user']) ? 'llminferenceservices/delegate' : 'llminferenceservices'"
+          expression: "'x-maas-user' in request.headers ? 'llminferenceservices/delegate' : 'llminferenceservices'"
         namespace:
           expression: request.path.split("/")[1]
         name:
           expression: request.path.split("/")[2]
         verb:
-          expression: "has(request.headers['x-maas-user']) ? 'post' : 'get'"
+          expression: "'x-maas-user' in request.headers ? 'post' : 'get'"
     priority: 1
 ```
 
@@ -387,8 +387,9 @@ permission. This can be achieved with two approaches:
 
 **Open items**:
 
-- Verify that `has(request.headers['x-maas-user'])` works in Authorino CEL expressions.
-  The `has()` macro should work on map-like objects, but this needs validation.
+- ~~Verify that `has(request.headers['x-maas-user'])` works in Authorino CEL expressions.~~
+  **Resolved**: `has()` with bracket-notation map access is invalid in Authorino's CEL.
+  Use `'x-maas-user' in request.headers` instead (the `in` operator for map key existence).
 - Determine whether `resource: 'llminferenceservices/delegate'` is treated as a resource
   with subresource in the SAR, or if separate `resource` and `subResource` fields are needed.
 - Define the RBAC policy for `post llminferenceservices/delegate` — decide between
@@ -424,6 +425,11 @@ Below is the complete AuthPolicy as it would appear in the cluster, based on the
 rendered with example values.
 
 ```yaml
+apiVersion: kuadrant.io/v1
+kind: AuthPolicy
+metadata:
+  name: openshift-ai-inference-authn
+  namespace: openshift-ingress
 spec:
   targetRef:
     group: gateway.networking.k8s.io
@@ -448,20 +454,20 @@ spec:
           - predicate: "!(request.path.startsWith('/v1/files') || request.path.startsWith('/v1/batches'))"
         kubernetesSubjectAccessReview:
           user:
-            expression: "has(request.headers['x-maas-user']) ? request.headers['x-maas-user'] : auth.identity.user.username"
+            expression: "'x-maas-user' in request.headers ? request.headers['x-maas-user'] : auth.identity.user.username"
           authorizationGroups:
-            expression: "has(request.headers['x-maas-groups']) ? request.headers['x-maas-groups'].split(',') : auth.identity.user.groups"
+            expression: "'x-maas-groups' in request.headers ? request.headers['x-maas-groups'].split(',') : auth.identity.user.groups"
           resourceAttributes:
             group:
               value: serving.kserve.io
             resource:
-              expression: "has(request.headers['x-maas-user']) ? 'llminferenceservices/delegate' : 'llminferenceservices'"
+              expression: "'x-maas-user' in request.headers ? 'llminferenceservices/delegate' : 'llminferenceservices'"
             namespace:
               expression: request.path.split("/")[1]
             name:
               expression: request.path.split("/")[2]
             verb:
-              expression: "has(request.headers['x-maas-user']) ? 'post' : 'get'"
+              expression: "'x-maas-user' in request.headers ? 'post' : 'get'"
         priority: 1
 
     response:
@@ -532,6 +538,58 @@ user tokens or `oc whoami -t`.
 | 4 | SA → batch path with spoofed header                          | `test-user`          | `/v1/batches`                   | `x-maas-user: spoofed`               | Skipped (batch path)                                          | 200, Authorino appends real identity after spoofed value |
 | 5 | SA → inference with `x-maas-user` (user has no RBAC)         | `test-user`          | `/echo-service/echo-server/...` | `x-maas-user: nonexistent-user`      | `post llminferenceservices/delegate` for `nonexistent-user`   | 403                                                      |
 | 6 | SA → inference with `x-maas-user` (user lacks delegate RBAC) | `test-user-delegate` | `/echo-service/echo-server/...` | `x-maas-user: ...test-user`          | `post llminferenceservices/delegate` for `test-user`          | 403                                                      |
+
+#### gateway.yaml
+
+The GatewayClass and Gateway that the tests assume are already deployed. On OpenShift, the
+`openshift-default` GatewayClass is provided by the platform. The Gateway must have Authorino
+configured (AuthPolicy applied by odh-model-controller).
+
+```yaml
+# Gateway infrastructure for Authorino-based authn/z testing.
+#
+# On OpenShift the GatewayClass already exists — only apply the Gateway.
+#
+# Apply:
+#   oc apply -f gateway.yaml
+#
+# --- GatewayClass (already exists on OCP — shown for reference) ---
+apiVersion: gateway.networking.k8s.io/v1
+kind: GatewayClass
+metadata:
+  name: openshift-default
+spec:
+  controllerName: openshift.io/gateway-controller/v1
+---
+# --- Gateway ---
+apiVersion: gateway.networking.k8s.io/v1
+kind: Gateway
+metadata:
+  name: openshift-ai-inference
+  namespace: openshift-ingress
+spec:
+  gatewayClassName: openshift-default
+  listeners:
+    - name: http
+      port: 80
+      protocol: HTTP
+      allowedRoutes:
+        namespaces:
+          from: All
+```
+
+The listener should set `allowedRoutes.namespaces.from: All` to accept HTTPRoutes from any
+namespace. Without this, the default is `Same` (only the gateway's own namespace), and
+cross-namespace HTTPRoutes will be rejected with `NotAllowedByListeners`.
+
+The internal address of the gateway (for in-cluster testing) follows the OCP naming convention:
+
+```
+http://openshift-ai-inference-openshift-default.openshift-ingress.svc.cluster.local
+```
+
+The e2e tests discover this address automatically from the Gateway resource's
+`.status.addresses[0].value`.
 
 #### echo-service.yaml
 
@@ -749,7 +807,7 @@ TEST_USER_DELEGATE_TOKEN=$(oc create token test-user-delegate -n echo-service)
 
 # Scenario 1: SA → batch path (authn only, headers injected)
 # Expected: 200, echo shows x-maas-user = system:serviceaccount:echo-service:test-user
-oc exec -n default dnsutils -- curl -s \
+oc exec -n default dnsutils -- curl -vk -s \
   -H "Authorization: Bearer $TEST_USER_TOKEN" \
   -H "Content-Type: application/json" \
   -d '{"hello":"world"}' \
@@ -757,7 +815,7 @@ oc exec -n default dnsutils -- curl -s \
 
 # Scenario 2: SA → inference path (standard SAR: get llminferenceservices)
 # Expected: 200 (test-user has get llminferenceservices in echo-service)
-oc exec -n default dnsutils -- curl -s \
+oc exec -n default dnsutils -- curl -vk -s \
   -H "Authorization: Bearer $TEST_USER_TOKEN" \
   -H "Content-Type: application/json" \
   -d '{"hello":"world"}' \
@@ -765,7 +823,7 @@ oc exec -n default dnsutils -- curl -s \
 
 # Scenario 3: SA → inference with x-maas-user pointing to user WITH delegate RBAC
 # Expected: 200 (test-user-delegate has post llminferenceservices/delegate in echo-service)
-oc exec -n default dnsutils -- curl -s \
+oc exec -n default dnsutils -- curl -vk -s \
   -H "Authorization: Bearer $TEST_USER_TOKEN" \
   -H "Content-Type: application/json" \
   -H "x-maas-user: system:serviceaccount:echo-service:test-user-delegate" \
@@ -775,7 +833,7 @@ oc exec -n default dnsutils -- curl -s \
 
 # Scenario 4: SA → batch path with spoofed x-maas-user (batch path — authz skipped)
 # Expected: 200, Authorino appends real identity after spoofed value
-oc exec -n default dnsutils -- curl -s \
+oc exec -n default dnsutils -- curl -vk -s \
   -H "Authorization: Bearer $TEST_USER_TOKEN" \
   -H "Content-Type: application/json" \
   -H "x-maas-user: spoofed-user" \
@@ -784,7 +842,7 @@ oc exec -n default dnsutils -- curl -s \
 
 # Scenario 5: SA → inference with x-maas-user pointing to nonexistent user (should fail)
 # Expected: 403 (nonexistent-user has no RBAC)
-oc exec -n default dnsutils -- curl -s \
+oc exec -n default dnsutils -- curl -vk -s \
   -H "Authorization: Bearer $TEST_USER_TOKEN" \
   -H "Content-Type: application/json" \
   -H "x-maas-user: nonexistent-user" \
@@ -793,7 +851,7 @@ oc exec -n default dnsutils -- curl -s \
 
 # Scenario 6: SA → inference with x-maas-user pointing to user WITHOUT delegate RBAC (should fail)
 # Expected: 403 (test-user has get but NOT post llminferenceservices/delegate)
-oc exec -n default dnsutils -- curl -s \
+oc exec -n default dnsutils -- curl -vk -s \
   -H "Authorization: Bearer $TEST_USER_DELEGATE_TOKEN" \
   -H "Content-Type: application/json" \
   -H "x-maas-user: system:serviceaccount:echo-service:test-user" \
