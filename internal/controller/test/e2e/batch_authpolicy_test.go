@@ -94,18 +94,85 @@ func TestBatchPathAuthnOnly(t *testing.T) {
 	f := setupFixture(t)
 
 	resp, body := batchEnv.gatewayGet(t, "/v1/batches", f.testUserToken, nil)
-	if resp == nil {
-		t.Fatalf("expected non-nil response")
-	}
 	if resp.StatusCode != http.StatusOK {
-		t.Fatalf("expected 200, got %d; body: %s", resp.StatusCode, body)
+		t.Fatalf("expected 200, got %d", resp.StatusCode)
 	}
 
 	// The echo server reflects request headers in the response body.
 	// Verify the x-maas-user header was injected by Authorino.
 	expectedUser := saIdentity(f.ns, saTestUser)
 	if !strings.Contains(string(body), expectedUser) {
-		t.Errorf("response body does not contain expected x-maas-user %q:\n%s", expectedUser, body)
+		t.Errorf("response body does not contain expected x-maas-user %q", expectedUser)
+	}
+}
+
+// TestFilesPathAuthnOnly verifies that a request to the /v1/files batch path
+// with a valid token succeeds (200) and receives the x-maas-user header injected
+// by Authorino. This mirrors TestBatchPathAuthnOnly but for the /v1/files prefix.
+func TestFilesPathAuthnOnly(t *testing.T) {
+	t.Parallel()
+	f := setupFixture(t)
+
+	resp, body := batchEnv.gatewayGet(t, "/v1/files", f.testUserToken, nil)
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("expected 200, got %d", resp.StatusCode)
+	}
+
+	expectedUser := saIdentity(f.ns, saTestUser)
+	if !strings.Contains(string(body), expectedUser) {
+		t.Errorf("response body does not contain expected x-maas-user %q", expectedUser)
+	}
+}
+
+// TestFilesPathSpoofedHeader verifies that a request to /v1/files with a
+// spoofed x-maas-user header still succeeds (200) because batch paths skip
+// authorization. Mirrors TestBatchPathSpoofedHeader for the /v1/files prefix.
+func TestFilesPathSpoofedHeader(t *testing.T) {
+	t.Parallel()
+	f := setupFixture(t)
+
+	headers := map[string]string{
+		"x-maas-user": "spoofed-user",
+	}
+	resp, _ := batchEnv.gatewayGet(t, "/v1/files", f.testUserToken, headers)
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("expected 200, got %d", resp.StatusCode)
+	}
+}
+
+// TestNoTokenReturns401 verifies that a request without an Authorization header
+// is rejected with 401 by the authentication layer.
+func TestNoTokenReturns401(t *testing.T) {
+	t.Parallel()
+	setupBatchRoutes(t)
+
+	resp, _ := batchEnv.gatewayGet(t, "/v1/batches", "", nil)
+	if resp.StatusCode != http.StatusUnauthorized {
+		t.Fatalf("expected 401, got %d", resp.StatusCode)
+	}
+}
+
+// TestInferencePathNoRBAC verifies that a request to an inference path
+// with a valid token but no inference RBAC (get llminferenceservices) is
+// rejected with 403.
+func TestInferencePathNoRBAC(t *testing.T) {
+	t.Parallel()
+	setupBatchRoutes(t)
+
+	ns := batchEnv.createNamespace(t, "e2e-batch", nil)
+	batchEnv.deployEchoServer(t, ns)
+	batchEnv.createHTTPRoute(t, ns, "echo-inference", fmt.Sprintf("/%s/echo-server", ns))
+
+	// Create SA with no RBAC at all.
+	batchEnv.createServiceAccount(t, ns, "no-rbac-user")
+	token := batchEnv.requestToken(t, ns, "no-rbac-user")
+
+	batchEnv.waitForGatewayRoute(t, fmt.Sprintf("/%s/echo-server/test", ns), token)
+
+	path := fmt.Sprintf("/%s/echo-server/v1/chat/completions", ns)
+	resp, _ := batchEnv.gatewayGet(t, path, token, nil)
+	if resp.StatusCode != http.StatusForbidden {
+		t.Fatalf("expected 403, got %d", resp.StatusCode)
 	}
 }
 
@@ -118,12 +185,9 @@ func TestInferencePathStandardSAR(t *testing.T) {
 	f := setupFixture(t)
 
 	path := fmt.Sprintf("/%s/echo-server/v1/chat/completions", f.ns)
-	resp, body := batchEnv.gatewayGet(t, path, f.testUserToken, nil)
-	if resp == nil {
-		t.Fatalf("expected non-nil response")
-	}
+	resp, _ := batchEnv.gatewayGet(t, path, f.testUserToken, nil)
 	if resp.StatusCode != http.StatusOK {
-		t.Fatalf("expected 200, got %d; body: %s", resp.StatusCode, body)
+		t.Fatalf("expected 200, got %d", resp.StatusCode)
 	}
 }
 
@@ -140,12 +204,9 @@ func TestInferencePathDelegatedSAR(t *testing.T) {
 	headers := map[string]string{
 		"x-maas-user": saIdentity(f.ns, saTestDelegate),
 	}
-	resp, body := batchEnv.gatewayGet(t, path, f.testUserToken, headers)
-	if resp == nil {
-		t.Fatalf("expected non-nil response")
-	}
+	resp, _ := batchEnv.gatewayGet(t, path, f.testUserToken, headers)
 	if resp.StatusCode != http.StatusOK {
-		t.Fatalf("expected 200, got %d; body: %s", resp.StatusCode, body)
+		t.Fatalf("expected 200, got %d", resp.StatusCode)
 	}
 }
 
@@ -161,12 +222,9 @@ func TestBatchPathSpoofedHeader(t *testing.T) {
 	headers := map[string]string{
 		"x-maas-user": "spoofed-user",
 	}
-	resp, body := batchEnv.gatewayGet(t, "/v1/batches", f.testUserToken, headers)
-	if resp == nil {
-		t.Fatalf("expected non-nil response")
-	}
+	resp, _ := batchEnv.gatewayGet(t, "/v1/batches", f.testUserToken, headers)
 	if resp.StatusCode != http.StatusOK {
-		t.Fatalf("expected 200, got %d; body: %s", resp.StatusCode, body)
+		t.Fatalf("expected 200, got %d", resp.StatusCode)
 	}
 }
 
@@ -183,12 +241,9 @@ func TestInferencePathSpoofedNoRBAC(t *testing.T) {
 	headers := map[string]string{
 		"x-maas-user": "nonexistent-user",
 	}
-	resp, body := batchEnv.gatewayGet(t, path, f.testUserToken, headers)
-	if resp == nil {
-		t.Fatalf("expected non-nil response")
-	}
+	resp, _ := batchEnv.gatewayGet(t, path, f.testUserToken, headers)
 	if resp.StatusCode != http.StatusForbidden {
-		t.Fatalf("expected 403, got %d; body: %s", resp.StatusCode, body)
+		t.Fatalf("expected 403, got %d", resp.StatusCode)
 	}
 }
 
@@ -206,11 +261,8 @@ func TestInferencePathDelegatedNoDelegate(t *testing.T) {
 		"x-maas-user": saIdentity(f.ns, saTestUser),
 	}
 	// Use test-user-delegate's token, but forward to test-user who lacks delegate RBAC.
-	resp, body := batchEnv.gatewayGet(t, path, f.testDelegateToken, headers)
-	if resp == nil {
-		t.Fatalf("expected non-nil response")
-	}
+	resp, _ := batchEnv.gatewayGet(t, path, f.testDelegateToken, headers)
 	if resp.StatusCode != http.StatusForbidden {
-		t.Fatalf("expected 403, got %d; body: %s", resp.StatusCode, body)
+		t.Fatalf("expected 403, got %d", resp.StatusCode)
 	}
 }
