@@ -298,11 +298,12 @@ func HTTPGateway(name, namespace string, addresses ...string) *gatewayapi.Gatewa
 // ManagedGateway creates a gateway with standard managed options (namespace, className, HTTP listener).
 // Additional options can be passed to customize the gateway further.
 func ManagedGateway(name, namespace, className string, opts ...GatewayOption) *gatewayapi.Gateway {
-	baseOpts := []GatewayOption{
+	baseOpts := make([]GatewayOption, 0, 3+len(opts))
+	baseOpts = append(baseOpts,
 		InNamespace[*gatewayapi.Gateway](namespace),
 		WithClassName(className),
 		WithListener(gatewayapi.HTTPProtocolType),
-	}
+	)
 	return Gateway(name, append(baseOpts, opts...)...)
 }
 

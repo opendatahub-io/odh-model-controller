@@ -59,9 +59,8 @@ var _ = Describe("Gateway Controller", func() {
 	}
 
 	createLLMService := func(ctx context.Context, name string, opts ...fixture.LLMInferenceServiceOption) *kservev1alpha2.LLMInferenceService {
-		defaultOpts := []fixture.LLMInferenceServiceOption{
-			fixture.InNamespace[*kservev1alpha2.LLMInferenceService](testNs),
-		}
+		defaultOpts := make([]fixture.LLMInferenceServiceOption, 0, 1+len(opts))
+		defaultOpts = append(defaultOpts, fixture.InNamespace[*kservev1alpha2.LLMInferenceService](testNs))
 		llmSvc := fixture.LLMInferenceService(name, append(defaultOpts, opts...)...)
 		ExpectWithOffset(1, envTest.Client.Create(ctx, llmSvc)).Should(Succeed())
 		return llmSvc
