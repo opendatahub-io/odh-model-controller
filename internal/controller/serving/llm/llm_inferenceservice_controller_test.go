@@ -154,7 +154,7 @@ var _ = Describe("LLMInferenceService Controller", func() {
 				It("should reconcile and restore Gateway AuthPolicy when modified", func(ctx SpecContext) {
 					fixture.CreateBasicLLMInferenceService(ctx, envTest.Client, testNs, LLMInferenceServiceName, nil)
 
-					gatewayAuthPolicy := fixture.WaitForResource(ctx, envTest.Client, constants.DefaultGatewayNamespace, constants.GetGatewayAuthPolicyName(constants.DefaultGatewayName), &kuadrantv1.AuthPolicy{})
+					gatewayAuthPolicy := fixture.WaitForResource(ctx, envTest.Client, constants.DefaultGatewayNamespace, constants.GetAuthPolicyName(constants.DefaultGatewayName), &kuadrantv1.AuthPolicy{})
 					originalTargetRef := gatewayAuthPolicy.Spec.TargetRef
 
 					gatewayAuthPolicy.Spec.TargetRef.Name = "modified-gateway"
@@ -166,10 +166,10 @@ var _ = Describe("LLMInferenceService Controller", func() {
 				It("should recreate Gateway AuthPolicy when deleted", func(ctx SpecContext) {
 					fixture.CreateBasicLLMInferenceService(ctx, envTest.Client, testNs, LLMInferenceServiceName, nil)
 
-					gatewayAuthPolicy := fixture.WaitForResource(ctx, envTest.Client, constants.DefaultGatewayNamespace, constants.GetGatewayAuthPolicyName(constants.DefaultGatewayName), &kuadrantv1.AuthPolicy{})
+					gatewayAuthPolicy := fixture.WaitForResource(ctx, envTest.Client, constants.DefaultGatewayNamespace, constants.GetAuthPolicyName(constants.DefaultGatewayName), &kuadrantv1.AuthPolicy{})
 					Expect(envTest.Client.Delete(ctx, gatewayAuthPolicy)).Should(Succeed())
 
-					fixture.VerifyResourceExists(ctx, envTest.Client, constants.DefaultGatewayNamespace, constants.GetGatewayAuthPolicyName(constants.DefaultGatewayName), &kuadrantv1.AuthPolicy{})
+					fixture.VerifyResourceExists(ctx, envTest.Client, constants.DefaultGatewayNamespace, constants.GetAuthPolicyName(constants.DefaultGatewayName), &kuadrantv1.AuthPolicy{})
 				})
 
 				It("should restore custom Gateway AuthPolicy when modified", func(ctx SpecContext) {
@@ -191,7 +191,7 @@ var _ = Describe("LLMInferenceService Controller", func() {
 					)
 					Expect(envTest.Client.Create(ctx, llmisvc)).Should(Succeed())
 
-					gatewayAuthPolicy := fixture.WaitForResource(ctx, envTest.Client, customGatewayNamespace, constants.GetGatewayAuthPolicyName(customGatewayName), &kuadrantv1.AuthPolicy{})
+					gatewayAuthPolicy := fixture.WaitForResource(ctx, envTest.Client, customGatewayNamespace, constants.GetAuthPolicyName(customGatewayName), &kuadrantv1.AuthPolicy{})
 
 					originalTargetRef := gatewayAuthPolicy.Spec.TargetRef
 
@@ -220,11 +220,11 @@ var _ = Describe("LLMInferenceService Controller", func() {
 					)
 					Expect(envTest.Client.Create(ctx, llmisvc)).Should(Succeed())
 
-					gatewayAuthPolicy := fixture.WaitForResource(ctx, envTest.Client, customGatewayNamespace, constants.GetGatewayAuthPolicyName(customGatewayName), &kuadrantv1.AuthPolicy{})
+					gatewayAuthPolicy := fixture.WaitForResource(ctx, envTest.Client, customGatewayNamespace, constants.GetAuthPolicyName(customGatewayName), &kuadrantv1.AuthPolicy{})
 
 					Expect(envTest.Client.Delete(ctx, gatewayAuthPolicy)).Should(Succeed())
 
-					fixture.VerifyResourceExists(ctx, envTest.Client, customGatewayNamespace, constants.GetGatewayAuthPolicyName(customGatewayName), &kuadrantv1.AuthPolicy{})
+					fixture.VerifyResourceExists(ctx, envTest.Client, customGatewayNamespace, constants.GetAuthPolicyName(customGatewayName), &kuadrantv1.AuthPolicy{})
 				})
 			})
 
@@ -236,7 +236,7 @@ var _ = Describe("LLMInferenceService Controller", func() {
 					fixture.CreateHTTPRouteForLLMService(ctx, envTest.Client, testNs, LLMInferenceServiceName)
 
 					httpRouteName := constants.GetHTTPRouteName(LLMInferenceServiceName)
-					httpRouteAuthPolicy := fixture.WaitForResource(ctx, envTest.Client, testNs, constants.GetHTTPRouteAuthPolicyName(httpRouteName), &kuadrantv1.AuthPolicy{})
+					httpRouteAuthPolicy := fixture.WaitForResource(ctx, envTest.Client, testNs, constants.GetAuthPolicyName(httpRouteName), &kuadrantv1.AuthPolicy{})
 					originalTargetRef := httpRouteAuthPolicy.Spec.TargetRef
 
 					httpRouteAuthPolicy.Spec.TargetRef.Name = "modified-httproute"
@@ -252,11 +252,11 @@ var _ = Describe("LLMInferenceService Controller", func() {
 					fixture.CreateHTTPRouteForLLMService(ctx, envTest.Client, testNs, LLMInferenceServiceName)
 
 					httpRouteName := constants.GetHTTPRouteName(LLMInferenceServiceName)
-					httpRouteAuthPolicy := fixture.WaitForResource(ctx, envTest.Client, testNs, constants.GetHTTPRouteAuthPolicyName(httpRouteName), &kuadrantv1.AuthPolicy{})
+					httpRouteAuthPolicy := fixture.WaitForResource(ctx, envTest.Client, testNs, constants.GetAuthPolicyName(httpRouteName), &kuadrantv1.AuthPolicy{})
 
 					Expect(envTest.Client.Delete(ctx, httpRouteAuthPolicy)).Should(Succeed())
 
-					fixture.VerifyResourceExists(ctx, envTest.Client, testNs, constants.GetHTTPRouteAuthPolicyName(httpRouteName), &kuadrantv1.AuthPolicy{})
+					fixture.VerifyResourceExists(ctx, envTest.Client, testNs, constants.GetAuthPolicyName(httpRouteName), &kuadrantv1.AuthPolicy{})
 				})
 
 				It("should restore custom HTTPRoute AuthPolicy when modified", func(ctx SpecContext) {
@@ -709,7 +709,7 @@ var _ = Describe("BaseRefs and Spec Merging", func() {
 			Eventually(func() error {
 				authPolicy := &kuadrantv1.AuthPolicy{}
 				return envTest.Client.Get(ctx, types.NamespacedName{
-					Name:      constants.GetGatewayAuthPolicyName(systemGatewayName),
+					Name:      constants.GetAuthPolicyName(systemGatewayName),
 					Namespace: systemNamespace,
 				}, authPolicy)
 			}).WithContext(ctx).Should(And(
@@ -829,20 +829,12 @@ var _ = Describe("BaseRefs and Spec Merging", func() {
 			)
 			Expect(envTest.Client.Create(ctx, llmisvc)).Should(Succeed())
 
-			// Verify AuthPolicy is created for the service's gateway, not the config's
+			// Verify AuthPolicy is created for the service's gateway
 			fixture.VerifyGatewayAuthPolicyOwnerRef(ctx, envTest.Client, testNs, serviceGatewayName)
 
-			// Verify AuthPolicy is NOT created for the config gateway
-			Eventually(func() error {
-				authPolicy := &kuadrantv1.AuthPolicy{}
-				return envTest.Client.Get(ctx, types.NamespacedName{
-					Name:      constants.GetGatewayAuthPolicyName(configGatewayName),
-					Namespace: testNs,
-				}, authPolicy)
-			}).WithContext(ctx).Should(And(
-				Not(Succeed()),
-				WithTransform(errors.IsNotFound, BeTrue()),
-			))
+			// With Gateway controller, AuthPolicy is also created for config gateway
+			// (all managed gateways get AuthPolicy for /v1/models support without models)
+			fixture.VerifyGatewayAuthPolicyOwnerRef(ctx, envTest.Client, testNs, configGatewayName)
 		})
 
 		It("should handle config fetch failures gracefully and continue with available configs", func(ctx SpecContext) {
@@ -929,7 +921,7 @@ var _ = Describe("BaseRefs and Spec Merging", func() {
 			Consistently(func() error {
 				authPolicy := &kuadrantv1.AuthPolicy{}
 				return envTest.Client.Get(ctx, types.NamespacedName{
-					Name:      constants.GetGatewayAuthPolicyName(unmanagedGatewayName),
+					Name:      constants.GetAuthPolicyName(unmanagedGatewayName),
 					Namespace: testNs,
 				}, authPolicy)
 			}).WithContext(ctx).Should(And(

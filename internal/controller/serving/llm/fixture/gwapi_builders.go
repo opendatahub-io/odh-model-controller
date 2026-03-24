@@ -95,6 +95,21 @@ func WithAuthorinoTLSBootstrapAnnotation(value string) GatewayOption {
 	})
 }
 
+// WithControllerOwnerRef adds a controller owner reference to the Gateway.
+// This simulates a gateway being owned by another controller (e.g., GatewayConfig).
+func WithControllerOwnerRef(kind, name, apiVersion string) GatewayOption {
+	return func(gw *gatewayapi.Gateway) {
+		controller := true
+		gw.OwnerReferences = append(gw.OwnerReferences, metav1.OwnerReference{
+			APIVersion: apiVersion,
+			Kind:       kind,
+			Name:       name,
+			UID:        "test-uid",
+			Controller: &controller,
+		})
+	}
+}
+
 func WithInfrastructureLabels(key, value string) GatewayOption {
 	return func(gw *gatewayapi.Gateway) {
 		if gw.Spec.Infrastructure.Labels == nil {
@@ -278,6 +293,17 @@ func HTTPGateway(name, namespace string, addresses ...string) *gatewayapi.Gatewa
 		WithListener(gatewayapi.HTTPProtocolType),
 		WithAddresses(addresses...),
 	)
+}
+
+// ManagedGateway creates a gateway with standard managed options (namespace, className, HTTP listener).
+// Additional options can be passed to customize the gateway further.
+func ManagedGateway(name, namespace, className string, opts ...GatewayOption) *gatewayapi.Gateway {
+	baseOpts := []GatewayOption{
+		InNamespace[*gatewayapi.Gateway](namespace),
+		WithClassName(className),
+		WithListener(gatewayapi.HTTPProtocolType),
+	}
+	return Gateway(name, append(baseOpts, opts...)...)
 }
 
 type (
