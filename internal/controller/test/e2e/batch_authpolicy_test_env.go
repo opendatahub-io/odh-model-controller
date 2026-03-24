@@ -604,6 +604,51 @@ func (e *batchTestEnv) createHTTPRoute(t *testing.T, ns, name, pathPrefix string
 	t.Cleanup(func() {
 		_ = e.k8sClient.Delete(context.Background(), route)
 	})
+
+	e.waitForAuthPolicyAffected(t, ns, name)
+}
+
+// waitForAuthPolicyAffected polls the HTTPRoute status until the Kuadrant policy
+// controller reports the route is affected by an AuthPolicy. This ensures the
+// AuthPolicy ext-authz filter is active before tests send requests.
+func (e *batchTestEnv) waitForAuthPolicyAffected(t *testing.T, ns, name string) {
+	t.Helper()
+	t.Logf("waiting for AuthPolicy to be enforced on HTTPRoute %s/%s...", ns, name)
+
+	var lastRoute *gatewayapiv1.HTTPRoute
+	err := wait.PollUntilContextTimeout(context.Background(), pollInterval, pollTimeout, true,
+		func(ctx context.Context) (bool, error) {
+			lastRoute = &gatewayapiv1.HTTPRoute{}
+			if getErr := e.k8sClient.Get(ctx, client.ObjectKey{Namespace: ns, Name: name}, lastRoute); getErr != nil {
+				return false, nil
+			}
+			for _, parent := range lastRoute.Status.RouteStatus.Parents {
+				if parent.ControllerName != "kuadrant.io/policy-controller" {
+					continue
+				}
+				for _, cond := range parent.Conditions {
+					if cond.Type == "kuadrant.io/AuthPolicyAffected" && cond.Status == metav1.ConditionTrue {
+						return true, nil
+					}
+				}
+			}
+			return false, nil
+		})
+	if err != nil {
+		var statusSummary string
+		if lastRoute != nil && len(lastRoute.Status.RouteStatus.Parents) > 0 {
+			for _, parent := range lastRoute.Status.RouteStatus.Parents {
+				statusSummary += fmt.Sprintf("\n  controller=%s:", parent.ControllerName)
+				for _, cond := range parent.Conditions {
+					statusSummary += fmt.Sprintf("\n    %s=%s (reason=%s, message=%q)", cond.Type, cond.Status, cond.Reason, cond.Message)
+				}
+			}
+		} else {
+			statusSummary = "\n  no parent status reported"
+		}
+		t.Fatalf("timed out waiting for AuthPolicy to be enforced on HTTPRoute %s/%s; current parent status:%s", ns, name, statusSummary)
+	}
+	t.Logf("AuthPolicy enforced on HTTPRoute %s/%s", ns, name)
 }
 
 // gatewayDo performs a single HTTP GET through the gateway. Returns the response,
