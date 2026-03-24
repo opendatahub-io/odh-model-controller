@@ -29,20 +29,20 @@ spec:
           - predicate: "!(request.path.startsWith('/v1/files') || request.path.startsWith('/v1/batches'))"
         kubernetesSubjectAccessReview:
           user:
-            expression: "has(request.headers['x-maas-user']) ? request.headers['x-maas-user'] : auth.identity.user.username"
+            expression: "'x-maas-user' in request.headers ? request.headers['x-maas-user'] : auth.identity.user.username"
           authorizationGroups:
-            expression: "has(request.headers['x-maas-groups']) ? request.headers['x-maas-groups'].split(',') : auth.identity.user.groups"
+            expression: "'x-maas-groups' in request.headers ? request.headers['x-maas-groups'].split(',') : auth.identity.user.groups"
           resourceAttributes:
             group:
               value: serving.kserve.io
             resource:
-              expression: "has(request.headers['x-maas-user']) ? 'llminferenceservices/delegate' : 'llminferenceservices'"
+              expression: "'x-maas-user' in request.headers ? 'llminferenceservices/delegate' : 'llminferenceservices'"
             namespace:
               expression: request.path.split("/")[1]
             name:
               expression: request.path.split("/")[2]
             verb:
-              expression: "has(request.headers['x-maas-user']) ? 'post' : 'get'"
+              expression: "'x-maas-user' in request.headers ? 'post' : 'get'"
         priority: 1
     response:
       success:
