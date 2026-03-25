@@ -29,6 +29,7 @@ import (
 	istioclientv1alpha3 "istio.io/client-go/pkg/apis/networking/v1alpha3"
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
+	"k8s.io/apimachinery/pkg/api/meta"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
 	ctrl "sigs.k8s.io/controller-runtime"
@@ -106,24 +107,24 @@ func (r *GatewayReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 	shouldCreateAuthPolicy := gatewayInUse && !utils.IsExplicitlyUnmanaged(gateway) && !utils.IsOwnedByPlatformController(gateway)
 
 	if shouldCreateEnvoyFilter {
-		if err := r.reconcileEnvoyFilter(ctx, logger, gateway); err != nil {
+		if err := r.reconcileEnvoyFilter(ctx, logger, gateway); err != nil && !meta.IsNoMatchError(err) {
 			logger.Error(err, "Failed to reconcile EnvoyFilter")
 			return ctrl.Result{}, err
 		}
 	} else {
-		if err := r.deleteEnvoyFilterIfManaged(ctx, logger, gateway); err != nil {
+		if err := r.deleteEnvoyFilterIfManaged(ctx, logger, gateway); err != nil && !meta.IsNoMatchError(err) {
 			logger.Error(err, "Failed to delete EnvoyFilter")
 			return ctrl.Result{}, err
 		}
 	}
 
 	if shouldCreateAuthPolicy {
-		if err := r.reconcileAuthPolicy(ctx, logger, gateway); err != nil {
+		if err := r.reconcileAuthPolicy(ctx, logger, gateway); err != nil && !meta.IsNoMatchError(err) {
 			logger.Error(err, "Failed to reconcile AuthPolicy")
 			return ctrl.Result{}, err
 		}
 	} else {
-		if err := r.deleteAuthPolicyIfManaged(ctx, logger, gateway); err != nil {
+		if err := r.deleteAuthPolicyIfManaged(ctx, logger, gateway); err != nil && !meta.IsNoMatchError(err) {
 			logger.Error(err, "Failed to delete AuthPolicy")
 			return ctrl.Result{}, err
 		}
@@ -599,23 +600,18 @@ func (r *GatewayReconciler) SetupWithManager(mgr ctrl.Manager, setupLog logr.Log
 		return nil
 	}
 
-	if ok, err := utils.IsCrdAvailable(mgr.GetConfig(), istioclientv1alpha3.SchemeGroupVersion.String(), "EnvoyFilter"); err != nil {
-		setupLog.Error(err, "Failed to check CRD availability for EnvoyFilter")
-		return nil
-	} else if !ok {
-		setupLog.Info("EnvoyFilter CRD not available, skipping Gateway controller setup")
-		return nil
+	envoyFilterAvailable, err := utils.IsCrdAvailable(mgr.GetConfig(), istioclientv1alpha3.SchemeGroupVersion.String(), "EnvoyFilter")
+	if err != nil {
+		setupLog.V(1).Error(err, "Could not determine if EnvoyFilter CRD is available")
 	}
 
-	if ok, err := utils.IsCrdAvailable(mgr.GetConfig(), kuadrantv1.GroupVersion.String(), "AuthPolicy"); err != nil {
-		setupLog.Error(err, "Failed to check CRD availability for AuthPolicy")
-		return nil
-	} else if !ok {
-		setupLog.Info("AuthPolicy CRD not available, skipping Gateway controller setup")
-		return nil
+	authPolicyAvailable, err := utils.IsCrdAvailable(mgr.GetConfig(), kuadrantv1.GroupVersion.String(), "AuthPolicy")
+	if err != nil {
+		setupLog.V(1).Error(err, "Could not determine if AuthPolicy CRD is available")
 	}
 
-	setupLog.Info("Setting up Gateway controller for EnvoyFilter/AuthPolicy bootstrap")
+	setupLog.Info("Setting up Gateway controller for EnvoyFilter/AuthPolicy bootstrap",
+		"envoyFilterCRD", envoyFilterAvailable, "authPolicyCRD", authPolicyAvailable)
 
 	gatewayPredicate := predicate.Funcs{
 		CreateFunc: func(e event.CreateEvent) bool {
@@ -648,10 +644,17 @@ func (r *GatewayReconciler) SetupWithManager(mgr ctrl.Manager, setupLog logr.Log
 		return utils.IsManagedByOpenDataHub(obj)
 	})
 
-	return ctrl.NewControllerManagedBy(mgr).
-		For(&gatewayapiv1.Gateway{}, ctrlbuilder.WithPredicates(gatewayPredicate)).
-		Owns(&istioclientv1alpha3.EnvoyFilter{}, ctrlbuilder.WithPredicates(managedPredicate)).
-		Owns(&kuadrantv1.AuthPolicy{}, ctrlbuilder.WithPredicates(managedPredicate)).
+	builder := ctrl.NewControllerManagedBy(mgr).
+		For(&gatewayapiv1.Gateway{}, ctrlbuilder.WithPredicates(gatewayPredicate))
+
+	if envoyFilterAvailable {
+		builder = builder.Owns(&istioclientv1alpha3.EnvoyFilter{}, ctrlbuilder.WithPredicates(managedPredicate))
+	}
+	if authPolicyAvailable {
+		builder = builder.Owns(&kuadrantv1.AuthPolicy{}, ctrlbuilder.WithPredicates(managedPredicate))
+	}
+
+	return builder.
 		Watches(&kservev1alpha2.LLMInferenceService{},
 			r.enqueueGatewaysFromLLMInferenceService(),
 			ctrlbuilder.WithPredicates(predicate.Funcs{
