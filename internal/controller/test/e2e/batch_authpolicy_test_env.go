@@ -44,6 +44,8 @@ const (
 	requestRetries = 3
 	retryDelay     = 2 * time.Second
 
+	maxResponseBodyBytes = 1 << 20 // 1 MiB
+
 	defaultEchoServerImage = "docker.io/ealen/echo-server:0.9.2@sha256:006b92e1d6682442e29d1d0d73c34a61166d42f8a5bf1ea10c318f07ad4790e2"
 )
 
@@ -57,10 +59,18 @@ type batchTestEnv struct {
 	k8sClient        client.Client
 	httpClient       *http.Client
 	portForwardStop  chan struct{}
+	// sharedBatchNS is the namespace holding shared batch HTTPRoutes (/v1/batches, /v1/files).
+	// Created during init, cleaned up in close().
+	sharedBatchNS string
 }
 
-// close cleans up resources held by batchTestEnv, such as port-forward tunnels.
+// close cleans up resources held by batchTestEnv, such as port-forward tunnels
+// and shared namespaces.
 func (e *batchTestEnv) close() {
+	if e.sharedBatchNS != "" {
+		log.Printf("deleting shared batch namespace %s", e.sharedBatchNS)
+		_ = e.clientset.CoreV1().Namespaces().Delete(context.Background(), e.sharedBatchNS, metav1.DeleteOptions{})
+	}
 	if e.portForwardStop != nil {
 		log.Println("stopping gateway port-forward tunnel")
 		close(e.portForwardStop)
@@ -114,6 +124,7 @@ func newTestEnv() (*batchTestEnv, error) {
 		Timeout: 10 * time.Second,
 		Transport: &http.Transport{
 			TLSClientConfig: &tls.Config{
+				MinVersion:         tls.VersionTLS12,
 				InsecureSkipVerify: true, //nolint:gosec // e2e tests use self-signed certs
 			},
 		},
@@ -160,7 +171,7 @@ func newTestEnv() (*batchTestEnv, error) {
 
 	log.Printf("e2e environment ready, gateway URL: %s", gatewayURL)
 
-	return &batchTestEnv{
+	env := &batchTestEnv{
 		gatewayURL:       gatewayURL,
 		gatewayName:      gwName,
 		gatewayNamespace: gwNamespace,
@@ -169,7 +180,191 @@ func newTestEnv() (*batchTestEnv, error) {
 		k8sClient:        k8sClient,
 		httpClient:       httpClient,
 		portForwardStop:  portForwardStop,
-	}, nil
+	}
+
+	if err := env.setupSharedBatchRoutes(); err != nil {
+		env.close()
+		return nil, fmt.Errorf("setup shared batch routes: %w", err)
+	}
+
+	return env, nil
+}
+
+// setupSharedBatchRoutes creates the shared namespace, echo server, and
+// HTTPRoutes for /v1/batches and /v1/files. Called once during env init
+// (not bound to any test's lifecycle).
+func (e *batchTestEnv) setupSharedBatchRoutes() error {
+	log.Println("setting up shared batch routes...")
+
+	ctx := context.Background()
+
+	// Create namespace.
+	ns, err := e.clientset.CoreV1().Namespaces().Create(ctx, &corev1.Namespace{
+		ObjectMeta: metav1.ObjectMeta{
+			GenerateName: "e2e-batch-shared-",
+			Labels:       map[string]string{"batchTestEnv": "odh-test"},
+		},
+	}, metav1.CreateOptions{})
+	if err != nil {
+		return fmt.Errorf("create shared batch namespace: %w", err)
+	}
+	e.sharedBatchNS = ns.Name
+	log.Printf("created shared batch namespace %s", ns.Name)
+
+	// Deploy echo server (inline — can't use t-based helpers here).
+	labels := map[string]string{"app.kubernetes.io/name": "echo-server"}
+	dep := &appsv1.Deployment{
+		ObjectMeta: metav1.ObjectMeta{Name: "echo-server", Namespace: ns.Name, Labels: labels},
+		Spec: appsv1.DeploymentSpec{
+			Replicas: ptr.To[int32](1),
+			Selector: &metav1.LabelSelector{MatchLabels: labels},
+			Template: corev1.PodTemplateSpec{
+				ObjectMeta: metav1.ObjectMeta{Labels: labels},
+				Spec: corev1.PodSpec{
+					Containers: []corev1.Container{{
+						Name:  "echo-server",
+						Image: e.echoServerImage,
+						Ports: []corev1.ContainerPort{{ContainerPort: 8080, Protocol: corev1.ProtocolTCP}},
+						Env:   []corev1.EnvVar{{Name: "PORT", Value: "8080"}},
+						Resources: corev1.ResourceRequirements{
+							Requests: corev1.ResourceList{
+								corev1.ResourceCPU:    resource.MustParse("50m"),
+								corev1.ResourceMemory: resource.MustParse("64Mi"),
+							},
+							Limits: corev1.ResourceList{
+								corev1.ResourceCPU:    resource.MustParse("200m"),
+								corev1.ResourceMemory: resource.MustParse("128Mi"),
+							},
+						},
+					}},
+				},
+			},
+		},
+	}
+	if _, err := e.clientset.AppsV1().Deployments(ns.Name).Create(ctx, dep, metav1.CreateOptions{}); err != nil {
+		return fmt.Errorf("create echo-server deployment: %w", err)
+	}
+	svc := &corev1.Service{
+		ObjectMeta: metav1.ObjectMeta{Name: "echo-server", Namespace: ns.Name},
+		Spec: corev1.ServiceSpec{
+			Selector: labels,
+			Ports:    []corev1.ServicePort{{Port: 80, TargetPort: intstr.FromInt32(8080), Protocol: corev1.ProtocolTCP}},
+		},
+	}
+	if _, err := e.clientset.CoreV1().Services(ns.Name).Create(ctx, svc, metav1.CreateOptions{}); err != nil {
+		return fmt.Errorf("create echo-server service: %w", err)
+	}
+
+	log.Printf("waiting for echo server in %s to become ready...", ns.Name)
+	if err := wait.PollUntilContextTimeout(ctx, pollInterval, pollTimeout, true,
+		func(ctx context.Context) (bool, error) {
+			d, getErr := e.clientset.AppsV1().Deployments(ns.Name).Get(ctx, "echo-server", metav1.GetOptions{})
+			if getErr != nil {
+				return false, nil
+			}
+			return d.Status.ReadyReplicas >= 1, nil
+		}); err != nil {
+		return fmt.Errorf("echo-server not ready in %s: %w", ns.Name, err)
+	}
+
+	// Create HTTPRoutes for batch paths.
+	for _, r := range []struct{ name, path string }{
+		{"batch-routes-batches", "/v1/batches"},
+		{"batch-routes-files", "/v1/files"},
+	} {
+		if err := e.createHTTPRouteRaw(ctx, ns.Name, r.name, r.path); err != nil {
+			return err
+		}
+	}
+
+	// Verify route reachability with a temporary token.
+	sa := &corev1.ServiceAccount{ObjectMeta: metav1.ObjectMeta{Name: "route-checker", Namespace: ns.Name}}
+	if _, err := e.clientset.CoreV1().ServiceAccounts(ns.Name).Create(ctx, sa, metav1.CreateOptions{}); err != nil {
+		return fmt.Errorf("create route-checker SA: %w", err)
+	}
+	expSeconds := int64(3600)
+	tokenResult, err := e.clientset.CoreV1().ServiceAccounts(ns.Name).CreateToken(ctx, "route-checker",
+		&authenticationv1.TokenRequest{Spec: authenticationv1.TokenRequestSpec{ExpirationSeconds: &expSeconds}},
+		metav1.CreateOptions{})
+	if err != nil {
+		return fmt.Errorf("request route-checker token: %w", err)
+	}
+
+	log.Println("waiting for batch routes to become reachable...")
+	if err := wait.PollUntilContextTimeout(ctx, pollInterval, pollTimeout, true,
+		func(ctx context.Context) (bool, error) {
+			resp, _, reqErr := e.gatewayDo("/v1/batches", tokenResult.Status.Token, nil)
+			if reqErr != nil {
+				return false, nil
+			}
+			return resp.StatusCode != http.StatusBadGateway && resp.StatusCode != http.StatusServiceUnavailable, nil
+		}); err != nil {
+		return fmt.Errorf("batch routes not reachable: %w", err)
+	}
+
+	log.Println("shared batch routes ready")
+	return nil
+}
+
+// createHTTPRouteRaw creates an HTTPRoute without test helpers (for use in init).
+func (e *batchTestEnv) createHTTPRouteRaw(ctx context.Context, ns, name, pathPrefix string) error {
+	log.Printf("creating HTTPRoute %s/%s for path prefix %s", ns, name, pathPrefix)
+	gwNS := gatewayapiv1.Namespace(e.gatewayNamespace)
+	route := &gatewayapiv1.HTTPRoute{
+		ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: ns},
+		Spec: gatewayapiv1.HTTPRouteSpec{
+			CommonRouteSpec: gatewayapiv1.CommonRouteSpec{
+				ParentRefs: []gatewayapiv1.ParentReference{{
+					Name:      gatewayapiv1.ObjectName(e.gatewayName),
+					Namespace: &gwNS,
+				}},
+			},
+			Rules: []gatewayapiv1.HTTPRouteRule{{
+				Matches: []gatewayapiv1.HTTPRouteMatch{{
+					Path: &gatewayapiv1.HTTPPathMatch{
+						Type:  ptr.To(gatewayapiv1.PathMatchPathPrefix),
+						Value: ptr.To(pathPrefix),
+					},
+				}},
+				BackendRefs: []gatewayapiv1.HTTPBackendRef{{
+					BackendRef: gatewayapiv1.BackendRef{
+						BackendObjectReference: gatewayapiv1.BackendObjectReference{
+							Name: "echo-server",
+							Port: ptr.To(gatewayapiv1.PortNumber(80)),
+						},
+					},
+				}},
+			}},
+		},
+	}
+	if err := e.k8sClient.Create(ctx, route); err != nil {
+		return fmt.Errorf("create HTTPRoute %s/%s: %w", ns, name, err)
+	}
+
+	// Wait for AuthPolicy enforcement.
+	log.Printf("waiting for AuthPolicy to be enforced on HTTPRoute %s/%s...", ns, name)
+	if err := wait.PollUntilContextTimeout(ctx, pollInterval, pollTimeout, true,
+		func(ctx context.Context) (bool, error) {
+			r := &gatewayapiv1.HTTPRoute{}
+			if getErr := e.k8sClient.Get(ctx, client.ObjectKey{Namespace: ns, Name: name}, r); getErr != nil {
+				return false, nil
+			}
+			for _, parent := range r.Status.RouteStatus.Parents {
+				if parent.ControllerName != "kuadrant.io/policy-controller" {
+					continue
+				}
+				for _, cond := range parent.Conditions {
+					if cond.Type == "kuadrant.io/AuthPolicyAffected" && cond.Status == metav1.ConditionTrue {
+						return true, nil
+					}
+				}
+			}
+			return false, nil
+		}); err != nil {
+		return fmt.Errorf("AuthPolicy not enforced on HTTPRoute %s/%s: %w", ns, name, err)
+	}
+	log.Printf("AuthPolicy enforced on HTTPRoute %s/%s", ns, name)
+	return nil
 }
 
 // isInternalAddress returns true if the address is cluster-internal
@@ -271,10 +466,17 @@ func portForwardToGateway(cfg *rest.Config, clientset *kubernetes.Clientset, gwN
 		errCh <- fw.ForwardPorts()
 	}()
 
+	pfCtx, pfCancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer pfCancel()
+
 	select {
 	case <-readyCh:
 	case err := <-errCh:
+		close(stopCh)
 		return 0, nil, fmt.Errorf("port-forward failed: %w", err)
+	case <-pfCtx.Done():
+		close(stopCh)
+		return 0, nil, fmt.Errorf("port-forward setup timed out")
 	}
 
 	ports, err := fw.GetPorts()
@@ -352,7 +554,9 @@ func (e *batchTestEnv) createNamespace(t *testing.T, prefix string, labels map[s
 			return
 		}
 		t.Logf("deleting namespace %s", name)
-		_ = e.clientset.CoreV1().Namespaces().Delete(context.Background(), name, metav1.DeleteOptions{})
+		if delErr := e.clientset.CoreV1().Namespaces().Delete(context.Background(), name, metav1.DeleteOptions{}); delErr != nil {
+			t.Logf("warning: failed to delete namespace %s: %v", name, delErr)
+		}
 	})
 	return name
 }
@@ -672,9 +876,12 @@ func (e *batchTestEnv) gatewayDo(path, token string, extraHeaders map[string]str
 	}
 
 	defer func() { _ = resp.Body.Close() }()
-	body, err := io.ReadAll(resp.Body)
+	body, err := io.ReadAll(io.LimitReader(resp.Body, maxResponseBodyBytes+1))
 	if err != nil {
 		return nil, nil, fmt.Errorf("read response body: %w", err)
+	}
+	if len(body) > maxResponseBodyBytes {
+		return nil, nil, fmt.Errorf("response body exceeds %d bytes", maxResponseBodyBytes)
 	}
 	return resp, body, nil
 }

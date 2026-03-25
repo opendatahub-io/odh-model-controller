@@ -31,18 +31,39 @@ spec:
           user:
             expression: "'x-maas-user' in request.headers ? request.headers['x-maas-user'] : auth.identity.user.username"
           authorizationGroups:
-            expression: "'x-maas-groups' in request.headers ? request.headers['x-maas-groups'].split(',') : auth.identity.user.groups"
+            expression: "'x-maas-user' in request.headers ? ('x-maas-groups' in request.headers ? request.headers['x-maas-groups'].split(',') : []) : auth.identity.user.groups"
           resourceAttributes:
             group:
               value: serving.kserve.io
             resource:
-              expression: "'x-maas-user' in request.headers ? 'llminferenceservices/delegate' : 'llminferenceservices'"
+              value: llminferenceservices
             namespace:
               expression: request.path.split("/")[1]
             name:
               expression: request.path.split("/")[2]
             verb:
-              expression: "'x-maas-user' in request.headers ? 'post-delegate' : 'get'"
+              value: get
+        priority: 1
+      inference-access-delegate:
+        when:
+          - predicate: "!(request.path.startsWith('/v1/files') || request.path.startsWith('/v1/batches'))"
+          - predicate: "'x-maas-user' in request.headers"
+        kubernetesSubjectAccessReview:
+          user:
+            expression: "auth.identity.user.username"
+          authorizationGroups:
+            expression: "auth.identity.user.groups"
+          resourceAttributes:
+            group:
+              value: serving.kserve.io
+            resource:
+              value: llminferenceservices/delegate
+            namespace:
+              expression: request.path.split("/")[1]
+            name:
+              expression: request.path.split("/")[2]
+            verb:
+              value: post-delegate
         priority: 1
     response:
       success:

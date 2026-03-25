@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"net/http"
 	"strings"
-	"sync"
 	"testing"
 
 	rbacv1 "k8s.io/api/rbac/v1"
@@ -16,26 +15,6 @@ const (
 	saTestUser     = "test-user"
 	saTestDelegate = "test-user-delegate"
 )
-
-var batchRoutesOnce sync.Once
-
-// setupBatchRoutes creates the shared batch namespace, echo server, and
-// HTTPRoutes for /v1/batches and /v1/files. Called once across all tests.
-func setupBatchRoutes(t *testing.T) {
-	t.Helper()
-	batchRoutesOnce.Do(func() {
-		t.Log("setting up shared batch routes (one-time)...")
-		ns := batchEnv.createNamespace(t, "e2e-batch-shared", nil)
-		batchEnv.deployEchoServer(t, ns)
-		batchEnv.createHTTPRoute(t, ns, "batch-routes-batches", "/v1/batches")
-		batchEnv.createHTTPRoute(t, ns, "batch-routes-files", "/v1/files")
-		// Use a temporary token just to verify routes are reachable.
-		batchEnv.createServiceAccount(t, ns, "route-checker")
-		token := batchEnv.requestToken(t, ns, "route-checker")
-		batchEnv.waitForGatewayRoute(t, "/v1/batches", token)
-		t.Log("shared batch routes ready")
-	})
-}
 
 // testFixture holds the shared per-test resources.
 type testFixture struct {
@@ -47,16 +26,12 @@ type testFixture struct {
 // setupFixture creates a namespace with an echo server, inference HTTPRoute,
 // ServiceAccounts, and RBAC bindings needed by the batch AuthPolicy tests.
 //
-// Batch HTTPRoutes (/v1/batches, /v1/files) are created once via setupBatchRoutes
-// because these global paths can only have one HTTPRoute — multiple tests cannot
-// each claim the same path prefix.
+// Shared batch HTTPRoutes (/v1/batches, /v1/files) are created once in TestMain
+// via batchEnv.setupSharedBatchRoutes().
 //
 // The inference HTTPRoute (/{ns}/echo-server/...) is unique per namespace.
 func setupFixture(t *testing.T) *testFixture {
 	t.Helper()
-
-	// Ensure shared batch routes exist (created once across all tests).
-	setupBatchRoutes(t)
 
 	ns := batchEnv.createNamespace(t, "e2e-batch", nil)
 	batchEnv.deployEchoServer(t, ns)
@@ -146,7 +121,6 @@ func TestFilesPathSpoofedHeader(t *testing.T) {
 // is rejected with 401 by the authentication layer.
 func TestNoTokenReturns401(t *testing.T) {
 	t.Parallel()
-	setupBatchRoutes(t)
 
 	resp, _ := batchEnv.gatewayGet(t, "/v1/batches", "", nil)
 	if resp.StatusCode != http.StatusUnauthorized {
@@ -159,7 +133,6 @@ func TestNoTokenReturns401(t *testing.T) {
 // rejected with 403.
 func TestInferencePathNoRBAC(t *testing.T) {
 	t.Parallel()
-	setupBatchRoutes(t)
 
 	ns := batchEnv.createNamespace(t, "e2e-batch", nil)
 	batchEnv.deployEchoServer(t, ns)
@@ -193,20 +166,21 @@ func TestInferencePathStandardSAR(t *testing.T) {
 	}
 }
 
-// TestInferencePathDelegatedSAR verifies that a request to an inference path
-// with x-maas-user pointing to a SA that has `post-delegate llminferenceservices/delegate`
-// succeeds (200).
+// TestInferencePathDelegatedSAR verifies that a delegated request succeeds when
+// the caller has `post-delegate llminferenceservices/delegate` (rule 2) and the
+// forwarded user has `get llminferenceservices` (rule 1).
 //
-// Scenario 3 from BATCH.md: delegated SAR — forwarded user has delegate RBAC.
+// Scenario 3 from BATCH.md: caller has post-delegate, forwarded user has get.
 func TestInferencePathDelegatedSAR(t *testing.T) {
 	t.Parallel()
 	f := setupFixture(t)
 
 	path := fmt.Sprintf("/%s/echo-server/v1/chat/completions", f.ns)
 	headers := map[string]string{
-		"x-maas-user": saIdentity(f.ns, saTestDelegate),
+		"x-maas-user": saIdentity(f.ns, saTestUser),
 	}
-	resp, _ := batchEnv.gatewayGet(t, path, f.testUserToken, headers)
+	// Caller is test-user-delegate (has post-delegate), forwarded user is test-user (has get).
+	resp, _ := batchEnv.gatewayGet(t, path, f.testDelegateToken, headers)
 	if resp.StatusCode != http.StatusOK {
 		t.Fatalf("expected 200, got %d", resp.StatusCode)
 	}
@@ -230,9 +204,9 @@ func TestBatchPathSpoofedHeader(t *testing.T) {
 	}
 }
 
-// TestInferencePathSpoofedNoRBAC verifies that a request to an inference path
-// with x-maas-user pointing to a nonexistent user fails with 403 because the
-// delegated SAR checks the forwarded user's RBAC.
+// TestInferencePathSpoofedNoRBAC verifies that a delegated request fails with
+// 403 when the forwarded user has no RBAC (rule 1 fails: no get access).
+// The caller has post-delegate (rule 2 would pass), isolating the rule 1 failure.
 //
 // Scenario 5 from BATCH.md: forwarded user has no RBAC.
 func TestInferencePathSpoofedNoRBAC(t *testing.T) {
@@ -243,66 +217,189 @@ func TestInferencePathSpoofedNoRBAC(t *testing.T) {
 	headers := map[string]string{
 		"x-maas-user": "nonexistent-user",
 	}
-	resp, _ := batchEnv.gatewayGet(t, path, f.testUserToken, headers)
-	if resp.StatusCode != http.StatusForbidden {
-		t.Fatalf("expected 403, got %d", resp.StatusCode)
-	}
-}
-
-// TestInferencePathDelegatedNoDelegate verifies that a request to an inference
-// path with x-maas-user pointing to a SA that has standard inference access
-// (get llminferenceservices) but NOT delegate access fails with 403.
-//
-// Scenario 6 from BATCH.md: forwarded user lacks delegate RBAC.
-func TestInferencePathDelegatedNoDelegate(t *testing.T) {
-	t.Parallel()
-	f := setupFixture(t)
-
-	path := fmt.Sprintf("/%s/echo-server/v1/chat/completions", f.ns)
-	headers := map[string]string{
-		"x-maas-user": saIdentity(f.ns, saTestUser),
-	}
-	// Use test-user-delegate's token, but forward to test-user who lacks delegate RBAC.
+	// Caller is test-user-delegate (has post-delegate), forwarded user has no RBAC.
 	resp, _ := batchEnv.gatewayGet(t, path, f.testDelegateToken, headers)
 	if resp.StatusCode != http.StatusForbidden {
 		t.Fatalf("expected 403, got %d", resp.StatusCode)
 	}
 }
 
-// TestInferencePathDelegateVerbWrongResource verifies that having post-delegate
-// on llminferenceservices (without the /delegate subresource) does NOT grant
-// delegate access. The SAR requires post-delegate on llminferenceservices/delegate.
+// TestInferencePathDelegatedNoDelegate verifies that a delegated request fails
+// with 403 when the caller lacks `post-delegate llminferenceservices/delegate`
+// (rule 2 fails). The forwarded user has get access (rule 1 would pass),
+// isolating the rule 2 failure. This validates that header spoofing by a
+// regular user is blocked.
+//
+// Scenario 6 from BATCH.md: caller lacks post-delegate.
+func TestInferencePathDelegatedNoDelegate(t *testing.T) {
+	t.Parallel()
+	f := setupFixture(t)
+
+	path := fmt.Sprintf("/%s/echo-server/v1/chat/completions", f.ns)
+	headers := map[string]string{
+		"x-maas-user": saIdentity(f.ns, saTestDelegate),
+	}
+	// Caller is test-user (no post-delegate), forwarded user is test-user-delegate (has get).
+	resp, _ := batchEnv.gatewayGet(t, path, f.testUserToken, headers)
+	if resp.StatusCode != http.StatusForbidden {
+		t.Fatalf("expected 403, got %d", resp.StatusCode)
+	}
+}
+
+// TestInferencePathDelegateVerbWrongResource verifies that a caller with
+// post-delegate on llminferenceservices (without the /delegate subresource)
+// does NOT pass rule 2. The SAR requires post-delegate on
+// llminferenceservices/delegate specifically.
 func TestInferencePathDelegateVerbWrongResource(t *testing.T) {
 	t.Parallel()
-	setupBatchRoutes(t)
 
 	ns := batchEnv.createNamespace(t, "e2e-batch", nil)
 	batchEnv.deployEchoServer(t, ns)
 	batchEnv.createHTTPRoute(t, ns, "echo-inference", fmt.Sprintf("/%s/echo-server", ns))
 
-	// Create SA with post-delegate on llminferenceservices (wrong resource).
-	const saName = "wrong-resource-user"
-	batchEnv.createServiceAccount(t, ns, saName)
-	batchEnv.grantAccess(t, ns, ns, saName, saName+"-wrong-resource", []rbacv1.PolicyRule{{
+	// Create caller SA with post-delegate on llminferenceservices (wrong resource —
+	// should be llminferenceservices/delegate).
+	const saCaller = "wrong-resource-caller"
+	batchEnv.createServiceAccount(t, ns, saCaller)
+	batchEnv.grantInferenceAccess(t, ns, ns, saCaller)
+	batchEnv.grantAccess(t, ns, ns, saCaller, saCaller+"-wrong-resource", []rbacv1.PolicyRule{{
 		APIGroups: []string{"serving.kserve.io"},
 		Resources: []string{"llminferenceservices"},
 		Verbs:     []string{"post-delegate"},
 	}})
-
-	// Create a caller SA with standard inference access.
-	const saCaller = "caller-user"
-	batchEnv.createServiceAccount(t, ns, saCaller)
-	batchEnv.grantInferenceAccess(t, ns, ns, saCaller)
 	callerToken := batchEnv.requestToken(t, ns, saCaller)
+
+	// Create forwarded user SA with standard inference access (rule 1 passes).
+	const saForwarded = "forwarded-user"
+	batchEnv.createServiceAccount(t, ns, saForwarded)
+	batchEnv.grantInferenceAccess(t, ns, ns, saForwarded)
 
 	batchEnv.waitForGatewayRoute(t, fmt.Sprintf("/%s/echo-server/test", ns), callerToken)
 
 	path := fmt.Sprintf("/%s/echo-server/v1/chat/completions", ns)
 	headers := map[string]string{
-		"x-maas-user": saIdentity(ns, saName),
+		"x-maas-user": saIdentity(ns, saForwarded),
+	}
+	// Rule 1: forwarded-user has get → pass. Rule 2: caller has post-delegate on
+	// wrong resource (llminferenceservices, not llminferenceservices/delegate) → fail.
+	resp, _ := batchEnv.gatewayGet(t, path, callerToken, headers)
+	if resp.StatusCode != http.StatusForbidden {
+		t.Fatalf("expected 403, got %d", resp.StatusCode)
+	}
+}
+
+// TestInferencePathNoToken verifies that a request to an inference path
+// without an Authorization header is rejected with 401.
+func TestInferencePathNoToken(t *testing.T) {
+	t.Parallel()
+	f := setupFixture(t)
+
+	path := fmt.Sprintf("/%s/echo-server/v1/chat/completions", f.ns)
+	resp, _ := batchEnv.gatewayGet(t, path, "", nil)
+	if resp.StatusCode != http.StatusUnauthorized {
+		t.Fatalf("expected 401, got %d", resp.StatusCode)
+	}
+}
+
+// TestDelegatedForwardedUserDelegateOnlyNoGet verifies that a delegated request
+// fails when the forwarded user has post-delegate on llminferenceservices/delegate
+// but lacks get on llminferenceservices. Rule 1 checks the forwarded user for get
+// and should reject.
+func TestDelegatedForwardedUserDelegateOnlyNoGet(t *testing.T) {
+	t.Parallel()
+
+	ns := batchEnv.createNamespace(t, "e2e-batch", nil)
+	batchEnv.deployEchoServer(t, ns)
+	batchEnv.createHTTPRoute(t, ns, "echo-inference", fmt.Sprintf("/%s/echo-server", ns))
+
+	// Caller SA with both get and post-delegate (rule 2 passes).
+	const saCaller = "delegate-caller"
+	batchEnv.createServiceAccount(t, ns, saCaller)
+	batchEnv.grantInferenceAccess(t, ns, ns, saCaller)
+	batchEnv.grantDelegateAccess(t, ns, ns, saCaller)
+	callerToken := batchEnv.requestToken(t, ns, saCaller)
+
+	// Forwarded user SA with post-delegate but NO get (rule 1 fails).
+	const saForwarded = "delegate-only-user"
+	batchEnv.createServiceAccount(t, ns, saForwarded)
+	batchEnv.grantDelegateAccess(t, ns, ns, saForwarded)
+
+	batchEnv.waitForGatewayRoute(t, fmt.Sprintf("/%s/echo-server/test", ns), callerToken)
+
+	path := fmt.Sprintf("/%s/echo-server/v1/chat/completions", ns)
+	headers := map[string]string{
+		"x-maas-user": saIdentity(ns, saForwarded),
 	}
 	resp, _ := batchEnv.gatewayGet(t, path, callerToken, headers)
 	if resp.StatusCode != http.StatusForbidden {
 		t.Fatalf("expected 403, got %d", resp.StatusCode)
+	}
+}
+
+// TestBatchSubpathAuthnOnly verifies that deeper batch subpaths like
+// /v1/batches/batch_123 and /v1/files/file_abc/content also skip authorization
+// (the when predicate uses startsWith).
+func TestBatchSubpathAuthnOnly(t *testing.T) {
+	t.Parallel()
+	f := setupFixture(t)
+
+	subpaths := []string{
+		"/v1/batches/batch_123",
+		"/v1/batches/batch_456/cancel",
+		"/v1/files/file_abc",
+		"/v1/files/file_abc/content",
+	}
+	for _, sp := range subpaths {
+		t.Run(sp, func(t *testing.T) {
+			resp, _ := batchEnv.gatewayGet(t, sp, f.testUserToken, nil)
+			if resp.StatusCode != http.StatusOK {
+				t.Fatalf("expected 200, got %d", resp.StatusCode)
+			}
+		})
+	}
+}
+
+// TestDelegatedSelfDelegation verifies that a caller setting x-maas-user to
+// their own identity requires both get (rule 1) and post-delegate (rule 2).
+// test-user-delegate has both, so this should succeed.
+func TestDelegatedSelfDelegation(t *testing.T) {
+	t.Parallel()
+	f := setupFixture(t)
+
+	path := fmt.Sprintf("/%s/echo-server/v1/chat/completions", f.ns)
+	headers := map[string]string{
+		"x-maas-user": saIdentity(f.ns, saTestDelegate),
+	}
+	// Caller is test-user-delegate, forwarded user is also test-user-delegate.
+	// Rule 1: forwarded user (test-user-delegate) has get → pass.
+	// Rule 2: caller (test-user-delegate) has post-delegate → pass.
+	resp, _ := batchEnv.gatewayGet(t, path, f.testDelegateToken, headers)
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("expected 200, got %d", resp.StatusCode)
+	}
+}
+
+// TestInferencePathNoBatchHeaders verifies that inference path responses do NOT
+// include x-maas-user or x-maas-groups headers. These headers are only injected
+// for batch paths (scoped by when predicates in the response section).
+func TestInferencePathNoBatchHeaders(t *testing.T) {
+	t.Parallel()
+	f := setupFixture(t)
+
+	path := fmt.Sprintf("/%s/echo-server/v1/chat/completions", f.ns)
+	resp, body := batchEnv.gatewayGet(t, path, f.testUserToken, nil)
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("expected 200, got %d", resp.StatusCode)
+	}
+
+	// The echo server reflects all request headers in the response body.
+	// x-maas-user and x-maas-groups should NOT appear because the response
+	// header injection is scoped to batch paths only.
+	bodyStr := string(body)
+	if strings.Contains(bodyStr, "x-maas-user") {
+		t.Errorf("inference path response should not contain x-maas-user header")
+	}
+	if strings.Contains(bodyStr, "x-maas-groups") {
+		t.Errorf("inference path response should not contain x-maas-groups header")
 	}
 }
