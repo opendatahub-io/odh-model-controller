@@ -49,9 +49,9 @@ func TestMetricsContainHTTPServerMetrics(t *testing.T) {
 
 	metrics := fetchMetrics(t)
 	required := []string{
-		"http_server_duration_milliseconds",
-		"http_server_request_size_bytes_total",
-		"http_server_response_size_bytes_total",
+		"http_server_request_duration_seconds",
+		"http_server_request_body_size_bytes_count",
+		"http_server_response_body_size_bytes_count",
 	}
 	for _, m := range required {
 		if !strings.Contains(metrics, m) {
@@ -69,10 +69,10 @@ func TestMetricsRecordRouteAttributes(t *testing.T) {
 	metrics := fetchMetrics(t)
 
 	// The otelhttp middleware records method and status code attributes.
-	if !strings.Contains(metrics, "http_method") {
+	if !strings.Contains(metrics, "http_request_method") {
 		t.Error("expected http_method attribute in metrics output")
 	}
-	if !strings.Contains(metrics, "http_status_code") {
+	if !strings.Contains(metrics, "http_response_status_code") {
 		t.Error("expected http_status_code attribute in metrics output")
 	}
 }

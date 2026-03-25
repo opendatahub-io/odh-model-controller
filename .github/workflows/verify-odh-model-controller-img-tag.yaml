@@ -40,8 +40,11 @@ jobs:
               echo "WARNING: ${IMAGE} not found in params.env, skipping"
               continue
             fi
-            if [[ ! "$IMAGE_TAG" =~ ^"$EXPECTED_TAG"(\.[0-9]+)?$ ]]; then
-              echo "Image tag mismatch for ${IMAGE}! Expected '$EXPECTED_TAG' but found '$IMAGE_TAG'"
+            # Strip optional image-name prefix from tag (e.g. odh-model-serving-api-fast -> fast)
+            # to handle images published as tag prefixes under another repo
+            STRIPPED_TAG="${IMAGE_TAG#${IMAGE}-}"
+            if [[ ! "$STRIPPED_TAG" =~ ^"$EXPECTED_TAG"(\.[0-9]+)?$ ]]; then
+              echo "Image tag mismatch for ${IMAGE}! Expected '$EXPECTED_TAG' (or '${IMAGE}-${EXPECTED_TAG}') but found '$IMAGE_TAG'"
               FAILED=1
             else
               echo "Image tag for ${IMAGE} ('$IMAGE_TAG') is correct."
