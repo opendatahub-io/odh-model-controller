@@ -347,7 +347,7 @@ var _ = Describe("BaseRefs and Spec Merging", func() {
 			Expect(envTest.Client.Create(ctx, llmisvc)).Should(Succeed())
 
 			fixture.VerifyGatewayAuthPolicyOwnerRef(ctx, envTest.Client, testNs, serviceGatewayName)
-			fixture.VerifyGatewayAuthPolicyOwnerRef(ctx, envTest.Client, testNs, configGatewayName)
+			fixture.VerifyGatewayAuthPolicyNotExist(ctx, envTest.Client, testNs, configGatewayName)
 		})
 
 		It("should handle config fetch failures gracefully and continue with available configs", func(ctx SpecContext) {
