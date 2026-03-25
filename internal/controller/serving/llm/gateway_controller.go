@@ -595,26 +595,30 @@ func getGatewayRefs(llmSvc *kservev1alpha2.LLMInferenceService) []kservev1alpha2
 }
 
 func (r *GatewayReconciler) SetupWithManager(mgr ctrl.Manager, setupLog logr.Logger) error {
-	if ok, err := utils.IsCrdAvailable(mgr.GetConfig(), gatewayapiv1.GroupVersion.String(), "Gateway"); err != nil {
-		setupLog.Error(err, "Failed to check CRD availability for Gateway")
-		return nil
-	} else if !ok {
+	isGatewayAvailable, err := utils.IsCrdAvailable(mgr.GetConfig(), gatewayapiv1.GroupVersion.String(), "Gateway")
+	if err != nil {
+		setupLog.V(1).Error(err, "could not determine if Gateway CRD is available")
+		return err
+	}
+	if !isGatewayAvailable {
 		setupLog.Info("Gateway CRD not available, skipping Gateway controller setup")
 		return nil
 	}
 
-	envoyFilterAvailable, err := utils.IsCrdAvailable(mgr.GetConfig(), istioclientv1alpha3.SchemeGroupVersion.String(), "EnvoyFilter")
+	isEnvoyFilterAvailable, err := utils.IsCrdAvailable(mgr.GetConfig(), istioclientv1alpha3.SchemeGroupVersion.String(), "EnvoyFilter")
 	if err != nil {
-		setupLog.V(1).Error(err, "Could not determine if EnvoyFilter CRD is available")
+		setupLog.V(1).Error(err, "could not determine if EnvoyFilter CRD is available")
+		return err
 	}
 
-	authPolicyAvailable, err := utils.IsCrdAvailable(mgr.GetConfig(), kuadrantv1.GroupVersion.String(), "AuthPolicy")
+	isAuthPolicyAvailable, err := utils.IsCrdAvailable(mgr.GetConfig(), kuadrantv1.GroupVersion.String(), "AuthPolicy")
 	if err != nil {
-		setupLog.V(1).Error(err, "Could not determine if AuthPolicy CRD is available")
+		setupLog.V(1).Error(err, "could not determine if AuthPolicy CRD is available")
+		return err
 	}
 
 	setupLog.Info("Setting up Gateway controller for EnvoyFilter/AuthPolicy bootstrap",
-		"envoyFilterCRD", envoyFilterAvailable, "authPolicyCRD", authPolicyAvailable)
+		"envoyFilterCRD", isEnvoyFilterAvailable, "authPolicyCRD", isAuthPolicyAvailable)
 
 	gatewayPredicate := predicate.Funcs{
 		CreateFunc: func(e event.CreateEvent) bool {
@@ -650,10 +654,10 @@ func (r *GatewayReconciler) SetupWithManager(mgr ctrl.Manager, setupLog logr.Log
 	builder := ctrl.NewControllerManagedBy(mgr).
 		For(&gatewayapiv1.Gateway{}, ctrlbuilder.WithPredicates(gatewayPredicate))
 
-	if envoyFilterAvailable {
+	if isEnvoyFilterAvailable {
 		builder = builder.Owns(&istioclientv1alpha3.EnvoyFilter{}, ctrlbuilder.WithPredicates(managedPredicate))
 	}
-	if authPolicyAvailable {
+	if isAuthPolicyAvailable {
 		builder = builder.Owns(&kuadrantv1.AuthPolicy{}, ctrlbuilder.WithPredicates(managedPredicate))
 	}
 
