@@ -210,14 +210,17 @@ jobs:
           
           # Define patterns based on repository
           if repo_name == "odh-model-controller":
-            # Only update odh-model-controller and mlserver images
+            # Only update odh-model-controller, odh-model-serving-api, and mlserver images.
+            # The optional (odh-model-serving-api-) tag prefix handles the case where
+            # odh-model-serving-api is published under the odh-model-controller image repo
+            # (e.g. quay.io/opendatahub/odh-model-controller:odh-model-serving-api-fast)
             image_pattern = re.compile(
-              r'([\w.-]+(?:\.[\w.-]+)*/[\w.-]+/(?:odh-model-controller|odh-model-serving-api|mlserver)):(fast|v[\d.]+-latest|release-v[\d.]+|odh-v[\d.]+(?:-EA\d)?)'
+              r'([\w.-]+(?:\.[\w.-]+)*/[\w.-]+/(?:odh-model-controller|odh-model-serving-api|mlserver)):((?:odh-model-serving-api-)?)(fast|v[\d.]+-latest|release-v[\d.]+|odh-v[\d.]+(?:-EA\d)?)'
             )
           else:
             # For kserve and others: update all matching images except llm-d-* images
             image_pattern = re.compile(
-              r'([\w.-]+(?:\.[\w.-]+)*/[\w.-]+/(?!llm-d-inference-scheduler|llm-d-routing-sidecar)[\w.-]+):(fast|v[\d.]+-latest|release-v[\d.]+|odh-v[\d.]+(?:-EA\d)?)'
+              r'([\w.-]+(?:\.[\w.-]+)*/[\w.-]+/(?!llm-d-inference-scheduler|llm-d-routing-sidecar)[\w.-]+):()(fast|v[\d.]+-latest|release-v[\d.]+|odh-v[\d.]+(?:-EA\d)?)'
             )
           
           updated_files = []
@@ -236,17 +239,18 @@ jobs:
               continue
             
             # Replace all matching image tags while preserving registry/namespace/repo
-            updated_content, count = image_pattern.subn(rf'\1:{tag_name}', content)
-            
+            # and any tag prefix (e.g. odh-model-serving-api-)
+            updated_content, count = image_pattern.subn(rf'\1:\g<2>{tag_name}', content)
+
             if count > 0:
               with open(params_file, 'w') as f:
                 f.write(updated_content)
-              
+
               updated_files.append(params_file)
               total_replacements += count
               print(f"  ✓ Updated {count} image tag(s)")
-              for image_path, old_tag in set(matches):
-                print(f"    - {image_path}:{old_tag} → {image_path}:{tag_name}")
+              for image_path, prefix, old_tag in set(matches):
+                print(f"    - {image_path}:{prefix}{old_tag} → {image_path}:{prefix}{tag_name}")
             else:
               print(f"  - No changes needed")
           
@@ -328,7 +332,7 @@ jobs:
           # - :odh-v2.35
           # Captures the full image path (registry/namespace/repo), replaces only the tag
           image_pattern = re.compile(
-            r'([\w.-]+(?:\.[\w.-]+)*(?:/[\w.-]+)+):(fast|v[\d.]+-latest|release-v[\d.]+|odh-v[\d.]+(?:-EA\d)?)'
+            r'([\w.-]+(?:\.[\w.-]+)*(?:/[\w.-]+)+):((?:odh-model-serving-api-)?)(fast|v[\d.]+-latest|release-v[\d.]+|odh-v[\d.]+(?:-EA\d)?)'
           )
           
           updated_files = []
@@ -352,17 +356,18 @@ jobs:
               continue
             
             # Replace all image tags while preserving registry/namespace/repo
-            updated_content, count = image_pattern.subn(rf'\1:{next_tag}', content)
-            
+            # and any tag prefix (e.g. odh-model-serving-api-)
+            updated_content, count = image_pattern.subn(rf'\1:\g<2>{next_tag}', content)
+
             if count > 0:
               with open(tekton_file, 'w') as f:
                 f.write(updated_content)
-              
+
               updated_files.append(tekton_file)
               total_replacements += count
               print(f"  ✓ Updated {count} image tag(s)")
-              for image_path, old_tag in set(matches):
-                print(f"    - {image_path}:{old_tag} → {image_path}:{next_tag}")
+              for image_path, prefix, old_tag in set(matches):
+                print(f"    - {image_path}:{prefix}{old_tag} → {image_path}:{prefix}{next_tag}")
           
           if errors:
             print(f"\nWarnings:")

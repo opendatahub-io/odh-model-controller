@@ -109,7 +109,9 @@ jobs:
           context: .
           file: Containerfile.server
           push: true
+          # TODO(RHOAIENG-53839): Temporary hack to workaround the yet to happen Konflux onboarding.
+          #  Use this: ${{ env.REGISTRY_NAME }}/${{ env.REPO_NAME }}/${{ env.MODEL_SERVING_API_IMAGE_NAME }}:${{ env.TAG }}
           tags: |
-            ${{ env.REGISTRY_NAME }}/${{ env.REPO_NAME }}/${{ env.MODEL_SERVING_API_IMAGE_NAME }}:${{ env.TAG }}
+            ${{ env.REGISTRY_NAME }}/${{ env.REPO_NAME }}/${{ env.IMAGE_NAME }}:${{ env.MODEL_SERVING_API_IMAGE_NAME }}-${{ env.TAG }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
