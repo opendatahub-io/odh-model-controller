@@ -2,27 +2,23 @@ apiVersion: kuadrant.io/v1
 kind: AuthPolicy
 metadata:
   name: {{.Name}}
-  namespace: {{.GatewayNamespace}}
-  labels:
-    "app.kubernetes.io/name": "llminferenceservice-auth"
-    "app.kubernetes.io/component": "llminferenceservice-policies"
-    "app.kubernetes.io/part-of": "llminferenceservice"
-    "app.kubernetes.io/managed-by": "odh-model-controller"
+  namespace: {{.Namespace}}
 spec:
   targetRef:
     group: gateway.networking.k8s.io
-    kind: Gateway
-    name: {{.GatewayName}}
+    kind: {{.TargetKind}}
+    name: {{.TargetName}}
   rules:
     authentication:
       kubernetes-user:
         kubernetesTokenReview:
-          audiences: {{.AudiencesJSON}}
+          audiences:
+            - https://kubernetes.default.svc
         overrides:
           fairness:
-            value: "{{.Issuer}}"
+            value: "https://kubernetes.default.svc"
           objective:
-            expression: "{{.ObjectiveExpression}}"
+            expression: "auth.identity.user.username.startsWith('system:serviceaccount:') ? auth.identity.user.username.split(':')[2] : 'authenticated'"
     authorization:
       inference-access:
         kubernetesSubjectAccessReview:

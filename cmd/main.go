@@ -320,6 +320,10 @@ func setupReconcilers(mgr ctrl.Manager, setupLog logr.Logger, cfg *rest.Config) 
 		setupLog.Error(err, "unable to create controller", "controller", "LLMInferenceService")
 		return err
 	}
+	if err := setupGatewayReconciler(mgr); err != nil {
+		setupLog.Error(err, "unable to create controller", "controller", "Gateway")
+		return err
+	}
 
 	return nil
 }
@@ -375,5 +379,13 @@ func setupLLMInferenceServiceReconciler(mgr ctrl.Manager) error {
 		mgr.GetClient(),
 		mgr.GetScheme(),
 		mgr.GetEventRecorderFor("OpenDataHubModelController"),
+	).SetupWithManager(mgr, setupLog)
+}
+
+func setupGatewayReconciler(mgr ctrl.Manager) error {
+	return llmcontroller.NewGatewayReconciler(
+		mgr.GetClient(),
+		mgr.GetScheme(),
+		mgr.GetEventRecorderFor("GatewayAuthBootstrap"),
 	).SetupWithManager(mgr, setupLog)
 }

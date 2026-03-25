@@ -11,6 +11,7 @@ require (
 	github.com/hashicorp/go-multierror v1.1.1
 	github.com/kedacore/keda/v2 v2.17.3
 	github.com/kserve/kserve v0.17.0-rc1
+	github.com/kuadrant/authorino v0.22.0
 	github.com/kuadrant/authorino-operator v0.21.0
 	github.com/kuadrant/kuadrant-operator v1.4.2
 	github.com/kubeflow/model-registry v0.2.19
@@ -106,7 +107,6 @@ require (
 	github.com/jmespath/go-jmespath v0.4.1-0.20220621161143-b0104c826a24 // indirect
 	github.com/josharian/intern v1.0.0 // indirect
 	github.com/json-iterator/go v1.1.12 // indirect
-	github.com/kuadrant/authorino v0.22.0 // indirect
 	github.com/kuadrant/dns-operator v0.10.0 // indirect
 	github.com/kuadrant/limitador-operator v0.15.0 // indirect
 	github.com/kuadrant/policy-machinery v0.7.1-0.20251119154946-1ca17a075dd2 // indirect
