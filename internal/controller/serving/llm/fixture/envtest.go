@@ -56,6 +56,7 @@ func SetupTestEnv() *pkgtest.Client {
 		return llmcontroller.NewGatewayReconciler(
 			mgr.GetClient(),
 			mgr.GetScheme(),
+			mgr.GetEventRecorderFor("GatewayAuthBootstrap"),
 		).SetupWithManager(mgr, setupLog)
 	}
 

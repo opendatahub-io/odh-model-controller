@@ -386,5 +386,6 @@ func setupGatewayReconciler(mgr ctrl.Manager) error {
 	return llmcontroller.NewGatewayReconciler(
 		mgr.GetClient(),
 		mgr.GetScheme(),
+		mgr.GetEventRecorderFor("GatewayAuthBootstrap"),
 	).SetupWithManager(mgr, setupLog)
 }

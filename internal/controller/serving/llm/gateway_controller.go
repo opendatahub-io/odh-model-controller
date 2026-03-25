@@ -32,6 +32,7 @@ import (
 	"k8s.io/apimachinery/pkg/api/meta"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/client-go/tools/record"
 	ctrl "sigs.k8s.io/controller-runtime"
 	ctrlbuilder "sigs.k8s.io/controller-runtime/pkg/builder"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -55,6 +56,7 @@ import (
 // for Authorino is available even when no models are deployed.
 type GatewayReconciler struct {
 	client.Client
+	Recorder          record.EventRecorder
 	Scheme            *runtime.Scheme
 	envoyFilterLoader resources.EnvoyFilterTemplateLoader
 	envoyFilterStore  resources.EnvoyFilterStore
@@ -63,9 +65,10 @@ type GatewayReconciler struct {
 	deltaProcessor    processors.DeltaProcessor
 }
 
-func NewGatewayReconciler(client client.Client, scheme *runtime.Scheme) *GatewayReconciler {
+func NewGatewayReconciler(client client.Client, scheme *runtime.Scheme, recorder record.EventRecorder) *GatewayReconciler {
 	return &GatewayReconciler{
 		Client:            client,
+		Recorder:          recorder,
 		Scheme:            scheme,
 		envoyFilterLoader: resources.NewKServeEnvoyFilterTemplateLoader(client),
 		envoyFilterStore:  resources.NewClientEnvoyFilterStore(client),
@@ -108,24 +111,24 @@ func (r *GatewayReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 
 	if shouldCreateEnvoyFilter {
 		if err := r.reconcileEnvoyFilter(ctx, logger, gateway); err != nil && !meta.IsNoMatchError(err) {
-			logger.Error(err, "Failed to reconcile EnvoyFilter")
+			r.Recorder.Eventf(gateway, corev1.EventTypeWarning, "ReconcileError", "Failed to reconcile EnvoyFilter: %v", err)
 			return ctrl.Result{}, err
 		}
 	} else {
 		if err := r.deleteEnvoyFilterIfManaged(ctx, logger, gateway); err != nil && !meta.IsNoMatchError(err) {
-			logger.Error(err, "Failed to delete EnvoyFilter")
+			r.Recorder.Eventf(gateway, corev1.EventTypeWarning, "ReconcileError", "Failed to delete EnvoyFilter: %v", err)
 			return ctrl.Result{}, err
 		}
 	}
 
 	if shouldCreateAuthPolicy {
 		if err := r.reconcileAuthPolicy(ctx, logger, gateway); err != nil && !meta.IsNoMatchError(err) {
-			logger.Error(err, "Failed to reconcile AuthPolicy")
+			r.Recorder.Eventf(gateway, corev1.EventTypeWarning, "ReconcileError", "Failed to reconcile AuthPolicy: %v", err)
 			return ctrl.Result{}, err
 		}
 	} else {
 		if err := r.deleteAuthPolicyIfManaged(ctx, logger, gateway); err != nil && !meta.IsNoMatchError(err) {
-			logger.Error(err, "Failed to delete AuthPolicy")
+			r.Recorder.Eventf(gateway, corev1.EventTypeWarning, "ReconcileError", "Failed to delete AuthPolicy: %v", err)
 			return ctrl.Result{}, err
 		}
 	}
