@@ -344,13 +344,19 @@ func (r *GatewayReconciler) isGatewayReferencedByLLMService(ctx context.Context,
 	return false, nil
 }
 
-// getEffectiveGatewayRefs returns all gateway references for an LLMInferenceService,
-// including those inherited from BaseRef configs (LLMInferenceServiceConfig).
+// getEffectiveGatewayRefs returns the effective gateway references for an LLMInferenceService.
+// The service's own gateway refs take precedence over those inherited from BaseRef configs,
+// matching the "last one wins" merge semantics used by kserve's MergeSpecs.
 func (r *GatewayReconciler) getEffectiveGatewayRefs(ctx context.Context, llmSvc *kservev1alpha2.LLMInferenceService) []kservev1alpha2.UntypedObjectReference {
+	// Service's own refs take precedence (replace config refs)
+	if refs := getGatewayRefs(llmSvc); len(refs) > 0 {
+		return refs
+	}
+
 	logger := log.FromContext(ctx)
 
+	// Fall back to config refs; last BaseRef with gateway refs wins
 	var refs []kservev1alpha2.UntypedObjectReference
-
 	for _, baseRef := range llmSvc.Spec.BaseRefs {
 		cfg, err := r.fetchLLMISvcConfig(ctx, baseRef.Name, llmSvc.Namespace)
 		if err != nil {
@@ -359,11 +365,9 @@ func (r *GatewayReconciler) getEffectiveGatewayRefs(ctx context.Context, llmSvc 
 		}
 
 		if cfg.Spec.Router != nil && cfg.Spec.Router.Gateway.HasRefs() {
-			refs = append(refs, cfg.Spec.Router.Gateway.Refs...)
+			refs = cfg.Spec.Router.Gateway.Refs
 		}
 	}
-
-	refs = append(refs, getGatewayRefs(llmSvc)...)
 
 	return refs
 }
