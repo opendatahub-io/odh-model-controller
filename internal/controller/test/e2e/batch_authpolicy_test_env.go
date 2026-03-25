@@ -412,7 +412,7 @@ func (e *batchTestEnv) grantInferenceAccess(t *testing.T, targetNS, saNamespace,
 }
 
 // grantDelegateAccess creates a Role and RoleBinding in targetNS that grants
-// the ServiceAccount permission to post llminferenceservices/delegate.
+// the ServiceAccount permission to post-delegate llminferenceservices/delegate.
 func (e *batchTestEnv) grantDelegateAccess(t *testing.T, targetNS, saNamespace, saName string) {
 	t.Helper()
 	e.grantAccess(t, targetNS, saNamespace, saName,
@@ -420,7 +420,7 @@ func (e *batchTestEnv) grantDelegateAccess(t *testing.T, targetNS, saNamespace, 
 		[]rbacv1.PolicyRule{{
 			APIGroups: []string{"serving.kserve.io"},
 			Resources: []string{"llminferenceservices/delegate"},
-			Verbs:     []string{"post"},
+			Verbs:     []string{"post-delegate"},
 		}},
 	)
 }

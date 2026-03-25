@@ -8,6 +8,8 @@ import (
 	"strings"
 	"sync"
 	"testing"
+
+	rbacv1 "k8s.io/api/rbac/v1"
 )
 
 const (
@@ -192,7 +194,7 @@ func TestInferencePathStandardSAR(t *testing.T) {
 }
 
 // TestInferencePathDelegatedSAR verifies that a request to an inference path
-// with x-maas-user pointing to a SA that has `post llminferenceservices/delegate`
+// with x-maas-user pointing to a SA that has `post-delegate llminferenceservices/delegate`
 // succeeds (200).
 //
 // Scenario 3 from BATCH.md: delegated SAR — forwarded user has delegate RBAC.
@@ -262,6 +264,44 @@ func TestInferencePathDelegatedNoDelegate(t *testing.T) {
 	}
 	// Use test-user-delegate's token, but forward to test-user who lacks delegate RBAC.
 	resp, _ := batchEnv.gatewayGet(t, path, f.testDelegateToken, headers)
+	if resp.StatusCode != http.StatusForbidden {
+		t.Fatalf("expected 403, got %d", resp.StatusCode)
+	}
+}
+
+// TestInferencePathDelegateVerbWrongResource verifies that having post-delegate
+// on llminferenceservices (without the /delegate subresource) does NOT grant
+// delegate access. The SAR requires post-delegate on llminferenceservices/delegate.
+func TestInferencePathDelegateVerbWrongResource(t *testing.T) {
+	t.Parallel()
+	setupBatchRoutes(t)
+
+	ns := batchEnv.createNamespace(t, "e2e-batch", nil)
+	batchEnv.deployEchoServer(t, ns)
+	batchEnv.createHTTPRoute(t, ns, "echo-inference", fmt.Sprintf("/%s/echo-server", ns))
+
+	// Create SA with post-delegate on llminferenceservices (wrong resource).
+	const saName = "wrong-resource-user"
+	batchEnv.createServiceAccount(t, ns, saName)
+	batchEnv.grantAccess(t, ns, ns, saName, saName+"-wrong-resource", []rbacv1.PolicyRule{{
+		APIGroups: []string{"serving.kserve.io"},
+		Resources: []string{"llminferenceservices"},
+		Verbs:     []string{"post-delegate"},
+	}})
+
+	// Create a caller SA with standard inference access.
+	const saCaller = "caller-user"
+	batchEnv.createServiceAccount(t, ns, saCaller)
+	batchEnv.grantInferenceAccess(t, ns, ns, saCaller)
+	callerToken := batchEnv.requestToken(t, ns, saCaller)
+
+	batchEnv.waitForGatewayRoute(t, fmt.Sprintf("/%s/echo-server/test", ns), callerToken)
+
+	path := fmt.Sprintf("/%s/echo-server/v1/chat/completions", ns)
+	headers := map[string]string{
+		"x-maas-user": saIdentity(ns, saName),
+	}
+	resp, _ := batchEnv.gatewayGet(t, path, callerToken, headers)
 	if resp.StatusCode != http.StatusForbidden {
 		t.Fatalf("expected 403, got %d", resp.StatusCode)
 	}

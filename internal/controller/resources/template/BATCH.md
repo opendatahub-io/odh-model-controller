@@ -332,7 +332,7 @@ this and switches to a delegated SAR:
 | Condition                    | SAR user                         | SAR groups                                    | Resource                        | Verb   |
 |------------------------------|----------------------------------|-----------------------------------------------|---------------------------------|--------|
 | No `x-maas-user` header      | `auth.identity.user.username`    | `auth.identity.user.groups`                   | `llminferenceservices`          | `get`  |
-| `x-maas-user` header present | `request.headers['x-maas-user']` | `request.headers['x-maas-groups'].split(',')` | `llminferenceservices/delegate` | `post` |
+| `x-maas-user` header present | `request.headers['x-maas-user']` | `request.headers['x-maas-groups'].split(',')` | `llminferenceservices/delegate` | `post-delegate` |
 
 ```yaml
 authorization:
@@ -354,25 +354,25 @@ authorization:
         name:
           expression: request.path.split("/")[2]
         verb:
-          expression: "'x-maas-user' in request.headers ? 'post' : 'get'"
+          expression: "'x-maas-user' in request.headers ? 'post-delegate' : 'get'"
     priority: 1
 ```
 
 **Security model**: the delegated path uses a distinct resource (`llminferenceservices/delegate`)
-and verb (`post`). This means RBAC controls which identities can perform delegated access:
+and verb (`post-delegate`). This means RBAC controls which identities can perform delegated access:
 
-- The batch processor SA needs a `ClusterRole` granting `post` on `llminferenceservices/delegate`.
+- The batch processor SA needs a `ClusterRole` granting `post-delegate` on `llminferenceservices/delegate`.
   The SAR checks the **forwarded user** (from `x-maas-user`) for this permission, not the
   processor SA itself. So the users who should be eligible for batch inference need the
-  `post llminferenceservices/delegate` permission (or the existing `get llminferenceservices`
-  role can be extended to also grant `post` on the `delegate` subresource).
+  `post-delegate llminferenceservices/delegate` permission (or the existing `get llminferenceservices`
+  role can be extended to also grant `post-delegate` on the `delegate` subresource).
 - A regular user spoofing `x-maas-user` headers on a direct request would trigger the delegated
-  path, but the SAR would check the spoofed username for `post llminferenceservices/delegate`.
+  path, but the SAR would check the spoofed username for `post-delegate llminferenceservices/delegate`.
   This limits the blast radius to what the spoofed identity has access to, not the attacker's
   own permissions.
 
 **Header spoofing mitigation**: to prevent a regular user from impersonating another user
-via `x-maas-user` headers, the `post llminferenceservices/delegate` permission should **not**
+via `x-maas-user` headers, the `post-delegate llminferenceservices/delegate` permission should **not**
 be granted to regular users directly. Instead, only the batch processor ServiceAccount should
 hold this permission. The SAR then needs to check the **authenticated caller** (processor SA)
 for the `delegate` permission, and the **forwarded user** for the base `get llminferenceservices`
@@ -381,7 +381,7 @@ permission. This can be achieved with two approaches:
 1. **Two SARs in one rule** (if Authorino supports it): check both the caller's `delegate`
    permission and the forwarded user's `get` permission.
 2. **Accept the risk**: if all users who have `get llminferenceservices` should also be able
-   to use batch, grant them `post llminferenceservices/delegate` too. Header spoofing then
+   to use batch, grant them `post-delegate llminferenceservices/delegate` too. Header spoofing then
    only allows accessing models the spoofed user has access to — which may be acceptable
    given the threat model.
 
@@ -392,7 +392,7 @@ permission. This can be achieved with two approaches:
   Use `'x-maas-user' in request.headers` instead (the `in` operator for map key existence).
 - Determine whether `resource: 'llminferenceservices/delegate'` is treated as a resource
   with subresource in the SAR, or if separate `resource` and `subResource` fields are needed.
-- Define the RBAC policy for `post llminferenceservices/delegate` — decide between
+- Define the RBAC policy for `post-delegate llminferenceservices/delegate` — decide between
   granting it to all inference users vs. only the batch processor SA (see security discussion above).
 
 #### 4. Flow control: Fairness and objective
@@ -467,7 +467,7 @@ spec:
             name:
               expression: request.path.split("/")[2]
             verb:
-              expression: "'x-maas-user' in request.headers ? 'post' : 'get'"
+              expression: "'x-maas-user' in request.headers ? 'post-delegate' : 'get'"
         priority: 1
 
     response:
@@ -526,7 +526,7 @@ user tokens or `oc whoami -t`.
 | SA                   | Namespace      | Purpose                                           | RBAC                                                   |
 |----------------------|----------------|---------------------------------------------------|--------------------------------------------------------|
 | `test-user`          | `echo-service` | Regular user with standard inference access only  | `get llminferenceservices` in `echo-service`           |
-| `test-user-delegate` | `echo-service` | User eligible for batch (has delegate permission) | `post llminferenceservices/delegate` in `echo-service` |
+| `test-user-delegate` | `echo-service` | User eligible for batch (has delegate permission) | `post-delegate llminferenceservices/delegate` in `echo-service` |
 
 #### Test scenarios
 
@@ -534,10 +534,10 @@ user tokens or `oc whoami -t`.
 |---|--------------------------------------------------------------|----------------------|---------------------------------|--------------------------------------|---------------------------------------------------------------|----------------------------------------------------------|
 | 1 | SA → batch path                                              | `test-user`          | `/v1/batches`                   | —                                    | Skipped (batch path)                                          | 200, `x-maas-user` and `x-maas-groups` injected          |
 | 2 | SA → inference path (standard)                               | `test-user`          | `/echo-service/echo-server/...` | —                                    | `get llminferenceservices` for `test-user`                    | 200                                                      |
-| 3 | SA → inference with `x-maas-user` (user has delegate RBAC)   | `test-user`          | `/echo-service/echo-server/...` | `x-maas-user: ...test-user-delegate` | `post llminferenceservices/delegate` for `test-user-delegate` | 200                                                      |
+| 3 | SA → inference with `x-maas-user` (user has delegate RBAC)   | `test-user`          | `/echo-service/echo-server/...` | `x-maas-user: ...test-user-delegate` | `post-delegate llminferenceservices/delegate` for `test-user-delegate` | 200                                                      |
 | 4 | SA → batch path with spoofed header                          | `test-user`          | `/v1/batches`                   | `x-maas-user: spoofed`               | Skipped (batch path)                                          | 200, Authorino appends real identity after spoofed value |
-| 5 | SA → inference with `x-maas-user` (user has no RBAC)         | `test-user`          | `/echo-service/echo-server/...` | `x-maas-user: nonexistent-user`      | `post llminferenceservices/delegate` for `nonexistent-user`   | 403                                                      |
-| 6 | SA → inference with `x-maas-user` (user lacks delegate RBAC) | `test-user-delegate` | `/echo-service/echo-server/...` | `x-maas-user: ...test-user`          | `post llminferenceservices/delegate` for `test-user`          | 403                                                      |
+| 5 | SA → inference with `x-maas-user` (user has no RBAC)         | `test-user`          | `/echo-service/echo-server/...` | `x-maas-user: nonexistent-user`      | `post-delegate llminferenceservices/delegate` for `nonexistent-user`   | 403                                                      |
+| 6 | SA → inference with `x-maas-user` (user lacks delegate RBAC) | `test-user-delegate` | `/echo-service/echo-server/...` | `x-maas-user: ...test-user`          | `post-delegate llminferenceservices/delegate` for `test-user`          | 403                                                      |
 
 #### gateway.yaml
 
@@ -740,7 +740,7 @@ rules:
     resources: ["llminferenceservices"]
     verbs: ["get"]
 ---
-# Delegated inference access: post llminferenceservices/delegate
+# Delegated inference access: post-delegate llminferenceservices/delegate
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRole
 metadata:
@@ -748,7 +748,7 @@ metadata:
 rules:
   - apiGroups: ["serving.kserve.io"]
     resources: ["llminferenceservices/delegate"]
-    verbs: ["post"]
+    verbs: ["post-delegate"]
 ---
 # --- RoleBindings for test-user (standard access only) ---
 apiVersion: rbac.authorization.k8s.io/v1
@@ -822,7 +822,7 @@ oc exec -n default dnsutils -- curl -vk -s \
   $GW/echo-service/echo-server/v1/chat/completions | jq
 
 # Scenario 3: SA → inference with x-maas-user pointing to user WITH delegate RBAC
-# Expected: 200 (test-user-delegate has post llminferenceservices/delegate in echo-service)
+# Expected: 200 (test-user-delegate has post-delegate llminferenceservices/delegate in echo-service)
 oc exec -n default dnsutils -- curl -vk -s \
   -H "Authorization: Bearer $TEST_USER_TOKEN" \
   -H "Content-Type: application/json" \
@@ -850,7 +850,7 @@ oc exec -n default dnsutils -- curl -vk -s \
   $GW/echo-service/echo-server/v1/chat/completions | jq
 
 # Scenario 6: SA → inference with x-maas-user pointing to user WITHOUT delegate RBAC (should fail)
-# Expected: 403 (test-user has get but NOT post llminferenceservices/delegate)
+# Expected: 403 (test-user has get but NOT post-delegate llminferenceservices/delegate)
 oc exec -n default dnsutils -- curl -vk -s \
   -H "Authorization: Bearer $TEST_USER_DELEGATE_TOKEN" \
   -H "Content-Type: application/json" \
@@ -874,7 +874,7 @@ include flow control headers but NOT `x-maas-user`/`x-maas-groups`.
 
 **Scenario 3** (SA → inference with `x-maas-user`, user has delegate RBAC): Delegated SAR
 fires — checks `system:serviceaccount:echo-service:test-user-delegate` (from `x-maas-user`
-header) for `post llminferenceservices/delegate`. Should succeed (`test-user-delegate` has
+header) for `post-delegate llminferenceservices/delegate`. Should succeed (`test-user-delegate` has
 delegate RBAC).
 
 **Scenario 4** (SA → batch path with spoofed header): Batch path is excluded from
@@ -882,11 +882,11 @@ authorization, so the spoofed header has no effect on authz. Authorino appends t
 identity after the spoofed value (upstream append bug). Echo shows both values.
 
 **Scenario 5** (SA → inference with spoofed header): The `x-maas-user` header triggers
-the delegated SAR path. SAR checks `nonexistent-user` for `post llminferenceservices/delegate`
+the delegated SAR path. SAR checks `nonexistent-user` for `post-delegate llminferenceservices/delegate`
 — fails with 403.
 
 **Scenario 6** (SA → inference with `x-maas-user`, user lacks delegate RBAC): Delegated SAR
-checks `system:serviceaccount:echo-service:test-user` for `post llminferenceservices/delegate`
+checks `system:serviceaccount:echo-service:test-user` for `post-delegate llminferenceservices/delegate`
 — fails with 403 because `test-user` only has `get llminferenceservices`, not the delegate
 permission. This validates that standard inference access does not automatically grant
 delegated access.
