@@ -66,6 +66,7 @@ objects:
             - name: spyre-cache
               mountPath: /opt/ibm/spyre/models
       multiModel: false
+      schedulerName: spyre-scheduler
       supportedModelFormats:
         - autoSelect: true
           name: vLLM
