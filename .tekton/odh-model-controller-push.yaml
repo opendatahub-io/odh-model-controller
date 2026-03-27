@@ -29,6 +29,9 @@ spec:
     value: Containerfile
   - name: path-context
     value: .
+  - name: additional-tags
+    value:
+    - 'odh-v3.4-EA2'
   pipelineRef:
     resolver: git
     params:
