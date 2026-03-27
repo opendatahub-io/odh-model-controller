@@ -31,7 +31,7 @@ spec:
     value: .
   - name: additional-tags
     value:
-    - 'odh-v3.4-EA2'
+    - 'odh-v3.4'
   pipelineRef:
     resolver: git
     params:
