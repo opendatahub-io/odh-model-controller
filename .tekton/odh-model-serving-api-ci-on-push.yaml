@@ -5,7 +5,6 @@ metadata:
     build.appstudio.openshift.io/repo: https://github.com/opendatahub-io/odh-model-controller?rev={{revision}}
     build.appstudio.redhat.com/commit_sha: '{{revision}}'
     build.appstudio.redhat.com/target_branch: '{{target_branch}}'
-    pipelinesascode.tekton.dev/on-comment: "^/build-konflux"
     pipelinesascode.tekton.dev/cancel-in-progress: "false"
     pipelinesascode.tekton.dev/max-keep-runs: "3"
     pipelinesascode.tekton.dev/on-cel-expression: event == "push" && target_branch
@@ -13,9 +12,9 @@ metadata:
   creationTimestamp: null
   labels:
     appstudio.openshift.io/application: opendatahub-builds
-    appstudio.openshift.io/component: odh-model-controller-ci
+    appstudio.openshift.io/component: odh-model-serving-api-ci
     pipelines.appstudio.openshift.io/type: build
-  name: odh-model-controller-on-push
+  name: odh-model-serving-api-ci-on-push
   namespace: open-data-hub-tenant
 spec:
   params:
@@ -24,14 +23,17 @@ spec:
   - name: revision
     value: '{{revision}}'
   - name: output-image
-    value: quay.io/opendatahub/odh-model-controller:odh-stable
+    value: quay.io/opendatahub/odh-model-serving-api:odh-stable
   - name: dockerfile
-    value: Containerfile
+    value: Containerfile.server
   - name: path-context
     value: .
-  - name: additional-tags
+  - name: build-platforms
     value:
-    - 'odh-v3.4'
+    - linux/x86_64
+    - linux/aarch64
+    - linux/ppc64le
+    - linux/s390x
   pipelineRef:
     resolver: git
     params:
@@ -42,7 +44,7 @@ spec:
     - name: pathInRepo
       value: pipeline/multi-arch-container-build.yaml
   taskRunTemplate:
-    serviceAccountName: build-pipeline-odh-model-controller
+    serviceAccountName: build-pipeline-odh-model-serving-api-ci
   workspaces:
   - name: git-auth
     secret:
