@@ -52,7 +52,7 @@ response header definition:
 ```yaml
 x-maas-user:
   when:
-    - predicate: "request.path.startsWith('/v1/files') || request.path.startsWith('/v1/batches')"
+    - predicate: "request.path == '/v1/files' || request.path.startsWith('/v1/files/') || request.path == '/v1/batches' || request.path.startsWith('/v1/batches/')"
   plain:
     expression: auth.identity.user.username
 ```
@@ -69,7 +69,7 @@ Add a `when` predicate to exclude batch paths:
 authorization:
   inference-access:
     when:
-      - predicate: "!(request.path.startsWith('/v1/files') || request.path.startsWith('/v1/batches'))"
+      - predicate: "!(request.path == '/v1/files' || request.path.startsWith('/v1/files/') || request.path == '/v1/batches' || request.path.startsWith('/v1/batches/'))"
     kubernetesSubjectAccessReview:
     # ... existing spec unchanged ...
 ```
@@ -86,7 +86,7 @@ Below is the authorization + response section of the updated
     authorization:
       inference-access:
         when:
-          - predicate: "!(request.path.startsWith('/v1/files') || request.path.startsWith('/v1/batches'))"
+          - predicate: "!(request.path == '/v1/files' || request.path.startsWith('/v1/files/') || request.path == '/v1/batches' || request.path.startsWith('/v1/batches/'))"
         kubernetesSubjectAccessReview:
           user:
             expression: auth.identity.user.username
@@ -110,14 +110,14 @@ Below is the authorization + response section of the updated
           # Existing inference headers
           x-gateway-inference-fairness-id:
             when:
-              - predicate: "!(request.path.startsWith('/v1/files') || request.path.startsWith('/v1/batches'))"
+              - predicate: "!(request.path == '/v1/files' || request.path.startsWith('/v1/files/') || request.path == '/v1/batches' || request.path.startsWith('/v1/batches/'))"
             metrics: false
             plain:
               expression: auth.identity.fairness
             priority: 0
           x-gateway-inference-objective:
             when:
-              - predicate: "!(request.path.startsWith('/v1/files') || request.path.startsWith('/v1/batches'))"
+              - predicate: "!(request.path == '/v1/files' || request.path.startsWith('/v1/files/') || request.path == '/v1/batches' || request.path.startsWith('/v1/batches/'))"
             metrics: false
             plain:
               expression: auth.identity.objective
@@ -125,13 +125,13 @@ Below is the authorization + response section of the updated
           # Batch headers
           x-maas-user:
             when:
-              - predicate: "request.path.startsWith('/v1/files') || request.path.startsWith('/v1/batches')"
+              - predicate: "request.path == '/v1/files' || request.path.startsWith('/v1/files/') || request.path == '/v1/batches' || request.path.startsWith('/v1/batches/')"
             plain:
               expression: auth.identity.user.username
             priority: 0
           x-maas-groups:
             when:
-              - predicate: "request.path.startsWith('/v1/files') || request.path.startsWith('/v1/batches')"
+              - predicate: "request.path == '/v1/files' || request.path.startsWith('/v1/files/') || request.path == '/v1/batches' || request.path.startsWith('/v1/batches/')"
             plain:
               expression: "auth.identity.user.groups.join(',')"
             priority: 0
@@ -347,7 +347,7 @@ authorization:
   # get the target llminferenceservice.
   inference-access:
     when:
-      - predicate: "!(request.path.startsWith('/v1/files') || request.path.startsWith('/v1/batches'))"
+      - predicate: "!(request.path == '/v1/files' || request.path.startsWith('/v1/files/') || request.path == '/v1/batches' || request.path.startsWith('/v1/batches/'))"
     kubernetesSubjectAccessReview:
       user:
         expression: "'x-maas-user' in request.headers ? request.headers['x-maas-user'] : auth.identity.user.username"
@@ -370,7 +370,7 @@ authorization:
   # Checks that the authenticated caller (batch processor) has the delegate permission.
   inference-access-delegate:
     when:
-      - predicate: "!(request.path.startsWith('/v1/files') || request.path.startsWith('/v1/batches'))"
+      - predicate: "!(request.path == '/v1/files' || request.path.startsWith('/v1/files/') || request.path == '/v1/batches' || request.path.startsWith('/v1/batches/'))"
       - predicate: "'x-maas-user' in request.headers"
     kubernetesSubjectAccessReview:
       user:
@@ -457,7 +457,7 @@ spec:
       # Rule 1: base inference access — forwarded user (or caller) must have get
       inference-access:
         when:
-          - predicate: "!(request.path.startsWith('/v1/files') || request.path.startsWith('/v1/batches'))"
+          - predicate: "!(request.path == '/v1/files' || request.path.startsWith('/v1/files/') || request.path == '/v1/batches' || request.path.startsWith('/v1/batches/'))"
         kubernetesSubjectAccessReview:
           user:
             expression: "'x-maas-user' in request.headers ? request.headers['x-maas-user'] : auth.identity.user.username"
@@ -479,7 +479,7 @@ spec:
       # Rule 2: delegate access — caller must have post-delegate (only when x-maas-user present)
       inference-access-delegate:
         when:
-          - predicate: "!(request.path.startsWith('/v1/files') || request.path.startsWith('/v1/batches'))"
+          - predicate: "!(request.path == '/v1/files' || request.path.startsWith('/v1/files/') || request.path == '/v1/batches' || request.path.startsWith('/v1/batches/'))"
           - predicate: "'x-maas-user' in request.headers"
         kubernetesSubjectAccessReview:
           user:
@@ -517,13 +517,13 @@ spec:
           # Batch headers — only for batch paths
           x-maas-user:
             when:
-              - predicate: "request.path.startsWith('/v1/files') || request.path.startsWith('/v1/batches')"
+              - predicate: "request.path == '/v1/files' || request.path.startsWith('/v1/files/') || request.path == '/v1/batches' || request.path.startsWith('/v1/batches/')"
             plain:
               expression: auth.identity.user.username
             priority: 0
           x-maas-groups:
             when:
-              - predicate: "request.path.startsWith('/v1/files') || request.path.startsWith('/v1/batches')"
+              - predicate: "request.path == '/v1/files' || request.path.startsWith('/v1/files/') || request.path == '/v1/batches' || request.path.startsWith('/v1/batches/')"
             plain:
               expression: "auth.identity.user.groups.join(',')"
             priority: 0
