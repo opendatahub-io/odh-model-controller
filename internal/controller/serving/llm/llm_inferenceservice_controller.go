@@ -58,6 +58,7 @@ type LLMInferenceServiceReconciler struct {
 func NewLLMInferenceServiceReconciler(client client.Client, scheme *runtime.Scheme, recorder record.EventRecorder) *LLMInferenceServiceReconciler {
 	subResourceReconcilers := []parentreconcilers.LLMSubResourceReconciler{
 		reconcilers.NewKserveAuthPolicyReconciler(client, scheme),
+		reconcilers.NewKserveRBACReconciler(client, scheme),
 	}
 
 	return &LLMInferenceServiceReconciler{

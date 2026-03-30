@@ -25,9 +25,12 @@ import (
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	corev1 "k8s.io/api/core/v1"
+	rbacv1 "k8s.io/api/rbac/v1"
 	"k8s.io/apimachinery/pkg/api/errors"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 	gatewayapiv1 "sigs.k8s.io/gateway-api/apis/v1"
 
 	"github.com/opendatahub-io/odh-model-controller/internal/controller/constants"
@@ -366,6 +369,171 @@ var _ = Describe("BaseRefs and Spec Merging", func() {
 			Expect(envTest.Client.Create(ctx, llmisvc)).Should(Succeed())
 
 			fixture.VerifyGatewayAuthPolicyOwnerRef(ctx, envTest.Client, testNs, gatewayName)
+		})
+	})
+
+	Context("LLMInferenceService with RBAC", func() {
+		It("should create Role and RoleBinding when LLMInferenceService is created", func(ctx SpecContext) {
+			fixture.CreateBasicLLMInferenceService(ctx, envTest.Client, testNs, LLMInferenceServiceName, nil)
+
+			role := fixture.WaitForInferenceAccessRole(ctx, envTest.Client, testNs, LLMInferenceServiceName)
+			Expect(role.Rules).To(HaveLen(1))
+			Expect(role.Rules[0].APIGroups).To(Equal([]string{"serving.kserve.io"}))
+			Expect(role.Rules[0].Resources).To(Equal([]string{"llminferenceservices"}))
+			Expect(role.Rules[0].ResourceNames).To(Equal([]string{LLMInferenceServiceName}))
+			Expect(role.Rules[0].Verbs).To(Equal([]string{"get"}))
+			Expect(role.Labels["app.kubernetes.io/managed-by"]).To(Equal("odh-model-controller"))
+
+			rb := fixture.WaitForInferenceAccessRoleBinding(ctx, envTest.Client, testNs, LLMInferenceServiceName)
+			Expect(rb.RoleRef.Kind).To(Equal("Role"))
+			Expect(rb.RoleRef.Name).To(Equal(fixture.GetInferenceAccessRoleName(LLMInferenceServiceName)))
+			Expect(rb.Subjects).To(HaveLen(1))
+			Expect(rb.Subjects[0].Kind).To(Equal("Group"))
+			Expect(rb.Subjects[0].Name).To(Equal("system:authenticated"))
+		})
+
+		It("should restore Role rules on next reconcile after manual modification", func(ctx SpecContext) {
+			llmisvc := fixture.CreateBasicLLMInferenceService(ctx, envTest.Client, testNs, LLMInferenceServiceName, nil)
+
+			role := fixture.WaitForInferenceAccessRole(ctx, envTest.Client, testNs, LLMInferenceServiceName)
+			originalVerbs := role.Rules[0].Verbs
+
+			role.Rules[0].Verbs = []string{"get", "list", "delete"}
+			Expect(envTest.Client.Update(ctx, role)).Should(Succeed())
+
+			// Trigger reconcile by touching the LLMInferenceService
+			if llmisvc.Annotations == nil {
+				llmisvc.Annotations = make(map[string]string)
+			}
+			llmisvc.Annotations["test/trigger"] = "reconcile"
+			Expect(envTest.Client.Update(ctx, llmisvc)).Should(Succeed())
+
+			Eventually(func(g Gomega) {
+				updated := fixture.WaitForInferenceAccessRole(ctx, envTest.Client, testNs, LLMInferenceServiceName)
+				g.Expect(updated.Rules[0].Verbs).To(Equal(originalVerbs))
+			}).WithContext(ctx).Should(Succeed())
+		})
+
+		It("should restore RoleBinding subjects on next reconcile after manual modification", func(ctx SpecContext) {
+			llmisvc := fixture.CreateBasicLLMInferenceService(ctx, envTest.Client, testNs, LLMInferenceServiceName, nil)
+
+			rb := fixture.WaitForInferenceAccessRoleBinding(ctx, envTest.Client, testNs, LLMInferenceServiceName)
+
+			rb.Subjects = []rbacv1.Subject{
+				{Kind: "User", APIGroup: rbacv1.GroupName, Name: "rogue-user"},
+			}
+			Expect(envTest.Client.Update(ctx, rb)).Should(Succeed())
+
+			// Trigger reconcile by touching the LLMInferenceService
+			if llmisvc.Annotations == nil {
+				llmisvc.Annotations = make(map[string]string)
+			}
+			llmisvc.Annotations["test/trigger"] = "reconcile"
+			Expect(envTest.Client.Update(ctx, llmisvc)).Should(Succeed())
+
+			Eventually(func(g Gomega) {
+				updated := fixture.WaitForInferenceAccessRoleBinding(ctx, envTest.Client, testNs, LLMInferenceServiceName)
+				g.Expect(updated.Subjects).To(HaveLen(1))
+				g.Expect(updated.Subjects[0].Kind).To(Equal("Group"))
+				g.Expect(updated.Subjects[0].Name).To(Equal("system:authenticated"))
+			}).WithContext(ctx).Should(Succeed())
+		})
+
+		It("should have OwnerReference pointing to LLMInferenceService", func(ctx SpecContext) {
+			llmisvc := fixture.CreateBasicLLMInferenceService(ctx, envTest.Client, testNs, LLMInferenceServiceName, nil)
+
+			role := fixture.WaitForInferenceAccessRole(ctx, envTest.Client, testNs, LLMInferenceServiceName)
+			Expect(role.OwnerReferences).To(HaveLen(1))
+			Expect(role.OwnerReferences[0].Name).To(Equal(llmisvc.Name))
+			Expect(role.OwnerReferences[0].UID).To(Equal(llmisvc.UID))
+
+			rb := fixture.WaitForInferenceAccessRoleBinding(ctx, envTest.Client, testNs, LLMInferenceServiceName)
+			Expect(rb.OwnerReferences).To(HaveLen(1))
+			Expect(rb.OwnerReferences[0].Name).To(Equal(llmisvc.Name))
+			Expect(rb.OwnerReferences[0].UID).To(Equal(llmisvc.UID))
+		})
+
+		It("should skip reconciliation when Role has opendatahub.io/managed=false label", func(ctx SpecContext) {
+			fixture.CreateBasicLLMInferenceService(ctx, envTest.Client, testNs, LLMInferenceServiceName, nil)
+
+			role := fixture.WaitForInferenceAccessRole(ctx, envTest.Client, testNs, LLMInferenceServiceName)
+
+			role.Labels[constants.ODHManaged] = "false"
+			role.Rules[0].Verbs = []string{"get", "list"}
+			Expect(envTest.Client.Update(ctx, role)).Should(Succeed())
+
+			Consistently(func(g Gomega) {
+				updated := fixture.WaitForInferenceAccessRole(ctx, envTest.Client, testNs, LLMInferenceServiceName)
+				g.Expect(updated.Rules[0].Verbs).To(Equal([]string{"get", "list"}))
+			}).WithContext(ctx).Should(Succeed())
+		})
+
+		It("should skip reconciliation when RoleBinding has opendatahub.io/managed=false label", func(ctx SpecContext) {
+			fixture.CreateBasicLLMInferenceService(ctx, envTest.Client, testNs, LLMInferenceServiceName, nil)
+
+			rb := fixture.WaitForInferenceAccessRoleBinding(ctx, envTest.Client, testNs, LLMInferenceServiceName)
+
+			rb.Labels[constants.ODHManaged] = "false"
+			rb.Subjects = []rbacv1.Subject{
+				{Kind: "User", APIGroup: rbacv1.GroupName, Name: "custom-user"},
+			}
+			Expect(envTest.Client.Update(ctx, rb)).Should(Succeed())
+
+			Consistently(func(g Gomega) {
+				updated := fixture.WaitForInferenceAccessRoleBinding(ctx, envTest.Client, testNs, LLMInferenceServiceName)
+				g.Expect(updated.Subjects).To(HaveLen(1))
+				g.Expect(updated.Subjects[0].Kind).To(Equal("User"))
+				g.Expect(updated.Subjects[0].Name).To(Equal("custom-user"))
+			}).WithContext(ctx).Should(Succeed())
+		})
+
+		It("should recreate RoleBinding when RoleRef points at the wrong Role", func(ctx SpecContext) {
+			llmisvc := fixture.CreateBasicLLMInferenceService(ctx, envTest.Client, testNs, LLMInferenceServiceName, nil)
+
+			_ = fixture.WaitForInferenceAccessRole(ctx, envTest.Client, testNs, LLMInferenceServiceName)
+			rb := fixture.WaitForInferenceAccessRoleBinding(ctx, envTest.Client, testNs, LLMInferenceServiceName)
+			rbName := rb.Name
+
+			wrongRoleName := "wrong-role-ref-target"
+			wrongRole := &rbacv1.Role{
+				ObjectMeta: metav1.ObjectMeta{Name: wrongRoleName, Namespace: testNs},
+				Rules: []rbacv1.PolicyRule{{
+					APIGroups: []string{""},
+					Resources: []string{"configmaps"},
+					Verbs:     []string{"get"},
+				}},
+			}
+			Expect(envTest.Client.Create(ctx, wrongRole)).Should(Succeed())
+			Expect(envTest.Client.Delete(ctx, rb)).Should(Succeed())
+
+			broken := &rbacv1.RoleBinding{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      rbName,
+					Namespace: testNs,
+					Labels:    rb.Labels,
+				},
+				Subjects: rb.Subjects,
+				RoleRef: rbacv1.RoleRef{
+					APIGroup: rbacv1.GroupName,
+					Kind:     "Role",
+					Name:     wrongRoleName,
+				},
+			}
+			Expect(controllerutil.SetControllerReference(llmisvc, broken, envTest.Environment.Scheme)).Should(Succeed())
+			Expect(envTest.Client.Create(ctx, broken)).Should(Succeed())
+
+			if llmisvc.Annotations == nil {
+				llmisvc.Annotations = make(map[string]string)
+			}
+			llmisvc.Annotations["test/trigger-roleref-recreate"] = "1"
+			Expect(envTest.Client.Update(ctx, llmisvc)).Should(Succeed())
+
+			Eventually(func(g Gomega) {
+				fixed := fixture.WaitForInferenceAccessRoleBinding(ctx, envTest.Client, testNs, LLMInferenceServiceName)
+				g.Expect(fixed.RoleRef.Name).To(Equal(fixture.GetInferenceAccessRoleName(LLMInferenceServiceName)))
+				g.Expect(fixed.Subjects).To(HaveLen(1))
+				g.Expect(fixed.Subjects[0].Name).To(Equal("system:authenticated"))
+			}).WithContext(ctx).Should(Succeed())
 		})
 	})
 
