@@ -335,7 +335,7 @@ func (r *GatewayReconciler) isGatewayReferencedByLLMService(ctx context.Context,
 	}
 
 	for i := range llmSvcList.Items {
-		for _, ref := range r.getEffectiveGatewayRefs(ctx, &llmSvcList.Items[i]) {
+		for _, ref := range r.getEffectiveGatewayRefs(ctx, gateway, &llmSvcList.Items[i]) {
 			ns := string(ref.Namespace)
 			if ns == "" {
 				ns = llmSvcList.Items[i].Namespace
@@ -351,9 +351,9 @@ func (r *GatewayReconciler) isGatewayReferencedByLLMService(ctx context.Context,
 // getEffectiveGatewayRefs returns the effective gateway references for an LLMInferenceService.
 // The service's own gateway refs take precedence over those inherited from BaseRef configs,
 // matching the "last one wins" merge semantics used by kserve's MergeSpecs.
-func (r *GatewayReconciler) getEffectiveGatewayRefs(ctx context.Context, llmSvc *kservev1alpha2.LLMInferenceService) []kservev1alpha2.UntypedObjectReference {
+func (r *GatewayReconciler) getEffectiveGatewayRefs(ctx context.Context, gateway *gatewayapiv1.Gateway, llmSvc *kservev1alpha2.LLMInferenceService) []kservev1alpha2.UntypedObjectReference {
 	// Service's own refs take precedence (replace config refs)
-	if refs := getGatewayRefs(llmSvc); len(refs) > 0 {
+	if refs := getGatewayRefs(gateway, llmSvc); len(refs) > 0 {
 		return refs
 	}
 
@@ -373,7 +373,62 @@ func (r *GatewayReconciler) getEffectiveGatewayRefs(ctx context.Context, llmSvc 
 		}
 	}
 
-	return refs
+	return filterAllowedRefs(gateway, refs, llmSvc.Namespace)
+}
+
+func filterAllowedRefs(gateway *gatewayapiv1.Gateway, refs []kservev1alpha2.UntypedObjectReference, targetNS string) []kservev1alpha2.UntypedObjectReference {
+	if gateway == nil {
+		return refs
+	}
+
+	var allowed []kservev1alpha2.UntypedObjectReference
+	for _, ref := range refs {
+		refNs := string(ref.Namespace)
+		if refNs == "" {
+			refNs = targetNS
+		}
+		if string(ref.Name) != gateway.Name || refNs != gateway.Namespace {
+			// Ref points to a different gateway — keep it, we can't evaluate.
+			allowed = append(allowed, ref)
+			continue
+		}
+
+		if gatewayAllowsNamespace(gateway, targetNS) {
+			allowed = append(allowed, ref)
+		}
+	}
+	return allowed
+}
+
+// gatewayAllowsNamespace returns true if at least one listener on the gateway
+// permits routes from targetNS according to the Gateway API allowedRoutes spec.
+func gatewayAllowsNamespace(gateway *gatewayapiv1.Gateway, targetNS string) bool {
+	for _, listener := range gateway.Spec.Listeners {
+		if listenerAllowsNamespace(listener, gateway.Namespace, targetNS) {
+			return true
+		}
+	}
+	return false
+}
+
+func listenerAllowsNamespace(l gatewayapiv1.Listener, gwNamespace, targetNS string) bool {
+	if l.AllowedRoutes == nil || l.AllowedRoutes.Namespaces == nil || l.AllowedRoutes.Namespaces.From == nil {
+		// Default is "Same" per Gateway API spec.
+		return gwNamespace == targetNS
+	}
+
+	switch *l.AllowedRoutes.Namespaces.From {
+	case gatewayapiv1.NamespacesFromAll:
+		return true
+	case gatewayapiv1.NamespacesFromSame:
+		return gwNamespace == targetNS
+	case gatewayapiv1.NamespacesFromSelector:
+		// Selector requires namespace labels which aren't available here.
+		// Be permissive — the gateway itself will reject invalid routes.
+		return true
+	default:
+		return false
+	}
 }
 
 // fetchLLMISvcConfig fetches LLMInferenceServiceConfig by name, first from the given namespace,
@@ -408,7 +463,7 @@ func (r *GatewayReconciler) enqueueGatewaysFromLLMInferenceService() handler.Eve
 		}
 
 		var requests []reconcile.Request
-		for _, ref := range r.getEffectiveGatewayRefs(ctx, llmSvc) {
+		for _, ref := range r.getEffectiveGatewayRefs(ctx, nil, llmSvc) {
 			namespace := string(ref.Namespace)
 			if namespace == "" {
 				namespace = llmSvc.Namespace
@@ -463,7 +518,7 @@ func (r *GatewayReconciler) enqueueGatewaysFromLLMInferenceServiceConfig() handl
 			if !referencesConfig(svc, cfg.Name) {
 				continue
 			}
-			for _, ref := range r.getEffectiveGatewayRefs(ctx, svc) {
+			for _, ref := range r.getEffectiveGatewayRefs(ctx, nil, svc) {
 				namespace := string(ref.Namespace)
 				if namespace == "" {
 					namespace = svc.Namespace
@@ -559,7 +614,7 @@ func configGatewayRefsChanged(oldCfg, newCfg *kservev1alpha2.LLMInferenceService
 // gatewayRefsChanged reports whether gateway refs or BaseRefs differ between two LLMInferenceService objects.
 // BaseRefs are compared because they can introduce gateway refs via LLMInferenceServiceConfig.
 func gatewayRefsChanged(old, new *kservev1alpha2.LLMInferenceService) bool {
-	if !gatewayRefsEqual(getGatewayRefs(old), getGatewayRefs(new)) {
+	if !gatewayRefsEqual(getGatewayRefs(nil, old), getGatewayRefs(nil, new)) {
 		return true
 	}
 
@@ -587,9 +642,9 @@ func gatewayRefsChanged(old, new *kservev1alpha2.LLMInferenceService) bool {
 	return false
 }
 
-func getGatewayRefs(llmSvc *kservev1alpha2.LLMInferenceService) []kservev1alpha2.UntypedObjectReference {
+func getGatewayRefs(gateway *gatewayapiv1.Gateway, llmSvc *kservev1alpha2.LLMInferenceService) []kservev1alpha2.UntypedObjectReference {
 	if llmSvc.Spec.Router != nil && llmSvc.Spec.Router.Gateway.HasRefs() {
-		return slices.Clone(llmSvc.Spec.Router.Gateway.Refs)
+		return filterAllowedRefs(gateway, slices.Clone(llmSvc.Spec.Router.Gateway.Refs), llmSvc.Namespace)
 	}
 	return nil
 }
