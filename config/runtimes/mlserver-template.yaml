@@ -22,6 +22,7 @@ objects:
       annotations:
         openshift.io/display-name: MLServer ServingRuntime for KServe
         opendatahub.io/runtime-version: '1.7.1'
+        serving.kserve.io/server-type: mlserver
       labels:
         opendatahub.io/dashboard: 'true'
     spec:
