@@ -64,6 +64,7 @@ func NewLLMInferenceServiceReconciler(client client.Client, scheme *runtime.Sche
 	subResourceReconcilers := []parentreconcilers.LLMSubResourceReconciler{
 		reconcilers.NewKserveAuthPolicyReconciler(client, scheme),
 		reconcilers.NewKserveEnvoyFilterReconciler(client, scheme),
+		reconcilers.NewKserveRBACReconciler(client, scheme),
 	}
 
 	return &LLMInferenceServiceReconciler{
@@ -136,6 +137,7 @@ func (r *LLMInferenceServiceReconciler) Reconcile(ctx context.Context, req ctrl.
 	return ctrl.Result{}, nil
 }
 
+// +kubebuilder:rbac:groups=rbac.authorization.k8s.io,resources=roles;rolebindings,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups=serving.kserve.io,resources=llminferenceservices,verbs=get;list;watch;update;patch;post
 // +kubebuilder:rbac:groups=serving.kserve.io,resources=llminferenceservices/status,verbs=get;update;patch
 // +kubebuilder:rbac:groups=serving.kserve.io,resources=llminferenceservices/finalizers,verbs=update;patch
