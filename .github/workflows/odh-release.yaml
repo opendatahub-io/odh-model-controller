@@ -4,19 +4,18 @@ on:
   workflow_dispatch:
     inputs:
       repository:
-        description: 'Target repository (odh-model-controller, kserve, llm-d-inference-scheduler)'
+        description: 'Target repository (odh-model-controller, kserve)'
         required: true
         type: choice
         options:
           - odh-model-controller
-          - llm-d-inference-scheduler
           - kserve
       tag_name: # The new release tag to be created and used as the search value.
         description: 'New release tag (e.g., odh-v2.35)'
         required: true
         type: string
       next_tag_name: # The next tag to replace the current one in the Konflux files.
-        description: 'Next development tag (e.g., odh-v2.36) - not required for llm-d-inference-scheduler'
+        description: 'Next development tag (e.g., odh-v2.36)'
         required: false
         type: string
       target_branch:
@@ -89,13 +88,12 @@ jobs:
             errors.append(f"Tag '{tag_name}' does not match expected format 'odh-vX.Y' or 'odh-vX.Y.Z'")
           
           # next_tag validation only required for repos that need Tekton bumping
-          if repository != "llm-d-inference-scheduler":
-            if not next_tag:
-              errors.append("next_tag_name is required for this repository")
-            elif not re.match(tag_pattern, next_tag):
-              errors.append(f"Next tag '{next_tag}' does not match expected format 'odh-vX.Y' or 'odh-vX.Y.Z'")
-            elif tag_name == next_tag:
-              errors.append(f"tag_name and next_tag_name must be different (both are '{tag_name}')")
+          if not next_tag:
+            errors.append("next_tag_name is required for this repository")
+          elif not re.match(tag_pattern, next_tag):
+            errors.append(f"Next tag '{next_tag}' does not match expected format 'odh-vX.Y' or 'odh-vX.Y.Z'")
+          elif tag_name == next_tag:
+            errors.append(f"tag_name and next_tag_name must be different (both are '{tag_name}')")
           
           # Fail fast if validation errors exist
           if errors:
@@ -136,38 +134,27 @@ jobs:
           import glob
           
           repository = "${{ github.event.inputs.repository }}"
-          
-          # Skip file discovery for llm-d-inference-scheduler
-          if repository == "llm-d-inference-scheduler":
-            print("Skipping file discovery for llm-d-inference-scheduler")
-            with open(os.environ['GITHUB_OUTPUT'], 'a') as f:
-              f.write(f"params_env_files=[]\n")
-              f.write(f"tekton_files=[]\n")
-              f.write(f"has_params_env=false\n")
-              f.write(f"has_tekton=false\n")
-            print("✓ Discovery skipped - no files to update for this repository")
-          else:
-            # Discover params.env files under config/
-            params_env_files = glob.glob('config/**/params.env', recursive=True)
-            
-            # Discover YAML files under .tekton/
-            tekton_files = glob.glob('.tekton/**/*.yaml', recursive=True) + \
-                           glob.glob('.tekton/**/*.yml', recursive=True)
-            
-            # Output results
-            print(f"Found params.env files: {params_env_files}")
-            print(f"Found tekton files: {tekton_files}")
-            
-            # Write outputs
-            with open(os.environ['GITHUB_OUTPUT'], 'a') as f:
-              f.write(f"params_env_files={json.dumps(params_env_files)}\n")
-              f.write(f"tekton_files={json.dumps(tekton_files)}\n")
-              f.write(f"has_params_env={'true' if params_env_files else 'false'}\n")
-              f.write(f"has_tekton={'true' if tekton_files else 'false'}\n")
-            
-            print(f"\n✓ Discovery complete")
-            print(f"  params.env files: {len(params_env_files)}")
-            print(f"  Tekton files: {len(tekton_files)}")
+          # Discover params.env files under config/
+          params_env_files = glob.glob('config/**/params.env', recursive=True)
+
+          # Discover YAML files under .tekton/
+          tekton_files = glob.glob('.tekton/**/*.yaml', recursive=True) + \
+                          glob.glob('.tekton/**/*.yml', recursive=True)
+
+          # Output results
+          print(f"Found params.env files: {params_env_files}")
+          print(f"Found tekton files: {tekton_files}")
+
+          # Write outputs
+          with open(os.environ['GITHUB_OUTPUT'], 'a') as f:
+            f.write(f"params_env_files={json.dumps(params_env_files)}\n")
+            f.write(f"tekton_files={json.dumps(tekton_files)}\n")
+            f.write(f"has_params_env={'true' if params_env_files else 'false'}\n")
+            f.write(f"has_tekton={'true' if tekton_files else 'false'}\n")
+
+          print(f"\n✓ Discovery complete")
+          print(f"  params.env files: {len(params_env_files)}")
+          print(f"  Tekton files: {len(tekton_files)}")
         shell: python
 
   create-release:
@@ -218,9 +205,9 @@ jobs:
               r'([\w.-]+(?:\.[\w.-]+)*/[\w.-]+/(?:odh-model-controller|odh-model-serving-api|mlserver)):((?:odh-model-serving-api-)?)(fast|v[\d.]+-latest|release-v[\d.]+|odh-v[\d.]+(?:-EA\d)?)'
             )
           else:
-            # For kserve and others: update all matching images except llm-d-* images
+            # For kserve and others: update all matching images
             image_pattern = re.compile(
-              r'([\w.-]+(?:\.[\w.-]+)*/[\w.-]+/(?!llm-d-inference-scheduler|llm-d-routing-sidecar)[\w.-]+):()(fast|v[\d.]+-latest|release-v[\d.]+|odh-v[\d.]+(?:-EA\d)?)'
+              r'([\w.-]+(?:\.[\w.-]+)*/[\w.-]+/[\w.-]+):()(fast|v[\d.]+-latest|release-v[\d.]+|odh-v[\d.]+(?:-EA\d)?)'
             )
           
           updated_files = []
@@ -295,7 +282,7 @@ jobs:
     name: Bump Tekton tags for next release
     runs-on: ubuntu-latest
     needs: [validate-and-check, create-release]
-    if: always() && needs.create-release.result == 'success' && needs.validate-and-check.outputs.has_tekton == 'true' && !(github.event.inputs.repository == 'llm-d-inference-scheduler' && github.event.inputs.next_tag_name == '')
+    if: always() && needs.create-release.result == 'success' && needs.validate-and-check.outputs.has_tekton == 'true'
     outputs:
       pr_url: ${{ steps.create_pr.outputs.pr_url }}
     steps:
