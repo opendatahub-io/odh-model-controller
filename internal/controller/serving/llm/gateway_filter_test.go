@@ -65,6 +65,7 @@ func TestFilterAllowedRefs(t *testing.T) {
 		gateway  *gatewayapiv1.Gateway
 		refs     []kservev1alpha2.UntypedObjectReference
 		targetNS string
+		nsLabels map[string]string
 		wantLen  int
 		wantRefs []kservev1alpha2.UntypedObjectReference
 	}{
@@ -124,11 +125,28 @@ func TestFilterAllowedRefs(t *testing.T) {
 			wantLen:  0,
 		},
 		{
-			name:     "From Selector is permissive",
+			name:     "From Selector with matching labels allows",
 			gateway:  gateway("gw", "gw-ns", selectorListener("http")),
 			refs:     []kservev1alpha2.UntypedObjectReference{ref("gw", "gw-ns")},
 			targetNS: "any-ns",
+			nsLabels: map[string]string{"env": "prod"},
 			wantLen:  1,
+		},
+		{
+			name:     "From Selector with non-matching labels rejects",
+			gateway:  gateway("gw", "gw-ns", selectorListener("http")),
+			refs:     []kservev1alpha2.UntypedObjectReference{ref("gw", "gw-ns")},
+			targetNS: "any-ns",
+			nsLabels: map[string]string{"env": "staging"},
+			wantLen:  0,
+		},
+		{
+			name:     "From Selector with nil labels rejects",
+			gateway:  gateway("gw", "gw-ns", selectorListener("http")),
+			refs:     []kservev1alpha2.UntypedObjectReference{ref("gw", "gw-ns")},
+			targetNS: "any-ns",
+			nsLabels: nil,
+			wantLen:  0,
 		},
 		{
 			name:    "empty ref namespace defaults to targetNS",
@@ -180,7 +198,7 @@ func TestFilterAllowedRefs(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got := filterAllowedRefs(tt.gateway, tt.refs, tt.targetNS)
+			got := filterAllowedRefs(tt.gateway, tt.refs, tt.targetNS, tt.nsLabels)
 			if len(got) != tt.wantLen {
 				t.Fatalf("filterAllowedRefs() returned %d refs, want %d; got %+v", len(got), tt.wantLen, got)
 			}
@@ -201,6 +219,7 @@ func TestListenerAllowsNamespace(t *testing.T) {
 		listener    gatewayapiv1.Listener
 		gwNamespace string
 		targetNS    string
+		nsLabels    map[string]string
 		want        bool
 	}{
 		{
@@ -259,14 +278,31 @@ func TestListenerAllowsNamespace(t *testing.T) {
 			want:        false,
 		},
 		{
-			name:        "From Selector is permissive",
+			name:        "From Selector with matching labels allows",
 			listener:    selectorListener("http"),
 			gwNamespace: "gw-ns",
 			targetNS:    "any-ns",
+			nsLabels:    map[string]string{"env": "prod"},
 			want:        true,
 		},
 		{
-			name: "From Selector with nil selector is permissive",
+			name:        "From Selector with non-matching labels rejects",
+			listener:    selectorListener("http"),
+			gwNamespace: "gw-ns",
+			targetNS:    "any-ns",
+			nsLabels:    map[string]string{"env": "staging"},
+			want:        false,
+		},
+		{
+			name:        "From Selector with nil labels rejects",
+			listener:    selectorListener("http"),
+			gwNamespace: "gw-ns",
+			targetNS:    "any-ns",
+			nsLabels:    nil,
+			want:        false,
+		},
+		{
+			name: "From Selector with nil selector rejects",
 			listener: gatewayapiv1.Listener{
 				AllowedRoutes: &gatewayapiv1.AllowedRoutes{
 					Namespaces: &gatewayapiv1.RouteNamespaces{
@@ -276,13 +312,14 @@ func TestListenerAllowsNamespace(t *testing.T) {
 			},
 			gwNamespace: "gw-ns",
 			targetNS:    "any-ns",
-			want:        true,
+			nsLabels:    map[string]string{"env": "prod"},
+			want:        false,
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got := listenerAllowsNamespace(tt.listener, tt.gwNamespace, tt.targetNS)
+			got := listenerAllowsNamespace(tt.listener, tt.gwNamespace, tt.targetNS, tt.nsLabels)
 			if got != tt.want {
 				t.Errorf("listenerAllowsNamespace() = %v, want %v", got, tt.want)
 			}
@@ -295,6 +332,7 @@ func TestGatewayAllowsNamespace(t *testing.T) {
 		name     string
 		gateway  *gatewayapiv1.Gateway
 		targetNS string
+		nsLabels map[string]string
 		want     bool
 	}{
 		{
@@ -333,11 +371,25 @@ func TestGatewayAllowsNamespace(t *testing.T) {
 			targetNS: "other-ns",
 			want:     false,
 		},
+		{
+			name:     "selector listener with matching labels",
+			gateway:  gateway("gw", "gw-ns", selectorListener("http")),
+			targetNS: "other-ns",
+			nsLabels: map[string]string{"env": "prod"},
+			want:     true,
+		},
+		{
+			name:     "selector listener with non-matching labels",
+			gateway:  gateway("gw", "gw-ns", selectorListener("http")),
+			targetNS: "other-ns",
+			nsLabels: map[string]string{"env": "staging"},
+			want:     false,
+		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got := gatewayAllowsNamespace(tt.gateway, tt.targetNS)
+			got := gatewayAllowsNamespace(tt.gateway, tt.targetNS, tt.nsLabels)
 			if got != tt.want {
 				t.Errorf("gatewayAllowsNamespace() = %v, want %v", got, tt.want)
 			}
