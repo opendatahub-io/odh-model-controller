@@ -152,7 +152,11 @@ test-e2e-server: ## Run model-serving-api e2e tests. Requires the server deploye
 	echo "METRICS_URL=$$MODEL_SERVING_API_METRICS_URL" && \
 	MODEL_SERVING_API_URL=$$MODEL_SERVING_API_URL \
 	MODEL_SERVING_API_METRICS_URL=$$MODEL_SERVING_API_METRICS_URL \
-		go test -v -tags=e2e -parallel=12 ./server/test/e2e/ -v -count=1
+		go test -v -tags=e2e -timeout=10m -parallel=12 ./server/test/e2e/ -v -count=1
+
+.PHONY: test-e2e-controller
+test-e2e-controller: ## Run controller e2e tests. Requires controller + gateway + Authorino deployed.
+	go test -v -tags=e2e -timeout=10m -parallel=12 ./internal/controller/test/e2e/ -count=1
 
 .PHONY: e2e-kserve-overlay
 e2e-kserve-overlay: kustomize ## Create a kustomize overlay injecting the controller image for e2e tests.
@@ -187,6 +191,7 @@ test-e2e-kserve-ocp: e2e-kserve-overlay ## Run KServe e2e tests on OpenShift.
 	echo "=== Running KServe E2E Tests ====== '$(KSERVE_E2E_TEST_ARGS)'" && \
 	./test/scripts/openshift-ci/run-e2e-tests.sh $(KSERVE_E2E_TEST_ARGS)
 	$(MAKE) test-e2e-server
+	$(MAKE) test-e2e-controller
 
 .PHONY: lint
 lint: golangci-lint ## Run golangci-lint linter
