@@ -259,16 +259,21 @@ var _ = Describe("Gateway Controller", func() {
 
 			gatewayName := pkgtest.GenerateUniqueTestName("all-listener-gateway")
 			from := gatewayapiv1.NamespacesFromAll
-			createGateway(ctx, gatewayName, fixture.WithListeners(gatewayapiv1.Listener{
-				Name:     "http",
-				Port:     80,
-				Protocol: gatewayapiv1.HTTPProtocolType,
-				AllowedRoutes: &gatewayapiv1.AllowedRoutes{
-					Namespaces: &gatewayapiv1.RouteNamespaces{
-						From: &from,
+			gw := fixture.Gateway(gatewayName,
+				fixture.InNamespace[*gatewayapiv1.Gateway](testNs),
+				fixture.WithClassName(GatewayClassName),
+				fixture.WithListeners(gatewayapiv1.Listener{
+					Name:     "http",
+					Port:     80,
+					Protocol: gatewayapiv1.HTTPProtocolType,
+					AllowedRoutes: &gatewayapiv1.AllowedRoutes{
+						Namespaces: &gatewayapiv1.RouteNamespaces{
+							From: &from,
+						},
 					},
-				},
-			}))
+				}),
+			)
+			Expect(envTest.Client.Create(ctx, gw)).Should(Succeed())
 
 			// Create LLMInferenceService in a different namespace
 			llmSvc := fixture.LLMInferenceService("test-llmisvc",
