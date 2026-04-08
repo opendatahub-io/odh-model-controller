@@ -23,12 +23,10 @@ import (
 	"strings"
 	"text/template"
 
-	kservev1alpha1 "github.com/kserve/kserve/pkg/apis/serving/v1alpha1"
 	"github.com/opendatahub-io/odh-model-controller/internal/controller/constants"
 	controllerutils "github.com/opendatahub-io/odh-model-controller/internal/controller/utils"
 	istioclientv1alpha3 "istio.io/client-go/pkg/apis/networking/v1alpha3"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/util/retry"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -47,10 +45,6 @@ type EnvoyFilterStore interface {
 	Remove(ctx context.Context, key types.NamespacedName) error
 	Create(ctx context.Context, envoyFilter *istioclientv1alpha3.EnvoyFilter) error
 	Update(ctx context.Context, envoyFilter *istioclientv1alpha3.EnvoyFilter) error
-}
-
-type EnvoyFilterMatcher interface {
-	FindLLMServiceFromEnvoyFilter(ctx context.Context, envoyFilter *istioclientv1alpha3.EnvoyFilter) ([]types.NamespacedName, error)
 }
 
 //go:embed template/envoyfilter_ssl.yaml
@@ -72,6 +66,14 @@ func (k *kserveEnvoyFilterTemplateLoader) Load(ctx context.Context, gatewayNames
 	return k.renderSSLTemplate(gatewayNamespace, gatewayName, kuadrantNamespace)
 }
 
+type envoyFilterTemplateData struct {
+	Name              string
+	Namespace         string
+	TargetKind        string
+	TargetName        string
+	KuadrantNamespace string
+}
+
 // renderSSLTemplate renders the EnvoyFilter template. Pure function.
 func (k *kserveEnvoyFilterTemplateLoader) renderSSLTemplate(gatewayNamespace, gatewayName, kuadrantNamespace string) (*istioclientv1alpha3.EnvoyFilter, error) {
 	tmpl, err := template.New("envoyfilter").Parse(string(envoyFilterTemplateSSL))
@@ -79,21 +81,17 @@ func (k *kserveEnvoyFilterTemplateLoader) renderSSLTemplate(gatewayNamespace, ga
 		return nil, fmt.Errorf("failed to parse EnvoyFilter template: %w", err)
 	}
 
-	templateData := struct {
-		Name              string
-		GatewayName       string
-		GatewayNamespace  string
-		KuadrantNamespace string
-	}{
+	data := envoyFilterTemplateData{
 		Name:              constants.GetGatewayEnvoyFilterName(gatewayName),
-		GatewayName:       gatewayName,
-		GatewayNamespace:  gatewayNamespace,
+		Namespace:         gatewayNamespace,
+		TargetKind:        "Gateway",
+		TargetName:        gatewayName,
 		KuadrantNamespace: kuadrantNamespace,
 	}
 
 	var builder strings.Builder
-	if err := tmpl.Execute(&builder, templateData); err != nil {
-		return nil, fmt.Errorf("failed to execute EnvoyFilter template with data %+v: %w", templateData, err)
+	if err := tmpl.Execute(&builder, data); err != nil {
+		return nil, fmt.Errorf("failed to execute EnvoyFilter template with data %+v: %w", data, err)
 	}
 
 	envoyFilter := &istioclientv1alpha3.EnvoyFilter{}
@@ -155,46 +153,4 @@ func (c *clientEnvoyFilterStore) Update(ctx context.Context, envoyFilter *istioc
 		envoyFilter.SetResourceVersion(current.GetResourceVersion())
 		return c.client.Update(ctx, envoyFilter)
 	})
-}
-
-type kserveEnvoyFilterMatcher struct {
-	client client.Client
-}
-
-func NewKServeEnvoyFilterMatcher(client client.Client) EnvoyFilterMatcher {
-	return &kserveEnvoyFilterMatcher{
-		client: client,
-	}
-}
-
-func (k *kserveEnvoyFilterMatcher) FindLLMServiceFromEnvoyFilter(ctx context.Context, envoyFilter *istioclientv1alpha3.EnvoyFilter) ([]types.NamespacedName, error) {
-	if len(envoyFilter.Spec.TargetRefs) == 0 {
-		return nil, nil
-	}
-	targetRef := envoyFilter.Spec.TargetRefs[0]
-
-	var matchedServices []types.NamespacedName
-	continueToken := ""
-	for {
-		llmSvcList := &kservev1alpha1.LLMInferenceServiceList{}
-		if err := k.client.List(ctx, llmSvcList, &client.ListOptions{Namespace: metav1.NamespaceAll, Continue: continueToken}); err != nil {
-			return nil, err
-		}
-
-		for _, llmSvc := range llmSvcList.Items {
-			if controllerutils.LLMIsvcUsesGateway(ctx, k.client, &llmSvc, envoyFilter.Namespace, targetRef.Name) {
-				matchedServices = append(matchedServices, types.NamespacedName{
-					Name:      llmSvc.Name,
-					Namespace: llmSvc.Namespace,
-				})
-			}
-		}
-
-		if llmSvcList.Continue == "" {
-			break
-		}
-		continueToken = llmSvcList.Continue
-	}
-
-	return matchedServices, nil
 }

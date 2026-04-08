@@ -52,8 +52,16 @@ func SetupTestEnv() *pkgtest.Client {
 		).SetupWithManager(mgr, setupLog)
 	}
 
+	gatewayCtrlFunc := func(mgr ctrl.Manager, cfg *rest.Config) error {
+		return llmcontroller.NewGatewayReconciler(
+			mgr.GetClient(),
+			mgr.GetScheme(),
+			mgr.GetEventRecorderFor("GatewayAuthBootstrap"),
+		).SetupWithManager(mgr, setupLog)
+	}
+
 	envTest := pkgtest.NewEnvTest().
-		WithControllers(llmCtrlFunc).
+		WithControllers(llmCtrlFunc, gatewayCtrlFunc).
 		Start(ctx)
 
 	ginkgo.DeferCleanup(func() {

@@ -2,34 +2,32 @@ apiVersion: kuadrant.io/v1
 kind: AuthPolicy
 metadata:
   name: {{.Name}}
-  namespace: {{.GatewayNamespace}}
-  labels:
-    "app.kubernetes.io/name": "llminferenceservice-auth"
-    "app.kubernetes.io/component": "llminferenceservice-policies"
-    "app.kubernetes.io/part-of": "llminferenceservice"
-    "app.kubernetes.io/managed-by": "odh-model-controller"
+  namespace: {{.Namespace}}
 spec:
   targetRef:
     group: gateway.networking.k8s.io
-    kind: Gateway
-    name: {{.GatewayName}}
+    kind: {{.TargetKind}}
+    name: {{.TargetName}}
   rules:
     authentication:
       kubernetes-user:
         kubernetesTokenReview:
-          audiences: {{.AudiencesJSON}}
+          audiences:
+            - https://kubernetes.default.svc
         overrides:
           fairness:
-            value: "{{.Issuer}}"
+            value: "https://kubernetes.default.svc"
           objective:
-            expression: "{{.ObjectiveExpression}}"
+            expression: "auth.identity.user.username.startsWith('system:serviceaccount:') ? auth.identity.user.username.split(':')[2] : 'authenticated'"
     authorization:
       inference-access:
+        when:
+          - predicate: "!(request.path == '/v1/files' || request.path.startsWith('/v1/files/') || request.path == '/v1/batches' || request.path.startsWith('/v1/batches/'))"
         kubernetesSubjectAccessReview:
           user:
-            expression: auth.identity.user.username
+            expression: "'x-maas-user' in request.headers ? request.headers['x-maas-user'] : auth.identity.user.username"
           authorizationGroups:
-            expression: auth.identity.user.groups
+            expression: "'x-maas-user' in request.headers ? ('x-maas-groups' in request.headers ? request.headers['x-maas-groups'].split(',') : []) : auth.identity.user.groups"
           resourceAttributes:
             group:
               value: serving.kserve.io
@@ -41,6 +39,27 @@ spec:
               expression: request.path.split("/")[2]
             verb:
               value: get
+        priority: 1
+      inference-access-delegate:
+        when:
+          - predicate: "!(request.path == '/v1/files' || request.path.startsWith('/v1/files/') || request.path == '/v1/batches' || request.path.startsWith('/v1/batches/'))"
+          - predicate: "'x-maas-user' in request.headers"
+        kubernetesSubjectAccessReview:
+          user:
+            expression: "auth.identity.user.username"
+          authorizationGroups:
+            expression: "auth.identity.user.groups"
+          resourceAttributes:
+            group:
+              value: serving.kserve.io
+            resource:
+              value: llminferenceservices/delegate
+            namespace:
+              expression: request.path.split("/")[1]
+            name:
+              expression: request.path.split("/")[2]
+            verb:
+              value: post-delegate
         priority: 1
     response:
       success:
@@ -54,4 +73,16 @@ spec:
             metrics: false
             plain:
               expression: auth.identity.objective
+            priority: 0
+          x-maas-user:
+            when:
+              - predicate: "request.path == '/v1/files' || request.path.startsWith('/v1/files/') || request.path == '/v1/batches' || request.path.startsWith('/v1/batches/')"
+            plain:
+              expression: auth.identity.user.username
+            priority: 0
+          x-maas-groups:
+            when:
+              - predicate: "request.path == '/v1/files' || request.path.startsWith('/v1/files/') || request.path == '/v1/batches' || request.path.startsWith('/v1/batches/')"
+            plain:
+              expression: "auth.identity.user.groups.join(',')"
             priority: 0

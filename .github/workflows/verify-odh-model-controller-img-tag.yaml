@@ -1,4 +1,4 @@
-name: Check ODH Model Controller Image Tag
+name: Check ODH Image Tags
 
 on:
   pull_request:
@@ -14,32 +14,43 @@ jobs:
       - name: Checkout PR branch
         uses: actions/checkout@v4
 
-      - name: Extract image tag from PR branch
-        id: extract-pr
-        run: |
-          IMAGE_TAG=$(grep '^odh-model-controller' config/base/params.env | cut -d '=' -f 2 | cut -d ':' -f 2 | tr -d ' ')
-          echo "PR_IMAGE_TAG=$IMAGE_TAG" >> $GITHUB_ENV
-
-      - name: Compare image tags
-        id: compare-tags
+      - name: Determine expected tag
+        id: expected-tag
         run: |
           if [ "${{ github.base_ref }}" == "incubating" ]; then
             EXPECTED_TAG="fast"
           elif [[ "${{ github.base_ref }}" == "main" ]]; then
             EXPECTED_TAG="stable"
           elif [[ "${GITHUB_REF}" == refs/tags/odh-v* ]]; then
-            TAG="${GITHUB_REF#refs/tags/}"
-            echo "EXPECTED_TAG=${TAG}" >> $GITHUB_ENV
+            EXPECTED_TAG="${GITHUB_REF#refs/tags/}"
           else
             echo "Unknown destination branch: ${{ github.base_ref }} or tag: ${GITHUB_REF}"
             exit 1
           fi
+          echo "EXPECTED_TAG=$EXPECTED_TAG" >> $GITHUB_ENV
 
-          # Check if PR_IMAGE_TAG matches EXPECTED_TAG followed by a dot and digits
-          PR_IMAGE_TAG=${{ env.PR_IMAGE_TAG }}
-          if [[ ! "$PR_IMAGE_TAG" =~  ^"$EXPECTED_TAG"(\.[0-9]+)?$ ]]; then
-            echo "Image tag mismatch! Expected '$EXPECTED_TAG' but found '$PR_IMAGE_TAG'"
+      - name: Verify image tags
+        run: |
+          EXPECTED_TAG="${{ env.EXPECTED_TAG }}"
+          FAILED=0
+
+          for IMAGE in odh-model-controller odh-model-serving-api; do
+            IMAGE_TAG=$(grep "^${IMAGE}=" config/base/params.env | cut -d '=' -f 2 | cut -d ':' -f 2 | tr -d ' ')
+            if [[ -z "$IMAGE_TAG" ]]; then
+              echo "WARNING: ${IMAGE} not found in params.env, skipping"
+              continue
+            fi
+            # Strip optional image-name prefix from tag (e.g. odh-model-serving-api-fast -> fast)
+            # to handle images published as tag prefixes under another repo
+            STRIPPED_TAG="${IMAGE_TAG#${IMAGE}-}"
+            if [[ ! "$STRIPPED_TAG" =~ ^"$EXPECTED_TAG"(\.[0-9]+)?$ ]]; then
+              echo "Image tag mismatch for ${IMAGE}! Expected '$EXPECTED_TAG' (or '${IMAGE}-${EXPECTED_TAG}') but found '$IMAGE_TAG'"
+              FAILED=1
+            else
+              echo "Image tag for ${IMAGE} ('$IMAGE_TAG') is correct."
+            fi
+          done
+
+          if [[ "$FAILED" -eq 1 ]]; then
             exit 1
           fi
-
-          echo "Image tag ('$PR_IMAGE_TAG') is correct."

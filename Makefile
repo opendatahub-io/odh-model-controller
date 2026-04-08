@@ -1,5 +1,8 @@
 # Image URL to use all building/pushing image targets
 IMG ?= quay.io/${USER}/odh-model-controller:latest
+SERVER_IMG_TAG ?= latest
+SERVER_IMG ?= quay.io/${USER}/odh-model-serving-api:${SERVER_IMG_TAG}
+NAMESPACE ?= opendatahub
 # ENVTEST_K8S_VERSION refers to the version of kubebuilder assets to be downloaded by envtest binary.
 ENVTEST_K8S_VERSION = 1.31.0
 
@@ -10,7 +13,15 @@ else
 GOBIN=$(shell go env GOBIN)
 endif
 
-KSERVE_MANIFESTS_REVISION ?= 3a1dc463c63c03bb2e8d63ac9d2c3167f25d1e68
+KSERVE_MANIFESTS_REVISION ?= v0.17.0-rc1
+
+# KServe E2E test configuration
+KSERVE_E2E_REPO ?= https://github.com/opendatahub-io/kserve.git
+KSERVE_E2E_BRANCH ?= master
+KSERVE_E2E_DIR ?= $(LOCALBIN)/kserve
+KSERVE_E2E_TEST_ARGS ?= raw 2 raw
+ODH_MODEL_CONTROLLER_IMAGE ?= $(IMG)
+E2E_OVERLAY_DIR = $(LOCALBIN)/e2e-kserve-overlay
 # Define the file to store the last used KServe revision
 KSERVE_REVISION_FILE = config/crd/external/.kserve_manifests_revision
 
@@ -68,6 +79,10 @@ manifests-update:
 			| tail -n +2 > config/crd/external/serving.kserve.io_inferenceservices.yaml; \
 		wget -O - https://raw.githubusercontent.com/kserve/kserve/$(KSERVE_MANIFESTS_REVISION)/config/crd/full/serving.kserve.io_servingruntimes.yaml \
 			| tail -n +2 > config/crd/external/serving.kserve.io_servingruntimes.yaml; \
+		wget -O - https://raw.githubusercontent.com/kserve/kserve/$(KSERVE_MANIFESTS_REVISION)/config/crd/full/llmisvc/serving.kserve.io_llminferenceservices.yaml \
+			| tail -n +2 > config/crd/external/serving.kserve.io_llminferenceservices.yaml; \
+		wget -O - https://raw.githubusercontent.com/kserve/kserve/$(KSERVE_MANIFESTS_REVISION)/config/crd/full/llmisvc/serving.kserve.io_llminferenceserviceconfigs.yaml \
+			| tail -n +2 > config/crd/external/serving.kserve.io_llminferenceserviceconfigs.yaml; \
 		echo "$(KSERVE_MANIFESTS_REVISION)" > "$(KSERVE_REVISION_FILE)"; \
 		echo "KServe manifests updated to revision $(KSERVE_MANIFESTS_REVISION) and revision stored in $(KSERVE_REVISION_FILE)."; \
 	else \
@@ -93,6 +108,7 @@ vet: ## Run go vet against code.
 
 .PHONY: test
 test: manifests generate fmt vet envtest ## Run tests.
+	@go tool covdata >/dev/null 2>&1 || true
 	KUBEBUILDER_ASSETS="$(shell $(ENVTEST) use $(ENVTEST_K8S_VERSION) --bin-dir $(LOCALBIN) -p path)" POD_NAMESPACE=default \
 		go test $$(go list ./... | grep -v /e2e) -coverprofile cover.out -coverpkg=./...
 
@@ -113,6 +129,70 @@ test-e2e: manifests generate fmt vet ## Run the e2e tests. Expected an isolated 
 	}
 	POD_NAMESPACE=default go test ./test/e2e/ -v -ginkgo.v
 
+.PHONY: test-e2e-server
+test-e2e-server: ## Run model-serving-api e2e tests. Requires the server deployed and oc logged in.
+	@echo "Creating passthrough routes for model-serving-api..."
+	@oc create route passthrough model-serving-api-e2e \
+		--service=model-serving-api --port=https -n '$(NAMESPACE)' 2>/dev/null || true
+	@oc create route passthrough model-serving-api-metrics-e2e \
+		--service=model-serving-api --port=metrics -n '$(NAMESPACE)' 2>/dev/null || true
+	@trap 'echo "Cleaning up routes..."; \
+		oc delete route model-serving-api-e2e -n $(NAMESPACE) 2>/dev/null || true; \
+		oc delete route model-serving-api-metrics-e2e -n $(NAMESPACE) 2>/dev/null || true' EXIT; \
+	echo "Waiting for routes to be admitted..." && \
+	oc wait --for='jsonpath={.status.ingress[0].conditions[?(@.type=="Admitted")].status}=True' \
+		route/model-serving-api-e2e -n '$(NAMESPACE)' --timeout=60s && \
+	oc wait --for='jsonpath={.status.ingress[0].conditions[?(@.type=="Admitted")].status}=True' \
+		route/model-serving-api-metrics-e2e -n '$(NAMESPACE)' --timeout=60s && \
+	MODEL_SERVING_API_URL=https://$$(oc get route model-serving-api-e2e -n '$(NAMESPACE)' \
+		-o jsonpath='{.spec.host}') && \
+	MODEL_SERVING_API_METRICS_URL=https://$$(oc get route model-serving-api-metrics-e2e -n '$(NAMESPACE)' \
+		-o jsonpath='{.spec.host}') && \
+	echo "SERVER_URL=$$MODEL_SERVING_API_URL" && \
+	echo "METRICS_URL=$$MODEL_SERVING_API_METRICS_URL" && \
+	MODEL_SERVING_API_URL=$$MODEL_SERVING_API_URL \
+	MODEL_SERVING_API_METRICS_URL=$$MODEL_SERVING_API_METRICS_URL \
+		go test -v -tags=e2e -timeout=10m -parallel=12 ./server/test/e2e/ -v -count=1
+
+.PHONY: test-e2e-controller
+test-e2e-controller: ## Run controller e2e tests. Requires controller + gateway + Authorino deployed.
+	go test -v -tags=e2e -timeout=10m -parallel=12 ./internal/controller/test/e2e/ -count=1
+
+.PHONY: e2e-kserve-overlay
+e2e-kserve-overlay: kustomize ## Create a kustomize overlay injecting the controller image for e2e tests.
+	@rm -rf "$(E2E_OVERLAY_DIR)" && mkdir -p "$(E2E_OVERLAY_DIR)"
+	@cp config/base/params.env "$(E2E_OVERLAY_DIR)/params.env"
+	@sed -i 's|^odh-model-controller=.*|odh-model-controller=$(ODH_MODEL_CONTROLLER_IMAGE)|' "$(E2E_OVERLAY_DIR)/params.env"
+	@sed -i 's|^odh-model-serving-api=.*|odh-model-serving-api=$(SERVER_IMG)|' "$(E2E_OVERLAY_DIR)/params.env"
+	@cd "$(E2E_OVERLAY_DIR)" && \
+		ctrl_img=$$(sed -n 's/^odh-model-controller=\([^:@]*\).*/\1/p' ../../config/base/params.env) && \
+		srv_img=$$(sed -n 's/^odh-model-serving-api=\([^:@]*\).*/\1/p' ../../config/base/params.env) && \
+		$(KUSTOMIZE) init && \
+		$(KUSTOMIZE) edit add resource ../../config/base && \
+		$(KUSTOMIZE) edit add configmap odh-model-controller-parameters \
+			--behavior=merge \
+			--from-env-file=params.env && \
+		$(KUSTOMIZE) edit set image "$$ctrl_img=$(ODH_MODEL_CONTROLLER_IMAGE)" && \
+		$(KUSTOMIZE) edit set image "$$srv_img=$(SERVER_IMG)"
+	@echo "Created e2e overlay at $(E2E_OVERLAY_DIR)"
+	@echo "  controller: $(ODH_MODEL_CONTROLLER_IMAGE)"
+	@echo "  server: $(SERVER_IMG)"
+
+.PHONY: test-e2e-kserve-ocp
+test-e2e-kserve-ocp: e2e-kserve-overlay ## Run KServe e2e tests on OpenShift.
+	@set -euo pipefail; \
+	if [ ! -d "$(KSERVE_E2E_DIR)/.git" ]; then \
+		echo "Cloning kserve from $(KSERVE_E2E_REPO) (branch: $(KSERVE_E2E_BRANCH))..."; \
+		git clone --branch "$(KSERVE_E2E_BRANCH)" "$(KSERVE_E2E_REPO)" "$(KSERVE_E2E_DIR)"; \
+	fi; \
+	cd "$(KSERVE_E2E_DIR)" && \
+	export ODH_MC_MANIFEST_SOURCE="$(E2E_OVERLAY_DIR)" && \
+	echo "ODH_MC_MANIFEST_SOURCE=$$ODH_MC_MANIFEST_SOURCE" && \
+	echo "=== Running KServe E2E Tests ====== '$(KSERVE_E2E_TEST_ARGS)'" && \
+	./test/scripts/openshift-ci/run-e2e-tests.sh $(KSERVE_E2E_TEST_ARGS)
+	$(MAKE) test-e2e-server
+	$(MAKE) test-e2e-controller
+
 .PHONY: lint
 lint: golangci-lint ## Run golangci-lint linter
 	$(GOLANGCI_LINT) run
@@ -127,6 +207,10 @@ lint-fix: golangci-lint ## Run golangci-lint linter and perform fixes
 build: manifests generate fmt vet ## Build manager binary.
 	go build -o bin/manager cmd/main.go
 
+.PHONY: build-server
+build-server: fmt vet ## Build model-serving-api binary.
+	go build -o bin/model-serving-api ./server/
+
 .PHONY: run
 run: manifests generate fmt vet ## Run a controller from your host.
 	go run ./cmd/main.go
@@ -138,9 +222,17 @@ run: manifests generate fmt vet ## Run a controller from your host.
 container-build: ## Build docker image with the manager.
 	$(CONTAINER_TOOL) build -t ${IMG} -f ./Containerfile .
 
+.PHONY: container-build-server
+container-build-server: ## Build docker image with the model-serving-api.
+	$(CONTAINER_TOOL) build -t ${SERVER_IMG} -f ./Containerfile.server .
+
 .PHONY: container-push
 container-push: ## Push docker image with the manager.
 	$(CONTAINER_TOOL) push ${IMG}
+
+.PHONY: container-push-server
+container-push-server: ## Push docker image with the model-serving-api.
+	$(CONTAINER_TOOL) push ${SERVER_IMG}
 
 # PLATFORMS defines the target platforms for the manager image be built to provide support to multiple
 # architectures. (i.e. make docker-buildx IMG=myregistry/mypoperator:0.0.1). To use this option you need to:
@@ -183,6 +275,25 @@ uninstall: manifests kustomize ## Uninstall CRDs from the K8s cluster specified 
 deploy: manifests kustomize ## Deploy controller to the K8s cluster specified in ~/.kube/config.
 	cd config/manager && $(KUSTOMIZE) edit set image controller=${IMG}
 	$(KUSTOMIZE) build config/default | $(KUBECTL) apply -f -
+
+.PHONY: deploy-server
+deploy-server: kustomize ## Deploy model-serving-api to the K8s cluster specified in ~/.kube/config.
+	@SERVER_IMG_REF="$(SERVER_IMG)"; \
+	if command -v $(CONTAINER_TOOL) >/dev/null 2>&1; then \
+		digest="$$($(CONTAINER_TOOL) inspect --format='{{index .RepoDigests 0}}' '$(SERVER_IMG)' 2>/dev/null)"; \
+		if [ -n "$$digest" ]; then \
+			SERVER_IMG_REF="$$digest"; \
+		fi; \
+	fi; \
+	rm -rf '$(LOCALBIN)/server-overlay' && mkdir -p '$(LOCALBIN)/server-overlay' && \
+	cd '$(LOCALBIN)/server-overlay' && \
+	$(KUSTOMIZE) init && \
+	$(KUSTOMIZE) edit add resource ../../config/server && \
+	$(KUSTOMIZE) edit set namespace '$(NAMESPACE)' && \
+	$(KUSTOMIZE) edit set image "controller=$$SERVER_IMG_REF" && \
+	$(KUSTOMIZE) build . > server-bundle.yaml && \
+	$(KUBECTL) apply -f server-bundle.yaml
+	$(KUBECTL) rollout status deployment/model-serving-api -n '$(NAMESPACE)' --timeout=120s
 
 .PHONY: undeploy
 undeploy: kustomize ## Undeploy controller from the K8s cluster specified in ~/.kube/config. Call with ignore-not-found=true to ignore resource not found errors during deletion.

@@ -3,6 +3,7 @@ package utils
 import (
 	kedaapi "github.com/kedacore/keda/v2/apis/keda/v1alpha1"
 	kservev1alpha1 "github.com/kserve/kserve/pkg/apis/serving/v1alpha1"
+	kservev1alpha2 "github.com/kserve/kserve/pkg/apis/serving/v1alpha2"
 	kservev1beta1 "github.com/kserve/kserve/pkg/apis/serving/v1beta1"
 	authorinooperatorv1beta1 "github.com/kuadrant/authorino-operator/api/v1beta1"
 	kuadrantv1 "github.com/kuadrant/kuadrant-operator/api/v1"
@@ -29,6 +30,7 @@ func RegisterSchemes(s *runtime.Scheme) {
 	utilruntime.Must(clientgoscheme.AddToScheme(s))
 
 	utilruntime.Must(kservev1alpha1.AddToScheme(s))
+	utilruntime.Must(kservev1alpha2.AddToScheme(s))
 	utilruntime.Must(kservev1beta1.AddToScheme(s))
 	utilruntime.Must(corev1.AddToScheme(s))
 	utilruntime.Must(routev1.AddToScheme(s))

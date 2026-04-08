@@ -19,7 +19,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
-	igwapi "sigs.k8s.io/gateway-api-inference-extension/api/v1alpha2"
+	igwapi "sigs.k8s.io/gateway-api-inference-extension/api/v1"
 	gatewayapi "sigs.k8s.io/gateway-api/apis/v1"
 )
 
@@ -93,6 +93,21 @@ func WithAuthorinoTLSBootstrapAnnotation(value string) GatewayOption {
 	return WithGatewayAnnotations(map[string]string{
 		"security.opendatahub.io/authorino-tls-bootstrap": value,
 	})
+}
+
+// WithControllerOwnerRef adds a controller owner reference to the Gateway.
+// This simulates a gateway being owned by another controller (e.g., GatewayConfig).
+func WithControllerOwnerRef(kind, name, apiVersion string) GatewayOption {
+	return func(gw *gatewayapi.Gateway) {
+		controller := true
+		gw.OwnerReferences = append(gw.OwnerReferences, metav1.OwnerReference{
+			APIVersion: apiVersion,
+			Kind:       kind,
+			Name:       name,
+			UID:        "test-uid",
+			Controller: &controller,
+		})
+	}
 }
 
 func WithInfrastructureLabels(key, value string) GatewayOption {
@@ -278,6 +293,18 @@ func HTTPGateway(name, namespace string, addresses ...string) *gatewayapi.Gatewa
 		WithListener(gatewayapi.HTTPProtocolType),
 		WithAddresses(addresses...),
 	)
+}
+
+// ManagedGateway creates a gateway with standard managed options (namespace, className, HTTP listener).
+// Additional options can be passed to customize the gateway further.
+func ManagedGateway(name, namespace, className string, opts ...GatewayOption) *gatewayapi.Gateway {
+	baseOpts := make([]GatewayOption, 0, 3+len(opts))
+	baseOpts = append(baseOpts,
+		InNamespace[*gatewayapi.Gateway](namespace),
+		WithClassName(className),
+		WithListener(gatewayapi.HTTPProtocolType),
+	)
+	return Gateway(name, append(baseOpts, opts...)...)
 }
 
 type (
@@ -571,11 +598,13 @@ func InferencePool(name string, opts ...InferencePoolOption) *igwapi.InferencePo
 			Name: name,
 		},
 		Spec: igwapi.InferencePoolSpec{
-			Selector:         make(map[igwapi.LabelKey]igwapi.LabelValue),
-			TargetPortNumber: 8000,
+			Selector: igwapi.LabelSelector{
+				MatchLabels: make(map[igwapi.LabelKey]igwapi.LabelValue),
+			},
+			TargetPorts: []igwapi.Port{{Number: 8000}},
 		},
 		Status: igwapi.InferencePoolStatus{
-			Parents: []igwapi.PoolStatus{},
+			Parents: []igwapi.ParentStatus{},
 		},
 	}
 
@@ -588,39 +617,32 @@ func InferencePool(name string, opts ...InferencePoolOption) *igwapi.InferencePo
 
 func WithSelector(key, value string) InferencePoolOption {
 	return func(pool *igwapi.InferencePool) {
-		if pool.Spec.Selector == nil {
-			pool.Spec.Selector = make(map[igwapi.LabelKey]igwapi.LabelValue)
+		if pool.Spec.Selector.MatchLabels == nil {
+			pool.Spec.Selector.MatchLabels = make(map[igwapi.LabelKey]igwapi.LabelValue)
 		}
-		pool.Spec.Selector[igwapi.LabelKey(key)] = igwapi.LabelValue(value)
+		pool.Spec.Selector.MatchLabels[igwapi.LabelKey(key)] = igwapi.LabelValue(value)
 	}
 }
 
 func WithTargetPort(port int32) InferencePoolOption {
 	return func(pool *igwapi.InferencePool) {
-		pool.Spec.TargetPortNumber = port
+		pool.Spec.TargetPorts = []igwapi.Port{{Number: igwapi.PortNumber(port)}}
 	}
 }
 
 func WithExtensionRef(group, kind, name string) InferencePoolOption {
 	return func(pool *igwapi.InferencePool) {
-		pool.Spec.EndpointPickerConfig = igwapi.EndpointPickerConfig{
-			ExtensionRef: &igwapi.Extension{
-				ExtensionReference: igwapi.ExtensionReference{
-					Group: ptr.To(igwapi.Group(group)),
-					Kind:  ptr.To(igwapi.Kind(kind)),
-					Name:  igwapi.ObjectName(name),
-				},
-				ExtensionConnection: igwapi.ExtensionConnection{
-					FailureMode: ptr.To(igwapi.FailOpen),
-				},
-			},
+		pool.Spec.EndpointPickerRef = igwapi.EndpointPickerRef{
+			Group: ptr.To(igwapi.Group(group)),
+			Kind:  igwapi.Kind(kind),
+			Name:  igwapi.ObjectName(name),
 		}
 	}
 }
 
 func WithInferencePoolReadyStatus() InferencePoolOption {
 	return func(pool *igwapi.InferencePool) {
-		pool.Status.Parents = []igwapi.PoolStatus{
+		pool.Status.Parents = []igwapi.ParentStatus{
 			{
 				Conditions: []metav1.Condition{
 					{
