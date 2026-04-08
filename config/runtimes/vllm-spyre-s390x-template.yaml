@@ -62,6 +62,7 @@ objects:
             - name: shm
               mountPath: /dev/shm
       multiModel: false
+      schedulerName: spyre-scheduler
       supportedModelFormats:
         - autoSelect: true
           name: vLLM
