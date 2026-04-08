@@ -59,7 +59,7 @@ var _ = Describe("LLMInferenceService Controller", func() {
 		llmList := &kservev1alpha2.LLMInferenceServiceList{}
 		if err := envTest.Client.List(ctx, llmList, client.InNamespace(testNs)); err == nil {
 			for i := range llmList.Items {
-				_ = envTest.Client.Delete(ctx, &llmList.Items[i])
+				_ = envTest.Delete(ctx, &llmList.Items[i])
 			}
 		}
 	})

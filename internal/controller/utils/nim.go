@@ -132,7 +132,7 @@ func init() {
 			return true
 		},
 		func(a, b metav1.Time) bool {
-			return a.UTC() == b.UTC()
+			return a.UTC().Equal(b.UTC())
 		},
 	)
 }
