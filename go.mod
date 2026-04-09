@@ -1,6 +1,6 @@
 module github.com/opendatahub-io/odh-model-controller
 
-go 1.25.7
+go 1.25.8
 
 require (
 	github.com/fsnotify/fsnotify v1.9.0
@@ -15,12 +15,12 @@ require (
 	github.com/kuadrant/authorino-operator v0.21.0
 	github.com/kuadrant/kuadrant-operator v1.4.2
 	github.com/kubeflow/model-registry v0.2.19
-	github.com/onsi/ginkgo/v2 v2.27.3
-	github.com/onsi/gomega v1.38.3
+	github.com/onsi/ginkgo/v2 v2.28.1
+	github.com/onsi/gomega v1.39.0
 	github.com/openshift/api v0.0.0-20260306002634-d3bbdada155c
 	github.com/openshift/client-go v0.0.0-20260306160707-3935d929fc7d
 	github.com/pkg/errors v0.9.1
-	github.com/prometheus-operator/prometheus-operator/pkg/apis/monitoring v0.78.2
+	github.com/prometheus-operator/prometheus-operator/pkg/apis/monitoring v0.89.0
 	github.com/prometheus/client_golang v1.23.2
 	github.com/stretchr/testify v1.11.1
 	go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp v0.64.0
@@ -40,9 +40,9 @@ require (
 	k8s.io/client-go v0.35.1
 	k8s.io/utils v0.0.0-20251002143259-bc988d571ff4
 	knative.dev/pkg v0.0.0-20260120122510-4a022ed9999a
-	sigs.k8s.io/controller-runtime v0.22.4
+	sigs.k8s.io/controller-runtime v0.22.5
 	sigs.k8s.io/gateway-api v1.4.2-0.20260116062110-0d0ca872766e
-	sigs.k8s.io/gateway-api-inference-extension v1.3.0
+	sigs.k8s.io/gateway-api-inference-extension v1.3.1
 	sigs.k8s.io/yaml v1.6.0
 )
 
@@ -97,7 +97,7 @@ require (
 	github.com/google/gnostic-models v0.7.0 // indirect
 	github.com/google/go-cmp v0.7.0 // indirect
 	github.com/google/go-containerregistry v0.20.3 // indirect
-	github.com/google/pprof v0.0.0-20250923004556-9e5a51aed1e8 // indirect
+	github.com/google/pprof v0.0.0-20260115054156-294ebfa9ad83 // indirect
 	github.com/google/s2a-go v0.1.9 // indirect
 	github.com/googleapis/enterprise-certificate-proxy v0.3.6 // indirect
 	github.com/googleapis/gax-go/v2 v2.15.0 // indirect
@@ -113,7 +113,7 @@ require (
 	github.com/kuadrant/policy-machinery v0.7.1-0.20251119154946-1ca17a075dd2 // indirect
 	github.com/kylelemons/godebug v1.1.0 // indirect
 	github.com/leodido/go-urn v1.4.0 // indirect
-	github.com/llm-d/llm-d-workload-variant-autoscaler v0.5.1 // indirect
+	github.com/llm-d/llm-d-workload-variant-autoscaler v0.6.0 // indirect
 	github.com/mailru/easyjson v0.9.0 // indirect
 	github.com/martinlindhe/base36 v1.1.1 // indirect
 	github.com/moby/spdystream v0.5.0 // indirect
@@ -131,7 +131,7 @@ require (
 	github.com/prometheus/procfs v0.19.2 // indirect
 	github.com/samber/lo v1.47.0 // indirect
 	github.com/sirupsen/logrus v1.9.3 // indirect
-	github.com/spf13/cobra v1.9.1 // indirect
+	github.com/spf13/cobra v1.10.0 // indirect
 	github.com/spf13/pflag v1.0.10 // indirect
 	github.com/spiffe/go-spiffe/v2 v2.6.0 // indirect
 	github.com/stoewer/go-strcase v1.3.0 // indirect
@@ -176,9 +176,9 @@ require (
 	sigs.k8s.io/apiserver-network-proxy/konnectivity-client v0.31.2 // indirect
 	sigs.k8s.io/external-dns v0.14.0 // indirect
 	sigs.k8s.io/json v0.0.0-20250730193827-2d320260d730 // indirect
-	sigs.k8s.io/lws v0.7.0 // indirect
+	sigs.k8s.io/lws v0.8.0 // indirect
 	sigs.k8s.io/randfill v1.0.0 // indirect
-	sigs.k8s.io/structured-merge-diff/v6 v6.3.1 // indirect
+	sigs.k8s.io/structured-merge-diff/v6 v6.3.2-0.20260122202528-d9cc6641c482 // indirect
 )
 
 // Addresses https://github.com/kedacore/keda/issues/6660
@@ -186,7 +186,7 @@ require (
 replace sigs.k8s.io/controller-runtime => sigs.k8s.io/controller-runtime v0.19.7
 
 // Use ODH release branch instead
-replace github.com/kserve/kserve => github.com/opendatahub-io/kserve v0.0.0-20260406225944-517bb35307b9
+replace github.com/kserve/kserve => github.com/opendatahub-io/kserve v0.0.0-20260409184100-a2efb39e4494
 
 // CVE-2025-68156: Update expr-lang/expr to v1.17.7
 replace github.com/expr-lang/expr => github.com/expr-lang/expr v1.17.7

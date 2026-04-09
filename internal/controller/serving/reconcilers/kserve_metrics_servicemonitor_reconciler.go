@@ -26,6 +26,7 @@ import (
 	v1 "github.com/prometheus-operator/prometheus-operator/pkg/apis/monitoring/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/utils/ptr"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
@@ -91,7 +92,7 @@ func (r *KserveRawMetricsServiceMonitorReconciler) createDesiredResource(ctx con
 			Endpoints: []v1.Endpoint{
 				{
 					Port:   isvcRuntime.Name + "-metrics",
-					Scheme: "http",
+					Scheme: ptr.To(v1.Scheme("http")),
 				},
 			},
 			NamespaceSelector: v1.NamespaceSelector{},
