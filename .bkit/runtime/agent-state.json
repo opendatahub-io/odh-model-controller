@@ -1,0 +1,21 @@
+{
+  "version": "1.0",
+  "enabled": false,
+  "teamName": "",
+  "feature": "",
+  "pdcaPhase": "plan",
+  "orchestrationPattern": "leader",
+  "ctoAgent": "opus",
+  "startedAt": "2026-04-10T13:44:25.395Z",
+  "lastUpdated": "2026-04-10T13:46:23.313Z",
+  "teammates": [],
+  "progress": {
+    "totalTasks": 0,
+    "completedTasks": 0,
+    "inProgressTasks": 0,
+    "failedTasks": 0,
+    "pendingTasks": 0
+  },
+  "recentMessages": [],
+  "sessionId": "e7163548-adc1-4a32-981b-263168f17ab3"
+}

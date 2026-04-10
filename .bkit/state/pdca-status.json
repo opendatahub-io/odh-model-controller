@@ -1,0 +1,34 @@
+{
+  "version": "3.0",
+  "lastUpdated": "2026-04-09T21:36:04.018Z",
+  "activeFeatures": [],
+  "primaryFeature": null,
+  "features": {},
+  "pipeline": {
+    "currentPhase": 1,
+    "level": "Dynamic",
+    "phaseHistory": []
+  },
+  "session": {
+    "startedAt": "2026-04-09T21:35:45.502Z",
+    "onboardingCompleted": false,
+    "lastActivity": "2026-04-09T21:36:04.018Z"
+  },
+  "history": [],
+  "stateMachine": {
+    "defaultWorkflow": "default",
+    "activeWorkflows": {},
+    "totalTransitions": 0
+  },
+  "automation": {
+    "globalLevel": 2,
+    "trustScore": 40,
+    "pendingApprovals": 0,
+    "lastGateResult": null
+  },
+  "team": {
+    "enabled": true,
+    "stateFile": ".bkit/runtime/agent-state.json",
+    "eventsFile": ".bkit/runtime/agent-events.jsonl"
+  }
+}
