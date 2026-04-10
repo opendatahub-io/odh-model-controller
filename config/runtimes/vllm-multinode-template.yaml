@@ -145,8 +145,16 @@ objects:
               - bash
               - -c
               - |
-                ALL_IPS=$(getent hosts ${WORKER_SVC} | awk '{print $1}' | sort -u)
-                export NODE_RANK=$(echo "$ALL_IPS" | grep -n "^${POD_IP}$" | head -1 | cut -d: -f1 | awk '{print $1}')
+                EXPECTED_WORKERS=$((PIPELINE_PARALLEL_SIZE - 1))
+                NODE_RANK=""
+                for i in $(seq 15); do
+                  ALL_IPS=$(getent hosts ${WORKER_SVC} | awk '{print $1}' | sort -u)
+                  NODE_RANK=$(echo "$ALL_IPS" | grep -nFx "${POD_IP}" | head -1 | cut -d: -f1)
+                  [ "$(echo "$ALL_IPS" | grep -c .)" -ge "$EXPECTED_WORKERS" ] && [ -n "$NODE_RANK" ] && break
+                  echo "Waiting for workers, attempt ${i}/15..."
+                  sleep 2
+                done
+                [ -z "$NODE_RANK" ] && echo "Failed to resolve NODE_RANK" && exit 1
                 echo "NODE_RANK: $NODE_RANK"
                 exec vllm serve "$@" --node-rank=${NODE_RANK}
               - -- # args separator: ensures args are passed as $1,$2,.. to "$@"
