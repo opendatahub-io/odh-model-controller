@@ -2,23 +2,68 @@ name: "Prow merge incubating to main"
 
 on:
   workflow_dispatch:
-        
+
+concurrency:
+  group: sync-incubating-to-main
+  cancel-in-progress: false
+
 env:
-  UPSTREAM_URL: "https://github.com/opendatahub-io/odh-model-controller.git"
-  
+  SOURCE_BRANCH: "incubating"
+  TARGET_BRANCH: "main"
+
+permissions:
+  contents: write
+  pull-requests: write
+
 jobs:
   auto-merge:
     if: github.ref == 'refs/heads/incubating'
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
-    
-      - name: Intenal gitHub sync
-        uses: dchourasia/sync-git-branches@main
         with:
-          upstream_repo: "${{ env.UPSTREAM_URL }}"
-          upstream_branch: "incubating"
-          downstream_branch: "main"
-          token: ${{ secrets.GITHUB_TOKEN }}
-          merge_args: "--no-edit"
+          fetch-depth: 0
+
+      - name: Create sync PR instead of direct push
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          git fetch origin "$TARGET_BRANCH"
+          git fetch origin "$SOURCE_BRANCH"
+
+          # Skip if nothing to merge
+          if git merge-base --is-ancestor "origin/$SOURCE_BRANCH" "origin/$TARGET_BRANCH"; then
+            echo "Nothing to merge — $SOURCE_BRANCH is already merged into $TARGET_BRANCH"
+            exit 0
+          fi
+
+          # Skip if a sync PR already exists
+          SYNC_BRANCH="sync/merge-${SOURCE_BRANCH}-to-${TARGET_BRANCH}"
+          EXISTING_PR=$(gh pr list --base "$TARGET_BRANCH" --head "$SYNC_BRANCH" --state open --json number -q '.[0].number' || true)
+          if [ -n "$EXISTING_PR" ]; then
+            echo "Sync PR already exists: #$EXISTING_PR"
+            exit 0
+          fi
+
+          # Configure git
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
+          # Create sync branch and merge
+          git checkout -b "$SYNC_BRANCH" "origin/$TARGET_BRANCH"
+          git merge --no-ff "origin/$SOURCE_BRANCH"
+
+          # Push and create PR
+          git push --force origin "$SYNC_BRANCH"
+
+          PR_URL=$(gh pr create \
+            --base "$TARGET_BRANCH" \
+            --head "$SYNC_BRANCH" \
+            --title "Merge $SOURCE_BRANCH to $TARGET_BRANCH" \
+            --body "Automated merge of $SOURCE_BRANCH into $TARGET_BRANCH")
+
+          # Enable auto-merge with merge strategy (not squash)
+          gh pr merge --auto --merge "$PR_URL"
