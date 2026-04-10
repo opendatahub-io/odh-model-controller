@@ -45,9 +45,9 @@ func sameListener(name string) gatewayapiv1.Listener {
 	}
 }
 
-func selectorListener(name string) gatewayapiv1.Listener {
+func selectorListener() gatewayapiv1.Listener {
 	return gatewayapiv1.Listener{
-		Name: gatewayapiv1.SectionName(name),
+		Name: "http",
 		AllowedRoutes: &gatewayapiv1.AllowedRoutes{
 			Namespaces: &gatewayapiv1.RouteNamespaces{
 				From: ptr.To(gatewayapiv1.NamespacesFromSelector),
@@ -126,7 +126,7 @@ func TestFilterAllowedRefs(t *testing.T) {
 		},
 		{
 			name:     "From Selector with matching labels allows",
-			gateway:  gateway("gw", "gw-ns", selectorListener("http")),
+			gateway:  gateway("gw", "gw-ns", selectorListener()),
 			refs:     []kservev1alpha2.UntypedObjectReference{ref("gw", "gw-ns")},
 			targetNS: "any-ns",
 			nsLabels: map[string]string{"env": "prod"},
@@ -134,7 +134,7 @@ func TestFilterAllowedRefs(t *testing.T) {
 		},
 		{
 			name:     "From Selector with non-matching labels rejects",
-			gateway:  gateway("gw", "gw-ns", selectorListener("http")),
+			gateway:  gateway("gw", "gw-ns", selectorListener()),
 			refs:     []kservev1alpha2.UntypedObjectReference{ref("gw", "gw-ns")},
 			targetNS: "any-ns",
 			nsLabels: map[string]string{"env": "staging"},
@@ -142,7 +142,7 @@ func TestFilterAllowedRefs(t *testing.T) {
 		},
 		{
 			name:     "From Selector with nil labels rejects",
-			gateway:  gateway("gw", "gw-ns", selectorListener("http")),
+			gateway:  gateway("gw", "gw-ns", selectorListener()),
 			refs:     []kservev1alpha2.UntypedObjectReference{ref("gw", "gw-ns")},
 			targetNS: "any-ns",
 			nsLabels: nil,
@@ -183,7 +183,7 @@ func TestFilterAllowedRefs(t *testing.T) {
 			name:    "mixed refs: matching and non-matching gateways",
 			gateway: gateway("gw", "gw-ns", sameListener("http")),
 			refs: []kservev1alpha2.UntypedObjectReference{
-				ref("gw", "gw-ns"),       // matches gateway, Same rejects "other-ns"
+				ref("gw", "gw-ns"),        // matches gateway, Same rejects "other-ns"
 				ref("other-gw", "gw-ns"),  // different gateway, kept
 				ref("gw", "different-ns"), // different namespace, kept
 			},
@@ -279,7 +279,7 @@ func TestListenerAllowsNamespace(t *testing.T) {
 		},
 		{
 			name:        "From Selector with matching labels allows",
-			listener:    selectorListener("http"),
+			listener:    selectorListener(),
 			gwNamespace: "gw-ns",
 			targetNS:    "any-ns",
 			nsLabels:    map[string]string{"env": "prod"},
@@ -287,7 +287,7 @@ func TestListenerAllowsNamespace(t *testing.T) {
 		},
 		{
 			name:        "From Selector with non-matching labels rejects",
-			listener:    selectorListener("http"),
+			listener:    selectorListener(),
 			gwNamespace: "gw-ns",
 			targetNS:    "any-ns",
 			nsLabels:    map[string]string{"env": "staging"},
@@ -295,7 +295,7 @@ func TestListenerAllowsNamespace(t *testing.T) {
 		},
 		{
 			name:        "From Selector with nil labels rejects",
-			listener:    selectorListener("http"),
+			listener:    selectorListener(),
 			gwNamespace: "gw-ns",
 			targetNS:    "any-ns",
 			nsLabels:    nil,
@@ -373,14 +373,14 @@ func TestGatewayAllowsNamespace(t *testing.T) {
 		},
 		{
 			name:     "selector listener with matching labels",
-			gateway:  gateway("gw", "gw-ns", selectorListener("http")),
+			gateway:  gateway("gw", "gw-ns", selectorListener()),
 			targetNS: "other-ns",
 			nsLabels: map[string]string{"env": "prod"},
 			want:     true,
 		},
 		{
 			name:     "selector listener with non-matching labels",
-			gateway:  gateway("gw", "gw-ns", selectorListener("http")),
+			gateway:  gateway("gw", "gw-ns", selectorListener()),
 			targetNS: "other-ns",
 			nsLabels: map[string]string{"env": "staging"},
 			want:     false,
