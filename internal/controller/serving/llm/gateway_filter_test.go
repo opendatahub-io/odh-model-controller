@@ -315,6 +315,25 @@ func TestListenerAllowsNamespace(t *testing.T) {
 			nsLabels:    map[string]string{"env": "prod"},
 			want:        false,
 		},
+		{
+			name: "From Selector with malformed selector rejects",
+			listener: gatewayapiv1.Listener{
+				AllowedRoutes: &gatewayapiv1.AllowedRoutes{
+					Namespaces: &gatewayapiv1.RouteNamespaces{
+						From: ptr.To(gatewayapiv1.NamespacesFromSelector),
+						Selector: &metav1.LabelSelector{
+							MatchExpressions: []metav1.LabelSelectorRequirement{
+								{Key: "env", Operator: metav1.LabelSelectorOperator("InvalidOperator")},
+							},
+						},
+					},
+				},
+			},
+			gwNamespace: "gw-ns",
+			targetNS:    "any-ns",
+			nsLabels:    map[string]string{"env": "prod"},
+			want:        false,
+		},
 	}
 
 	for _, tt := range tests {
