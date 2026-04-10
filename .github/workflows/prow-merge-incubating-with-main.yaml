@@ -63,7 +63,7 @@ jobs:
             --base "$TARGET_BRANCH" \
             --head "$SYNC_BRANCH" \
             --title "Merge $SOURCE_BRANCH to $TARGET_BRANCH" \
-            --body "Automated merge of $SOURCE_BRANCH into $TARGET_BRANCH")
+            --body "Automated merge of $SOURCE_BRANCH into $TARGET_BRANCH" \
+            --label "tide/merge-method-merge")
 
-          # Enable auto-merge with merge strategy (not squash)
-          gh pr merge --auto --merge "$PR_URL"
+          echo "Created sync PR: $PR_URL"
