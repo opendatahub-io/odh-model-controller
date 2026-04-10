@@ -55,6 +55,8 @@ objects:
           - vllm
           - serve
           env:
+            - name: MASTER_PORT
+              value: "29500"
             - name: POD_IP
               valueFrom:
                 fieldRef:
