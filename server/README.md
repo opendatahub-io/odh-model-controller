@@ -42,7 +42,7 @@ The server requires a kubeconfig and TLS certificates. Environment variables:
 | `TLS_CERT_DIR`                |         | Directory containing `tls.crt` and `tls.key` (required)                        |
 | `LOG_LEVEL`                   | `info`  | Log level (`debug`, `info`, `warn`, `error`)                                   |
 | `GATEWAY_LABEL_SELECTOR`      |         | Comma-separated `key=value` pairs to filter Gateways                           |
-| `METRICS_ADDR`                | `:9090` | HTTPS address for Prometheus `/metrics` endpoint (reuses main TLS certs)       |
+| `METRICS_ADDR`                | `:8080` | HTTPS address for Prometheus `/metrics` endpoint (reuses main TLS certs)       |
 | `OTEL_EXPORTER_OTLP_ENDPOINT` |         | OTLP collector endpoint; enables trace export when set (e.g. `localhost:4317`) |
 
 ### Container Image

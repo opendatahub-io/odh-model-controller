@@ -31,7 +31,7 @@ func LoadConfig() (Config, error) {
 		ListenAddr:   envOrDefault("LISTEN_ADDR", ":8443"),
 		TLSCertDir:   os.Getenv("TLS_CERT_DIR"),
 		LogLevel:     envOrDefault("LOG_LEVEL", "info"),
-		MetricsAddr:  envOrDefault("METRICS_ADDR", ":9090"),
+		MetricsAddr:  envOrDefault("METRICS_ADDR", ":8080"),
 		OTLPEndpoint: os.Getenv("OTEL_EXPORTER_OTLP_ENDPOINT"),
 	}
 

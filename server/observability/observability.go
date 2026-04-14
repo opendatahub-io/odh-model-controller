@@ -22,7 +22,7 @@ import (
 
 // Config holds the observability configuration.
 type Config struct {
-	MetricsAddr  string      // HTTPS listen address for Prometheus /metrics endpoint (default ":9090")
+	MetricsAddr  string      // HTTPS listen address for Prometheus /metrics endpoint (default ":8080")
 	TLSConfig    *tls.Config // TLS configuration for the metrics server
 	OTLPEndpoint string      // Optional OTLP collector endpoint; enables trace export when set
 	ServiceName  string      // OTel service name (default "model-serving-api")
