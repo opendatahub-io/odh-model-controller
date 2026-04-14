@@ -596,6 +596,11 @@ func (r *GatewayReconciler) enqueueGatewaysFromNamespace() handler.EventHandler 
 		for _, key := range candidates {
 			gw := &gatewayapiv1.Gateway{}
 			if err := r.Client.Get(ctx, key, gw); err != nil {
+				if apierrors.IsNotFound(err) {
+					continue
+				}
+				log.FromContext(ctx).Error(err, "Failed to get Gateway for namespace label change", "gateway", key.Name, "namespace", key.Namespace)
+				requests = append(requests, reconcile.Request{NamespacedName: key})
 				continue
 			}
 			if hasSelectorListeners(gw) {
