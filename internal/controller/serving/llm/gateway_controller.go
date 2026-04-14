@@ -559,8 +559,8 @@ func (r *GatewayReconciler) enqueueGatewaysFromLLMInferenceServiceConfig() handl
 }
 
 // enqueueGatewaysFromNamespace returns an event handler that, on namespace label
-// changes, finds gateways with Selector-based listeners and enqueues those
-// referenced by LLMInferenceServices in the changed namespace.
+// changes, finds gateways referenced by LLMInferenceServices in the changed
+// namespace and enqueues those with Selector-based listeners.
 func (r *GatewayReconciler) enqueueGatewaysFromNamespace() handler.EventHandler {
 	return handler.EnqueueRequestsFromMapFunc(func(ctx context.Context, object client.Object) []reconcile.Request {
 		ns := object.(*corev1.Namespace)
@@ -574,25 +574,33 @@ func (r *GatewayReconciler) enqueueGatewaysFromNamespace() handler.EventHandler 
 			return nil
 		}
 
-		gatewayList := &gatewayapiv1.GatewayList{}
-		if err := r.Client.List(ctx, gatewayList); err != nil {
-			log.FromContext(ctx).Error(err, "Failed to list Gateways for namespace label change")
-			return nil
+		// Collect unique gateway refs from all LLMInferenceServices in this namespace.
+		seen := make(map[types.NamespacedName]struct{})
+		var candidates []types.NamespacedName
+		for i := range llmSvcList.Items {
+			for _, ref := range r.getEffectiveGatewayRefs(ctx, nil, &llmSvcList.Items[i]) {
+				namespace := string(ref.Namespace)
+				if namespace == "" {
+					namespace = ns.Name
+				}
+				key := types.NamespacedName{Name: string(ref.Name), Namespace: namespace}
+				if _, exists := seen[key]; !exists {
+					seen[key] = struct{}{}
+					candidates = append(candidates, key)
+				}
+			}
 		}
 
-		seen := make(map[types.NamespacedName]struct{})
+		// Only enqueue gateways that exist and have Selector-based listeners.
 		var requests []reconcile.Request
-		for i := range gatewayList.Items {
-			gw := &gatewayList.Items[i]
-			if !hasSelectorListeners(gw) {
+		for _, key := range candidates {
+			gw := &gatewayapiv1.Gateway{}
+			if err := r.Client.Get(ctx, key, gw); err != nil {
 				continue
 			}
-			key := types.NamespacedName{Name: gw.Name, Namespace: gw.Namespace}
-			if _, exists := seen[key]; exists {
-				continue
+			if hasSelectorListeners(gw) {
+				requests = append(requests, reconcile.Request{NamespacedName: key})
 			}
-			seen[key] = struct{}{}
-			requests = append(requests, reconcile.Request{NamespacedName: key})
 		}
 		return requests
 	})

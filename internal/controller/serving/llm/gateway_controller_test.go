@@ -248,6 +248,9 @@ var _ = Describe("Gateway Controller", func() {
 				fixture.WithGatewayRefs(fixture.LLMGatewayRef(gatewayName, testNs)),
 			)
 			Expect(envTest.Client.Create(ctx, llmSvc)).Should(Succeed())
+			DeferCleanup(func(ctx SpecContext) {
+				_ = envTest.Client.Delete(ctx, llmSvc)
+			})
 
 			fixture.VerifyGatewayEnvoyFilterNotExist(ctx, envTest.Client, testNs, gatewayName)
 			fixture.VerifyGatewayAuthPolicyNotExist(ctx, envTest.Client, testNs, gatewayName)
@@ -281,6 +284,9 @@ var _ = Describe("Gateway Controller", func() {
 				fixture.WithGatewayRefs(fixture.LLMGatewayRef(gatewayName, testNs)),
 			)
 			Expect(envTest.Client.Create(ctx, llmSvc)).Should(Succeed())
+			DeferCleanup(func(ctx SpecContext) {
+				_ = envTest.Client.Delete(ctx, llmSvc)
+			})
 
 			fixture.VerifyGatewayEnvoyFilterExists(ctx, envTest.Client, testNs, gatewayName)
 			fixture.VerifyGatewayAuthPolicyExists(ctx, envTest.Client, testNs, gatewayName)
