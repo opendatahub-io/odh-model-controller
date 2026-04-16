@@ -240,7 +240,10 @@ var _ = Describe("Gateway Controller", func() {
 
 			gatewayName := pkgtest.GenerateUniqueTestName("same-only-gateway")
 			// Default WithListener creates listeners without AllowedRoutes → defaults to Same
-			createGateway(ctx, gatewayName)
+			gw := createGateway(ctx, gatewayName)
+			DeferCleanup(func(ctx SpecContext) {
+				_ = envTest.Client.Delete(ctx, gw)
+			})
 
 			// Create LLMInferenceService in a different namespace, referencing the gateway
 			llmSvc := fixture.LLMInferenceService("test-llmisvc",
@@ -277,6 +280,9 @@ var _ = Describe("Gateway Controller", func() {
 				}),
 			)
 			Expect(envTest.Client.Create(ctx, gw)).Should(Succeed())
+			DeferCleanup(func(ctx SpecContext) {
+				_ = envTest.Client.Delete(ctx, gw)
+			})
 
 			// Create LLMInferenceService in a different namespace
 			llmSvc := fixture.LLMInferenceService("test-llmisvc",
