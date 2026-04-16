@@ -19,6 +19,7 @@ package llm
 import (
 	"context"
 	"fmt"
+	"maps"
 	"os"
 	"slices"
 	"strings"
@@ -30,6 +31,8 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/meta"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/tools/record"
@@ -81,6 +84,7 @@ func NewGatewayReconciler(client client.Client, scheme *runtime.Scheme, recorder
 // +kubebuilder:rbac:groups=gateway.networking.k8s.io,resources=gateways,verbs=get;list;watch
 // +kubebuilder:rbac:groups=networking.istio.io,resources=envoyfilters,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups=kuadrant.io,resources=authpolicies,verbs=get;list;watch;create;update;patch;delete
+// +kubebuilder:rbac:groups="",resources=namespaces,verbs=get;list;watch
 
 func (r *GatewayReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
 	logger := log.FromContext(ctx).WithValues("Gateway", req.Name, "namespace", req.Namespace)
@@ -335,7 +339,7 @@ func (r *GatewayReconciler) isGatewayReferencedByLLMService(ctx context.Context,
 	}
 
 	for i := range llmSvcList.Items {
-		for _, ref := range r.getEffectiveGatewayRefs(ctx, &llmSvcList.Items[i]) {
+		for _, ref := range r.getEffectiveGatewayRefs(ctx, gateway, &llmSvcList.Items[i]) {
 			ns := string(ref.Namespace)
 			if ns == "" {
 				ns = llmSvcList.Items[i].Namespace
@@ -351,9 +355,11 @@ func (r *GatewayReconciler) isGatewayReferencedByLLMService(ctx context.Context,
 // getEffectiveGatewayRefs returns the effective gateway references for an LLMInferenceService.
 // The service's own gateway refs take precedence over those inherited from BaseRef configs,
 // matching the "last one wins" merge semantics used by kserve's MergeSpecs.
-func (r *GatewayReconciler) getEffectiveGatewayRefs(ctx context.Context, llmSvc *kservev1alpha2.LLMInferenceService) []kservev1alpha2.UntypedObjectReference {
+func (r *GatewayReconciler) getEffectiveGatewayRefs(ctx context.Context, gateway *gatewayapiv1.Gateway, llmSvc *kservev1alpha2.LLMInferenceService) []kservev1alpha2.UntypedObjectReference {
+	nsLabels := r.fetchNamespaceLabels(ctx, llmSvc.Namespace)
+
 	// Service's own refs take precedence (replace config refs)
-	if refs := getGatewayRefs(llmSvc); len(refs) > 0 {
+	if refs := getGatewayRefs(ctx, gateway, llmSvc, nsLabels); len(refs) > 0 {
 		return refs
 	}
 
@@ -373,7 +379,80 @@ func (r *GatewayReconciler) getEffectiveGatewayRefs(ctx context.Context, llmSvc 
 		}
 	}
 
-	return refs
+	return filterAllowedRefs(ctx, gateway, refs, llmSvc.Namespace, nsLabels)
+}
+
+// fetchNamespaceLabels retrieves the labels for the given namespace.
+// Returns nil if the namespace cannot be fetched.
+func (r *GatewayReconciler) fetchNamespaceLabels(ctx context.Context, namespace string) map[string]string {
+	ns := &corev1.Namespace{}
+	if err := r.Client.Get(ctx, client.ObjectKey{Name: namespace}, ns); err != nil {
+		log.FromContext(ctx).V(1).Info("Failed to fetch namespace labels, Selector-based allowedRoutes will be denied", "namespace", namespace, "error", err)
+		return nil
+	}
+	return ns.Labels
+}
+
+func filterAllowedRefs(ctx context.Context, gateway *gatewayapiv1.Gateway, refs []kservev1alpha2.UntypedObjectReference, targetNS string, nsLabels map[string]string) []kservev1alpha2.UntypedObjectReference {
+	if gateway == nil {
+		return refs
+	}
+
+	var allowed []kservev1alpha2.UntypedObjectReference
+	for _, ref := range refs {
+		refNs := string(ref.Namespace)
+		if refNs == "" {
+			refNs = targetNS
+		}
+		if string(ref.Name) != gateway.Name || refNs != gateway.Namespace {
+			// Ref points to a different gateway — keep it, we can't evaluate.
+			allowed = append(allowed, ref)
+			continue
+		}
+
+		if gatewayAllowsNamespace(ctx, gateway, targetNS, nsLabels) {
+			allowed = append(allowed, ref)
+		}
+	}
+	return allowed
+}
+
+// gatewayAllowsNamespace returns true if at least one listener on the gateway
+// permits routes from targetNS according to the Gateway API allowedRoutes spec.
+func gatewayAllowsNamespace(ctx context.Context, gateway *gatewayapiv1.Gateway, targetNS string, nsLabels map[string]string) bool {
+	for _, listener := range gateway.Spec.Listeners {
+		if listenerAllowsNamespace(ctx, listener, gateway.Namespace, targetNS, nsLabels) {
+			return true
+		}
+	}
+	return false
+}
+
+func listenerAllowsNamespace(ctx context.Context, l gatewayapiv1.Listener, gwNamespace, targetNS string, nsLabels map[string]string) bool {
+	if l.AllowedRoutes == nil || l.AllowedRoutes.Namespaces == nil || l.AllowedRoutes.Namespaces.From == nil {
+		// Default is "Same" per Gateway API spec.
+		return gwNamespace == targetNS
+	}
+
+	switch *l.AllowedRoutes.Namespaces.From {
+	case gatewayapiv1.NamespacesFromAll:
+		return true
+	case gatewayapiv1.NamespacesFromSame:
+		return gwNamespace == targetNS
+	case gatewayapiv1.NamespacesFromSelector:
+		if l.AllowedRoutes.Namespaces.Selector == nil {
+			return false
+		}
+		selector, err := metav1.LabelSelectorAsSelector(l.AllowedRoutes.Namespaces.Selector)
+		if err != nil {
+			log.FromContext(ctx).Error(err, "Failed to parse listener namespace selector, denying access",
+				"listener", l.Name, "gwNamespace", gwNamespace)
+			return false
+		}
+		return selector.Matches(labels.Set(nsLabels))
+	default:
+		return false
+	}
 }
 
 // fetchLLMISvcConfig fetches LLMInferenceServiceConfig by name, first from the given namespace,
@@ -408,7 +487,7 @@ func (r *GatewayReconciler) enqueueGatewaysFromLLMInferenceService() handler.Eve
 		}
 
 		var requests []reconcile.Request
-		for _, ref := range r.getEffectiveGatewayRefs(ctx, llmSvc) {
+		for _, ref := range r.getEffectiveGatewayRefs(ctx, nil, llmSvc) {
 			namespace := string(ref.Namespace)
 			if namespace == "" {
 				namespace = llmSvc.Namespace
@@ -463,7 +542,7 @@ func (r *GatewayReconciler) enqueueGatewaysFromLLMInferenceServiceConfig() handl
 			if !referencesConfig(svc, cfg.Name) {
 				continue
 			}
-			for _, ref := range r.getEffectiveGatewayRefs(ctx, svc) {
+			for _, ref := range r.getEffectiveGatewayRefs(ctx, nil, svc) {
 				namespace := string(ref.Namespace)
 				if namespace == "" {
 					namespace = svc.Namespace
@@ -479,6 +558,73 @@ func (r *GatewayReconciler) enqueueGatewaysFromLLMInferenceServiceConfig() handl
 
 		return requests
 	})
+}
+
+// enqueueGatewaysFromNamespace returns an event handler that, on namespace label
+// changes, finds gateways referenced by LLMInferenceServices in the changed
+// namespace and enqueues those with Selector-based listeners.
+func (r *GatewayReconciler) enqueueGatewaysFromNamespace() handler.EventHandler {
+	return handler.EnqueueRequestsFromMapFunc(func(ctx context.Context, object client.Object) []reconcile.Request {
+		ns := object.(*corev1.Namespace)
+
+		llmSvcList := &kservev1alpha2.LLMInferenceServiceList{}
+		if err := r.Client.List(ctx, llmSvcList, client.InNamespace(ns.Name)); err != nil {
+			log.FromContext(ctx).Error(err, "Failed to list LLMInferenceServices for namespace label change", "namespace", ns.Name)
+			return nil
+		}
+		if len(llmSvcList.Items) == 0 {
+			return nil
+		}
+
+		// Collect unique gateway refs from all LLMInferenceServices in this namespace.
+		seen := make(map[types.NamespacedName]struct{})
+		var candidates []types.NamespacedName
+		for i := range llmSvcList.Items {
+			for _, ref := range r.getEffectiveGatewayRefs(ctx, nil, &llmSvcList.Items[i]) {
+				namespace := string(ref.Namespace)
+				if namespace == "" {
+					namespace = ns.Name
+				}
+				key := types.NamespacedName{Name: string(ref.Name), Namespace: namespace}
+				if _, exists := seen[key]; !exists {
+					seen[key] = struct{}{}
+					candidates = append(candidates, key)
+				}
+			}
+		}
+
+		// Only enqueue gateways that exist and have Selector-based listeners.
+		var requests []reconcile.Request
+		for _, key := range candidates {
+			gw := &gatewayapiv1.Gateway{}
+			if err := r.Client.Get(ctx, key, gw); err != nil {
+				if apierrors.IsNotFound(err) {
+					continue
+				}
+				log.FromContext(ctx).Error(err, "Failed to get Gateway for namespace label change", "gateway", key.Name, "namespace", key.Namespace)
+				requests = append(requests, reconcile.Request{NamespacedName: key})
+				continue
+			}
+			if hasSelectorListeners(gw) {
+				requests = append(requests, reconcile.Request{NamespacedName: key})
+			}
+		}
+		return requests
+	})
+}
+
+// hasSelectorListeners returns true if any listener on the gateway uses
+// NamespacesFromSelector in its allowedRoutes.
+func hasSelectorListeners(gw *gatewayapiv1.Gateway) bool {
+	for _, l := range gw.Spec.Listeners {
+		if l.AllowedRoutes != nil &&
+			l.AllowedRoutes.Namespaces != nil &&
+			l.AllowedRoutes.Namespaces.From != nil &&
+			*l.AllowedRoutes.Namespaces.From == gatewayapiv1.NamespacesFromSelector {
+			return true
+		}
+	}
+	return false
 }
 
 func getConfigGatewayRefs(cfg *kservev1alpha2.LLMInferenceServiceConfig) []kservev1alpha2.UntypedObjectReference {
@@ -559,7 +705,7 @@ func configGatewayRefsChanged(oldCfg, newCfg *kservev1alpha2.LLMInferenceService
 // gatewayRefsChanged reports whether gateway refs or BaseRefs differ between two LLMInferenceService objects.
 // BaseRefs are compared because they can introduce gateway refs via LLMInferenceServiceConfig.
 func gatewayRefsChanged(old, new *kservev1alpha2.LLMInferenceService) bool {
-	if !gatewayRefsEqual(getGatewayRefs(old), getGatewayRefs(new)) {
+	if !gatewayRefsEqual(getGatewayRefs(context.Background(), nil, old, nil), getGatewayRefs(context.Background(), nil, new, nil)) {
 		return true
 	}
 
@@ -587,9 +733,9 @@ func gatewayRefsChanged(old, new *kservev1alpha2.LLMInferenceService) bool {
 	return false
 }
 
-func getGatewayRefs(llmSvc *kservev1alpha2.LLMInferenceService) []kservev1alpha2.UntypedObjectReference {
+func getGatewayRefs(ctx context.Context, gateway *gatewayapiv1.Gateway, llmSvc *kservev1alpha2.LLMInferenceService, nsLabels map[string]string) []kservev1alpha2.UntypedObjectReference {
 	if llmSvc.Spec.Router != nil && llmSvc.Spec.Router.Gateway.HasRefs() {
-		return slices.Clone(llmSvc.Spec.Router.Gateway.Refs)
+		return filterAllowedRefs(ctx, gateway, slices.Clone(llmSvc.Spec.Router.Gateway.Refs), llmSvc.Namespace, nsLabels)
 	}
 	return nil
 }
@@ -690,6 +836,19 @@ func (r *GatewayReconciler) SetupWithManager(mgr ctrl.Manager, setupLog logr.Log
 				},
 				DeleteFunc: func(_ event.DeleteEvent) bool {
 					return true
+				},
+			})).
+		Watches(&corev1.Namespace{},
+			r.enqueueGatewaysFromNamespace(),
+			ctrlbuilder.WithPredicates(predicate.Funcs{
+				CreateFunc: func(_ event.CreateEvent) bool {
+					return true
+				},
+				UpdateFunc: func(e event.UpdateEvent) bool {
+					return !maps.Equal(e.ObjectOld.GetLabels(), e.ObjectNew.GetLabels())
+				},
+				DeleteFunc: func(_ event.DeleteEvent) bool {
+					return false
 				},
 			})).
 		Named("gateway-auth-bootstrap").

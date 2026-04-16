@@ -232,6 +232,83 @@ var _ = Describe("Gateway Controller", func() {
 		})
 	})
 
+	Context("Gateway allowedRoutes filtering", func() {
+		It("should NOT create resources when gateway has Same-only listeners and LLMInferenceService is in a different namespace", func(ctx SpecContext) {
+			// Create a second namespace for the LLMInferenceService
+			otherNamespace := testutils.Namespaces.Create(ctx, envTest.Client)
+			otherNs := otherNamespace.Name
+
+			gatewayName := pkgtest.GenerateUniqueTestName("same-only-gateway")
+			// Default WithListener creates listeners without AllowedRoutes → defaults to Same
+			gw := createGateway(ctx, gatewayName)
+			DeferCleanup(func(ctx SpecContext) {
+				_ = envTest.Client.Delete(ctx, gw)
+			})
+
+			// Create LLMInferenceService in a different namespace, referencing the gateway
+			llmSvc := fixture.LLMInferenceService("test-llmisvc",
+				fixture.InNamespace[*kservev1alpha2.LLMInferenceService](otherNs),
+				fixture.WithGatewayRefs(fixture.LLMGatewayRef(gatewayName, testNs)),
+			)
+			Expect(envTest.Client.Create(ctx, llmSvc)).Should(Succeed())
+			DeferCleanup(func(ctx SpecContext) {
+				_ = envTest.Client.Delete(ctx, llmSvc)
+			})
+
+			fixture.VerifyGatewayEnvoyFilterNotExist(ctx, envTest.Client, testNs, gatewayName)
+			fixture.VerifyGatewayAuthPolicyNotExist(ctx, envTest.Client, testNs, gatewayName)
+		})
+
+		It("should create resources when gateway has All listener and LLMInferenceService is in a different namespace", func(ctx SpecContext) {
+			otherNamespace := testutils.Namespaces.Create(ctx, envTest.Client)
+			otherNs := otherNamespace.Name
+
+			gatewayName := pkgtest.GenerateUniqueTestName("all-listener-gateway")
+			from := gatewayapiv1.NamespacesFromAll
+			gw := fixture.Gateway(gatewayName,
+				fixture.InNamespace[*gatewayapiv1.Gateway](testNs),
+				fixture.WithClassName(GatewayClassName),
+				fixture.WithListeners(gatewayapiv1.Listener{
+					Name:     "http",
+					Port:     80,
+					Protocol: gatewayapiv1.HTTPProtocolType,
+					AllowedRoutes: &gatewayapiv1.AllowedRoutes{
+						Namespaces: &gatewayapiv1.RouteNamespaces{
+							From: &from,
+						},
+					},
+				}),
+			)
+			Expect(envTest.Client.Create(ctx, gw)).Should(Succeed())
+			DeferCleanup(func(ctx SpecContext) {
+				_ = envTest.Client.Delete(ctx, gw)
+			})
+
+			// Create LLMInferenceService in a different namespace
+			llmSvc := fixture.LLMInferenceService("test-llmisvc",
+				fixture.InNamespace[*kservev1alpha2.LLMInferenceService](otherNs),
+				fixture.WithGatewayRefs(fixture.LLMGatewayRef(gatewayName, testNs)),
+			)
+			Expect(envTest.Client.Create(ctx, llmSvc)).Should(Succeed())
+			DeferCleanup(func(ctx SpecContext) {
+				_ = envTest.Client.Delete(ctx, llmSvc)
+			})
+
+			fixture.VerifyGatewayEnvoyFilterExists(ctx, envTest.Client, testNs, gatewayName)
+			fixture.VerifyGatewayAuthPolicyExists(ctx, envTest.Client, testNs, gatewayName)
+		})
+
+		It("should create resources when gateway has Same listener and LLMInferenceService is in the same namespace", func(ctx SpecContext) {
+			gatewayName := pkgtest.GenerateUniqueTestName("same-ns-gateway")
+			// Default listener has no AllowedRoutes → defaults to Same
+			createGateway(ctx, gatewayName)
+			createLLMServiceForGateway(ctx, gatewayName)
+
+			fixture.VerifyGatewayEnvoyFilterExists(ctx, envTest.Client, testNs, gatewayName)
+			fixture.VerifyGatewayAuthPolicyExists(ctx, envTest.Client, testNs, gatewayName)
+		})
+	})
+
 	Context("LLMInferenceService gateway ref changes", func() {
 		It("should create resources when gateway ref is added to LLMInferenceService", func(ctx SpecContext) {
 			gatewayName := pkgtest.GenerateUniqueTestName("managed-gateway")
