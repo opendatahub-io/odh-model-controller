@@ -1,6 +1,7 @@
 package llm
 
 import (
+	"context"
 	"testing"
 
 	kservev1alpha2 "github.com/kserve/kserve/pkg/apis/serving/v1alpha2"
@@ -198,7 +199,7 @@ func TestFilterAllowedRefs(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got := filterAllowedRefs(tt.gateway, tt.refs, tt.targetNS, tt.nsLabels)
+			got := filterAllowedRefs(context.Background(), tt.gateway, tt.refs, tt.targetNS, tt.nsLabels)
 			if len(got) != tt.wantLen {
 				t.Fatalf("filterAllowedRefs() returned %d refs, want %d; got %+v", len(got), tt.wantLen, got)
 			}
@@ -338,7 +339,7 @@ func TestListenerAllowsNamespace(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got := listenerAllowsNamespace(tt.listener, tt.gwNamespace, tt.targetNS, tt.nsLabels)
+			got := listenerAllowsNamespace(context.Background(), tt.listener, tt.gwNamespace, tt.targetNS, tt.nsLabels)
 			if got != tt.want {
 				t.Errorf("listenerAllowsNamespace() = %v, want %v", got, tt.want)
 			}
@@ -408,7 +409,7 @@ func TestGatewayAllowsNamespace(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got := gatewayAllowsNamespace(tt.gateway, tt.targetNS, tt.nsLabels)
+			got := gatewayAllowsNamespace(context.Background(), tt.gateway, tt.targetNS, tt.nsLabels)
 			if got != tt.want {
 				t.Errorf("gatewayAllowsNamespace() = %v, want %v", got, tt.want)
 			}
