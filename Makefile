@@ -186,7 +186,7 @@ test-e2e-kserve-ocp: e2e-kserve-overlay ## Run KServe e2e tests on OpenShift.
 		git clone --branch "$(KSERVE_E2E_BRANCH)" "$(KSERVE_E2E_REPO)" "$(KSERVE_E2E_DIR)"; \
 	fi; \
 	cd "$(KSERVE_E2E_DIR)" && \
-	export ODH_MC_MANIFEST_SOURCE="$(E2E_OVERLAY_DIR)" && \
+	export ODH_MC_MANIFEST_SOURCE="$$(realpath --relative-to=. "$(E2E_OVERLAY_DIR)")" && \
 	echo "ODH_MC_MANIFEST_SOURCE=$$ODH_MC_MANIFEST_SOURCE" && \
 	echo "=== Running KServe E2E Tests ====== '$(KSERVE_E2E_TEST_ARGS)'" && \
 	./test/scripts/openshift-ci/run-e2e-tests.sh $(KSERVE_E2E_TEST_ARGS)
