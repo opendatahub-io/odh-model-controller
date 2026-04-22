@@ -544,6 +544,26 @@ func GetNimServingRuntimeTemplate(scheme *runtime.Scheme, airGapped bool) (*v1al
 								MountPath: "/.cache",
 								Name:      "nim-cache",
 							},
+							{
+								MountPath: "/opt/nim/nginx",
+								Name:      "nim-nginx",
+							},
+							{
+								MountPath: "/opt/nim/generated_configs",
+								Name:      "nim-generated-configs",
+							},
+							{
+								MountPath: "/opt/nim/.cache",
+								Name:      "nim-dot-cache",
+							},
+							{
+								MountPath: "/opt/nim/.config",
+								Name:      "nim-dot-config",
+							},
+							{
+								MountPath: "/opt/nim/.triton",
+								Name:      "nim-dot-triton",
+							},
 						},
 					},
 				},
@@ -565,6 +585,36 @@ func GetNimServingRuntimeTemplate(scheme *runtime.Scheme, airGapped bool) (*v1al
 					},
 					{
 						Name: "nim-cache",
+						VolumeSource: corev1.VolumeSource{
+							EmptyDir: &corev1.EmptyDirVolumeSource{},
+						},
+					},
+					{
+						Name: "nim-nginx",
+						VolumeSource: corev1.VolumeSource{
+							EmptyDir: &corev1.EmptyDirVolumeSource{},
+						},
+					},
+					{
+						Name: "nim-generated-configs",
+						VolumeSource: corev1.VolumeSource{
+							EmptyDir: &corev1.EmptyDirVolumeSource{},
+						},
+					},
+					{
+						Name: "nim-dot-cache",
+						VolumeSource: corev1.VolumeSource{
+							EmptyDir: &corev1.EmptyDirVolumeSource{},
+						},
+					},
+					{
+						Name: "nim-dot-config",
+						VolumeSource: corev1.VolumeSource{
+							EmptyDir: &corev1.EmptyDirVolumeSource{},
+						},
+					},
+					{
+						Name: "nim-dot-triton",
 						VolumeSource: corev1.VolumeSource{
 							EmptyDir: &corev1.EmptyDirVolumeSource{},
 						},
