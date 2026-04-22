@@ -4,19 +4,21 @@ on:
   workflow_dispatch:
     inputs:
       repository:
-        description: 'Target repository (odh-model-controller, kserve, llm-d-inference-scheduler)'
+        description: 'Target repository (odh-model-controller, kserve, llm-d-inference-scheduler, workload-variant-autoscaler and llm-d-kv-cache)'
         required: true
         type: choice
         options:
           - odh-model-controller
           - llm-d-inference-scheduler
           - kserve
+          - llm-d-kv-cache
+          - workload-variant-autoscaler
       tag_name: # The new release tag to be created and used as the search value.
         description: 'New release tag (e.g., odh-v2.35)'
         required: true
         type: string
       next_tag_name: # The next tag to replace the current one in the Konflux files.
-        description: 'Next development tag (e.g., odh-v2.36) - not required for llm-d-inference-scheduler'
+        description: 'Next development tag (e.g., odh-v2.36) - not required for llm-d-inference-scheduler, wva or kv-cache '
         required: false
         type: string
       target_branch:
@@ -89,7 +91,7 @@ jobs:
             errors.append(f"Tag '{tag_name}' does not match expected format 'odh-vX.Y' or 'odh-vX.Y.Z'")
           
           # next_tag validation only required for repos that need Tekton bumping
-          if repository != "llm-d-inference-scheduler":
+          if repository not in ("llm-d-inference-scheduler", "workload-variant-autoscaler", "llm-d-kv-cache"):
             if not next_tag:
               errors.append("next_tag_name is required for this repository")
             elif not re.match(tag_pattern, next_tag):
@@ -137,9 +139,9 @@ jobs:
           
           repository = "${{ github.event.inputs.repository }}"
           
-          # Skip file discovery for llm-d-inference-scheduler
-          if repository == "llm-d-inference-scheduler":
-            print("Skipping file discovery for llm-d-inference-scheduler")
+          # Skip file discovery for llm-d repo
+          if repository in ("llm-d-inference-scheduler", "workload-variant-autoscaler", "llm-d-kv-cache"): 
+            print("Skipping file discovery for llm-d repo")
             with open(os.environ['GITHUB_OUTPUT'], 'a') as f:
               f.write(f"params_env_files=[]\n")
               f.write(f"tekton_files=[]\n")
@@ -220,7 +222,7 @@ jobs:
           else:
             # For kserve and others: update all matching images except llm-d-* images
             image_pattern = re.compile(
-              r'([\w.-]+(?:\.[\w.-]+)*/[\w.-]+/(?!llm-d-inference-scheduler|llm-d-routing-sidecar)[\w.-]+):()(fast|v[\d.]+-latest|release-v[\d.]+|odh-v[\d.]+(?:-EA\d)?)'
+              r'([\w.-]+(?:\.[\w.-]+)*/[\w.-]+/(?!llm-d-inference-scheduler|llm-d-kv-cache)[\w.-]+):()(fast|v[\d.]+-latest|release-v[\d.]+|odh-v[\d.]+(?:-EA\d)?)'
             )
           
           updated_files = []
