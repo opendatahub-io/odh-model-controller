@@ -253,7 +253,7 @@ func (r *InferenceServiceReconciler) SetupWithManager(mgr ctrl.Manager, setupLog
 					return []reconcile.Request{}
 				}
 				logger := log.FromContext(ctx)
-				logger.Info("Reconcile event triggered by Secret: " + o.GetName())
+				logger.V(1).Info("Reconcile event triggered by Secret: " + o.GetName())
 				isvc := &kservev1beta1.InferenceService{}
 				err := r.Client.Get(ctx, types.NamespacedName{Name: o.GetName(), Namespace: o.GetNamespace()}, isvc)
 				if err != nil {
