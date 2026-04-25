@@ -82,11 +82,11 @@ func (f *fakeAuthPolicyTemplateLoader) Load(_ context.Context, target resources.
 	}, nil
 }
 
-func newTestLLMInferenceService(name, namespace string) *kservev1alpha2.LLMInferenceService {
+func newTestLLMInferenceService() *kservev1alpha2.LLMInferenceService {
 	return &kservev1alpha2.LLMInferenceService{
 		ObjectMeta: metav1.ObjectMeta{
-			Name:      name,
-			Namespace: namespace,
+			Name:      "test-svc",
+			Namespace: "test-ns",
 		},
 	}
 }
@@ -108,7 +108,7 @@ func TestReconcile_AuthDisabled_NoMatchError_Skipped(t *testing.T) {
 		templateLoader: &fakeAuthPolicyTemplateLoader{},
 	}
 
-	llmisvc := newTestLLMInferenceService("test-svc", "test-ns")
+	llmisvc := newTestLLMInferenceService()
 	err := reconciler.Reconcile(context.Background(), logr.Discard(), llmisvc)
 	if err != nil {
 		t.Errorf("expected nil error when AuthPolicy CRD is not available, got: %v", err)
@@ -124,7 +124,7 @@ func TestReconcile_AuthDisabled_OtherError_Propagated(t *testing.T) {
 		templateLoader: &fakeAuthPolicyTemplateLoader{},
 	}
 
-	llmisvc := newTestLLMInferenceService("test-svc", "test-ns")
+	llmisvc := newTestLLMInferenceService()
 	err := reconciler.Reconcile(context.Background(), logr.Discard(), llmisvc)
 	if err == nil {
 		t.Error("expected error to be propagated, got nil")
@@ -146,7 +146,7 @@ func TestDelete_NoMatchError_Skipped(t *testing.T) {
 		},
 	}
 
-	llmisvc := newTestLLMInferenceService("test-svc", "test-ns")
+	llmisvc := newTestLLMInferenceService()
 	err := reconciler.Delete(context.Background(), logr.Discard(), llmisvc)
 	if err != nil {
 		t.Errorf("expected nil error when AuthPolicy CRD is not available during delete, got: %v", err)
@@ -160,7 +160,7 @@ func TestDelete_OtherError_Propagated(t *testing.T) {
 		},
 	}
 
-	llmisvc := newTestLLMInferenceService("test-svc", "test-ns")
+	llmisvc := newTestLLMInferenceService()
 	err := reconciler.Delete(context.Background(), logr.Discard(), llmisvc)
 	if err == nil {
 		t.Error("expected error to be propagated, got nil")
@@ -184,7 +184,7 @@ func TestReconcile_NoSetEnableAuthAnnotation_NoMatchError_Skipped(t *testing.T) 
 		templateLoader: &fakeAuthPolicyTemplateLoader{},
 	}
 
-	llmisvc := newTestLLMInferenceService("test-svc", "test-ns")
+	llmisvc := newTestLLMInferenceService()
 	err := reconciler.Reconcile(context.Background(), logr.Discard(), llmisvc)
 	if err != nil {
 		t.Errorf("expected nil error when enable-auth annotation is not set and AuthPolicy CRD is not available, got: %v", err)
