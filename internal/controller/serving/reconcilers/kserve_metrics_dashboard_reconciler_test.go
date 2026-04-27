@@ -16,6 +16,7 @@ limitations under the License.
 package reconcilers
 
 import (
+	"encoding/json"
 	"strings"
 
 	kservev1alpha1 "github.com/kserve/kserve/pkg/apis/serving/v1alpha1"
@@ -254,6 +255,76 @@ var _ = Describe("KserveMetricsDashboardReconciler", func() {
 				Expect(configMap.Data["metrics"]).To(ContainSubstring("tgis-model"))
 				Expect(configMap.Data["metrics"]).To(ContainSubstring("test-namespace"))
 			})
+		})
+
+		When("all runtime metrics templates are validated", func() {
+			type metricsQuery struct {
+				Title string `json:"title"`
+				Query string `json:"query"`
+			}
+			type metricsSection struct {
+				Title   string         `json:"title"`
+				Type    string         `json:"type"`
+				Queries []metricsQuery `json:"queries"`
+			}
+			type metricsConfig struct {
+				Config []metricsSection `json:"config"`
+			}
+
+			runtimeData := map[string]string{
+				"Caikit":   constants.CaikitMetricsData,
+				"OVMS":     constants.OvmsMetricsData,
+				"TGIS":     constants.TgisMetricsData,
+				"vLLM":     constants.VllmMetricsData,
+				"NIM":      constants.NIMMetricsData,
+				"MLServer": constants.MLServerMetricsData,
+			}
+
+			for name, data := range runtimeData {
+				name := name
+				data := data
+
+				It("should have REQUEST_COUNT with success+failed queries for "+name, func() {
+					var cfg metricsConfig
+					Expect(json.Unmarshal([]byte(data), &cfg)).To(Succeed())
+
+					var requestCount *metricsSection
+					for i := range cfg.Config {
+						if cfg.Config[i].Type == "REQUEST_COUNT" {
+							requestCount = &cfg.Config[i]
+							break
+						}
+					}
+					Expect(requestCount).NotTo(BeNil(), name+" must define a REQUEST_COUNT section")
+					Expect(requestCount.Queries).To(HaveLen(2),
+						name+" REQUEST_COUNT must have 2 queries (success + failed)")
+					Expect(strings.ToLower(requestCount.Queries[0].Title)).To(ContainSubstring("successful"),
+						name+" REQUEST_COUNT[0] must be the success query")
+					Expect(strings.ToLower(requestCount.Queries[1].Title)).To(ContainSubstring("failed"),
+						name+" REQUEST_COUNT[1] must be the failed query")
+				})
+
+				It("should not use lowercase variable placeholders for "+name, func() {
+					var cfg metricsConfig
+					Expect(json.Unmarshal([]byte(data), &cfg)).To(Succeed())
+
+					for _, section := range cfg.Config {
+						for _, q := range section.Queries {
+							Expect(q.Query).NotTo(ContainSubstring("${model_name}"),
+								name+" "+section.Type+": must use ${MODEL_NAME}")
+							Expect(q.Query).NotTo(ContainSubstring("${namespace}"),
+								name+" "+section.Type+": must use ${NAMESPACE}")
+						}
+					}
+				})
+
+				It("should have all variables substituted after calling SubstituteVariablesInQueries for "+name, func() {
+					substituted := utils.SubstituteVariablesInQueries(data, "test-ns", "test-model")
+					Expect(substituted).NotTo(ContainSubstring("${"))
+					Expect(substituted).To(ContainSubstring("test-ns"))
+					Expect(substituted).To(ContainSubstring("test-model"))
+				})
+			}
 		})
 
 		When("no valid runtime annotations are set", func() {

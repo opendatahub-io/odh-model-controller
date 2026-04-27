@@ -187,7 +187,11 @@ const (
 				"queries": [
 					{
 						"title": "Number of successful incoming requests",
-						"query": "round(sum(increase(vllm:request_success_total{namespace='${NAMESPACE}',model_name='${model_name}'}[${REQUEST_RATE_INTERVAL}])))"
+						"query": "round(sum(increase(vllm:request_success_total{namespace='${NAMESPACE}',model_name='${MODEL_NAME}',finished_reason!~'error|abort'}[${REQUEST_RATE_INTERVAL}])))"
+					},
+					{
+						"title": "Number of failed incoming requests",
+						"query": "round(sum(increase(vllm:request_success_total{namespace='${NAMESPACE}',model_name='${MODEL_NAME}',finished_reason=~'error|abort'}[${REQUEST_RATE_INTERVAL}])))"
 					}
 				]
 			},
