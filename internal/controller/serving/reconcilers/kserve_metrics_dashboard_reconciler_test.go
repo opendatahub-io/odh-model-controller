@@ -288,13 +288,20 @@ var _ = Describe("KserveMetricsDashboardReconciler", func() {
 					var cfg metricsConfig
 					Expect(json.Unmarshal([]byte(data), &cfg)).To(Succeed())
 
-					for _, section := range cfg.Config {
-						if section.Type != "REQUEST_COUNT" {
-							continue
+					var requestCount *metricsSection
+					for i := range cfg.Config {
+						if cfg.Config[i].Type == "REQUEST_COUNT" {
+							requestCount = &cfg.Config[i]
+							break
 						}
-						Expect(section.Queries).To(HaveLen(2),
-							name+" REQUEST_COUNT must have 2 queries (success + failed)")
 					}
+					Expect(requestCount).NotTo(BeNil(), name+" must define a REQUEST_COUNT section")
+					Expect(requestCount.Queries).To(HaveLen(2),
+						name+" REQUEST_COUNT must have 2 queries (success + failed)")
+					Expect(strings.ToLower(requestCount.Queries[0].Title)).To(ContainSubstring("successful"),
+						name+" REQUEST_COUNT[0] must be the success query")
+					Expect(strings.ToLower(requestCount.Queries[1].Title)).To(ContainSubstring("failed"),
+						name+" REQUEST_COUNT[1] must be the failed query")
 				})
 
 				It("should not use lowercase variable placeholders for "+name, func() {
