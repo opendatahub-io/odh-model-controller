@@ -1,8 +1,8 @@
 # Multi-Cluster Authentication with JWT Token Exchange
 
-Extend `authpolicy_llm_isvc_userdefined.yaml` to support multi-cluster authentication
-using signed JWT tokens for cross-cluster identity portability (implemented via
-Kuadrant's wristband feature).
+Extend `authpolicy_llm_isvc_userdefined.yaml` to support JWT-based authentication
+beyond local Kubernetes tokens: cross-cluster identity portability (via Kuadrant's
+wristband feature) and external OIDC providers (e.g., HashiCorp Vault, Keycloak).
 
 ## Problem
 
@@ -10,6 +10,11 @@ Kubernetes tokens are cluster-scoped. A ServiceAccount token valid on cluster A 
 authenticate on cluster B. In a multi-cluster topology where inference workloads are
 distributed across clusters, users need a portable identity token to access models on
 any cluster where they have been granted RBAC.
+
+Additionally, organizations may have existing identity providers (HashiCorp Vault,
+Keycloak, Auth0) that issue JWTs to users outside the Kubernetes ecosystem. These
+users need to authenticate to inference endpoints without requiring a Kubernetes
+identity on every cluster.
 
 ## Architecture: peer-to-peer
 
@@ -34,7 +39,9 @@ Each cluster enforces its own RBAC independently.
  │  │                                        │  │    │  │                                        │  │
  │  │  Listener ──► Authorino                │  │    │  │  Listener ──► Authorino                │  │
  │  │                  │                     │  │    │  │                  │                     │  │
- │  │                  ├─ authn: k8s / JWT   │  │    │  │                  ├─ authn: k8s / JWT   │  │
+ │  │                  ├─ authn: k8s token   │  │    │  │                  ├─ authn: k8s token   │  │
+ │  │                  ├─ authn: peer JWT    │  │    │  │                  ├─ authn: peer JWT    │  │
+ │  │                  ├─ authn: external JWT│  │    │  │                  ├─ authn: external JWT│  │
  │  │                  ├─ authz: SAR (RBAC)  │  │    │  │                  ├─ authz: SAR (RBAC)  │  │
  │  └────────────────────────────────────────┘  │    │  └────────────────────────────────────────┘  │
  │                     │                        │    │                     │                        │
@@ -58,7 +65,14 @@ Each cluster enforces its own RBAC independently.
  │  └────────────────────────────────────────┘  │    │  └────────────────────────────────────────┘  │
  └──────────────────────────────────────────────┘    └──────────────────────────────────────────────┘
                                           ▲            ▲
-                          Signing keys distributed via GitOps / ACM / HashiCorp Vault
+                          Signing keys distributed via GitOps / ACM
+
+                              ┌──────────────────────────────────────┐
+                              │ External OIDC Provider               │
+                              │ (Vault, Keycloak, Auth0, ...)        │
+                              │                                      │
+                              │  JWKS endpoint ◄── Authorino fetches │
+                              └──────────────────────────────────────┘
 ```
 
 ### Token exchange flow
@@ -195,9 +209,9 @@ Responder
 All changes are additive. The existing `kubernetesTokenReview` + `SubjectAccessReview`
 flow remains the primary authentication/authorization path for local users.
 
-On peer clusters, the `jwt` authentication method is configured alongside
-`kubernetesTokenReview`. Authorino evaluates all authentication configs — at least one
-must succeed. Local Kubernetes tokens continue to work unchanged.
+Additional `jwt` authentication methods (peer wristbands and/or external OIDC providers)
+are configured alongside `kubernetesTokenReview`. Authorino evaluates all authentication
+configs — at least one must succeed. Local Kubernetes tokens continue to work unchanged.
 
 ## Token endpoint: `/api/v1/token`
 
@@ -1423,6 +1437,218 @@ oc exec -n default dnsutils -- curl -s -o /dev/null -w "%{http_code}" \
   $GW/api/v1/token
 # Expected: 401 (wristband-user auth is disabled on /api/v1/token via when predicate)
 ```
+
+## External JWT issuers
+
+In addition to the built-in wristband token exchange, operators can configure external
+OIDC providers (e.g., HashiCorp Vault, Keycloak, Auth0) as additional JWT authentication
+sources. This runs in parallel with both `kubernetes-user` and `wristband-user` — Authorino
+evaluates all authentication methods and succeeds if at least one matches.
+
+### Annotation
+
+Configure external issuers via a Gateway annotation. The value is a JSON array of
+issuer objects:
+
+```yaml
+annotations:
+  security.opendatahub.io/authn-jwt-jwks: |
+    [
+      {"prefix": "vault", "jwksUrl": "https://vault.example.com/v1/identity/oidc/.well-known/keys"},
+      {"prefix": "keycloak", "jwksUrl": "https://keycloak.example.com/realms/inference/protocol/openid-connect/certs"}
+    ]
+```
+
+Each object has the following fields:
+
+| Field     | Required | Description                                                                                                         |
+|-----------|----------|---------------------------------------------------------------------------------------------------------------------|
+| `prefix`  | Yes      | Short identifier used to namespace the auth rule and prefix identities (e.g., `vault` → `jwt-vault`, `vault:alice`) |
+| `jwksUrl` | Yes      | JWKS endpoint URL. Authorino fetches public keys from this URL                                                      |
+
+JSON is used instead of a simpler key-value format to allow future extensibility (e.g.,
+adding `jwksSecretRef` for air-gapped environments without a format migration).
+
+The `prefix` must be unique within the annotation. It is used to:
+1. Name the authentication rule in the AuthPolicy (`jwt-<prefix>`)
+2. Prefix usernames and groups to prevent identity collisions (`<prefix>:<identity>`)
+
+### Generated authentication rules
+
+For each entry, the controller generates a `jwt` authentication rule in the AuthPolicy:
+
+```yaml
+authentication:
+  kubernetes-user:
+    # ... unchanged ...
+
+  wristband-user:
+    # ... unchanged (built-in token exchange) ...
+
+  # Generated from annotation entry: {"prefix": "vault", "jwksUrl": "https://vault.example.com/..."}
+  jwt-vault:
+    when:
+      - predicate: "request.path != '/api/v1/token'"
+    jwt:
+      jwksUrl: "https://vault.example.com/v1/identity/oidc/.well-known/keys"
+    overrides:
+      user:
+        expression: "{'username': 'vault:' + auth.identity.sub, 'groups': has(auth.identity.groups) ? auth.identity.groups.map(g, 'vault:' + g) : []}"
+      fairness:
+        expression: auth.identity.iss
+      objective:
+        expression: "'authenticated'"
+    priority: 2
+```
+
+Key points:
+
+- **Token escalation prevention**: The `when` predicate disables external JWT auth on
+  `/api/v1/token`, same as `wristband-user`. Only `kubernetesTokenReview` can mint
+  wristband tokens.
+- **Priority**: External issuers use `priority: 2` (after `kubernetes-user` at 0 and
+  `wristband-user` at 1). Authorino evaluates lower-priority methods first, so local
+  auth is preferred when both could match.
+- **Credential extraction**: Uses the default `Authorization: Bearer` header, same as
+  all other auth methods.
+
+### Identity normalization
+
+External JWTs have different claim structures than Kubernetes tokens or wristbands.
+The `overrides` section normalizes the identity so that downstream authorization rules
+(`auth.identity.user.username`, `auth.identity.user.groups`) work without modification.
+
+The username is **prefixed with the issuer prefix** to avoid collisions with local
+Kubernetes identities or across multiple providers:
+
+| Auth method       | `auth.identity.user.username`                          | `auth.identity.user.groups`                     |
+|-------------------|--------------------------------------------------------|-------------------------------------------------|
+| `kubernetes-user` | `system:serviceaccount:ns:name`                        | `["system:serviceaccounts", ...]`               |
+| `wristband-user`  | `system:serviceaccount:ns:name` (from wristband claim) | `["system:serviceaccounts", ...]` (from claim)  |
+| `jwt-vault`       | `vault:<sub-claim>`                                    | `["vault:ml-engineers", ...]` or `[]`           |
+
+The prefix (`vault:`) is applied to both usernames and groups to ensure that external
+identities cannot collide with local Kubernetes identities. A Vault user `alice` is
+authorized as `vault:alice`, and a Vault group `ml-engineers` becomes `vault:ml-engineers`.
+RoleBindings must reference the prefixed identities.
+
+### Vault example
+
+HashiCorp Vault can act as an OIDC provider via its
+[Identity Secrets Engine](https://developer.hashicorp.com/vault/docs/secrets/identity/oidc-provider).
+Vault issues JWTs and serves JWKS at a well-known endpoint.
+
+**Vault setup** (outside the scope of this controller):
+
+1. Enable the OIDC provider in Vault
+2. Create a named key and role that issues tokens with `sub`, `groups`, and other claims
+3. Vault serves JWKS at `https://vault.example.com/v1/identity/oidc/.well-known/keys`
+
+**Cluster setup**:
+
+```yaml
+# 1. Annotate the Gateway
+apiVersion: gateway.networking.k8s.io/v1
+kind: Gateway
+metadata:
+  name: openshift-ai-inference
+  namespace: openshift-ingress
+  annotations:
+    security.opendatahub.io/authn-jwt-jwks: |
+      [{"prefix": "vault", "jwksUrl": "https://vault.example.com/v1/identity/oidc/.well-known/keys"}]
+
+# 2. Create RoleBindings for Vault identities (using prefixed username)
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: vault-alice-inference-access
+  namespace: model-namespace
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: llminferenceservices-reader
+subjects:
+  - kind: User
+    name: "vault:alice"
+    apiGroup: rbac.authorization.k8s.io
+```
+
+**Group-based RBAC** (recommended): Instead of binding individual Vault users, bind
+Vault groups. This scales better — adding a user to the Vault group automatically grants
+inference access without creating per-user RoleBindings:
+
+```yaml
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: vault-ml-team-inference-access
+  namespace: model-namespace
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: llminferenceservices-reader
+subjects:
+  - kind: Group
+    name: "vault:ml-engineers"    # Prefixed Vault group name
+    apiGroup: rbac.authorization.k8s.io
+```
+
+For group-based RBAC to work, the Vault OIDC role must include a `groups` claim in the
+JWT. The controller's override expression (`has(auth.identity.groups) ? auth.identity.groups : []`)
+handles JWTs with or without a groups claim.
+
+**Usage**:
+
+```bash
+# 1. Obtain a Vault token (via Vault CLI, API, or UI)
+VAULT_JWT=$(vault read -field=token identity/oidc/token/inference-role)
+
+# 2. Use the Vault JWT for inference
+curl -H "Authorization: Bearer $VAULT_JWT" \
+  https://inference.example.com/<ns>/<model>/v1/chat/completions
+```
+
+### Template changes
+
+Add to `authPolicyTemplateData`:
+
+```go
+type authPolicyTemplateData struct {
+    // ... existing fields ...
+    // External JWT issuers
+    ExternalIssuers []ExternalIssuer
+}
+
+type ExternalIssuer struct {
+    Prefix  string `json:"prefix"`  // e.g., "vault"
+    JwksUrl string `json:"jwksUrl"` // e.g., "https://vault.example.com/v1/identity/oidc/.well-known/keys"
+}
+```
+
+The controller parses the `security.opendatahub.io/authn-jwt-jwks` annotation and
+populates `ExternalIssuers`. The template iterates over the list to generate one `jwt`
+authentication rule per issuer.
+
+### Security considerations
+
+- **No hard dependency**: External issuers are optional. If the annotation is absent,
+  only `kubernetes-user` and `wristband-user` (if token exchange is enabled) are
+  configured. Removing the annotation removes the external auth rules.
+- **JWKS URL reachability**: Authorino must be able to reach the JWKS URL. For external
+  providers (Vault, Keycloak), this typically requires network connectivity from the
+  cluster to the provider. Authorino caches JWKS and refreshes periodically.
+- **Identity prefix prevents escalation**: The `vault:` prefix ensures that a Vault user
+  cannot impersonate a Kubernetes ServiceAccount (e.g., `vault:alice` ≠
+  `system:serviceaccount:ns:alice`). The SAR checks the prefixed identity against RBAC.
+- **Token validation**: Authorino verifies the JWT signature against the JWKS, checks
+  `exp` for expiration, and (with `issuerUrl` instead of `jwksUrl`) validates the `iss`
+  claim. The controller uses `jwksUrl` by default for flexibility — operators who want
+  issuer validation can manually configure `issuerUrl` in the AuthPolicy.
+- **Trust boundary**: Adding an external issuer extends the trust boundary to that
+  provider. A compromised Vault instance could mint JWTs with arbitrary claims. This
+  is equivalent to the compromised peer scenario (see "Compromised peer trust boundary")
+  — the mitigation is the same: rapid annotation removal to revoke trust.
 
 ## Open questions
 
