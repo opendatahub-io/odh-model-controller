@@ -148,6 +148,52 @@ var _ = Describe("KserveRawMetricsServiceMonitorReconciler", func() {
 			})
 		})
 
+		When("the prometheus.io/path annotation has no leading slash", func() {
+			It("should prepend a slash and set Endpoint.Path on the ServiceMonitor", func(ctx SpecContext) {
+				sr := createServingRuntime(map[string]string{
+					kserveconstants.PrometheusPathAnnotationKey: "v1/metrics",
+					kserveconstants.PrometheusPortAnnotationKey: "8000",
+				})
+				isvc := createInferenceService()
+
+				client := fake.NewClientBuilder().
+					WithScheme(scheme).
+					WithObjects(sr, isvc).
+					Build()
+
+				reconciler := NewKServeRawMetricsServiceMonitorReconciler(client)
+				sm, err := reconciler.createDesiredResource(ctx, log.Log, isvc)
+
+				Expect(err).NotTo(HaveOccurred())
+				Expect(sm).NotTo(BeNil())
+				Expect(sm.Spec.Endpoints).To(HaveLen(1))
+				Expect(sm.Spec.Endpoints[0].Path).To(Equal("/v1/metrics"))
+			})
+		})
+
+		When("the prometheus.io/path annotation has surrounding whitespace", func() {
+			It("should trim whitespace and set Endpoint.Path on the ServiceMonitor", func(ctx SpecContext) {
+				sr := createServingRuntime(map[string]string{
+					kserveconstants.PrometheusPathAnnotationKey: "  /v1/metrics  ",
+					kserveconstants.PrometheusPortAnnotationKey: "8000",
+				})
+				isvc := createInferenceService()
+
+				client := fake.NewClientBuilder().
+					WithScheme(scheme).
+					WithObjects(sr, isvc).
+					Build()
+
+				reconciler := NewKServeRawMetricsServiceMonitorReconciler(client)
+				sm, err := reconciler.createDesiredResource(ctx, log.Log, isvc)
+
+				Expect(err).NotTo(HaveOccurred())
+				Expect(sm).NotTo(BeNil())
+				Expect(sm.Spec.Endpoints).To(HaveLen(1))
+				Expect(sm.Spec.Endpoints[0].Path).To(Equal("/v1/metrics"))
+			})
+		})
+
 		When("the ServingRuntime has no annotations", func() {
 			It("should not set Endpoint.Path on the ServiceMonitor", func(ctx SpecContext) {
 				sr := createServingRuntime(nil)

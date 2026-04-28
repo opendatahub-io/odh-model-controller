@@ -17,6 +17,7 @@ package reconcilers
 
 import (
 	"context"
+	"strings"
 
 	"github.com/opendatahub-io/odh-model-controller/internal/controller/constants"
 
@@ -85,9 +86,15 @@ func (r *KserveRawMetricsServiceMonitorReconciler) createDesiredResource(ctx con
 		Port:   isvcRuntime.Name + "-metrics",
 		Scheme: ptr.To(v1.Scheme("http")),
 	}
-	if isvcRuntime.Spec.Annotations != nil {
-		if path, ok := isvcRuntime.Spec.Annotations[kserveconstants.PrometheusPathAnnotationKey]; ok && path != "" {
-			endpoint.Path = path
+	if anns := isvcRuntime.Spec.Annotations; anns != nil {
+		if path, ok := anns[kserveconstants.PrometheusPathAnnotationKey]; ok {
+			path = strings.TrimSpace(path)
+			if path != "" {
+				if !strings.HasPrefix(path, "/") {
+					path = "/" + path
+				}
+				endpoint.Path = path
+			}
 		}
 	}
 
