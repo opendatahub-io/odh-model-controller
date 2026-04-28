@@ -22,6 +22,7 @@ import (
 
 	"github.com/go-logr/logr"
 	kservev1beta1 "github.com/kserve/kserve/pkg/apis/serving/v1beta1"
+	kserveconstants "github.com/kserve/kserve/pkg/constants"
 	"github.com/opendatahub-io/odh-model-controller/internal/controller/utils"
 	v1 "github.com/prometheus-operator/prometheus-operator/pkg/apis/monitoring/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -80,6 +81,16 @@ func (r *KserveRawMetricsServiceMonitorReconciler) createDesiredResource(ctx con
 		return nil, err
 	}
 
+	endpoint := v1.Endpoint{
+		Port:   isvcRuntime.Name + "-metrics",
+		Scheme: ptr.To(v1.Scheme("http")),
+	}
+	if isvcRuntime.Spec.Annotations != nil {
+		if path, ok := isvcRuntime.Spec.Annotations[kserveconstants.PrometheusPathAnnotationKey]; ok && path != "" {
+			endpoint.Path = path
+		}
+	}
+
 	desiredServiceMonitor := &v1.ServiceMonitor{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      getMetricsServiceMonitorName(isvc),
@@ -89,12 +100,7 @@ func (r *KserveRawMetricsServiceMonitorReconciler) createDesiredResource(ctx con
 			},
 		},
 		Spec: v1.ServiceMonitorSpec{
-			Endpoints: []v1.Endpoint{
-				{
-					Port:   isvcRuntime.Name + "-metrics",
-					Scheme: ptr.To(v1.Scheme("http")),
-				},
-			},
+			Endpoints:         []v1.Endpoint{endpoint},
 			NamespaceSelector: v1.NamespaceSelector{},
 			Selector: metav1.LabelSelector{
 				MatchLabels: map[string]string{
