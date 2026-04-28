@@ -15,10 +15,6 @@ on:
         description: 'New release tag (e.g., odh-v2.35)'
         required: true
         type: string
-      next_tag_name: # The next tag to replace the current one in the Konflux files.
-        description: 'Next development tag (e.g., odh-v2.36) - not required for llm-d-inference-scheduler'
-        required: false
-        type: string
       target_branch:
         description: 'Target branch in the repository (e.g., main, incubating)'
         required: false
@@ -31,14 +27,12 @@ on:
         default: false
     #
     # Note: This workflow assumes the release tag and image tags are in sync.
-    #       'tag_name' is used to create the release and as the value to find in konflux files.
-    #       'next_tag_name' provides the new value to set.
+    #       'tag_name' is used to create the release and to rewrite .tekton/ push
+    #       pipelines for tag-push triggering.
     #
 
 permissions:
   contents: write
-  packages: write
-  pull-requests: write
 
 env:
   REPO_OWNER: opendatahub-io
@@ -76,7 +70,6 @@ jobs:
           import subprocess
           
           tag_name = "${{ github.event.inputs.tag_name }}"
-          next_tag = "${{ github.event.inputs.next_tag_name }}"
           repository = "${{ github.event.inputs.repository }}"
           
           # Expected format: odh-vX.Y or odh-vX.Y.Z with optional -EAn suffix
@@ -87,15 +80,6 @@ jobs:
           # Validate tag formats
           if not re.match(tag_pattern, tag_name):
             errors.append(f"Tag '{tag_name}' does not match expected format 'odh-vX.Y' or 'odh-vX.Y.Z'")
-          
-          # next_tag validation only required for repos that need Tekton bumping
-          if repository != "llm-d-inference-scheduler":
-            if not next_tag:
-              errors.append("next_tag_name is required for this repository")
-            elif not re.match(tag_pattern, next_tag):
-              errors.append(f"Next tag '{next_tag}' does not match expected format 'odh-vX.Y' or 'odh-vX.Y.Z'")
-            elif tag_name == next_tag:
-              errors.append(f"tag_name and next_tag_name must be different (both are '{tag_name}')")
           
           # Fail fast if validation errors exist
           if errors:
@@ -120,7 +104,6 @@ jobs:
           print(f"✓ All validations passed")
           print(f"  Repository: {repository}")
           print(f"  Release tag: {tag_name}")
-          print(f"  Next tag: {next_tag}")
         shell: python
   #
   # Note: This workflow dynamically discovers and updates:
@@ -220,7 +203,7 @@ jobs:
           else:
             # For kserve and others: update all matching images except llm-d-* images
             image_pattern = re.compile(
-              r'([\w.-]+(?:\.[\w.-]+)*/[\w.-]+/(?!llm-d-inference-scheduler|llm-d-routing-sidecar)[\w.-]+):()(fast|v[\d.]+-latest|release-v[\d.]+|odh-v[\d.]+(?:-EA\d)?)'
+              r'([\w.-]+(?:\.[\w.-]+)*/[\w.-]+/(?!llm-d-inference-scheduler|llm-d-routing-sidecar)[\w.-]+):()(fast|odh-stable|v[\d.]+-latest|release-v[\d.]+|odh-v[\d.]+(?:-EA\d)?)'
             )
           
           updated_files = []
@@ -257,17 +240,80 @@ jobs:
           print(f"\n✓ Updated {total_replacements} image tag(s) across {len(updated_files)} file(s)")
         shell: python
 
-      - name: Commit params.env changes (if any)
-        if: ${{ needs.validate-and-check.outputs.has_params_env == 'true' }}
+      - name: Rewrite .tekton/ push pipelines for tag-push triggering
+        if: ${{ needs.validate-and-check.outputs.has_tekton == 'true' }}
         run: |
-          # Add all params.env files
-          git add config/**/params.env 2>/dev/null || true
+          import json
+          import re
+
+          tag_name = "${{ github.event.inputs.tag_name }}"
+          tekton_files = json.loads('${{ needs.validate-and-check.outputs.tekton_files }}')
+
+          push_files = [f for f in tekton_files if f.endswith('-push.yaml')]
+          if not push_files:
+            print("No push pipeline files found, skipping")
+            raise SystemExit(0)
+
+          print(f"Rewriting {len(push_files)} push pipeline(s) for tag-push triggering\n")
+
+          cel_pattern = re.compile(
+            r'( +)pipelinesascode\.tekton\.dev/on-cel-expression:.*\n(?:\1 +.*\n)*'
+          )
+
+          image_tag_pattern = re.compile(
+            r'([\w.-]+(?:\.[\w.-]+)*(?:/[\w.-]+)+):(fast|odh-stable|v[\d.]+-latest|release-v[\d.]+|odh-v[\d.]+(?:-EA\d)?)'
+          )
+
+          updated_files = []
+
+          for tekton_file in push_files:
+            print(f"Processing: {tekton_file}")
+
+            try:
+              with open(tekton_file, 'r') as f:
+                content = f.read()
+            except FileNotFoundError:
+              print(f"  - File not found, skipping")
+              continue
+
+            original = content
+
+            cel_match = cel_pattern.search(content)
+            if cel_match:
+              indent = cel_match.group(1)
+              replacement = (
+                f'{indent}pipelinesascode.tekton.dev/on-target-branch: "[refs/tags/{tag_name}]"\n'
+                f'{indent}pipelinesascode.tekton.dev/on-event: "[push]"\n'
+              )
+              content = cel_pattern.sub(replacement, content)
+              print(f"  ✓ Replaced on-cel-expression with on-target-branch/on-event")
+            else:
+              print(f"  - No on-cel-expression found")
+
+            matches = image_tag_pattern.findall(content)
+            content, count = image_tag_pattern.subn(rf'\1:{tag_name}', content)
+            if count > 0:
+              print(f"  ✓ Updated {count} image tag(s)")
+              for image_path, old_tag in set(matches):
+                print(f"    - {image_path}:{old_tag} → {image_path}:{tag_name}")
+
+            if content != original:
+              with open(tekton_file, 'w') as f:
+                f.write(content)
+              updated_files.append(tekton_file)
+
+          print(f"\n✓ Rewrote {len(updated_files)} push pipeline(s) for tag {tag_name}")
+        shell: python
+
+      - name: Commit release changes (if any)
+        run: |
+          git add config/**/params.env .tekton/ 2>/dev/null || true
           
           if [[ -n "$(git status --porcelain)" ]]; then
-            git commit -m "Update image refs for release ${{ github.event.inputs.tag_name }}"
+            git commit -m "Update image refs and .tekton/ pipelines for release ${{ github.event.inputs.tag_name }}"
             echo "✓ Changes committed locally"
           else
-            echo "No params.env changes to commit"
+            echo "No changes to commit"
           fi
 
       - name: Create and push Tag
@@ -291,149 +337,10 @@ jobs:
           prerelease: false
           draft: false
 
-  bump-tekton-tags:
-    name: Bump Tekton tags for next release
-    runs-on: ubuntu-latest
-    needs: [validate-and-check, create-release]
-    if: always() && needs.create-release.result == 'success' && needs.validate-and-check.outputs.has_tekton == 'true' && !(github.event.inputs.repository == 'llm-d-inference-scheduler' && github.event.inputs.next_tag_name == '')
-    outputs:
-      pr_url: ${{ steps.create_pr.outputs.pr_url }}
-    steps:
-      - name: Generate GitHub App token
-        id: app-token
-        uses: getsentry/action-github-app-token@v2
-        with:
-          app_id: ${{ secrets.ODH_RELEASE_BOT_APP_ID }}
-          private_key: ${{ secrets.ODH_RELEASE_BOT_PRIVATE_KEY }}
-
-      - name: Checkout target repository
-        uses: actions/checkout@v4
-        with:
-          repository: ${{ env.REPO_OWNER }}/${{ needs.validate-and-check.outputs.repo_name }}
-          token: ${{ steps.app-token.outputs.token }}
-          ref: ${{ github.event.inputs.target_branch }}
-          fetch-depth: 1
-
-      - name: Update Tekton files with next tag
-        run: |
-          import os
-          import json
-          import re
-          
-          next_tag = "${{ github.event.inputs.next_tag_name }}"
-          tekton_files = json.loads('${{ needs.validate-and-check.outputs.tekton_files }}')
-          
-          print(f"Updating image tags in Tekton files to: {next_tag}\n")
-          
-          # Pattern to match image references with common tag formats:
-          # - :fast
-          # - :v0.15-latest
-          # - :release-v0.3.2
-          # - :odh-v2.35
-          # Captures the full image path (registry/namespace/repo), replaces only the tag
-          image_pattern = re.compile(
-            r'([\w.-]+(?:\.[\w.-]+)*(?:/[\w.-]+)+):((?:odh-model-serving-api-)?)(fast|v[\d.]+-latest|release-v[\d.]+|odh-v[\d.]+(?:-EA\d)?)'
-          )
-          
-          updated_files = []
-          errors = []
-          total_replacements = 0
-          
-          for tekton_file in tekton_files:
-            print(f"Processing: {tekton_file}")
-            
-            try:
-              with open(tekton_file, 'r') as f:
-                content = f.read()
-            except FileNotFoundError:
-              errors.append(f"File not found: {tekton_file}")
-              continue
-            
-            # Find all matches first to report what we're changing
-            matches = image_pattern.findall(content)
-            if not matches:
-              print(f"  - No matching image tags found, skipping")
-              continue
-            
-            # Replace all image tags while preserving registry/namespace/repo
-            # and any tag prefix (e.g. odh-model-serving-api-)
-            updated_content, count = image_pattern.subn(rf'\1:\g<2>{next_tag}', content)
-
-            if count > 0:
-              with open(tekton_file, 'w') as f:
-                f.write(updated_content)
-
-              updated_files.append(tekton_file)
-              total_replacements += count
-              print(f"  ✓ Updated {count} image tag(s)")
-              for image_path, prefix, old_tag in set(matches):
-                print(f"    - {image_path}:{prefix}{old_tag} → {image_path}:{prefix}{next_tag}")
-          
-          if errors:
-            print(f"\nWarnings:")
-            for error in errors:
-              print(f"  - {error}")
-          
-          print(f"\n✓ Updated {total_replacements} image tag(s) across {len(updated_files)} file(s)")
-        shell: python
-
-      - name: Create PR for Tekton tag bump
-        id: create_pr
-        run: |
-          git config --global user.email "github-actions@github.com"
-          git config --global user.name "GitHub Actions"
-          
-          # Add all tekton files
-          git add .tekton/ 2>/dev/null || true
-          
-          if [[ -z "$(git status --porcelain)" ]]; then
-            echo "No changes to commit"
-            exit 0
-          fi
-          
-          # Create a new branch for the PR
-          BRANCH_NAME="chore/bump-odh-tag-${{ github.event.inputs.next_tag_name }}"
-          git checkout -b "$BRANCH_NAME"
-          
-          # Commit changes
-          git commit -m "chore(konflux): Bump ODH tag to ${{ github.event.inputs.next_tag_name }}"
-          
-          # Fetch the remote branch (if it exists) so --force-with-lease has a valid lease
-          git fetch origin "refs/heads/$BRANCH_NAME:refs/remotes/origin/$BRANCH_NAME" 2>/dev/null || true
-
-          git push --force-with-lease origin "refs/heads/$BRANCH_NAME:refs/heads/$BRANCH_NAME"
-          echo "✓ Branch pushed: $BRANCH_NAME"
-          
-          # Create or reuse PR
-          export GH_TOKEN="${{ steps.app-token.outputs.token }}"
-          REPO="${{ env.REPO_OWNER }}/${{ needs.validate-and-check.outputs.repo_name }}"
-          EXISTING_PR=$(gh pr list --repo "$REPO" --head "$BRANCH_NAME" --state open --json url -q '.[0].url')
-          if [[ -n "$EXISTING_PR" ]]; then
-            PR_URL="$EXISTING_PR"
-            echo "✓ PR already exists (branch force-pushed): $PR_URL"
-          else
-            PR_URL=$(gh pr create \
-              --repo "$REPO" \
-              --base "${{ github.event.inputs.target_branch }}" \
-              --head "$BRANCH_NAME" \
-              --title "chore(konflux): Bump ODH tag to ${{ github.event.inputs.next_tag_name }}" \
-              --body "## Summary
-          
-          This PR bumps the ODH release tag in Tekton/Konflux files for the next development cycle.
-          
-          - **Previous tag:** \`${{ github.event.inputs.tag_name }}\`
-          - **Next tag:** \`${{ github.event.inputs.next_tag_name }}\`
-          
-          ---
-          *This PR was automatically created by the ODH Release Workflow.*")
-            echo "✓ PR created: $PR_URL"
-          fi
-          echo "pr_url=$PR_URL" >> $GITHUB_OUTPUT
-
   summary:
     name: Release Summary
     runs-on: ubuntu-latest
-    needs: [validate-and-check, create-release, bump-tekton-tags]
+    needs: [validate-and-check, create-release]
     if: always()
     steps:
       - name: Print Summary
@@ -442,7 +349,6 @@ jobs:
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "**Repository:** ${{ needs.validate-and-check.outputs.repo_name }}" >> $GITHUB_STEP_SUMMARY
           echo "**Release Tag:** ${{ github.event.inputs.tag_name }}" >> $GITHUB_STEP_SUMMARY
-          echo "**Next Tag:** ${{ github.event.inputs.next_tag_name }}" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "## Discovered Files" >> $GITHUB_STEP_SUMMARY
           echo "- params.env files found: ${{ needs.validate-and-check.outputs.has_params_env }}" >> $GITHUB_STEP_SUMMARY
@@ -451,17 +357,7 @@ jobs:
           echo "## Job Status" >> $GITHUB_STEP_SUMMARY
           echo "- Validation: ${{ needs.validate-and-check.result }}" >> $GITHUB_STEP_SUMMARY
           echo "- Create Release: ${{ needs.create-release.result }}" >> $GITHUB_STEP_SUMMARY
-          echo "- Bump Tekton Tags: ${{ needs.bump-tekton-tags.result }}" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
-          
-          if [[ "${{ needs.bump-tekton-tags.result }}" == "success" ]]; then
-            PR_URL="${{ needs.bump-tekton-tags.outputs.pr_url }}"
-            if [[ -n "$PR_URL" ]]; then
-              echo "## Pull Request" >> $GITHUB_STEP_SUMMARY
-              echo "- **Tekton Tag Bump PR:** $PR_URL" >> $GITHUB_STEP_SUMMARY
-              echo "" >> $GITHUB_STEP_SUMMARY
-            fi
-          fi
           
           if [[ "${{ needs.create-release.result }}" == "success" ]]; then
             echo "✅ **Release created successfully!**" >> $GITHUB_STEP_SUMMARY
