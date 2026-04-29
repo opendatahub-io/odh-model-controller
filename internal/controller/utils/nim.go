@@ -430,7 +430,7 @@ func GetNimServingRuntimeTemplate(scheme *runtime.Scheme) (*v1alpha1.ServingRunt
 		Spec: v1alpha1.ServingRuntimeSpec{
 			ServingRuntimePodSpec: v1alpha1.ServingRuntimePodSpec{
 				Annotations: map[string]string{
-					"prometheus.io/path":                    "/metrics",
+					"prometheus.io/path":                    "/v1/metrics",
 					"prometheus.io/port":                    "8000",
 					"serving.knative.dev/progress-deadline": "30m",
 				},
