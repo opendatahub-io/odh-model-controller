@@ -502,7 +502,7 @@ func GetNimServingRuntimeTemplate(scheme *runtime.Scheme, airGapped bool) (*v1al
 		Spec: v1alpha1.ServingRuntimeSpec{
 			ServingRuntimePodSpec: v1alpha1.ServingRuntimePodSpec{
 				Annotations: map[string]string{
-					"prometheus.io/path": "/metrics",
+					"prometheus.io/path": "/v1/metrics",
 					"prometheus.io/port": "8000",
 				},
 				Containers: []corev1.Container{
