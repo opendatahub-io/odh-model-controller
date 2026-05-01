@@ -57,8 +57,7 @@ on:
         default: false
     #
 
-permissions:
-  contents: write
+permissions: {}
 
 env:
   REPO_OWNER: opendatahub-io
@@ -90,39 +89,41 @@ jobs:
           fetch-depth: 0
 
       - name: Validate inputs and check tag
+        env:
+          TAG_NAME: ${{ github.event.inputs.tag_name }}
+          REPOSITORY: ${{ github.event.inputs.repository }}
+          ALLOW_EXISTING_TAG: ${{ github.event.inputs.allow_existing_tag }}
         run: |
+          import os
           import re
           import sys
           import subprocess
           
-          tag_name = "${{ github.event.inputs.tag_name }}"
-          repository = "${{ github.event.inputs.repository }}"
+          tag_name = os.environ["TAG_NAME"]
+          repository = os.environ["REPOSITORY"]
           
           # Expected format: odh-vX.Y or odh-vX.Y.Z with optional -EAn suffix
           tag_pattern = r'^odh-v\d+\.\d+(\.\d+)?(-EA\d)?$'
           
           errors = []
           
-          # Validate tag formats
           if not re.match(tag_pattern, tag_name):
             errors.append(f"Tag '{tag_name}' does not match expected format 'odh-vX.Y' or 'odh-vX.Y.Z'")
           
-          # Fail fast if validation errors exist
           if errors:
             for error in errors:
               print(f"::error::{error}")
             sys.exit(1)
           
-          # Check if tag exists on remote (uses authenticated origin from checkout)
           result = subprocess.run(
             ['git', 'ls-remote', '--tags', 'origin', f'refs/tags/{tag_name}'],
             capture_output=True
           )
           
           if result.stdout.decode().strip():
-            allow_existing = "${{ github.event.inputs.allow_existing_tag }}" == "true"
+            allow_existing = os.environ.get("ALLOW_EXISTING_TAG", "false") == "true"
             if allow_existing:
-              print(f"⚠ Tag '{tag_name}' exists but allow_existing_tag is set — will overwrite")
+              print(f"⚠ Tag '{tag_name}' exists but allow_existing_tag is set -- will overwrite")
             else:
               print(f"::error::Tag '{tag_name}' already exists on remote.")
               sys.exit(1)
@@ -159,6 +160,8 @@ jobs:
   create-release:
     name: Create Tag and Release
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
     needs: validate-and-check
     if: needs.validate-and-check.result == 'success'
     steps:
@@ -186,15 +189,18 @@ jobs:
         if: ${{ needs.validate-and-check.outputs.has_params_env == 'true' }}
         env:
           DRY_RUN: ${{ github.event.inputs.dry_run }}
+          TAG_NAME: ${{ github.event.inputs.tag_name }}
+          REPO_NAME: ${{ needs.validate-and-check.outputs.repo_name }}
+          PARAMS_ENV_FILES: ${{ needs.validate-and-check.outputs.params_env_files }}
         run: |
           import json
           import os
           import re
           
           dry_run = os.environ.get('DRY_RUN', 'false') == 'true'
-          tag_name = "${{ github.event.inputs.tag_name }}"
-          repo_name = "${{ needs.validate-and-check.outputs.repo_name }}"
-          params_files = json.loads('${{ needs.validate-and-check.outputs.params_env_files }}')
+          tag_name = os.environ["TAG_NAME"]
+          repo_name = os.environ["REPO_NAME"]
+          params_files = json.loads(os.environ["PARAMS_ENV_FILES"])
           
           prefix_label = "[DRY RUN] " if dry_run else ""
           print(f"{prefix_label}Updating params.env files for {repo_name} with tag: {tag_name}\n")
@@ -251,14 +257,16 @@ jobs:
         if: ${{ needs.validate-and-check.outputs.has_tekton == 'true' }}
         env:
           DRY_RUN: ${{ github.event.inputs.dry_run }}
+          TAG_NAME: ${{ github.event.inputs.tag_name }}
+          TEKTON_FILES: ${{ needs.validate-and-check.outputs.tekton_files }}
         run: |
           import json
           import os
           import re
 
           dry_run = os.environ.get('DRY_RUN', 'false') == 'true'
-          tag_name = "${{ github.event.inputs.tag_name }}"
-          tekton_files = json.loads('${{ needs.validate-and-check.outputs.tekton_files }}')
+          tag_name = os.environ["TAG_NAME"]
+          tekton_files = json.loads(os.environ["TEKTON_FILES"])
 
           push_files = [f for f in tekton_files if f.endswith(('-push.yaml', '-push.yml'))]
           if not push_files:
@@ -324,11 +332,13 @@ jobs:
 
       - name: Commit release changes (if any)
         if: ${{ github.event.inputs.dry_run != 'true' }}
+        env:
+          TAG_NAME: ${{ github.event.inputs.tag_name }}
         run: |
           git add config/**/params.env .tekton/ 2>/dev/null || true
           
           if [[ -n "$(git status --porcelain)" ]]; then
-            git commit -m "Update image refs and .tekton/ pipelines for release ${{ github.event.inputs.tag_name }}"
+            git commit -m "Update image refs and .tekton/ pipelines for release ${TAG_NAME}"
             echo "✓ Changes committed locally"
           else
             echo "No changes to commit"
@@ -336,14 +346,17 @@ jobs:
 
       - name: Create and push Tag
         if: ${{ github.event.inputs.dry_run != 'true' }}
+        env:
+          TAG_NAME: ${{ github.event.inputs.tag_name }}
+          ALLOW_EXISTING_TAG: ${{ github.event.inputs.allow_existing_tag }}
         run: |
           FORCE_FLAG=""
-          if [[ "${{ github.event.inputs.allow_existing_tag }}" == "true" ]]; then
+          if [[ "${ALLOW_EXISTING_TAG}" == "true" ]]; then
             FORCE_FLAG="-f"
           fi
-          git tag ${FORCE_FLAG} -a ${{ github.event.inputs.tag_name }} -m "ODH release ${{ github.event.inputs.tag_name }}"
-          git push ${FORCE_FLAG} origin ${{ github.event.inputs.tag_name }}
-          echo "✓ Tag created and pushed: ${{ github.event.inputs.tag_name }}"
+          git tag ${FORCE_FLAG} -a "${TAG_NAME}" -m "ODH release ${TAG_NAME}"
+          git push ${FORCE_FLAG} origin "${TAG_NAME}"
+          echo "✓ Tag created and pushed: ${TAG_NAME}"
 
       - name: Create Release
         if: ${{ github.event.inputs.dry_run != 'true' }}
@@ -364,28 +377,36 @@ jobs:
     if: always()
     steps:
       - name: Print Summary
+        env:
+          DRY_RUN: ${{ github.event.inputs.dry_run }}
+          REPO_NAME: ${{ needs.validate-and-check.outputs.repo_name }}
+          TAG_NAME: ${{ github.event.inputs.tag_name }}
+          HAS_PARAMS_ENV: ${{ needs.validate-and-check.outputs.has_params_env }}
+          HAS_TEKTON: ${{ needs.validate-and-check.outputs.has_tekton }}
+          VALIDATE_RESULT: ${{ needs.validate-and-check.result }}
+          RELEASE_RESULT: ${{ needs.create-release.result }}
         run: |
-          if [[ "${{ github.event.inputs.dry_run }}" == "true" ]]; then
+          if [[ "${DRY_RUN}" == "true" ]]; then
             echo "# ODH Release Workflow Summary (DRY RUN)" >> $GITHUB_STEP_SUMMARY
           else
             echo "# ODH Release Workflow Summary" >> $GITHUB_STEP_SUMMARY
           fi
           echo "" >> $GITHUB_STEP_SUMMARY
-          echo "**Repository:** ${{ needs.validate-and-check.outputs.repo_name }}" >> $GITHUB_STEP_SUMMARY
-          echo "**Release Tag:** ${{ github.event.inputs.tag_name }}" >> $GITHUB_STEP_SUMMARY
+          echo "**Repository:** ${REPO_NAME}" >> $GITHUB_STEP_SUMMARY
+          echo "**Release Tag:** ${TAG_NAME}" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "## Discovered Files" >> $GITHUB_STEP_SUMMARY
-          echo "- params.env files found: ${{ needs.validate-and-check.outputs.has_params_env }}" >> $GITHUB_STEP_SUMMARY
-          echo "- Tekton files found: ${{ needs.validate-and-check.outputs.has_tekton }}" >> $GITHUB_STEP_SUMMARY
+          echo "- params.env files found: ${HAS_PARAMS_ENV}" >> $GITHUB_STEP_SUMMARY
+          echo "- Tekton files found: ${HAS_TEKTON}" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "## Job Status" >> $GITHUB_STEP_SUMMARY
-          echo "- Validation: ${{ needs.validate-and-check.result }}" >> $GITHUB_STEP_SUMMARY
-          echo "- Create Release: ${{ needs.create-release.result }}" >> $GITHUB_STEP_SUMMARY
+          echo "- Validation: ${VALIDATE_RESULT}" >> $GITHUB_STEP_SUMMARY
+          echo "- Create Release: ${RELEASE_RESULT}" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           
-          if [[ "${{ github.event.inputs.dry_run }}" == "true" ]]; then
+          if [[ "${DRY_RUN}" == "true" ]]; then
             echo "ℹ️ **Dry run completed.** No files were written, no tag was created, and no release was published. Review the create-release job logs for details on what would change." >> $GITHUB_STEP_SUMMARY
-          elif [[ "${{ needs.create-release.result }}" == "success" ]]; then
+          elif [[ "${RELEASE_RESULT}" == "success" ]]; then
             echo "✅ **Release created successfully!**" >> $GITHUB_STEP_SUMMARY
           else
             echo "⚠️ **Some steps may have failed. Please review the logs.**" >> $GITHUB_STEP_SUMMARY
