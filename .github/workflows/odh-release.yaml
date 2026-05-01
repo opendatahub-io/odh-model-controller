@@ -1,28 +1,25 @@
 # ODH Release Workflow
 #
-# Creates a tagged release for an opendatahub-io repository. Supports two tiers:
+# Creates a tagged release for an opendatahub-io repository. For each repo:
+#   1. Validates inputs and checks for existing tags.
+#   2. Discovers config/**/params.env and .tekton/*-push.yaml files.
+#   3. If params.env files exist: bumps image tags matching a repo-specific regex.
+#   4. If .tekton/ push pipelines exist: rewrites on-cel-expression to
+#      on-target-branch/on-event for the release tag, and updates output-image tags.
+#      This triggers Konflux builds from the tag push (Fix 2).
+#   5. Commits changes locally, creates and pushes an annotated tag, and publishes
+#      a GitHub release. Only the tag is pushed (the branch is not modified).
 #
-# Tag-only repos (llm-d-inference-scheduler, workload-variant-autoscaler, llm-d-kv-cache):
-#   - Validates inputs, creates an annotated tag, and publishes a GitHub release.
-#   - No file modifications. Add new repos to the skip list in the "Discover files" step.
+# Repos without config/**/params.env (e.g. llm-d-inference-scheduler,
+# workload-variant-autoscaler, llm-d-kv-cache) get only the tekton rewrite + tag.
 #
-# Full repos (odh-model-controller, kserve):
-#   - Same as above, plus rewrites files before tagging:
-#     1. params.env: bumps image tags matching the repo-specific regex.
-#     2. .tekton/*-push.yaml: replaces on-cel-expression with on-target-branch/on-event
-#        targeting the release tag, and updates output-image tags.
-#   - Changes are committed locally; only the tag is pushed (the branch is not modified).
-#
-# Repository requirements for full support:
-#   - config/**/params.env with image refs using recognized tags
-#     (fast, odh-stable, v*-latest, release-v*, odh-v*)
+# Repository requirements:
 #   - .tekton/*-push.yaml files with:
 #       pipelinesascode.tekton.dev/on-cel-expression: event == "push" && target_branch
 #         == "<branch>"
-#     and output-image using one of the recognized tags above
-#
-# The kserve params.env pattern excludes llm-d-inference-scheduler,
-# llm-d-routing-sidecar, and llm-d-kv-cache images (they have their own release cadence).
+#     and output-image using a recognized tag (fast, odh-stable, v*-latest,
+#     release-v*, odh-v*)
+#   - Optionally config/**/params.env with image refs using the same tag formats
 
 name: ODH Release Workflow
 
@@ -141,39 +138,22 @@ jobs:
           import json
           import glob
           
-          repository = "${{ github.event.inputs.repository }}"
+          params_env_files = glob.glob('config/**/params.env', recursive=True)
+          tekton_files = glob.glob('.tekton/**/*.yaml', recursive=True) + \
+                         glob.glob('.tekton/**/*.yml', recursive=True)
           
-          # Skip file discovery for repos that only need a tag + release (no params.env or tekton rewriting)
-          if repository in ("llm-d-inference-scheduler", "workload-variant-autoscaler", "llm-d-kv-cache"):
-            print(f"Skipping file discovery for {repository}")
-            with open(os.environ['GITHUB_OUTPUT'], 'a') as f:
-              f.write(f"params_env_files=[]\n")
-              f.write(f"tekton_files=[]\n")
-              f.write(f"has_params_env=false\n")
-              f.write(f"has_tekton=false\n")
-            print("✓ Discovery skipped - no files to update for this repository")
-          else:
-            # Discover params.env files under config/
-            params_env_files = glob.glob('config/**/params.env', recursive=True)
-            
-            # Discover YAML files under .tekton/
-            tekton_files = glob.glob('.tekton/**/*.yaml', recursive=True) + \
-                           glob.glob('.tekton/**/*.yml', recursive=True)
-            
-            # Output results
-            print(f"Found params.env files: {params_env_files}")
-            print(f"Found tekton files: {tekton_files}")
-            
-            # Write outputs
-            with open(os.environ['GITHUB_OUTPUT'], 'a') as f:
-              f.write(f"params_env_files={json.dumps(params_env_files)}\n")
-              f.write(f"tekton_files={json.dumps(tekton_files)}\n")
-              f.write(f"has_params_env={'true' if params_env_files else 'false'}\n")
-              f.write(f"has_tekton={'true' if tekton_files else 'false'}\n")
-            
-            print(f"\n✓ Discovery complete")
-            print(f"  params.env files: {len(params_env_files)}")
-            print(f"  Tekton files: {len(tekton_files)}")
+          print(f"Found params.env files: {params_env_files}")
+          print(f"Found tekton files: {tekton_files}")
+          
+          with open(os.environ['GITHUB_OUTPUT'], 'a') as f:
+            f.write(f"params_env_files={json.dumps(params_env_files)}\n")
+            f.write(f"tekton_files={json.dumps(tekton_files)}\n")
+            f.write(f"has_params_env={'true' if params_env_files else 'false'}\n")
+            f.write(f"has_tekton={'true' if tekton_files else 'false'}\n")
+          
+          print(f"\n✓ Discovery complete")
+          print(f"  params.env files: {len(params_env_files)}")
+          print(f"  Tekton files: {len(tekton_files)}")
         shell: python
 
   create-release:
@@ -229,9 +209,8 @@ jobs:
               r'([\w.-]+(?:\.[\w.-]+)*/[\w.-]+/(?:odh-model-controller|odh-model-serving-api|mlserver)):((?:odh-model-serving-api-)?)(fast|v[\d.]+-latest|release-v[\d.]+|odh-v[\d.]+(?:-EA\d)?)'
             )
           else:
-            # For kserve and others: update all matching images except llm-d-* images
             image_pattern = re.compile(
-              r'([\w.-]+(?:\.[\w.-]+)*/[\w.-]+/(?!llm-d-inference-scheduler|llm-d-routing-sidecar|llm-d-kv-cache)[\w.-]+):()(fast|odh-stable|v[\d.]+-latest|release-v[\d.]+|odh-v[\d.]+(?:-EA\d)?)'
+              r'([\w.-]+(?:\.[\w.-]+)*/[\w.-]+/[\w.-]+):()(fast|odh-stable|v[\d.]+-latest|release-v[\d.]+|odh-v[\d.]+(?:-EA\d)?)'
             )
           
           updated_files = []
