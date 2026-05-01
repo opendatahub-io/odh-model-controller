@@ -25,6 +25,11 @@ on:
         required: false
         type: boolean
         default: false
+      dry_run:
+        description: 'Dry run: show what would change without writing files, tagging, or creating a release'
+        required: false
+        type: boolean
+        default: false
     #
     # Note: This workflow assumes the release tag and image tags are in sync.
     #       'tag_name' is used to create the release and to rewrite .tekton/ push
@@ -181,15 +186,20 @@ jobs:
 
       - name: Update params.env files (if applicable)
         if: ${{ needs.validate-and-check.outputs.has_params_env == 'true' }}
+        env:
+          DRY_RUN: ${{ github.event.inputs.dry_run }}
         run: |
           import json
+          import os
           import re
           
+          dry_run = os.environ.get('DRY_RUN', 'false') == 'true'
           tag_name = "${{ github.event.inputs.tag_name }}"
           repo_name = "${{ needs.validate-and-check.outputs.repo_name }}"
           params_files = json.loads('${{ needs.validate-and-check.outputs.params_env_files }}')
           
-          print(f"Updating params.env files for {repo_name} with tag: {tag_name}\n")
+          prefix_label = "[DRY RUN] " if dry_run else ""
+          print(f"{prefix_label}Updating params.env files for {repo_name} with tag: {tag_name}\n")
           
           # Define patterns based on repository
           if repo_name == "odh-model-controller":
@@ -226,26 +236,30 @@ jobs:
             updated_content, count = image_pattern.subn(rf'\1:\g<2>{tag_name}', content)
 
             if count > 0:
-              with open(params_file, 'w') as f:
-                f.write(updated_content)
-
+              if not dry_run:
+                with open(params_file, 'w') as f:
+                  f.write(updated_content)
               updated_files.append(params_file)
               total_replacements += count
-              print(f"  ✓ Updated {count} image tag(s)")
+              print(f"  ✓ {'Would update' if dry_run else 'Updated'} {count} image tag(s)")
               for image_path, prefix, old_tag in set(matches):
                 print(f"    - {image_path}:{prefix}{old_tag} → {image_path}:{prefix}{tag_name}")
             else:
               print(f"  - No changes needed")
           
-          print(f"\n✓ Updated {total_replacements} image tag(s) across {len(updated_files)} file(s)")
+          print(f"\n✓ {prefix_label}{'Would update' if dry_run else 'Updated'} {total_replacements} image tag(s) across {len(updated_files)} file(s)")
         shell: python
 
       - name: Rewrite .tekton/ push pipelines for tag-push triggering
         if: ${{ needs.validate-and-check.outputs.has_tekton == 'true' }}
+        env:
+          DRY_RUN: ${{ github.event.inputs.dry_run }}
         run: |
           import json
+          import os
           import re
 
+          dry_run = os.environ.get('DRY_RUN', 'false') == 'true'
           tag_name = "${{ github.event.inputs.tag_name }}"
           tekton_files = json.loads('${{ needs.validate-and-check.outputs.tekton_files }}')
 
@@ -254,7 +268,8 @@ jobs:
             print("No push pipeline files found, skipping")
             raise SystemExit(0)
 
-          print(f"Rewriting {len(push_files)} push pipeline(s) for tag-push triggering\n")
+          prefix_label = "[DRY RUN] " if dry_run else ""
+          print(f"{prefix_label}Rewriting {len(push_files)} push pipeline(s) for tag-push triggering\n")
 
           cel_pattern = re.compile(
             r'( +)pipelinesascode\.tekton\.dev/on-cel-expression:.*\n(?:\1 +.*\n)*'
@@ -286,26 +301,32 @@ jobs:
                 f'{indent}pipelinesascode.tekton.dev/on-event: "[push]"\n'
               )
               content = cel_pattern.sub(replacement, content)
-              print(f"  ✓ Replaced on-cel-expression with on-target-branch/on-event")
+              print(f"  ✓ {'Would replace' if dry_run else 'Replaced'} on-cel-expression with on-target-branch/on-event")
             else:
               print(f"  - No on-cel-expression found")
 
             matches = image_tag_pattern.findall(content)
             content, count = image_tag_pattern.subn(rf'\1:{tag_name}', content)
             if count > 0:
-              print(f"  ✓ Updated {count} image tag(s)")
+              print(f"  ✓ {'Would update' if dry_run else 'Updated'} {count} image tag(s)")
               for image_path, old_tag in set(matches):
                 print(f"    - {image_path}:{old_tag} → {image_path}:{tag_name}")
 
             if content != original:
-              with open(tekton_file, 'w') as f:
-                f.write(content)
+              if not dry_run:
+                with open(tekton_file, 'w') as f:
+                  f.write(content)
               updated_files.append(tekton_file)
 
-          print(f"\n✓ Rewrote {len(updated_files)} push pipeline(s) for tag {tag_name}")
+          if not updated_files:
+            print("::error::Found push pipeline(s) but no patterns matched -- check .tekton/ format")
+            raise SystemExit(1)
+
+          print(f"\n✓ {prefix_label}{'Would rewrite' if dry_run else 'Rewrote'} {len(updated_files)} push pipeline(s) for tag {tag_name}")
         shell: python
 
       - name: Commit release changes (if any)
+        if: ${{ github.event.inputs.dry_run != 'true' }}
         run: |
           git add config/**/params.env .tekton/ 2>/dev/null || true
           
@@ -317,6 +338,7 @@ jobs:
           fi
 
       - name: Create and push Tag
+        if: ${{ github.event.inputs.dry_run != 'true' }}
         run: |
           FORCE_FLAG=""
           if [[ "${{ github.event.inputs.allow_existing_tag }}" == "true" ]]; then
@@ -327,6 +349,7 @@ jobs:
           echo "✓ Tag created and pushed: ${{ github.event.inputs.tag_name }}"
 
       - name: Create Release
+        if: ${{ github.event.inputs.dry_run != 'true' }}
         uses: softprops/action-gh-release@v2
         with:
           token: ${{ steps.app-token.outputs.token }}
@@ -345,7 +368,11 @@ jobs:
     steps:
       - name: Print Summary
         run: |
-          echo "# ODH Release Workflow Summary" >> $GITHUB_STEP_SUMMARY
+          if [[ "${{ github.event.inputs.dry_run }}" == "true" ]]; then
+            echo "# ODH Release Workflow Summary (DRY RUN)" >> $GITHUB_STEP_SUMMARY
+          else
+            echo "# ODH Release Workflow Summary" >> $GITHUB_STEP_SUMMARY
+          fi
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "**Repository:** ${{ needs.validate-and-check.outputs.repo_name }}" >> $GITHUB_STEP_SUMMARY
           echo "**Release Tag:** ${{ github.event.inputs.tag_name }}" >> $GITHUB_STEP_SUMMARY
@@ -359,7 +386,9 @@ jobs:
           echo "- Create Release: ${{ needs.create-release.result }}" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           
-          if [[ "${{ needs.create-release.result }}" == "success" ]]; then
+          if [[ "${{ github.event.inputs.dry_run }}" == "true" ]]; then
+            echo "ℹ️ **Dry run completed.** No files were written, no tag was created, and no release was published. Review the create-release job logs for details on what would change." >> $GITHUB_STEP_SUMMARY
+          elif [[ "${{ needs.create-release.result }}" == "success" ]]; then
             echo "✅ **Release created successfully!**" >> $GITHUB_STEP_SUMMARY
           else
             echo "⚠️ **Some steps may have failed. Please review the logs.**" >> $GITHUB_STEP_SUMMARY
