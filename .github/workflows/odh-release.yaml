@@ -260,7 +260,7 @@ jobs:
           tag_name = "${{ github.event.inputs.tag_name }}"
           tekton_files = json.loads('${{ needs.validate-and-check.outputs.tekton_files }}')
 
-          push_files = [f for f in tekton_files if f.endswith('-push.yaml')]
+          push_files = [f for f in tekton_files if f.endswith(('-push.yaml', '-push.yml'))]
           if not push_files:
             print("No push pipeline files found, skipping")
             raise SystemExit(0)
