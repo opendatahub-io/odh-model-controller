@@ -1,16 +1,44 @@
+# ODH Release Workflow
+#
+# Creates a tagged release for an opendatahub-io repository. Supports two tiers:
+#
+# Tag-only repos (llm-d-inference-scheduler, workload-variant-autoscaler, llm-d-kv-cache):
+#   - Validates inputs, creates an annotated tag, and publishes a GitHub release.
+#   - No file modifications. Add new repos to the skip list in the "Discover files" step.
+#
+# Full repos (odh-model-controller, kserve):
+#   - Same as above, plus rewrites files before tagging:
+#     1. params.env: bumps image tags matching the repo-specific regex.
+#     2. .tekton/*-push.yaml: replaces on-cel-expression with on-target-branch/on-event
+#        targeting the release tag, and updates output-image tags.
+#   - Changes are committed locally; only the tag is pushed (the branch is not modified).
+#
+# Repository requirements for full support:
+#   - config/**/params.env with image refs using recognized tags
+#     (fast, odh-stable, v*-latest, release-v*, odh-v*)
+#   - .tekton/*-push.yaml files with:
+#       pipelinesascode.tekton.dev/on-cel-expression: event == "push" && target_branch
+#         == "<branch>"
+#     and output-image using one of the recognized tags above
+#
+# The kserve params.env pattern excludes llm-d-inference-scheduler,
+# llm-d-routing-sidecar, and llm-d-kv-cache images (they have their own release cadence).
+
 name: ODH Release Workflow
 
 on:
   workflow_dispatch:
     inputs:
       repository:
-        description: 'Target repository (odh-model-controller, kserve, llm-d-inference-scheduler)'
+        description: 'Target repository (odh-model-controller, kserve, llm-d-inference-scheduler, workload-variant-autoscaler, llm-d-kv-cache)'
         required: true
         type: choice
         options:
           - odh-model-controller
           - llm-d-inference-scheduler
           - kserve
+          - llm-d-kv-cache
+          - workload-variant-autoscaler
       tag_name: # The new release tag to be created and used as the search value.
         description: 'New release tag (e.g., odh-v2.35)'
         required: true
@@ -30,10 +58,6 @@ on:
         required: false
         type: boolean
         default: false
-    #
-    # Note: This workflow assumes the release tag and image tags are in sync.
-    #       'tag_name' is used to create the release and to rewrite .tekton/ push
-    #       pipelines for tag-push triggering.
     #
 
 permissions:
@@ -110,12 +134,6 @@ jobs:
           print(f"  Repository: {repository}")
           print(f"  Release tag: {tag_name}")
         shell: python
-  #
-  # Note: This workflow dynamically discovers and updates:
-  #   - params.env files in config/ directory
-  #   - YAML files in .tekton/ directory
-  #
-
       - name: Discover files to update
         id: discover
         run: |
@@ -125,9 +143,9 @@ jobs:
           
           repository = "${{ github.event.inputs.repository }}"
           
-          # Skip file discovery for llm-d-inference-scheduler
-          if repository == "llm-d-inference-scheduler":
-            print("Skipping file discovery for llm-d-inference-scheduler")
+          # Skip file discovery for repos that only need a tag + release (no params.env or tekton rewriting)
+          if repository in ("llm-d-inference-scheduler", "workload-variant-autoscaler", "llm-d-kv-cache"):
+            print(f"Skipping file discovery for {repository}")
             with open(os.environ['GITHUB_OUTPUT'], 'a') as f:
               f.write(f"params_env_files=[]\n")
               f.write(f"tekton_files=[]\n")
@@ -213,7 +231,7 @@ jobs:
           else:
             # For kserve and others: update all matching images except llm-d-* images
             image_pattern = re.compile(
-              r'([\w.-]+(?:\.[\w.-]+)*/[\w.-]+/(?!llm-d-inference-scheduler|llm-d-routing-sidecar)[\w.-]+):()(fast|odh-stable|v[\d.]+-latest|release-v[\d.]+|odh-v[\d.]+(?:-EA\d)?)'
+              r'([\w.-]+(?:\.[\w.-]+)*/[\w.-]+/(?!llm-d-inference-scheduler|llm-d-routing-sidecar|llm-d-kv-cache)[\w.-]+):()(fast|odh-stable|v[\d.]+-latest|release-v[\d.]+|odh-v[\d.]+(?:-EA\d)?)'
             )
           
           updated_files = []
