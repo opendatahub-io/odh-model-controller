@@ -20,7 +20,7 @@ jobs:
           if [ "${{ github.base_ref }}" == "incubating" ]; then
             EXPECTED_TAG="fast"
           elif [[ "${{ github.base_ref }}" == "main" ]]; then
-            EXPECTED_TAG="stable"
+            EXPECTED_TAG="odh-stable"
           elif [[ "${GITHUB_REF}" == refs/tags/odh-v* ]]; then
             EXPECTED_TAG="${GITHUB_REF#refs/tags/}"
           else
