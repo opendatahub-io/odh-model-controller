@@ -335,7 +335,8 @@ jobs:
         env:
           TAG_NAME: ${{ github.event.inputs.tag_name }}
         run: |
-          git add config/**/params.env .tekton/ 2>/dev/null || true
+          git add config/**/params.env 2>/dev/null || true
+          git add .tekton/ 2>/dev/null || true
           
           if [[ -n "$(git status --porcelain)" ]]; then
             git commit -m "Update image refs and .tekton/ pipelines for release ${TAG_NAME}"
