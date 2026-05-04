@@ -1493,7 +1493,7 @@ authentication:
       jwksUrl: "https://vault.example.com/v1/identity/oidc/.well-known/keys"
     overrides:
       user:
-        expression: "{'username': 'vault:' + auth.identity.sub, 'groups': has(auth.identity.groups) ? auth.identity.groups.map(g, 'vault:' + g) : []}"
+        expression: "{'username': 'vault:' + auth.identity.username, 'groups': has(auth.identity.groups) && auth.identity.groups != null ? auth.identity.groups.map(g, 'vault:' + g) : []}"
       fairness:
         expression: auth.identity.iss
       objective:
@@ -1511,6 +1511,14 @@ Key points:
   auth is preferred when both could match.
 - **Credential extraction**: Uses the default `Authorization: Bearer` header, same as
   all other auth methods.
+- **Username claim**: The expression uses `auth.identity.username` (a custom claim
+  containing the entity name), not `auth.identity.sub` (which is the entity UUID in
+  Vault). Vault OIDC roles must include a `username` claim in their token template:
+  `"username": {{identity.entity.name}}`. Other OIDC providers may use `sub` directly
+  if it contains a human-readable identifier.
+- **Null groups handling**: The `groups` claim may be `null` (not `[]`) when the entity
+  has no group membership (validated with Vault). The CEL expression checks both
+  `has(auth.identity.groups)` and `auth.identity.groups != null` before mapping.
 
 ### Identity normalization
 
@@ -1525,7 +1533,7 @@ Kubernetes identities or across multiple providers:
 |-------------------|--------------------------------------------------------|-------------------------------------------------|
 | `kubernetes-user` | `system:serviceaccount:ns:name`                        | `["system:serviceaccounts", ...]`               |
 | `wristband-user`  | `system:serviceaccount:ns:name` (from wristband claim) | `["system:serviceaccounts", ...]` (from claim)  |
-| `jwt-vault`       | `vault:<sub-claim>`                                    | `["vault:ml-engineers", ...]` or `[]`           |
+| `jwt-vault`       | `vault:<username-claim>`                               | `["vault:ml-engineers", ...]` or `[]`           |
 
 The prefix (`vault:`) is applied to both usernames and groups to ensure that external
 identities cannot collide with local Kubernetes identities. A Vault user `alice` is
@@ -1541,8 +1549,17 @@ Vault issues JWTs and serves JWKS at a well-known endpoint.
 **Vault setup** (outside the scope of this controller):
 
 1. Enable the OIDC provider in Vault
-2. Create a named key and role that issues tokens with `sub`, `groups`, and other claims
+2. Create a named key (must use RS256 — see note below) and an OIDC role that issues
+   tokens with `username` (entity name), `groups`, and other claims. The role's token
+   template must include `"username": {{identity.entity.name}}` because Vault's default
+   `sub` claim contains the entity UUID, not the human-readable name
 3. Vault serves JWKS at `https://vault.example.com/v1/identity/oidc/.well-known/keys`
+
+**Note on signing algorithm**: Vault's OIDC JWKS endpoint serves all named keys
+alongside default RS256 keys. Authorino's go-jose library may reject JWTs signed with
+a different algorithm (e.g., ES256) when the JWKS contains RS256 keys first. Use RS256
+for the named key to avoid algorithm mismatch errors. See
+`VAULT_INTEGRATION_TEST_PLAN.md` for validated details.
 
 **Cluster setup**:
 
@@ -1595,8 +1612,10 @@ subjects:
 ```
 
 For group-based RBAC to work, the Vault OIDC role must include a `groups` claim in the
-JWT. The controller's override expression (`has(auth.identity.groups) ? auth.identity.groups : []`)
-handles JWTs with or without a groups claim.
+JWT. The controller's override expression
+(`has(auth.identity.groups) && auth.identity.groups != null ? auth.identity.groups.map(g, 'vault:' + g) : []`)
+handles JWTs with or without a groups claim. Note: Vault returns `"groups": null` (not
+`[]`) when an entity has no group membership — the null check is required.
 
 **Usage**:
 
