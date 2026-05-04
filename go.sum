@@ -117,8 +117,8 @@ github.com/gkampitakis/go-diff v1.3.2 h1:Qyn0J9XJSDTgnsgHRdz9Zp24RaJeKMUHg2+PDZZ
 github.com/gkampitakis/go-diff v1.3.2/go.mod h1:LLgOrpqleQe26cte8s36HTWcTmMEur6OPYerdAAS9tk=
 github.com/gkampitakis/go-snaps v0.5.15 h1:amyJrvM1D33cPHwVrjo9jQxX8g/7E2wYdZ+01KS3zGE=
 github.com/gkampitakis/go-snaps v0.5.15/go.mod h1:HNpx/9GoKisdhw9AFOBT1N7DBs9DiHo/hGheFGBZ+mc=
-github.com/go-jose/go-jose/v4 v4.1.3 h1:CVLmWDhDVRa6Mi/IgCgaopNosCaHz7zrMeF9MlZRkrs=
-github.com/go-jose/go-jose/v4 v4.1.3/go.mod h1:x4oUasVrzR7071A4TnHLGSPpNOm2a21K9Kf04k1rs08=
+github.com/go-jose/go-jose/v4 v4.1.4 h1:moDMcTHmvE6Groj34emNPLs/qtYXRVcd6S7NHbHz3kA=
+github.com/go-jose/go-jose/v4 v4.1.4/go.mod h1:x4oUasVrzR7071A4TnHLGSPpNOm2a21K9Kf04k1rs08=
 github.com/go-logr/logr v1.2.2/go.mod h1:jdQByPbusPIv2/zmleS9BjJVeZ6kBagPoEUsqbVz/1A=
 github.com/go-logr/logr v1.4.3 h1:CjnDlHq8ikf6E492q6eKboGOC0T8CDaOvkHCIg8idEI=
 github.com/go-logr/logr v1.4.3/go.mod h1:9T104GzyrTigFIr8wt5mBrctHMim0Nb2HLGrmQ40KvY=
@@ -280,8 +280,8 @@ github.com/open-telemetry/opentelemetry-operator v0.113.0 h1:EoN3SLwF9dP5Ou7gFcf
 github.com/open-telemetry/opentelemetry-operator v0.113.0/go.mod h1:eQ8W+MxP+q5Tewf5Cx1vNXvRynjP9JNgrBbUO7TqjXQ=
 github.com/opencontainers/go-digest v1.0.0 h1:apOUWs51W5PlhuyGyz9FCeeBIOUDA/6nW8Oi/yOhh5U=
 github.com/opencontainers/go-digest v1.0.0/go.mod h1:0JzlMkj0TRzQZfJkVvzbP0HBR3IKzErnv2BNG4W4MAM=
-github.com/opendatahub-io/kserve v0.0.0-20260409184100-a2efb39e4494 h1:Z2L8eI1RhBqRvD3QYUpU5ejnamA6nTu1t5NvJsEpze0=
-github.com/opendatahub-io/kserve v0.0.0-20260409184100-a2efb39e4494/go.mod h1:wBepkgRTeDeGTyuNsE22q0Z1hma4psyb05ZdV7XaCsM=
+github.com/opendatahub-io/kserve v0.0.0-20260504183808-1fed56624933 h1:dCwn+v11R58UxND1RhimSLi4Dub6nuKzJnvsltYuZkI=
+github.com/opendatahub-io/kserve v0.0.0-20260504183808-1fed56624933/go.mod h1:wBepkgRTeDeGTyuNsE22q0Z1hma4psyb05ZdV7XaCsM=
 github.com/openshift/api v0.0.0-20260306002634-d3bbdada155c h1:YQYiDzOLJzwQunxCaa5OpyNyMLPz4HJ2CLaKqUQOQjQ=
 github.com/openshift/api v0.0.0-20260306002634-d3bbdada155c/go.mod h1:pyVjK0nZ4sRs4fuQVQ4rubsJdahI1PB94LnQ8sGdvxo=
 github.com/openshift/client-go v0.0.0-20260306160707-3935d929fc7d h1:T+9HFgEEcnu1TDDfsO5JcJC6N0/Kzob5AtG9IpITHJ8=
