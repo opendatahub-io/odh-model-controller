@@ -259,7 +259,7 @@ var _ = Describe("BaseRefs and Spec Merging", func() {
 			_ = os.Setenv("POD_NAMESPACE", systemNamespace)
 			defer func() { _ = os.Unsetenv("POD_NAMESPACE") }()
 
-			createTestGateway(ctx, gatewayName, systemNamespace)
+			createCrossNamespaceGateway(ctx, gatewayName, systemNamespace)
 			createConfigWithGatewayRef(ctx, "system-config", systemNamespace, gatewayName, systemNamespace)
 
 			llmisvc := fixture.LLMInferenceService(LLMInferenceServiceName,
@@ -397,12 +397,35 @@ var _ = Describe("BaseRefs and Spec Merging", func() {
 // Helper Functions
 
 // createTestGateway creates a basic gateway for testing in the given namespace.
+// The default listener has no AllowedRoutes, which defaults to "Same" namespace.
 func createTestGateway(ctx context.Context, name, namespace string) {
 	GinkgoHelper()
 	gw := fixture.Gateway(name,
 		fixture.InNamespace[*gatewayapiv1.Gateway](namespace),
 		fixture.WithClassName(GatewayClassName),
 		fixture.WithListener(gatewayapiv1.HTTPProtocolType),
+	)
+	Expect(envTest.Client.Create(ctx, gw)).Should(Succeed())
+}
+
+// createCrossNamespaceGateway creates a gateway with AllowedRoutes: From: All,
+// allowing LLMInferenceServices from any namespace to reference it.
+func createCrossNamespaceGateway(ctx context.Context, name, namespace string) {
+	GinkgoHelper()
+	from := gatewayapiv1.NamespacesFromAll
+	gw := fixture.Gateway(name,
+		fixture.InNamespace[*gatewayapiv1.Gateway](namespace),
+		fixture.WithClassName(GatewayClassName),
+		fixture.WithListeners(gatewayapiv1.Listener{
+			Name:     "http",
+			Port:     80,
+			Protocol: gatewayapiv1.HTTPProtocolType,
+			AllowedRoutes: &gatewayapiv1.AllowedRoutes{
+				Namespaces: &gatewayapiv1.RouteNamespaces{
+					From: &from,
+				},
+			},
+		}),
 	)
 	Expect(envTest.Client.Create(ctx, gw)).Should(Succeed())
 }

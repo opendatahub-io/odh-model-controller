@@ -3,15 +3,14 @@ approvers:
   - bartoszmajsak
   - brettmthompson
   - danielezonca
-  - hdefazio
   - israel-hdez
+  - jlost
   - Jooho
   - mholder6
   - mwaykole
   - pierDipi
   - RH-steve-grubb
   - rpancham
-  - rnetser
   - spolti
   - terrytangyuan
   - vaibhavjainwiz
@@ -21,13 +20,12 @@ reviewers:
   - andresllh
   - bartoszmajsak
   - brettmthompson
-  - hdefazio
   - israel-hdez
+  - jlost
   - Jooho
   - mholder6
   - mwaykole
   - pierDipi
-  - rnetser
   - spolti
   - terrytangyuan
   - VedantMahabaleshwarkar
