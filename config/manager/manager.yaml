@@ -72,6 +72,8 @@ spec:
             drop:
             - "ALL"
         env:
+          - name: GOMEMLIMIT
+            value: "1800MiB"
           - name: POD_NAMESPACE
             valueFrom:
               fieldRef:
