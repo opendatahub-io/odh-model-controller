@@ -47,11 +47,11 @@ Each cluster enforces its own RBAC independently.
  │                     │                        │    │                     │                        │
  │       ┌─────────────┴────────────┐           │    │       ┌─────────────┴────────────┐           │
  │       ▼                          ▼           │    │       ▼                          ▼           │
- │  ┌────────────────┐  ┌────────────────┐      │    │  ┌────────────────┐  ┌────────────────┐      │
- │  │model-serving-  │  │ Inference      │      │    │  │model-serving-  │  │ Inference      │      │
- │  │api (system ns) │  │ Backends       │      │    │  │api (system ns) │  │ Backends       │      │
- │  │ /api/v1/token  │  │ /<ns>/<model>/ │      │    │  │ /api/v1/token  │  │ /<ns>/<model>/ │      │
- │  └────────────────┘  └────────────────┘      │    │  └────────────────┘  └────────────────┘      │
+ │  ┌────────────────────┐  ┌────────────────┐  │    │  ┌────────────────────┐  ┌────────────────┐  │
+ │  │ model-serving-api  │  │ Inference      │  │    │  │ model-serving-api  │  │ Inference      │  │
+ │  │ (system ns)        │  │ Backends       │  │    │  │ (system ns)        │  │ Backends       │  │
+ │  │ /api/v1/auth/token │  │ /<ns>/<model>/ │  │    │  │ /api/v1/auth/token │  │ /<ns>/<model>/ │  │
+ │  └────────────────────┘  └────────────────┘  │    │  └────────────────────┘  └────────────────┘  │
  │                                              │    │                                              │
  │  ┌────────────────────────────────────────┐  │    │  ┌────────────────────────────────────────┐  │
  │  │ Authorino OIDC (:8083, TLS)            │  │    │  │ Authorino OIDC (:8083, TLS)            │  │
@@ -78,24 +78,27 @@ Each cluster enforces its own RBAC independently.
 ### Token exchange flow
 
 ```text
-Cluster A (or B) (issuing)                        Cluster B (or A) (consuming)
+Token issuance (any cluster)                      Token consumption (any cluster)
 
-User ──► Gateway /api/v1/token                    Client ──► Gateway ──► Authorino ──► Inference Backend
+User ──► Gateway /api/v1/auth/token               Client ──► Gateway ──► Authorino ──► Inference Backend
            │                                                │
-           ├─ 1. kubernetesTokenReview (authn)              ├─ 1. jwt verification (authn)
-           ├─ 2. No authorization (token path)              ├─ 2. SubjectAccessReview (local RBAC)
-           └─ 3. Issue signed JWT (response)                └─ 3. Set flow control headers (response)
-                    │                                                  ▲
-                    │              signed JWT                          │
-                    └──────────────────────────────────────────────────┘
+           ├─ 1a. kubernetesTokenReview (k8s token)         ├─ 1. jwt verification (authn)
+           │  OR                                            ├─ 2. SubjectAccessReview (local RBAC)
+           ├─ 1b. jwt verification (external JWT)           └─ 3. Set flow control headers (response)
+           ├─ 2. No authorization (token path)                        ▲
+           └─ 3. Issue signed wristband (response)                    │
+                    │                    signed JWT                   │
+                    └─────────────────────────────────────────────────┘
 ```
 
 **Flow**:
 
-1. User authenticates on cluster A with a local Kubernetes token via `GET /api/v1/token`
+1. User authenticates on cluster A via `GET /api/v1/auth/token` using either:
+   - A local Kubernetes token (`kubernetesTokenReview`), or
+   - An external JWT from a configured OIDC provider (e.g., Vault)
 2. Cluster A skips authorization for the token path (authentication only)
-3. Cluster A issues a signed JWT containing the user's identity (username, groups)
-4. Client extracts the JWT from the response
+3. Cluster A issues a signed wristband JWT containing the user's identity (username, groups)
+4. Client extracts the JWT from the response (`access_token` field)
 5. Client sends the JWT to cluster B's inference endpoint
 6. Cluster B verifies the JWT signature via JWKS
 7. Cluster B extracts the username and groups from the JWT
@@ -118,7 +121,7 @@ for its own access control.
   Each cluster enforces its own RBAC via SubjectAccessReview. A valid token from a
   peer is insufficient without local RoleBindings.
 - **Zero-config single cluster**: The controller auto-generates a local signing key
-  per Gateway. Token exchange via `/api/v1/token` works without any annotation or
+  per Gateway. Token exchange via `/api/v1/auth/token` works without any annotation or
   manual key creation. Multi-cluster requires only adding peer key names to the
   `security.opendatahub.io/token-exchange-signing-keys` annotation.
 - **Signing key distribution**: Authorino's `signingKeyRefs` requires private keys —
@@ -151,7 +154,7 @@ Admin
   │     └─ Grant remote SAs/users access to local LLMInferenceServices
   │
   └─ 5. (Optional) Configure token duration
-        └─ security.opendatahub.io/token-exchange-duration: "31536000"
+        └─ security.opendatahub.io/token-exchange-duration: "86400"
 
 Controller (on annotation change)
   │
@@ -165,7 +168,7 @@ Controller (on annotation change)
 Developer / CI pipeline
   │
   ├─ 1. Authenticate on home cluster
-  │     GET /api/v1/token
+  │     GET /api/v1/auth/token
   │     Authorization: Bearer <k8s-token>
   │     └─ Response: {"token": "<jwt>"}
   │
@@ -213,7 +216,7 @@ Additional `jwt` authentication methods (peer wristbands and/or external OIDC pr
 are configured alongside `kubernetesTokenReview`. Authorino evaluates all authentication
 configs — at least one must succeed. Local Kubernetes tokens continue to work unchanged.
 
-## Token endpoint: `/api/v1/token`
+## Token endpoint: `/api/v1/auth/token`
 
 A dedicated gateway path for wristband token exchange. The client authenticates with a
 local Kubernetes token and receives a wristband JWT in the response.
@@ -221,12 +224,13 @@ local Kubernetes token and receives a wristband JWT in the response.
 ### Routing
 
 The `GatewayReconciler` (`gateway_controller.go`) automatically creates an HTTPRoute
-for `/api/v1/token` for every managed Gateway. The HTTPRoute routes to the
+for `/api/v1/auth/token` for every managed Gateway. The HTTPRoute routes to the
 `model-serving-api` server (`server/`, deployed via `config/server/`).
 
-The server needs a `/api/v1/token` handler that returns the wristband token from the
+The server needs a `/api/v1/auth/token` handler that returns the wristband token from the
 `X-Wristband-Token` response header (injected by Authorino into the upstream request)
-in the response body:
+in the response body. The response follows OAuth 2.0 formats: success per RFC 6749 §5.1,
+errors per RFC 6749 §5.2.
 
 ```go
 // server/handlers/token.go
@@ -236,12 +240,34 @@ func Token(w http.ResponseWriter, r *http.Request) {
     w.Header().Set("Cache-Control", "no-store")
     if token == "" {
         w.WriteHeader(http.StatusBadGateway)
-        json.NewEncoder(w).Encode(map[string]string{"error": "missing wristband token"})
+        json.NewEncoder(w).Encode(map[string]string{
+            "error":             "server_error",
+            "error_description": "missing wristband token",
+        })
         return
     }
-    json.NewEncoder(w).Encode(map[string]string{"token": token})
+    json.NewEncoder(w).Encode(map[string]any{
+        "access_token": token,
+        "token_type":   "Bearer",
+        "expires_in":   expiresIn(token),
+    })
 }
 ```
+
+Success response (200):
+
+| Field          | Type    | Description                                        |
+|----------------|---------|----------------------------------------------------|
+| `access_token` | string  | The wristband JWT                                  |
+| `token_type`   | string  | Always `Bearer`                                    |
+| `expires_in`   | integer | Seconds until the token expires (from `exp` claim) |
+
+Error response (502):
+
+| Field               | Type   | Description                                    |
+|---------------------|--------|------------------------------------------------|
+| `error`             | string | OAuth 2.0 error code (e.g., `server_error`)    |
+| `error_description` | string | Human-readable explanation                     |
 
 Note: `X-Wristband-Token` here is the **internal** response header that Authorino injects
 into the upstream request (configured in `response.success.headers`). It is not the
@@ -249,7 +275,7 @@ client-facing header. The client sends and receives tokens via `Authorization: B
 
 Register in `server/server.go`:
 ```go
-mux.HandleFunc("/api/v1/token", handlers.Token)
+mux.HandleFunc("/api/v1/auth/token", handlers.Token)
 ```
 
 The controller creates the following HTTPRoute (owned by the Gateway for garbage collection):
@@ -270,7 +296,7 @@ spec:
     - matches:
         - path:
             type: Exact
-            value: /api/v1/token
+            value: /api/v1/auth/token
       backendRefs:
         - name: model-serving-api
           port: 443
@@ -345,7 +371,7 @@ is allowed in `allowedRoutes`.
 
 ### Authorization exclusion
 
-The `/api/v1/token` path must be excluded from authorization rules (like batch paths).
+The `/api/v1/auth/token` path must be excluded from authorization rules (like batch paths).
 Authentication is sufficient — if the user has a valid Kubernetes token, they can
 request a wristband:
 
@@ -354,21 +380,21 @@ authorization:
   inference-access:
     when:
       - predicate: >-
-          !(request.path == '/api/v1/token' ||
+          !(request.path == '/api/v1/auth/token' ||
             request.path == '/v1/files' || request.path.startsWith('/v1/files/') ||
             request.path == '/v1/batches' || request.path.startsWith('/v1/batches/'))
     # ... existing SAR config unchanged ...
   inference-access-delegate:
     when:
       - predicate: >-
-          !(request.path == '/api/v1/token' ||
+          !(request.path == '/api/v1/auth/token' ||
             request.path == '/v1/files' || request.path.startsWith('/v1/files/') ||
             request.path == '/v1/batches' || request.path.startsWith('/v1/batches/'))
       - predicate: "'x-maas-user' in request.headers"
     # ... existing SAR config unchanged ...
 ```
 
-### Wristband response (scoped to `/api/v1/token`)
+### Wristband response (scoped to `/api/v1/auth/token`)
 
 The wristband is only issued for the token endpoint — not on every request:
 
@@ -380,10 +406,10 @@ response:
 
       x-wristband-token:
         when:
-          - predicate: "request.path == '/api/v1/token'"
+          - predicate: "request.path == '/api/v1/auth/token'"
         wristband:
           issuer: "https://authorino-authorino-oidc.kuadrant-system.svc.cluster.local:8083/<AUTHCONFIG_NS>/<AUTHCONFIG_NAME>/x-wristband-token"
-          tokenDuration: 31536000   # configurable via Gateway annotation, default 1 year
+          tokenDuration: 86400   # configurable via Gateway annotation, default 24 hours
           signingKeyRefs:
             - name: <gateway-name>-wristband-signing-key   # auto-generated
               algorithm: ES256
@@ -596,7 +622,7 @@ rule in the HTTPRoute's `spec.rules` array. The HTTPRouteRule `name` field from
 Gateway API is **not used yet** (tracked upstream:
 `TODO: Use the 'name' field of the HTTPRouteRule once it's implemented`).
 
-Since the controller auto-creates the `/api/v1/token` HTTPRoute with a single rule,
+Since the controller auto-creates the `/api/v1/auth/token` HTTPRoute with a single rule,
 the rule index is always `rule-1` and the hash is stable. Other HTTPRoutes attached to
 the same Gateway do not affect it — each HTTPRoute produces its own AuthConfig(s).
 
@@ -648,10 +674,10 @@ authentication:
             ? auth.identity.user.username.split(':')[2]
             : 'authenticated'
 
-  # JWT auth from peer clusters (disabled on /api/v1/token to prevent token escalation)
+  # JWT auth from peer clusters (disabled on /api/v1/auth/token to prevent token escalation)
   wristband-user:
     when:
-      - predicate: "request.path != '/api/v1/token'"
+      - predicate: "request.path != '/api/v1/auth/token'"
     jwt:
       jwksUrl: "https://authorino-authorino-oidc.kuadrant-system.svc.cluster.local:8083/<AUTHCONFIG_NS>/<AUTHCONFIG_NAME>/x-wristband-token/.well-known/openid-connect/certs"
     overrides:
@@ -695,7 +721,7 @@ authorization:
   inference-access:
     when:
       - predicate: >-
-          !(request.path == '/api/v1/token' ||
+          !(request.path == '/api/v1/auth/token' ||
             request.path == '/v1/files' || request.path.startsWith('/v1/files/') ||
             request.path == '/v1/batches' || request.path.startsWith('/v1/batches/'))
     kubernetesSubjectAccessReview:
@@ -803,7 +829,7 @@ authentication:
     # ... local auth unchanged ...
   wristband-user:
     when:
-      - predicate: "request.path != '/api/v1/token'"
+      - predicate: "request.path != '/api/v1/auth/token'"
     jwt:
       jwksUrl: "https://authorino-authorino-oidc.kuadrant-system.svc.cluster.local:8083/<AUTHCONFIG_NS>/<AUTHCONFIG_NAME>/x-wristband-token/.well-known/openid-connect/certs"
     overrides:
@@ -833,7 +859,7 @@ from `signingKeyRefs` on all clusters.
 | Resource                            | Namespace                                | Purpose                                      | Created by        |
 |-------------------------------------|------------------------------------------|----------------------------------------------|-------------------|
 | `Secret/<gw>-wristband-signing-key` | AuthConfig namespace (`kuadrant-system`) | ES256 private key for signing wristband JWTs | Controller (auto) |
-| HTTPRoute for `/api/v1/token`       | Server namespace                         | Routes token exchange requests               | Controller (auto) |
+| HTTPRoute for `/api/v1/auth/token`       | Server namespace                         | Routes token exchange requests               | Controller (auto) |
 | Peer signing key Secrets            | AuthConfig namespace (`kuadrant-system`) | Peer keys for multi-cluster verification     | Operator (manual) |
 | RoleBindings for remote users       | Model namespaces                         | RBAC for users from peer clusters            | Operator (manual) |
 
@@ -876,17 +902,31 @@ cluster access to models in `model-namespace` on this cluster.
 - **Identity only, not authorization**: The wristband proves who the user is, not what
   they can do. Each cluster enforces its own RBAC via SubjectAccessReview. A stolen
   wristband is useless on a cluster where the user has no RoleBindings.
-- **Asymmetric signing**: Use ES256 (ECDSA P-256). Peer clusters only need the public
-  key (JWKS), never the private key. Compromising one cluster's JWKS does not compromise
-  another cluster's signing key.
-- **Token duration**: Default is 1 year (31536000s), configurable via
-  `security.opendatahub.io/token-exchange-duration`. Long-lived tokens are acceptable
-  because the wristband carries identity only — each cluster enforces its own RBAC.
-  Revoking access is done by removing RoleBindings, not by expiring tokens.
+- **Signing algorithm**: Use ES256 (ECDSA P-256). Ideally, peer clusters would only
+  need the public key (JWKS) for verification. However, Authorino's `signingKeyRefs`
+  requires private keys — it rejects public-key-only Secrets. This means every peer
+  cluster holds every other peer's private signing key. Consequence: compromising **any**
+  peer cluster exposes **all** peers' private keys, enabling the attacker to forge
+  tokens that appear to originate from any cluster in the federation. This is a
+  cascading compromise risk inherent to the current Authorino limitation. If Authorino
+  adds support for public-key-only verification Secrets in the future, the design
+  should be updated to distribute only public keys.
+- **Token duration**: Default is 24 hours (86400s), configurable via
+  `security.opendatahub.io/token-exchange-duration`. Short-lived tokens limit the
+  exposure window if a token is leaked — a leaked wristband expires within a day,
+  unlike a leaked K8s token that could be exchanged for a longer-lived one. Each
+  cluster enforces its own RBAC via SubjectAccessReview, so revoking access is
+  immediate (remove RoleBindings). Organizations needing longer-lived tokens for
+  CI pipelines or batch workloads can increase the duration via the annotation.
+  Note that any authenticated user can exchange a credential for a wristband. If
+  this is a concern, add an authorization rule on `/api/v1/auth/token` requiring a
+  specific RBAC permission (e.g., `create` on a `tokenexchanges` resource) to
+  control who can mint wristbands.
 - **No token re-minting**: The `wristband-user` authentication is disabled on
-  `/api/v1/token` via a `when` predicate. This prevents using a wristband to mint a
-  new wristband (token escalation). Only `kubernetesTokenReview` is accepted on the
-  token endpoint.
+  `/api/v1/auth/token` via a `when` predicate. This prevents using a wristband to mint a
+  new wristband (token escalation). External JWT authentication (from the
+  `authn-jwt-jwks` annotation) is allowed on `/api/v1/auth/token` — this is intentional,
+  enabling users to exchange external tokens for wristbands.
 - **SA name consistency**: The same SA name/namespace must exist across clusters for
   RBAC to work. This is a deployment constraint, not an Authorino constraint.
 - **Issuer validation**: With `jwksUrl`, Authorino verifies the JWT signature but does
@@ -1028,7 +1068,7 @@ NEW_JWKS=$(curl -s https://authorino-authorino-oidc.kuadrant-system.svc.cluster.
 ```
 
 **Impact**: all existing wristband tokens from this cluster are invalidated. Users
-must re-authenticate via `/api/v1/token` to get new tokens signed with the new key.
+must re-authenticate via `/api/v1/auth/token` to get new tokens signed with the new key.
 
 ### Scenario 3: Peer cluster compromised
 
@@ -1110,7 +1150,7 @@ per-route wristband isolation** within a single Gateway:
 
 - All routes use the same signing key
 - All routes serve the same JWKS
-- A wristband obtained via one route's `/api/v1/token` is valid for any route on that
+- A wristband obtained via one route's `/api/v1/auth/token` is valid for any route on that
   Gateway (subject to SAR authorization)
 
 This is by design — wristband tokens carry identity, not route-specific authorization.
@@ -1162,7 +1202,7 @@ type authPolicyTemplateData struct {
     // Wristband token exchange
     WristbandIssuer      string   // Authorino OIDC endpoint for this wristband config
     SigningKeyRefs       []string // Secret names: first signs, all published in JWKS
-    TokenDuration        int      // Seconds (default 31536000 = 1 year)
+    TokenDuration        int      // Seconds (default 86400 = 24 hours)
     WristbandJwksUrl     string   // Local Authorino OIDC JWKS URL (contains all peer keys)
 }
 ```
@@ -1176,7 +1216,7 @@ a single `jwt.jwksUrl` pointing to the local JWKS — no separate peer URLs are 
 Add to `options.go`:
 
 ```go
-// WithWristbandResponse configures wristband token issuance on /api/v1/token.
+// WithWristbandResponse configures wristband token issuance on /api/v1/auth/token.
 // signingKeyRefs: first key signs, all keys published in JWKS for verification.
 func WithWristbandResponse(issuer string, signingKeyRefs []string, tokenDuration int) ObjectOption
 
@@ -1198,8 +1238,8 @@ metadata:
   annotations:
     # Optional: peer keys appended after auto-generated local key in signingKeyRefs
     security.opendatahub.io/token-exchange-signing-keys: "peer-cluster-a-key,peer-cluster-b-key"
-    # Optional: token duration in seconds (default: 31536000 = 1 year)
-    security.opendatahub.io/token-exchange-duration: "31536000"
+    # Optional: token duration in seconds (default: 86400 = 24 hours)
+    security.opendatahub.io/token-exchange-duration: "86400"
 ```
 
 The controller:
@@ -1218,7 +1258,7 @@ ServiceAccounts with RBAC).
 ### Test setup
 
 The controller auto-generates the signing key Secret and creates the HTTPRoute for
-`/api/v1/token`. No manual setup is needed for single-cluster token exchange.
+`/api/v1/auth/token`. No manual setup is needed for single-cluster token exchange.
 
 ```bash
 # Verify the auto-generated signing key exists
@@ -1263,10 +1303,10 @@ spec:
                 ? auth.identity.user.username.split(':')[2]
                 : 'authenticated'
 
-      # Accept JWT tokens (disabled on /api/v1/token to prevent token escalation)
+      # Accept JWT tokens (disabled on /api/v1/auth/token to prevent token escalation)
       wristband-user:
         when:
-          - predicate: "request.path != '/api/v1/token'"
+          - predicate: "request.path != '/api/v1/auth/token'"
         jwt:
           issuerUrl: "https://authorino-authorino-oidc.kuadrant-system.svc.cluster.local:8083/<AUTHCONFIG_NS>/<AUTHCONFIG_NAME>/x-wristband-token"
         overrides:
@@ -1285,7 +1325,7 @@ spec:
       inference-access:
         when:
           - predicate: >-
-              !(request.path == '/api/v1/token' ||
+              !(request.path == '/api/v1/auth/token' ||
                 request.path == '/v1/files' || request.path.startsWith('/v1/files/') ||
                 request.path == '/v1/batches' || request.path.startsWith('/v1/batches/'))
         kubernetesSubjectAccessReview:
@@ -1316,7 +1356,7 @@ spec:
       inference-access-delegate:
         when:
           - predicate: >-
-              !(request.path == '/api/v1/token' ||
+              !(request.path == '/api/v1/auth/token' ||
                 request.path == '/v1/files' || request.path.startsWith('/v1/files/') ||
                 request.path == '/v1/batches' || request.path.startsWith('/v1/batches/'))
           - predicate: "'x-maas-user' in request.headers"
@@ -1369,10 +1409,10 @@ spec:
             priority: 0
           x-wristband-token:
             when:
-              - predicate: "request.path == '/api/v1/token'"
+              - predicate: "request.path == '/api/v1/auth/token'"
             wristband:
               issuer: "https://authorino-authorino-oidc.kuadrant-system.svc.cluster.local:8083/<AUTHCONFIG_NS>/<AUTHCONFIG_NAME>/x-wristband-token"
-              tokenDuration: 31536000
+              tokenDuration: 86400
               signingKeyRefs:
                 - name: openshift-ai-inference-wristband-signing-key   # auto-generated
                   algorithm: ES256
@@ -1389,14 +1429,15 @@ spec:
 
 | # | Scenario                                      | Auth                   | Path                | Expected                            |
 |---|-----------------------------------------------|------------------------|---------------------|-------------------------------------|
-| 1 | Get JWT via token endpoint                    | `Bearer <k8s-token>`   | `/api/v1/token`     | 200, response body contains JWT     |
+| 1 | Get JWT via token endpoint                    | `Bearer <k8s-token>`   | `/api/v1/auth/token`     | 200, OAuth 2.0 token response       |
 | 2 | Decode JWT, verify claims                     | —                      | —                   | JWT has `username`, `groups` claims |
 | 3 | Verify JWKS endpoint                          | —                      | —                   | OIDC discovery returns public key   |
 | 4 | Use JWT for inference (local RBAC exists)     | `Bearer <jwt>`         | `/<ns>/<model>/...` | 200, SAR passes                     |
 | 5 | Use JWT for inference (no local RBAC)         | `Bearer <jwt>`         | `/<ns>/<model>/...` | 403, SAR fails                      |
 | 6 | Expired JWT                                   | `Bearer <expired-jwt>` | `/<ns>/<model>/...` | 401                                 |
 | 7 | Local k8s token still works (backward compat) | `Bearer <k8s-token>`   | `/<ns>/<model>/...` | 200                                 |
-| 8 | JWT on token endpoint (no escalation)         | `Bearer <jwt>`         | `/api/v1/token`     | 401, JWT auth disabled on this path |
+| 8 | Wristband on token endpoint (no re-minting)   | `Bearer <wristband>`   | `/api/v1/auth/token`     | 401, wristband auth disabled        |
+| 9 | External JWT → wristband exchange             | `Bearer <vault-jwt>`   | `/api/v1/auth/token`     | 200, OAuth 2.0 token response       |
 
 ### Test commands
 
@@ -1404,12 +1445,13 @@ spec:
 GW=http://openshift-ai-inference-openshift-default.openshift-ingress.svc.cluster.local
 TEST_USER_TOKEN=$(oc create token test-user -n echo-service)
 
-# Scenario 1: Get JWT via /api/v1/token
+# Scenario 1: Get JWT via /api/v1/auth/token
 RESPONSE=$(oc exec -n default dnsutils -- curl -s \
   -H "Authorization: Bearer $TEST_USER_TOKEN" \
-  $GW/api/v1/token)
-JWT=$(echo "$RESPONSE" | jq -r .token)
+  $GW/api/v1/auth/token)
+JWT=$(echo "$RESPONSE" | jq -r .access_token)
 echo "JWT: ${JWT:0:50}..."
+echo "Expires in: $(echo "$RESPONSE" | jq .expires_in)s"
 
 # Scenario 2: Decode the JWT
 echo "$JWT" | cut -d. -f2 | tr '_-' '/+' | base64 -d 2>/dev/null | jq .
@@ -1434,8 +1476,8 @@ oc exec -n default dnsutils -- curl -s \
 # Scenario 8: JWT on token endpoint (no escalation)
 oc exec -n default dnsutils -- curl -s -o /dev/null -w "%{http_code}" \
   -H "Authorization: Bearer $JWT" \
-  $GW/api/v1/token
-# Expected: 401 (wristband-user auth is disabled on /api/v1/token via when predicate)
+  $GW/api/v1/auth/token
+# Expected: 401 (wristband-user auth is disabled on /api/v1/auth/token via when predicate)
 ```
 
 ## External JWT issuers
@@ -1487,8 +1529,6 @@ authentication:
 
   # Generated from annotation entry: {"prefix": "vault", "jwksUrl": "https://vault.example.com/..."}
   jwt-vault:
-    when:
-      - predicate: "request.path != '/api/v1/token'"
     jwt:
       jwksUrl: "https://vault.example.com/v1/identity/oidc/.well-known/keys"
     overrides:
@@ -1503,9 +1543,14 @@ authentication:
 
 Key points:
 
-- **Token escalation prevention**: The `when` predicate disables external JWT auth on
-  `/api/v1/token`, same as `wristband-user`. Only `kubernetesTokenReview` can mint
-  wristband tokens.
+- **Token exchange support**: Unlike `wristband-user`, external JWT auth is **enabled**
+  on `/api/v1/auth/token`. A user can authenticate with an external JWT (e.g., Vault) and
+  receive a wristband in return. This provides a unified token exchange flow — users
+  authenticate with whatever credential they have and get a standard wristband that
+  works on any peer cluster. It also allows exchanging short-lived external tokens
+  (e.g., Vault tokens with 5-minute TTL) for longer-lived wristbands, so applications
+  don't need to keep refreshing external tokens. Note: wristband → wristband re-minting
+  is still blocked (`wristband-user` remains disabled on `/api/v1/auth/token`).
 - **Priority**: External issuers use `priority: 2` (after `kubernetes-user` at 0 and
   `wristband-user` at 1). Authorino evaluates lower-priority methods first, so local
   auth is preferred when both could match.
@@ -1672,7 +1717,7 @@ authentication rule per issuer.
 ## Open questions
 
 1. **Token endpoint backend**: The `model-serving-api` server (`server/`, `config/server/`)
-   is the production backend. Add a `/api/v1/token` handler that reads the wristband token
+   is the production backend. Add a `/api/v1/auth/token` handler that reads the wristband token
    from the upstream request header (injected by Authorino) and returns it in the response
    body as JSON.
 
