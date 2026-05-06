@@ -28,6 +28,7 @@ import (
 	kservev1alpha2 "github.com/kserve/kserve/pkg/apis/serving/v1alpha2"
 	kserveutils "github.com/kserve/kserve/pkg/utils"
 	kuadrantv1 "github.com/kuadrant/kuadrant-operator/api/v1"
+	monitoringv1 "github.com/prometheus-operator/prometheus-operator/pkg/apis/monitoring/v1"
 	istioclientv1alpha3 "istio.io/client-go/pkg/apis/networking/v1alpha3"
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
@@ -86,6 +87,7 @@ func NewGatewayReconciler(client client.Client, scheme *runtime.Scheme, recorder
 // +kubebuilder:rbac:groups=gateway.networking.k8s.io,resources=gateways,verbs=get;list;watch
 // +kubebuilder:rbac:groups=networking.istio.io,resources=envoyfilters,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups=kuadrant.io,resources=authpolicies,verbs=get;list;watch;create;update;patch;delete
+// +kubebuilder:rbac:groups=monitoring.coreos.com,resources=podmonitors,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups="",resources=namespaces,verbs=get;list;watch
 
 func (r *GatewayReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
@@ -135,6 +137,18 @@ func (r *GatewayReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 	} else {
 		if err := r.deleteAuthPolicyIfManaged(ctx, logger, gateway); err != nil && !meta.IsNoMatchError(err) {
 			r.Recorder.Eventf(gateway, corev1.EventTypeWarning, "ReconcileError", "Failed to delete AuthPolicy: %v", err)
+			return ctrl.Result{}, err
+		}
+	}
+
+	if scrape := gateway.GetLabels()[constants.RhoaiObservabilityLabel]; referencedByLLMService && scrape != "false" {
+		if err := r.reconcileGatewayPodMonitor(ctx, logger, gateway); err != nil && !meta.IsNoMatchError(err) {
+			r.Recorder.Eventf(gateway, corev1.EventTypeWarning, "ReconcileError", "Failed to reconcile gateway PodMonitor: %v", err)
+			return ctrl.Result{}, err
+		}
+	} else {
+		if err := r.deleteGatewayPodMonitorIfManaged(ctx, logger, gateway); err != nil && !meta.IsNoMatchError(err) {
+			r.Recorder.Eventf(gateway, corev1.EventTypeWarning, "ReconcileError", "Failed to delete gateway PodMonitor: %v", err)
 			return ctrl.Result{}, err
 		}
 	}
@@ -319,6 +333,142 @@ func (r *GatewayReconciler) deleteAuthPolicyIfManaged(ctx context.Context, logge
 	}
 
 	return nil
+}
+
+func (r *GatewayReconciler) reconcileGatewayPodMonitor(ctx context.Context, logger logr.Logger, gateway *gatewayapiv1.Gateway) error {
+	logger.V(1).Info("Reconciling PodMonitor for Gateway")
+
+	podMonitorName := constants.GetGatewayPodMonitorName(gateway.Name)
+	existing := &monitoringv1.PodMonitor{}
+	err := r.Client.Get(ctx, types.NamespacedName{
+		Name:      podMonitorName,
+		Namespace: gateway.Namespace,
+	}, existing)
+	if err != nil && !apierrors.IsNotFound(err) {
+		return fmt.Errorf("failed to get existing PodMonitor: %w", err)
+	}
+	if err != nil {
+		existing = nil
+	}
+
+	if existing != nil && !utils.IsManagedByOpenDataHub(existing) {
+		logger.V(1).Info("Skipping PodMonitor reconciliation - not managed by odh-model-controller", "name", podMonitorName)
+		return nil
+	}
+
+	desired := r.desiredGatewayPodMonitor(gateway)
+
+	comparator := comparators.GetPodMonitorComparator()
+	delta := r.deltaProcessor.ComputeDelta(comparator, desired, existing)
+
+	if !delta.HasChanges() {
+		logger.V(1).Info("No changes detected for PodMonitor", "name", podMonitorName)
+		return nil
+	}
+
+	if delta.IsAdded() {
+		logger.Info("Creating PodMonitor", "name", podMonitorName)
+		if err := controllerutil.SetControllerReference(gateway, desired, r.Scheme); err != nil {
+			return fmt.Errorf("failed to set controller reference: %w", err)
+		}
+		if err := r.Client.Create(ctx, desired); err != nil {
+			return fmt.Errorf("failed to create PodMonitor: %w", err)
+		}
+	} else if delta.IsUpdated() {
+		logger.Info("Updating PodMonitor", "name", podMonitorName)
+		if err := controllerutil.SetControllerReference(gateway, desired, r.Scheme); err != nil {
+			return fmt.Errorf("failed to set controller reference: %w", err)
+		}
+		rp := existing.DeepCopy()
+		rp.Spec = desired.Spec
+		if err := r.Client.Update(ctx, rp); err != nil {
+			return fmt.Errorf("failed to update PodMonitor: %w", err)
+		}
+	}
+
+	return nil
+}
+
+func (r *GatewayReconciler) deleteGatewayPodMonitorIfManaged(ctx context.Context, logger logr.Logger, gateway *gatewayapiv1.Gateway) error {
+	podMonitorName := constants.GetGatewayPodMonitorName(gateway.Name)
+
+	existing := &monitoringv1.PodMonitor{}
+	if err := r.Client.Get(ctx, types.NamespacedName{
+		Name:      podMonitorName,
+		Namespace: gateway.Namespace,
+	}, existing); err != nil {
+		if apierrors.IsNotFound(err) {
+			return nil
+		}
+		return fmt.Errorf("failed to get existing PodMonitor: %w", err)
+	}
+
+	if !utils.IsManagedByOpenDataHub(existing) {
+		logger.V(1).Info("Skipping PodMonitor deletion - not managed by odh-model-controller", "name", podMonitorName)
+		return nil
+	}
+
+	logger.Info("Deleting PodMonitor", "name", podMonitorName)
+	if err := r.Client.Delete(ctx, existing); err != nil {
+		return fmt.Errorf("failed to delete PodMonitor: %w", err)
+	}
+
+	return nil
+}
+
+// desiredGatewayPodMonitor returns the desired PodMonitor for scraping Istio/Envoy metrics
+// from inference gateway pods. The llm_isvc_gateway="true" sentinel label is added via
+// relabeling to disambiguate these metrics from unrelated gateways in dashboard queries.
+func (r *GatewayReconciler) desiredGatewayPodMonitor(gateway *gatewayapiv1.Gateway) *monitoringv1.PodMonitor {
+	metricsPort := "metrics"
+	metricsPath := "/stats/prometheus"
+
+	return &monitoringv1.PodMonitor{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      constants.GetGatewayPodMonitorName(gateway.Name),
+			Namespace: gateway.Namespace,
+			Labels: map[string]string{
+				"app.kubernetes.io/component":      "llm-monitoring",
+				"app.kubernetes.io/part-of":        "llminferenceservice",
+				"app.kubernetes.io/managed-by":     "odh-model-controller",
+				"monitoring.opendatahub.io/scrape": "true",
+			},
+		},
+		Spec: monitoringv1.PodMonitorSpec{
+			Selector: metav1.LabelSelector{
+				MatchLabels: map[string]string{
+					"gateway.networking.k8s.io/gateway-name": gateway.Name,
+				},
+			},
+			PodMetricsEndpoints: []monitoringv1.PodMetricsEndpoint{
+				{
+					Port: &metricsPort,
+					Path: metricsPath,
+					// Istio exposes stats on port 15020 via plain HTTP regardless of
+					// whether the gateway listeners use TLS or not.
+					Scheme: ptr.To(monitoringv1.Scheme("http")),
+					RelabelConfigs: []monitoringv1.RelabelConfig{
+						{
+							SourceLabels: []monitoringv1.LabelName{"__meta_kubernetes_pod_label_gateway_networking_k8s_io_gateway_name"},
+							Action:       "replace",
+							TargetLabel:  "gateway_name",
+						},
+						{
+							Replacement: ptr.To("true"),
+							TargetLabel: "llm_isvc_gateway",
+						},
+					},
+					MetricRelabelConfigs: []monitoringv1.RelabelConfig{
+						{
+							SourceLabels: []monitoringv1.LabelName{"__name__"},
+							Regex:        "istio_requests_total|istio_request_duration_milliseconds_(bucket|sum|count)|istio_request_bytes_(bucket|sum|count)|istio_response_bytes_(bucket|sum|count)",
+							Action:       "keep",
+						},
+					},
+				},
+			},
+		},
+	}
 }
 
 // isGatewayReferencedByLLMService checks whether the given gateway is the default gateway
@@ -772,8 +922,15 @@ func (r *GatewayReconciler) SetupWithManager(mgr ctrl.Manager, setupLog logr.Log
 		return err
 	}
 
+	isPodMonitorAvailable, err := utils.IsCrdAvailable(mgr.GetConfig(), monitoringv1.SchemeGroupVersion.String(), "PodMonitor")
+	if err != nil {
+		setupLog.V(1).Error(err, "could not determine if PodMonitor CRD is available")
+		return err
+	}
+
 	setupLog.Info("Setting up Gateway controller for EnvoyFilter/AuthPolicy bootstrap",
-		"envoyFilterCRD", isEnvoyFilterAvailable, "authPolicyCRD", isAuthPolicyAvailable)
+		"envoyFilterCRD", isEnvoyFilterAvailable, "authPolicyCRD", isAuthPolicyAvailable,
+		"podMonitorCRD", isPodMonitorAvailable)
 
 	gatewayPredicate := predicate.Funcs{
 		CreateFunc: func(e event.CreateEvent) bool {
@@ -814,6 +971,9 @@ func (r *GatewayReconciler) SetupWithManager(mgr ctrl.Manager, setupLog logr.Log
 	}
 	if isAuthPolicyAvailable {
 		builder = builder.Owns(&kuadrantv1.AuthPolicy{}, ctrlbuilder.WithPredicates(managedPredicate))
+	}
+	if isPodMonitorAvailable {
+		builder = builder.Owns(&monitoringv1.PodMonitor{}, ctrlbuilder.WithPredicates(managedPredicate))
 	}
 
 	return builder.
