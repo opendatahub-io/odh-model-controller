@@ -5,6 +5,8 @@ metadata:
   labels:
     app.kubernetes.io/name: odh-model-controller
     app.kubernetes.io/managed-by: kustomize
+    rbac.authorization.k8s.io/aggregate-to-admin: "true"
+    rbac.authorization.k8s.io/aggregate-to-edit: "true"
   name: account-editor-role
 rules:
 - apiGroups:
@@ -22,6 +24,7 @@ rules:
 - apiGroups:
   - nim.opendatahub.io
   resources:
-  - accounts/status
+  - accounts/finalizers
   verbs:
   - get
+  - update
