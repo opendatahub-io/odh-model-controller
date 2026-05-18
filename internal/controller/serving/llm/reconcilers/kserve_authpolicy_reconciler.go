@@ -78,7 +78,14 @@ func (r *KserveAuthPolicyReconciler) Reconcile(ctx context.Context, log logr.Log
 }
 
 func isServiceStopped(llmisvc *kservev1alpha2.LLMInferenceService) bool {
-	if val, ok := llmisvc.GetAnnotations()[kserveconstants.StopAnnotationKey]; ok {
+	if llmisvc == nil {
+		return false
+	}
+	annotations := llmisvc.GetAnnotations()
+	if annotations == nil {
+		return false
+	}
+	if val, ok := annotations[kserveconstants.StopAnnotationKey]; ok {
 		return strings.EqualFold(val, "true")
 	}
 	return false
