@@ -21,6 +21,7 @@ import (
 	"os"
 
 	kservev1alpha2 "github.com/kserve/kserve/pkg/apis/serving/v1alpha2"
+	kserveconstants "github.com/kserve/kserve/pkg/constants"
 	kuadrantv1 "github.com/kuadrant/kuadrant-operator/api/v1"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
@@ -207,6 +208,33 @@ var _ = Describe("LLMInferenceService Controller", func() {
 
 					fixture.VerifyCustomHTTPRouteAuthPolicyExists(ctx, envTest.Client, testNs, LLMInferenceServiceName, customHTTPRouteName)
 				})
+			})
+		})
+
+		Context("Stopped service behavior", func() {
+			It("should skip AuthPolicy reconciliation when LLMInferenceService is stopped and HTTPRoute is absent", func(ctx SpecContext) {
+				enableAuth := false
+				llmisvc := fixture.CreateBasicLLMInferenceService(ctx, envTest.Client, testNs, LLMInferenceServiceName, &enableAuth)
+
+				fixture.CreateHTTPRouteForLLMService(ctx, envTest.Client, testNs, LLMInferenceServiceName)
+				fixture.VerifyHTTPRouteAuthPolicyExists(ctx, envTest.Client, testNs, LLMInferenceServiceName)
+
+				// Delete the HTTPRoute to simulate kserve stop cleanup
+				httpRouteName := constants.GetHTTPRouteName(LLMInferenceServiceName)
+				httpRoute := &gatewayapiv1.HTTPRoute{}
+				Expect(envTest.Client.Get(ctx, types.NamespacedName{Name: httpRouteName, Namespace: testNs}, httpRoute)).Should(Succeed())
+				Expect(envTest.Client.Delete(ctx, httpRoute)).Should(Succeed())
+
+				// Annotate the service as stopped
+				llmisvc.Annotations[kserveconstants.StopAnnotationKey] = "true"
+				Expect(envTest.Client.Update(ctx, llmisvc)).Should(Succeed())
+
+				// The AuthPolicy (owned by LLMInferenceService) should remain and the
+				// controller should not produce errors trying to look up the deleted HTTPRoute.
+				httpRouteAuthPolicyName := constants.GetAuthPolicyName(httpRouteName)
+				Consistently(func() error {
+					return envTest.Client.Get(ctx, types.NamespacedName{Name: httpRouteAuthPolicyName, Namespace: testNs}, &kuadrantv1.AuthPolicy{})
+				}).WithContext(ctx).Should(Succeed())
 			})
 		})
 	})
