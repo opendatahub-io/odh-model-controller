@@ -215,11 +215,19 @@ var _ = Describe("LLMInferenceService Controller", func() {
 
 		Context("Stopped service behavior", func() {
 			It("should skip AuthPolicy reconciliation when LLMInferenceService is stopped and HTTPRoute is absent", func(ctx SpecContext) {
+				// Create the HTTPRoute before the LLMInferenceService so
+				// that the first reconciliation finds it and does not
+				// generate a stale ReconcileError event.
+				fixture.CreateHTTPRouteForLLMService(ctx, envTest.Client, testNs, LLMInferenceServiceName)
+
 				enableAuth := false
 				llmisvc := fixture.CreateBasicLLMInferenceService(ctx, envTest.Client, testNs, LLMInferenceServiceName, &enableAuth)
 
-				fixture.CreateHTTPRouteForLLMService(ctx, envTest.Client, testNs, LLMInferenceServiceName)
 				fixture.VerifyHTTPRouteAuthPolicyExists(ctx, envTest.Client, testNs, LLMInferenceServiceName)
+
+				// Snapshot current ReconcileError event count so we only
+				// detect NEW errors after the stop annotation is set.
+				initialErrorCount := countReconcileErrors(ctx, envTest.Client, testNs, LLMInferenceServiceName)
 
 				// Annotate the service as stopped before deleting the HTTPRoute,
 				// matching the real-world flow where the stop annotation is set
@@ -237,18 +245,7 @@ var _ = Describe("LLMInferenceService Controller", func() {
 				// stopped service (the bug's symptom was continuous warning events
 				// because AuthPolicy reconciliation tried to look up the deleted HTTPRoute).
 				Consistently(func() bool {
-					eventList := &corev1.EventList{}
-					if err := envTest.Client.List(ctx, eventList, client.InNamespace(testNs)); err != nil {
-						return false
-					}
-					for _, ev := range eventList.Items {
-						if ev.Reason == "ReconcileError" &&
-							ev.InvolvedObject.Name == LLMInferenceServiceName &&
-							ev.InvolvedObject.Kind == "LLMInferenceService" {
-							return true
-						}
-					}
-					return false
+					return countReconcileErrors(ctx, envTest.Client, testNs, LLMInferenceServiceName) > initialErrorCount
 				}).WithTimeout(2 * time.Second).WithPolling(100 * time.Millisecond).WithContext(ctx).Should(BeFalse())
 			})
 		})
@@ -471,6 +468,28 @@ func createCrossNamespaceGateway(ctx context.Context, name, namespace string) {
 		}),
 	)
 	Expect(envTest.Client.Create(ctx, gw)).Should(Succeed())
+}
+
+// countReconcileErrors returns the number of ReconcileError events for the
+// given LLMInferenceService, including aggregated event counts.
+func countReconcileErrors(ctx context.Context, c client.Client, namespace, name string) int32 {
+	eventList := &corev1.EventList{}
+	if err := c.List(ctx, eventList, client.InNamespace(namespace)); err != nil {
+		return 0
+	}
+	var total int32
+	for _, ev := range eventList.Items {
+		if ev.Reason == "ReconcileError" &&
+			ev.InvolvedObject.Name == name &&
+			ev.InvolvedObject.Kind == "LLMInferenceService" {
+			if ev.Count > 0 {
+				total += ev.Count
+			} else {
+				total++
+			}
+		}
+	}
+	return total
 }
 
 // verifyResourcePersistentlyAbsent checks that a resource remains absent (Consistently + IsNotFound).
