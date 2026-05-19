@@ -20,6 +20,8 @@ import (
 	"context"
 	"os"
 
+	"time"
+
 	kservev1alpha2 "github.com/kserve/kserve/pkg/apis/serving/v1alpha2"
 	kserveconstants "github.com/kserve/kserve/pkg/constants"
 	kuadrantv1 "github.com/kuadrant/kuadrant-operator/api/v1"
@@ -229,12 +231,23 @@ var _ = Describe("LLMInferenceService Controller", func() {
 				llmisvc.Annotations[kserveconstants.StopAnnotationKey] = "true"
 				Expect(envTest.Client.Update(ctx, llmisvc)).Should(Succeed())
 
-				// The AuthPolicy (owned by LLMInferenceService) should remain and the
-				// controller should not produce errors trying to look up the deleted HTTPRoute.
-				httpRouteAuthPolicyName := constants.GetAuthPolicyName(httpRouteName)
-				Consistently(func() error {
-					return envTest.Client.Get(ctx, types.NamespacedName{Name: httpRouteAuthPolicyName, Namespace: testNs}, &kuadrantv1.AuthPolicy{})
-				}).WithContext(ctx).Should(Succeed())
+				// The controller should not produce ReconcileError events for the
+				// stopped service (the bug's symptom was continuous warning events
+				// because AuthPolicy reconciliation tried to look up the deleted HTTPRoute).
+				Consistently(func() bool {
+					eventList := &corev1.EventList{}
+					if err := envTest.Client.List(ctx, eventList, client.InNamespace(testNs)); err != nil {
+						return false
+					}
+					for _, ev := range eventList.Items {
+						if ev.Reason == "ReconcileError" &&
+							ev.InvolvedObject.Name == LLMInferenceServiceName &&
+							ev.InvolvedObject.Kind == "LLMInferenceService" {
+							return true
+						}
+					}
+					return false
+				}).WithTimeout(2 * time.Second).WithPolling(100 * time.Millisecond).WithContext(ctx).Should(BeFalse())
 			})
 		})
 	})

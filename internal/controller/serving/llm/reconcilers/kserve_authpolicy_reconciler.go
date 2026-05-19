@@ -18,11 +18,10 @@ package reconcilers
 import (
 	"context"
 	"fmt"
-	"strings"
 
 	"github.com/go-logr/logr"
 	kservev1alpha2 "github.com/kserve/kserve/pkg/apis/serving/v1alpha2"
-	kserveconstants "github.com/kserve/kserve/pkg/constants"
+	kserveutils "github.com/kserve/kserve/pkg/utils"
 	kuadrantv1 "github.com/kuadrant/kuadrant-operator/api/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -64,7 +63,7 @@ func NewKserveAuthPolicyReconciler(client client.Client, scheme *runtime.Scheme)
 func (r *KserveAuthPolicyReconciler) Reconcile(ctx context.Context, log logr.Logger, llmisvc *kservev1alpha2.LLMInferenceService) error {
 	log.V(1).Info("Starting AuthPolicy reconciliation for LLMInferenceService")
 
-	if isServiceStopped(llmisvc) {
+	if kserveutils.GetForceStopRuntime(llmisvc) {
 		log.V(1).Info("Service is stopped, skipping AuthPolicy reconciliation")
 		return nil
 	}
@@ -75,20 +74,6 @@ func (r *KserveAuthPolicyReconciler) Reconcile(ctx context.Context, log logr.Log
 	}
 
 	return nil
-}
-
-func isServiceStopped(llmisvc *kservev1alpha2.LLMInferenceService) bool {
-	if llmisvc == nil {
-		return false
-	}
-	annotations := llmisvc.GetAnnotations()
-	if annotations == nil {
-		return false
-	}
-	if val, ok := annotations[kserveconstants.StopAnnotationKey]; ok {
-		return strings.EqualFold(val, "true")
-	}
-	return false
 }
 
 func (r *KserveAuthPolicyReconciler) reconcileHTTPRouteAuthpolicy(ctx context.Context, log logr.Logger, llmisvc *kservev1alpha2.LLMInferenceService) error {
