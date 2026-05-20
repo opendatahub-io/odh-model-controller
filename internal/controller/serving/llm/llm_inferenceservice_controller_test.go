@@ -229,17 +229,16 @@ var _ = Describe("LLMInferenceService Controller", func() {
 				// detect NEW errors after the stop annotation is set.
 				initialErrorCount := countReconcileErrors(ctx, envTest.Client, testNs, LLMInferenceServiceName)
 
-				// Annotate the service as stopped before deleting the HTTPRoute,
-				// matching the real-world flow where the stop annotation is set
-				// first and kserve then cleans up the HTTPRoute.
-				llmisvc.Annotations[kserveconstants.StopAnnotationKey] = "true"
-				Expect(envTest.Client.Update(ctx, llmisvc)).Should(Succeed())
-
-				// Delete the HTTPRoute to simulate kserve stop cleanup
+				// Delete the HTTPRoute first to simulate kserve stop cleanup.
 				httpRouteName := constants.GetHTTPRouteName(LLMInferenceServiceName)
 				httpRoute := &gatewayapiv1.HTTPRoute{}
 				Expect(envTest.Client.Get(ctx, types.NamespacedName{Name: httpRouteName, Namespace: testNs}, httpRoute)).Should(Succeed())
 				Expect(envTest.Client.Delete(ctx, httpRoute)).Should(Succeed())
+
+				// Then set the stop annotation, so the reconcile it triggers
+				// observes the missing route.
+				llmisvc.Annotations[kserveconstants.StopAnnotationKey] = "true"
+				Expect(envTest.Client.Update(ctx, llmisvc)).Should(Succeed())
 
 				// The controller should not produce ReconcileError events for the
 				// stopped service (the bug's symptom was continuous warning events
