@@ -28,6 +28,8 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	gatewayapiv1 "sigs.k8s.io/gateway-api/apis/v1"
 
+	kserveconstants "github.com/kserve/kserve/pkg/constants"
+
 	"github.com/opendatahub-io/odh-model-controller/internal/controller/constants"
 	"github.com/opendatahub-io/odh-model-controller/internal/controller/serving/llm/fixture"
 	pkgtest "github.com/opendatahub-io/odh-model-controller/internal/controller/testing"
@@ -306,6 +308,28 @@ var _ = Describe("Gateway Controller", func() {
 
 			fixture.VerifyGatewayEnvoyFilterExists(ctx, envTest.Client, testNs, gatewayName)
 			fixture.VerifyGatewayAuthPolicyExists(ctx, envTest.Client, testNs, gatewayName)
+		})
+	})
+
+	Context("Stopped LLMInferenceService", func() {
+		It("should delete EnvoyFilter and AuthPolicy when the only referencing LLMInferenceService is stopped", func(ctx SpecContext) {
+			gatewayName := setupReferencedGateway(ctx)
+
+			// Stop the LLMInferenceService
+			Eventually(func() error {
+				llmSvc := &kservev1alpha2.LLMInferenceService{}
+				if err := envTest.Client.Get(ctx, types.NamespacedName{Name: "test-llmisvc", Namespace: testNs}, llmSvc); err != nil {
+					return err
+				}
+				if llmSvc.Annotations == nil {
+					llmSvc.Annotations = make(map[string]string)
+				}
+				llmSvc.Annotations[kserveconstants.StopAnnotationKey] = "true"
+				return envTest.Client.Update(ctx, llmSvc)
+			}).WithContext(ctx).Should(Succeed())
+
+			fixture.VerifyGatewayEnvoyFilterNotExist(ctx, envTest.Client, testNs, gatewayName)
+			fixture.VerifyGatewayAuthPolicyNotExist(ctx, envTest.Client, testNs, gatewayName)
 		})
 	})
 
