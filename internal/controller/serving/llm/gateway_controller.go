@@ -821,6 +821,9 @@ func (r *GatewayReconciler) SetupWithManager(mgr ctrl.Manager, setupLog logr.Log
 				UpdateFunc: func(e event.UpdateEvent) bool {
 					oldSvc := e.ObjectOld.(*kservev1alpha2.LLMInferenceService)
 					newSvc := e.ObjectNew.(*kservev1alpha2.LLMInferenceService)
+					if kserveutils.GetForceStopRuntime(oldSvc) != kserveutils.GetForceStopRuntime(newSvc) {
+						return true
+					}
 					return gatewayRefsChanged(oldSvc, newSvc)
 				},
 				DeleteFunc: func(_ event.DeleteEvent) bool {
