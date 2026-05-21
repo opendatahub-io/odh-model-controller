@@ -21,7 +21,6 @@ import (
 
 	"github.com/go-logr/logr"
 	kservev1alpha2 "github.com/kserve/kserve/pkg/apis/serving/v1alpha2"
-	kserveutils "github.com/kserve/kserve/pkg/utils"
 	kuadrantv1 "github.com/kuadrant/kuadrant-operator/api/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -62,11 +61,6 @@ func NewKserveAuthPolicyReconciler(client client.Client, scheme *runtime.Scheme)
 
 func (r *KserveAuthPolicyReconciler) Reconcile(ctx context.Context, log logr.Logger, llmisvc *kservev1alpha2.LLMInferenceService) error {
 	log.V(1).Info("Starting AuthPolicy reconciliation for LLMInferenceService")
-
-	if kserveutils.GetForceStopRuntime(llmisvc) {
-		log.V(1).Info("Service is stopped, skipping AuthPolicy reconciliation")
-		return nil
-	}
 
 	if err := r.reconcileHTTPRouteAuthpolicy(ctx, log, llmisvc); err != nil {
 		log.Error(err, "Failed to reconcile HTTPRoute AuthPolicy")
