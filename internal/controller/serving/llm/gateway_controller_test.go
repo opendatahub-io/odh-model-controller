@@ -331,6 +331,40 @@ var _ = Describe("Gateway Controller", func() {
 			fixture.VerifyGatewayEnvoyFilterNotExist(ctx, envTest.Client, testNs, gatewayName)
 			fixture.VerifyGatewayAuthPolicyNotExist(ctx, envTest.Client, testNs, gatewayName)
 		})
+
+		It("should recreate EnvoyFilter and AuthPolicy when a stopped LLMInferenceService is restarted", func(ctx SpecContext) {
+			gatewayName := setupReferencedGateway(ctx)
+
+			// Stop the LLMInferenceService and confirm the gateway-level resources are torn down.
+			Eventually(func() error {
+				llmSvc := &kservev1alpha2.LLMInferenceService{}
+				if err := envTest.Client.Get(ctx, types.NamespacedName{Name: "test-llmisvc", Namespace: testNs}, llmSvc); err != nil {
+					return err
+				}
+				if llmSvc.Annotations == nil {
+					llmSvc.Annotations = make(map[string]string)
+				}
+				llmSvc.Annotations[kserveconstants.StopAnnotationKey] = "true"
+				return envTest.Client.Update(ctx, llmSvc)
+			}).WithContext(ctx).Should(Succeed())
+
+			fixture.VerifyGatewayEnvoyFilterNotExist(ctx, envTest.Client, testNs, gatewayName)
+			fixture.VerifyGatewayAuthPolicyNotExist(ctx, envTest.Client, testNs, gatewayName)
+
+			// Restart by clearing the stop annotation. The watch predicate should
+			// re-trigger reconciliation and the gateway-level resources should return.
+			Eventually(func() error {
+				llmSvc := &kservev1alpha2.LLMInferenceService{}
+				if err := envTest.Client.Get(ctx, types.NamespacedName{Name: "test-llmisvc", Namespace: testNs}, llmSvc); err != nil {
+					return err
+				}
+				delete(llmSvc.Annotations, kserveconstants.StopAnnotationKey)
+				return envTest.Client.Update(ctx, llmSvc)
+			}).WithContext(ctx).Should(Succeed())
+
+			fixture.VerifyGatewayEnvoyFilterExists(ctx, envTest.Client, testNs, gatewayName)
+			fixture.VerifyGatewayAuthPolicyExists(ctx, envTest.Client, testNs, gatewayName)
+		})
 	})
 
 	Context("LLMInferenceService gateway ref changes", func() {
