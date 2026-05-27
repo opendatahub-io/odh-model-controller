@@ -130,10 +130,12 @@ func main() {
 	mgr := createManager(cfg, metricsAddr, probeAddr, enableLeaderElection, secureMetrics, tlsOpts)
 
 	if err := setupReconcilers(mgr, setupLog, cfg); err != nil {
+		setupLog.Error(err, "failed to setup reconcilers")
 		os.Exit(1)
 	}
 	// +kubebuilder:scaffold:builder
 	if err := setupWebhooks(mgr, setupLog); err != nil {
+		setupLog.Error(err, "failed to setup webhooks")
 		os.Exit(1)
 	}
 
@@ -367,6 +369,7 @@ func setupGatewayReconciler(mgr ctrl.Manager) error {
 
 func setupNimReconciler(mgr ctrl.Manager, setupLog logr.Logger, cfg *rest.Config) error {
 	nimState := os.Getenv("NIM_STATE")
+	setupLog.Info("configuring NIM reconciler", "NIM_STATE", nimState)
 	switch nimState {
 	case "", managedState:
 		// continue with controller registration
