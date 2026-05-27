@@ -374,21 +374,31 @@ func setupNimReconciler(mgr ctrl.Manager, setupLog logr.Logger, cfg *rest.Config
 	case "", managedState:
 		// continue with controller registration
 	case "removed":
+		setupLog.Info("NIM is removed, registering cleanup runner")
 		return mgr.Add(&utils.NIMCleanupRunner{Client: mgr.GetClient(), Logger: setupLog})
 	default:
 		return fmt.Errorf("invalid NIM_STATE %q: expected %q or %q", nimState, managedState, "removed")
 	}
 
+	setupLog.Info("creating NIM kubernetes clientset")
 	kubeClient, err := kubernetes.NewForConfig(cfg)
 	if err != nil {
 		return fmt.Errorf("unable to create clientset: %w", err)
 	}
+	if kubeClient == nil {
+		return fmt.Errorf("kubernetes clientset is nil after creation")
+	}
 
+	setupLog.Info("creating NIM template clientset")
 	templateClient, err := templatev1client.NewForConfig(cfg)
 	if err != nil {
 		return fmt.Errorf("unable to create template clientset: %w", err)
 	}
+	if templateClient == nil {
+		return fmt.Errorf("template clientset is nil after creation")
+	}
 
+	setupLog.Info("registering NIM AccountReconciler")
 	ctx := log.IntoContext(context.Background(), setupLog)
 	return (&nim.AccountReconciler{
 		Client:         mgr.GetClient(),
