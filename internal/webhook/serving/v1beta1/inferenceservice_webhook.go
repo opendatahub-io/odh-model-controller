@@ -219,7 +219,7 @@ func (d *InferenceServiceCustomDefaulter) applyConnectionsAPI(
 		}
 
 	case connectionapi.ConnectionActionRemove:
-		if err := performISVCCleanup(req, isvc, oldConn); err != nil {
+		if err := performISVCCleanup(isvc, oldConn); err != nil {
 			log.Error(err, "failed to cleanup connection")
 			return err
 		}
@@ -228,7 +228,7 @@ func (d *InferenceServiceCustomDefaulter) applyConnectionsAPI(
 		log.V(1).Info("connection changed, performing replacement",
 			"oldType", oldConn.Type, "newType", newConn.Type,
 			"oldSecret", oldConn.SecretName, "newSecret", newConn.SecretName)
-		if err := performISVCCleanup(req, isvc, oldConn); err != nil {
+		if err := performISVCCleanup(isvc, oldConn); err != nil {
 			log.Error(err, "failed to cleanup old connection")
 			return err
 		}
@@ -342,13 +342,11 @@ func performISVCInjection(
 // all possible injected fields.
 //
 // Parameters:
-//   - req: the admission request (used for namespace in log messages)
 //   - isvc: the InferenceService to clean up
 //   - oldConn: connection info from the previous object version
 //
 // Returns any error from cleanup.
 func performISVCCleanup(
-	req admission.Request,
 	isvc *servingv1beta1.InferenceService,
 	oldConn connectionapi.ConnectionInfo,
 ) error {

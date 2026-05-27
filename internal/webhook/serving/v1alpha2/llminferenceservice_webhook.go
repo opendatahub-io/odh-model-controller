@@ -124,13 +124,13 @@ func (d *LLMInferenceServiceCustomDefaulter) Default(ctx context.Context, obj ru
 		if err := connectionapi.ServiceAccountCreation(ctx, d.client, newConn.SecretName, newConn.Type, req.Namespace, isDryRun); err != nil {
 			return err
 		}
-		if err := performLLMISVCInjection(ctx, req, llmisvc, newConn, secret); err != nil {
+		if err := performLLMISVCInjection(ctx, llmisvc, newConn, secret); err != nil {
 			log.Error(err, "failed to inject connection")
 			return err
 		}
 
 	case connectionapi.ConnectionActionRemove:
-		if err := performLLMISVCCleanup(req, llmisvc, oldConn); err != nil {
+		if err := performLLMISVCCleanup(llmisvc, oldConn); err != nil {
 			log.Error(err, "failed to cleanup connection")
 			return err
 		}
@@ -139,7 +139,7 @@ func (d *LLMInferenceServiceCustomDefaulter) Default(ctx context.Context, obj ru
 		log.V(1).Info("connection changed, performing replacement",
 			"oldType", oldConn.Type, "newType", newConn.Type,
 			"oldSecret", oldConn.SecretName, "newSecret", newConn.SecretName)
-		if err := performLLMISVCCleanup(req, llmisvc, oldConn); err != nil {
+		if err := performLLMISVCCleanup(llmisvc, oldConn); err != nil {
 			log.Error(err, "failed to cleanup old connection")
 			return err
 		}
@@ -147,7 +147,7 @@ func (d *LLMInferenceServiceCustomDefaulter) Default(ctx context.Context, obj ru
 		if err := connectionapi.ServiceAccountCreation(ctx, d.client, newConn.SecretName, newConn.Type, req.Namespace, isDryRun); err != nil {
 			return err
 		}
-		if err := performLLMISVCInjection(ctx, req, llmisvc, newConn, secret); err != nil {
+		if err := performLLMISVCInjection(ctx, llmisvc, newConn, secret); err != nil {
 			log.Error(err, "failed to inject new connection")
 			return err
 		}
@@ -167,7 +167,6 @@ func (d *LLMInferenceServiceCustomDefaulter) Default(ctx context.Context, obj ru
 //
 // Parameters:
 //   - ctx: context for logging
-//   - req: the admission request (carries namespace)
 //   - llmisvc: the LLMInferenceService to mutate
 //   - connInfo: validated connection info
 //   - secret: the pre-fetched connection Secret (returned by ValidateConnectionAnnotation)
@@ -175,7 +174,6 @@ func (d *LLMInferenceServiceCustomDefaulter) Default(ctx context.Context, obj ru
 // Returns any error from injection.
 func performLLMISVCInjection(
 	ctx context.Context,
-	req admission.Request,
 	llmisvc *kservev1alpha2.LLMInferenceService,
 	connInfo connectionapi.ConnectionInfo,
 	secret *corev1.Secret,
@@ -238,13 +236,11 @@ func performLLMISVCInjection(
 // non-omitempty field whose URI sub-field has type apis.URL (not a plain string).
 //
 // Parameters:
-//   - req: the admission request (used for namespace in log messages)
 //   - llmisvc: the LLMInferenceService to clean up
 //   - oldConn: connection info from the previous object version
 //
 // Returns any error from cleanup.
 func performLLMISVCCleanup(
-	req admission.Request,
 	llmisvc *kservev1alpha2.LLMInferenceService,
 	oldConn connectionapi.ConnectionInfo,
 ) error {
