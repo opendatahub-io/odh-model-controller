@@ -1,5 +1,5 @@
 /*
-Copyright 2024.
+Copyright 2026.
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -23,6 +23,7 @@ import (
 	kservev1beta1 "github.com/kserve/kserve/pkg/apis/serving/v1beta1"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
+	apierrs "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
@@ -113,8 +114,8 @@ var _ = Describe("InferenceService finalizer during deletion", func() {
 		Expect(err).NotTo(HaveOccurred())
 
 		updatedIsvc := &kservev1beta1.InferenceService{}
-		Expect(fakeClient.Get(ctx, types.NamespacedName{Name: "test-isvc", Namespace: "test-ns"}, updatedIsvc)).To(Succeed())
-		Expect(controllerutil.ContainsFinalizer(updatedIsvc, constants.InferenceServiceODHFinalizerName)).To(BeFalse(),
-			"finalizer should be removed after successful cleanup")
+		err = fakeClient.Get(ctx, types.NamespacedName{Name: "test-isvc", Namespace: "test-ns"}, updatedIsvc)
+		Expect(apierrs.IsNotFound(err)).To(BeTrue(),
+			"object should be deleted after finalizer removal (last finalizer removed triggers deletion)")
 	})
 })
