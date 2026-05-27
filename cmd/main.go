@@ -17,7 +17,6 @@ limitations under the License.
 package main
 
 import (
-	"context"
 	"crypto/tls"
 	"flag"
 	"fmt"
@@ -399,11 +398,10 @@ func setupNimReconciler(mgr ctrl.Manager, setupLog logr.Logger, cfg *rest.Config
 	}
 
 	setupLog.Info("registering NIM AccountReconciler")
-	ctx := log.IntoContext(context.Background(), setupLog)
 	return (&nim.AccountReconciler{
 		Client:         mgr.GetClient(),
 		Scheme:         mgr.GetScheme(),
 		KClient:        kubeClient,
 		TemplateClient: templateClient,
-	}).SetupWithManager(mgr, ctx)
+	}).SetupWithManager(mgr, setupLog)
 }

@@ -22,6 +22,7 @@ import (
 	"slices"
 	"time"
 
+	"github.com/go-logr/logr"
 	templatev1 "github.com/openshift/api/template/v1"
 	templatev1client "github.com/openshift/client-go/template/clientset/versioned"
 	corev1 "k8s.io/api/core/v1"
@@ -63,8 +64,9 @@ const (
 // +kubebuilder:rbac:groups=datasciencecluster.opendatahub.io,resources=datascienceclusters,verbs=get;list;watch
 // +kubebuilder:rbac:groups=template.openshift.io,resources=templates,verbs=get;list;watch;create;update;delete;patch
 
-func (r *AccountReconciler) SetupWithManager(mgr ctrl.Manager, ctx context.Context) error {
-	logger := log.FromContext(ctx, "Setup", "Account Controller")
+func (r *AccountReconciler) SetupWithManager(mgr ctrl.Manager, setupLog logr.Logger) error {
+	logger := setupLog.WithName("Account Controller")
+	ctx := log.IntoContext(context.Background(), logger)
 
 	if err := mgr.GetFieldIndexer().IndexField(ctx, &v1.Account{}, apiKeySpecPath, func(obj client.Object) []string {
 		return []string{obj.(*v1.Account).Spec.APIKeySecret.Name}
