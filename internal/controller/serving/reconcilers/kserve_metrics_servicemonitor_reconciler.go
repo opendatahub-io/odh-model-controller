@@ -26,6 +26,7 @@ import (
 	kserveconstants "github.com/kserve/kserve/pkg/constants"
 	"github.com/opendatahub-io/odh-model-controller/internal/controller/utils"
 	v1 "github.com/prometheus-operator/prometheus-operator/pkg/apis/monitoring/v1"
+	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/utils/ptr"
@@ -66,11 +67,19 @@ func (r *KserveRawMetricsServiceMonitorReconciler) Reconcile(ctx context.Context
 	// Get Existing resource
 	existingResource, err := r.getExistingResource(ctx, log, isvc)
 	if err != nil {
+		if meta.IsNoMatchError(err) {
+			log.V(1).Info("ServiceMonitor CRD not available, skipping reconciliation")
+			return nil
+		}
 		return err
 	}
 
 	// Process Delta
 	if err = r.processDelta(ctx, log, desiredResource, existingResource); err != nil {
+		if meta.IsNoMatchError(err) {
+			log.V(1).Info("ServiceMonitor CRD not available, skipping reconciliation")
+			return nil
+		}
 		return err
 	}
 	return nil
