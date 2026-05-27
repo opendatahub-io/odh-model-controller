@@ -245,9 +245,15 @@ func setupWebhooks(mgr ctrl.Manager, setupLog logr.Logger) error {
 		setupFn func(ctrl.Manager) error
 	}{
 		{"Pod", webhookcorev1.SetupPodWebhookWithManager},
-		{"NIMAccount", webhooknimv1.SetupAccountWebhookWithManager},
 		{"InferenceService", webhookservingv1beta1.SetupInferenceServiceWebhookWithManager},
 		{"InferenceGraph", webhookservingv1alpha1.SetupInferenceGraphWebhookWithManager},
+	}
+
+	if os.Getenv("NIM_STATE") != "removed" {
+		webhookSetups = append(webhookSetups, struct {
+			name    string
+			setupFn func(ctrl.Manager) error
+		}{"NIMAccount", webhooknimv1.SetupAccountWebhookWithManager})
 	}
 
 	for _, webhookSetup := range webhookSetups {
@@ -361,11 +367,13 @@ func setupGatewayReconciler(mgr ctrl.Manager) error {
 
 func setupNimReconciler(mgr ctrl.Manager, setupLog logr.Logger, cfg *rest.Config) error {
 	nimState := os.Getenv("NIM_STATE")
-	if nimState == "" {
-		nimState = managedState
-	}
-	if nimState == "removed" {
+	switch nimState {
+	case "", managedState:
+		// continue with controller registration
+	case "removed":
 		return mgr.Add(&utils.NIMCleanupRunner{Client: mgr.GetClient(), Logger: setupLog})
+	default:
+		return fmt.Errorf("invalid NIM_STATE %q: expected %q or %q", nimState, managedState, "removed")
 	}
 
 	kubeClient, err := kubernetes.NewForConfig(cfg)
