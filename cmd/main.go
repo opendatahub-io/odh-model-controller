@@ -250,7 +250,8 @@ func setupWebhooks(mgr ctrl.Manager, setupLog logr.Logger) error {
 		{"InferenceGraph", webhookservingv1alpha1.SetupInferenceGraphWebhookWithManager},
 	}
 
-	if os.Getenv("NIM_STATE") != "removed" {
+	nimState := os.Getenv("NIM_STATE")
+	if nimState == "" || nimState == managedState {
 		webhookSetups = append(webhookSetups, struct {
 			name    string
 			setupFn func(ctrl.Manager) error
