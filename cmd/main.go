@@ -251,11 +251,16 @@ func setupWebhooks(mgr ctrl.Manager, setupLog logr.Logger) error {
 	}
 
 	nimState := os.Getenv("NIM_STATE")
-	if nimState == "" || nimState == managedState {
+	switch nimState {
+	case "", managedState:
 		webhookSetups = append(webhookSetups, struct {
 			name    string
 			setupFn func(ctrl.Manager) error
 		}{"NIMAccount", webhooknimv1.SetupAccountWebhookWithManager})
+	case "removed":
+		setupLog.Info("NIM is removed, skipping NIMAccount webhook")
+	default:
+		return fmt.Errorf("invalid NIM_STATE %q for webhook setup: expected %q or %q", nimState, managedState, "removed")
 	}
 
 	for _, webhookSetup := range webhookSetups {
