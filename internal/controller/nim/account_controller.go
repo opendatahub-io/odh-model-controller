@@ -64,9 +64,9 @@ const (
 // +kubebuilder:rbac:groups=datasciencecluster.opendatahub.io,resources=datascienceclusters,verbs=get;list;watch
 // +kubebuilder:rbac:groups=template.openshift.io,resources=templates,verbs=get;list;watch;create;update;delete;patch
 
-func (r *AccountReconciler) SetupWithManager(mgr ctrl.Manager, setupLog logr.Logger) error {
+func (r *AccountReconciler) SetupWithManager(mgr ctrl.Manager, ctx context.Context, setupLog logr.Logger) error {
 	logger := setupLog.WithName("Account Controller")
-	ctx := log.IntoContext(context.Background(), logger)
+	ctx = log.IntoContext(ctx, logger)
 
 	if err := mgr.GetFieldIndexer().IndexField(ctx, &v1.Account{}, apiKeySpecPath, func(obj client.Object) []string {
 		return []string{obj.(*v1.Account).Spec.APIKeySecret.Name}

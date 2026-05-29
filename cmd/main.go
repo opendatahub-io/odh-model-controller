@@ -17,6 +17,7 @@ limitations under the License.
 package main
 
 import (
+	"context"
 	"crypto/tls"
 	"flag"
 	"fmt"
@@ -383,7 +384,7 @@ func setupNimReconciler(mgr ctrl.Manager, setupLog logr.Logger, cfg *rest.Config
 	setupLog.Info("creating NIM kubernetes clientset")
 	kubeClient, err := kubernetes.NewForConfig(cfg)
 	if err != nil {
-		return fmt.Errorf("unable to create clientset: %w", err)
+		return fmt.Errorf("unable to create kubernetes clientset: %w", err)
 	}
 	if kubeClient == nil {
 		return fmt.Errorf("kubernetes clientset is nil after creation")
@@ -398,11 +399,15 @@ func setupNimReconciler(mgr ctrl.Manager, setupLog logr.Logger, cfg *rest.Config
 		return fmt.Errorf("template clientset is nil after creation")
 	}
 
+	// Use a setup context derived from the logger for field-indexer registration.
+	// This context is short-lived (setup only) and not stored in the reconciler.
+	setupCtx := log.IntoContext(context.Background(), setupLog)
+
 	setupLog.Info("registering NIM AccountReconciler")
 	return (&nim.AccountReconciler{
 		Client:         mgr.GetClient(),
 		Scheme:         mgr.GetScheme(),
 		KClient:        kubeClient,
 		TemplateClient: templateClient,
-	}).SetupWithManager(mgr, setupLog)
+	}).SetupWithManager(mgr, setupCtx, setupLog)
 }
