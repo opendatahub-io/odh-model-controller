@@ -64,7 +64,7 @@ const (
 // +kubebuilder:rbac:groups=datasciencecluster.opendatahub.io,resources=datascienceclusters,verbs=get;list;watch
 // +kubebuilder:rbac:groups=template.openshift.io,resources=templates,verbs=get;list;watch;create;update;delete;patch
 
-func (r *AccountReconciler) SetupWithManager(mgr ctrl.Manager, ctx context.Context, setupLog logr.Logger) error {
+func (r *AccountReconciler) SetupWithManager(ctx context.Context, mgr ctrl.Manager, setupLog logr.Logger) error {
 	logger := setupLog.WithName("Account Controller")
 	ctx = log.IntoContext(ctx, logger)
 

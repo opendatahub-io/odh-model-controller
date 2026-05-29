@@ -399,15 +399,11 @@ func setupNimReconciler(mgr ctrl.Manager, setupLog logr.Logger, cfg *rest.Config
 		return fmt.Errorf("template clientset is nil after creation")
 	}
 
-	// Use a setup context derived from the logger for field-indexer registration.
-	// This context is short-lived (setup only) and not stored in the reconciler.
-	setupCtx := log.IntoContext(context.Background(), setupLog)
-
 	setupLog.Info("registering NIM AccountReconciler")
 	return (&nim.AccountReconciler{
 		Client:         mgr.GetClient(),
 		Scheme:         mgr.GetScheme(),
 		KClient:        kubeClient,
 		TemplateClient: templateClient,
-	}).SetupWithManager(mgr, setupCtx, setupLog)
+	}).SetupWithManager(context.Background(), mgr, setupLog)
 }
