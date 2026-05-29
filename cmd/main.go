@@ -17,7 +17,6 @@ limitations under the License.
 package main
 
 import (
-	"context"
 	"crypto/tls"
 	"flag"
 	"fmt"
@@ -405,5 +404,5 @@ func setupNimReconciler(mgr ctrl.Manager, setupLog logr.Logger, cfg *rest.Config
 		Scheme:         mgr.GetScheme(),
 		KClient:        kubeClient,
 		TemplateClient: templateClient,
-	}).SetupWithManager(context.Background(), mgr, setupLog)
+	}).SetupWithManager(mgr, setupLog)
 }
