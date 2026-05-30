@@ -64,17 +64,18 @@ const (
 // +kubebuilder:rbac:groups=datasciencecluster.opendatahub.io,resources=datascienceclusters,verbs=get;list;watch
 // +kubebuilder:rbac:groups=template.openshift.io,resources=templates,verbs=get;list;watch;create;update;delete;patch
 
-func (r *AccountReconciler) SetupWithManager(mgr ctrl.Manager, setupLog logr.Logger) error {
-	logger := setupLog.WithName("Account Controller")
-	ctx := log.IntoContext(context.Background(), logger)
+func (r *AccountReconciler) SetupWithManager(mgr ctrl.Manager, _ logr.Logger) error {
+	// Use a short-lived context for one-time field indexer setup during controller registration.
+	// This context is not stored; watch callbacks receive their own context from controller-runtime.
+	indexCtx := context.Background()
 
-	if err := mgr.GetFieldIndexer().IndexField(ctx, &v1.Account{}, apiKeySpecPath, func(obj client.Object) []string {
+	if err := mgr.GetFieldIndexer().IndexField(indexCtx, &v1.Account{}, apiKeySpecPath, func(obj client.Object) []string {
 		return []string{obj.(*v1.Account).Spec.APIKeySecret.Name}
 	}); err != nil {
 		return fmt.Errorf("failed to set apiKey secret cache index: %w", err)
 	}
 
-	if err := mgr.GetFieldIndexer().IndexField(ctx, &v1.Account{}, modelListSpecPath, func(obj client.Object) []string {
+	if err := mgr.GetFieldIndexer().IndexField(indexCtx, &v1.Account{}, modelListSpecPath, func(obj client.Object) []string {
 		var account = obj.(*v1.Account)
 		if account.Spec.ModelListConfig != nil && len(account.Spec.ModelListConfig.Name) > 0 {
 			return []string{account.Spec.ModelListConfig.Name}
@@ -95,7 +96,7 @@ func (r *AccountReconciler) SetupWithManager(mgr ctrl.Manager, setupLog logr.Log
 				var requests []reconcile.Request
 				accounts := &v1.AccountList{}
 				if err := mgr.GetClient().List(ctx, accounts, client.MatchingFields{apiKeySpecPath: obj.GetName()}); err != nil {
-					logger.Error(err, "failed to fetch accounts from secret")
+					log.FromContext(ctx, "controller", "odh-nim-controller").Error(err, "failed to fetch accounts from secret")
 					return requests
 				}
 				for _, item := range accounts.Items {
@@ -108,7 +109,7 @@ func (r *AccountReconciler) SetupWithManager(mgr ctrl.Manager, setupLog logr.Log
 				var requests []reconcile.Request
 				accounts := &v1.AccountList{}
 				if err := mgr.GetClient().List(ctx, accounts, client.MatchingFields{modelListSpecPath: obj.GetName()}); err != nil {
-					logger.Error(err, "failed to fetch accounts from configmap")
+					log.FromContext(ctx, "controller", "odh-nim-controller").Error(err, "failed to fetch accounts from configmap")
 					return requests
 				}
 				for _, item := range accounts.Items {
