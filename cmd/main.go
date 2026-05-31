@@ -404,10 +404,13 @@ func setupNimReconciler(mgr ctrl.Manager, setupLog logr.Logger, cfg *rest.Config
 	}
 
 	setupLog.Info("registering NIM AccountReconciler")
-	return (&nim.AccountReconciler{
+	if err := (&nim.AccountReconciler{
 		Client:         mgr.GetClient(),
 		Scheme:         mgr.GetScheme(),
 		KClient:        kubeClient,
 		TemplateClient: templateClient,
-	}).SetupWithManager(mgr, setupLog)
+	}).SetupWithManager(mgr, setupLog); err != nil {
+		return fmt.Errorf("failed to register NIM AccountReconciler: %w", err)
+	}
+	return nil
 }

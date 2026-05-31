@@ -64,10 +64,13 @@ const (
 // +kubebuilder:rbac:groups=datasciencecluster.opendatahub.io,resources=datascienceclusters,verbs=get;list;watch
 // +kubebuilder:rbac:groups=template.openshift.io,resources=templates,verbs=get;list;watch;create;update;delete;patch
 
-func (r *AccountReconciler) SetupWithManager(mgr ctrl.Manager, _ logr.Logger) error {
+func (r *AccountReconciler) SetupWithManager(mgr ctrl.Manager, setupLog logr.Logger) error {
 	// Use a short-lived context for one-time field indexer setup during controller registration.
-	// This context is not stored; watch callbacks receive their own context from controller-runtime.
+	// This runs before the manager starts, so context.Background is appropriate here;
+	// watch callbacks below receive their own per-request context from controller-runtime.
 	indexCtx := context.Background()
+
+	setupLog.Info("setting up field indexers for NIM AccountReconciler")
 
 	if err := mgr.GetFieldIndexer().IndexField(indexCtx, &v1.Account{}, apiKeySpecPath, func(obj client.Object) []string {
 		return []string{obj.(*v1.Account).Spec.APIKeySecret.Name}
