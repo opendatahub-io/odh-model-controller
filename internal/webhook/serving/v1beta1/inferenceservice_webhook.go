@@ -210,7 +210,7 @@ func (d *InferenceServiceCustomDefaulter) applyConnectionsAPI(
 	switch action {
 	case connectionapi.ConnectionActionInject:
 		isDryRun := req.DryRun != nil && *req.DryRun
-		if err := connectionapi.ServiceAccountCreation(ctx, d.client, newConn.SecretName, newConn.Type, req.Namespace, isDryRun); err != nil {
+		if err := connectionapi.CreateServiceAccountIfNeeded(ctx, d.client, newConn.SecretName, newConn.Type, req.Namespace, isDryRun); err != nil {
 			return err
 		}
 		if err := performISVCInjection(ctx, req, isvc, newConn, secret); err != nil {
@@ -233,7 +233,7 @@ func (d *InferenceServiceCustomDefaulter) applyConnectionsAPI(
 			return err
 		}
 		isDryRun := req.DryRun != nil && *req.DryRun
-		if err := connectionapi.ServiceAccountCreation(ctx, d.client, newConn.SecretName, newConn.Type, req.Namespace, isDryRun); err != nil {
+		if err := connectionapi.CreateServiceAccountIfNeeded(ctx, d.client, newConn.SecretName, newConn.Type, req.Namespace, isDryRun); err != nil {
 			return err
 		}
 		if err := performISVCInjection(ctx, req, isvc, newConn, secret); err != nil {

@@ -201,7 +201,7 @@ func DetermineAction(oldConn, newConn ConnectionInfo) ConnectionAction {
 	return ConnectionActionNone
 }
 
-// ServiceAccountCreation creates a ServiceAccount for S3 connections. No-op for non-S3 types or dry-run requests.
+// CreateServiceAccountIfNeeded creates a ServiceAccount for S3 connections. No-op for non-S3 types or dry-run requests.
 //
 // Parameters:
 //   - ctx: context for API calls and logging
@@ -212,7 +212,7 @@ func DetermineAction(oldConn, newConn ConnectionInfo) ConnectionAction {
 //   - isDryRun: when true, skips actual SA creation
 //
 // Returns any error from ServiceAccount creation.
-func ServiceAccountCreation(ctx context.Context, cli client.Client, secretName, connType, namespace string, isDryRun bool) error {
+func CreateServiceAccountIfNeeded(ctx context.Context, cli client.Client, secretName, connType, namespace string, isDryRun bool) error {
 	log := logf.FromContext(ctx)
 
 	isS3 := connType == ConnectionTypeProtocolS3.String() || connType == ConnectionTypeRefS3.String()
