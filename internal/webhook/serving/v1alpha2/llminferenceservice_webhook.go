@@ -18,12 +18,11 @@ package v1alpha2
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 
 	admissionv1 "k8s.io/api/admission/v1"
 	corev1 "k8s.io/api/core/v1"
-	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -31,6 +30,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/webhook"
 	"sigs.k8s.io/controller-runtime/pkg/webhook/admission"
 
+	kservev1alpha1 "github.com/kserve/kserve/pkg/apis/serving/v1alpha1"
 	kservev1alpha2 "github.com/kserve/kserve/pkg/apis/serving/v1alpha2"
 	"knative.dev/pkg/apis"
 
@@ -40,7 +40,8 @@ import (
 // nolint:unused
 var llmisvclog = logf.Log.WithName("llminferenceservice-resource")
 
-// +kubebuilder:webhook:path=/mutate-serving-kserve-io-v1alpha2-llminferenceservice,mutating=true,failurePolicy=fail,sideEffects=NoneOnDryRun,groups=serving.kserve.io,resources=llminferenceservices,verbs=create;update,versions=v1alpha1;v1alpha2,name=connection-llmisvc.odh-model-controller.opendatahub.io,admissionReviewVersions=v1
+// +kubebuilder:webhook:path=/mutate-serving-kserve-io-v1alpha2-llminferenceservice,mutating=true,failurePolicy=fail,sideEffects=NoneOnDryRun,groups=serving.kserve.io,resources=llminferenceservices,verbs=create;update,versions=v1alpha2,name=connection-llmisvc-v1alpha2.odh-model-controller.opendatahub.io,admissionReviewVersions=v1
+// +kubebuilder:webhook:path=/mutate-serving-kserve-io-v1alpha1-llminferenceservice,mutating=true,failurePolicy=fail,sideEffects=NoneOnDryRun,groups=serving.kserve.io,resources=llminferenceservices,verbs=create;update,versions=v1alpha1,name=connection-llmisvc-v1alpha1.odh-model-controller.opendatahub.io,admissionReviewVersions=v1
 
 // +kubebuilder:rbac:groups="",resources=secrets,verbs=get;list;watch
 // +kubebuilder:rbac:groups="",resources=serviceaccounts,verbs=get;list;watch;create
@@ -53,39 +54,70 @@ type LLMInferenceServiceCustomDefaulter struct {
 
 var _ webhook.CustomDefaulter = &LLMInferenceServiceCustomDefaulter{}
 
-// SetupLLMInferenceServiceWebhookWithManager registers the LLMInferenceService mutating webhook with the manager.
+// SetupLLMInferenceServiceWebhookWithManager registers the LLMInferenceService mutating webhook for both
+// v1alpha1 and v1alpha2 API versions using a single shared defaulter instance.
 //
 // Parameters:
 //   - mgr: the controller-runtime manager
 //
 // Returns any registration error.
 func SetupLLMInferenceServiceWebhookWithManager(mgr ctrl.Manager) error {
-	return ctrl.NewWebhookManagedBy(mgr).
+	defaulter := &LLMInferenceServiceCustomDefaulter{
+		client:    mgr.GetClient(),
+		apiReader: mgr.GetAPIReader(),
+	}
+	if err := ctrl.NewWebhookManagedBy(mgr).
 		For(&kservev1alpha2.LLMInferenceService{}).
-		WithDefaulter(&LLMInferenceServiceCustomDefaulter{
-			client:    mgr.GetClient(),
-			apiReader: mgr.GetAPIReader(),
-		}).
+		WithDefaulter(defaulter).
+		Complete(); err != nil {
+		return err
+	}
+	return ctrl.NewWebhookManagedBy(mgr).
+		For(&kservev1alpha1.LLMInferenceService{}).
+		WithDefaulter(defaulter).
 		Complete()
 }
 
-// Default implements webhook.CustomDefaulter. It applies ConnectionsAPI injection or cleanup to the
-// LLMInferenceService based on the opendatahub.io/connections annotation.
+// Default implements webhook.CustomDefaulter. It applies ConnectionsAPI injection or cleanup to
+// LLMInferenceService resources of both v1alpha1 and v1alpha2 API versions.
 //
 // Parameters:
 //   - ctx: context carrying the admission request (via admission.RequestFromContext)
-//   - obj: the LLMInferenceService object to mutate
+//   - obj: the LLMInferenceService object to mutate (either v1alpha1 or v1alpha2)
 //
 // Returns any error that should block admission.
 func (d *LLMInferenceServiceCustomDefaulter) Default(ctx context.Context, obj runtime.Object) error {
-	llmisvc, ok := obj.(*kservev1alpha2.LLMInferenceService)
-	if !ok {
+	switch typedObj := obj.(type) {
+	case *kservev1alpha2.LLMInferenceService:
+		return d.applyLLMISVCDefaults(ctx, typedObj, &typedObj.Spec.Model.URI, &typedObj.Spec.Template)
+	case *kservev1alpha1.LLMInferenceService:
+		return d.applyLLMISVCDefaults(ctx, typedObj, &typedObj.Spec.Model.URI, &typedObj.Spec.Template)
+	default:
 		return fmt.Errorf("expected a LLMInferenceService object but got %T", obj)
 	}
-	logger := llmisvclog.WithValues("name", llmisvc.GetName())
+}
+
+// applyLLMISVCDefaults is the version-agnostic core of the LLMInferenceService webhook. It determines
+// the ConnectionsAPI action and applies injection or cleanup via field pointers that are compatible
+// with both v1alpha1 and v1alpha2.
+//
+// Parameters:
+//   - ctx: context carrying the admission request
+//   - obj: the admitted resource as metav1.Object (for metadata access)
+//   - modelURI: pointer to the spec.model.uri field
+//   - template: pointer to the spec.template field pointer
+//
+// Returns any error that should block admission.
+func (d *LLMInferenceServiceCustomDefaulter) applyLLMISVCDefaults(
+	ctx context.Context,
+	obj metav1.Object,
+	modelURI *apis.URL,
+	template **corev1.PodSpec,
+) error {
+	logger := llmisvclog.WithValues("name", obj.GetName())
 	logger.Info("Defaulting for LLMInferenceService")
 
-	if llmisvc.DeletionTimestamp != nil {
+	if obj.GetDeletionTimestamp() != nil {
 		return nil
 	}
 
@@ -94,7 +126,7 @@ func (d *LLMInferenceServiceCustomDefaulter) Default(ctx context.Context, obj ru
 		return fmt.Errorf("failed to get admission request from context: %w", err)
 	}
 
-	newConn, secret, err := connectionapi.ValidateConnectionAnnotation(ctx, d.apiReader, llmisvc, req.Namespace)
+	newConn, secret, err := connectionapi.ValidateConnectionAnnotation(ctx, d.apiReader, obj, req.Namespace)
 	if err != nil {
 		return err
 	}
@@ -121,33 +153,27 @@ func (d *LLMInferenceServiceCustomDefaulter) Default(ctx context.Context, obj ru
 	switch action {
 	case connectionapi.ConnectionActionInject:
 		isDryRun := req.DryRun != nil && *req.DryRun
-		if err := connectionapi.ServiceAccountCreation(ctx, d.client, newConn.SecretName, newConn.Type, req.Namespace, isDryRun); err != nil {
+		if err := connectionapi.CreateServiceAccountIfNeeded(ctx, d.client, newConn.SecretName, newConn.Type, req.Namespace, isDryRun); err != nil {
 			return err
 		}
-		if err := performLLMISVCInjection(ctx, llmisvc, newConn, secret); err != nil {
+		if err := performLLMISVCInjection(ctx, modelURI, template, newConn, secret); err != nil {
 			log.Error(err, "failed to inject connection")
 			return err
 		}
 
 	case connectionapi.ConnectionActionRemove:
-		if err := performLLMISVCCleanup(llmisvc, oldConn); err != nil {
-			log.Error(err, "failed to cleanup connection")
-			return err
-		}
+		performLLMISVCCleanup(modelURI, template, oldConn)
 
 	case connectionapi.ConnectionActionReplace:
 		log.V(1).Info("connection changed, performing replacement",
 			"oldType", oldConn.Type, "newType", newConn.Type,
 			"oldSecret", oldConn.SecretName, "newSecret", newConn.SecretName)
-		if err := performLLMISVCCleanup(llmisvc, oldConn); err != nil {
-			log.Error(err, "failed to cleanup old connection")
-			return err
-		}
+		performLLMISVCCleanup(modelURI, template, oldConn)
 		isDryRun := req.DryRun != nil && *req.DryRun
-		if err := connectionapi.ServiceAccountCreation(ctx, d.client, newConn.SecretName, newConn.Type, req.Namespace, isDryRun); err != nil {
+		if err := connectionapi.CreateServiceAccountIfNeeded(ctx, d.client, newConn.SecretName, newConn.Type, req.Namespace, isDryRun); err != nil {
 			return err
 		}
-		if err := performLLMISVCInjection(ctx, llmisvc, newConn, secret); err != nil {
+		if err := performLLMISVCInjection(ctx, modelURI, template, newConn, secret); err != nil {
 			log.Error(err, "failed to inject new connection")
 			return err
 		}
@@ -159,7 +185,8 @@ func (d *LLMInferenceServiceCustomDefaulter) Default(ctx context.Context, obj ru
 	return nil
 }
 
-// performLLMISVCInjection injects connection credentials into the LLMInferenceService using typed field access.
+// performLLMISVCInjection injects connection credentials into an LLMInferenceService using field
+// pointers, making it compatible with both v1alpha1 and v1alpha2.
 //
 // S3 injects serviceAccountName and sets spec.model.uri to s3://{bucket}/{path}.
 // URI sets spec.model.uri from the Secret's https-host or URI key.
@@ -167,14 +194,16 @@ func (d *LLMInferenceServiceCustomDefaulter) Default(ctx context.Context, obj ru
 //
 // Parameters:
 //   - ctx: context for logging
-//   - llmisvc: the LLMInferenceService to mutate
+//   - modelURI: pointer to the spec.model.uri field
+//   - template: pointer to the spec.template field pointer
 //   - connInfo: validated connection info
 //   - secret: the pre-fetched connection Secret (returned by ValidateConnectionAnnotation)
 //
 // Returns any error from injection.
 func performLLMISVCInjection(
 	ctx context.Context,
-	llmisvc *kservev1alpha2.LLMInferenceService,
+	modelURI *apis.URL,
+	template **corev1.PodSpec,
 	connInfo connectionapi.ConnectionInfo,
 	secret *corev1.Secret,
 ) error {
@@ -182,10 +211,10 @@ func performLLMISVCInjection(
 
 	switch connInfo.Type {
 	case connectionapi.ConnectionTypeProtocolOCI.String(), connectionapi.ConnectionTypeRefOCI.String():
-		if llmisvc.Spec.Template == nil {
-			llmisvc.Spec.Template = &corev1.PodSpec{}
+		if *template == nil {
+			*template = &corev1.PodSpec{}
 		}
-		connectionapi.InjectOCIImagePullSecrets(&llmisvc.Spec.Template.ImagePullSecrets, connInfo.SecretName)
+		connectionapi.InjectOCIImagePullSecrets(&(*template).ImagePullSecrets, connInfo.SecretName)
 		log.V(1).Info("injected OCI imagePullSecrets", "connection", connInfo.SecretName)
 		// TODO: inject spec.model.uri for OCI
 		return nil
@@ -199,15 +228,15 @@ func performLLMISVCInjection(
 		if err != nil {
 			return fmt.Errorf("invalid URI %q from secret %s: %w", uriValue, connInfo.SecretName, err)
 		}
-		llmisvc.Spec.Model.URI = *parsed
+		*modelURI = *parsed
 		log.V(1).Info("injected URI spec.model.uri", "connection", connInfo.SecretName)
 		return nil
 
 	case connectionapi.ConnectionTypeProtocolS3.String(), connectionapi.ConnectionTypeRefS3.String():
-		if llmisvc.Spec.Template == nil {
-			llmisvc.Spec.Template = &corev1.PodSpec{}
+		if *template == nil {
+			*template = &corev1.PodSpec{}
 		}
-		connectionapi.InjectServiceAccountName(&llmisvc.Spec.Template.ServiceAccountName, connInfo.SecretName+"-sa")
+		connectionapi.InjectServiceAccountName(&(*template).ServiceAccountName, connInfo.SecretName+"-sa")
 		log.V(1).Info("injected serviceAccountName", "saName", connInfo.SecretName+"-sa")
 
 		s3URI, err := connectionapi.BuildS3URI(secret, connInfo)
@@ -218,7 +247,7 @@ func performLLMISVCInjection(
 		if err != nil {
 			return fmt.Errorf("invalid S3 URI %q: %w", s3URI, err)
 		}
-		llmisvc.Spec.Model.URI = *parsed
+		*modelURI = *parsed
 		log.V(1).Info("injected S3 spec.model.uri", "connection", connInfo.SecretName)
 		return nil
 
@@ -228,35 +257,34 @@ func performLLMISVCInjection(
 	}
 }
 
-// performLLMISVCCleanup removes previously injected connection credentials from the LLMInferenceService.
+// performLLMISVCCleanup removes previously injected connection credentials using field pointers,
+// making it compatible with both v1alpha1 and v1alpha2.
 //
-// Phase 1: type-specific cleanup of serviceAccountName and imagePullSecrets (typed field access).
-// Phase 2: unconditional removal of spec.model if spec.model.uri is set, using the hybrid
-// unstructured approach required because LLMInferenceServiceSpec.Model is a non-pointer,
-// non-omitempty field whose URI sub-field has type apis.URL (not a plain string).
+// Phase 1: type-specific cleanup of serviceAccountName and imagePullSecrets.
+// Phase 2: zeros spec.model.uri if it was previously set.
 //
 // Parameters:
-//   - llmisvc: the LLMInferenceService to clean up
+//   - modelURI: pointer to the spec.model.uri field
+//   - template: pointer to the spec.template field pointer
 //   - oldConn: connection info from the previous object version
-//
-// Returns any error from cleanup.
 func performLLMISVCCleanup(
-	llmisvc *kservev1alpha2.LLMInferenceService,
+	modelURI *apis.URL,
+	template **corev1.PodSpec,
 	oldConn connectionapi.ConnectionInfo,
-) error {
+) {
 	// Phase 1: type-specific cleanup of typed fields.
 	switch oldConn.Type {
 	case connectionapi.ConnectionTypeProtocolS3.String(), connectionapi.ConnectionTypeRefS3.String():
-		if llmisvc.Spec.Template != nil {
-			connectionapi.RemoveServiceAccountName(&llmisvc.Spec.Template.ServiceAccountName, oldConn.SecretName+"-sa")
+		if *template != nil {
+			connectionapi.RemoveServiceAccountName(&(*template).ServiceAccountName, oldConn.SecretName+"-sa")
 		}
 
 	case connectionapi.ConnectionTypeProtocolOCI.String(), connectionapi.ConnectionTypeRefOCI.String():
-		if llmisvc.Spec.Template != nil {
+		if *template != nil {
 			if oldConn.SecretName != "" {
-				connectionapi.CleanupOCIImagePullSecrets(&llmisvc.Spec.Template.ImagePullSecrets, oldConn.SecretName)
+				connectionapi.CleanupOCIImagePullSecrets(&(*template).ImagePullSecrets, oldConn.SecretName)
 			} else {
-				llmisvc.Spec.Template.ImagePullSecrets = nil
+				(*template).ImagePullSecrets = nil
 			}
 		}
 
@@ -265,65 +293,18 @@ func performLLMISVCCleanup(
 
 	case "":
 		// Unknown type: perform full cleanup of all possible injected typed fields.
-		if llmisvc.Spec.Template != nil {
-			connectionapi.RemoveServiceAccountName(&llmisvc.Spec.Template.ServiceAccountName, oldConn.SecretName+"-sa")
+		if *template != nil {
+			connectionapi.RemoveServiceAccountName(&(*template).ServiceAccountName, oldConn.SecretName+"-sa")
 			if oldConn.SecretName != "" {
-				connectionapi.CleanupOCIImagePullSecrets(&llmisvc.Spec.Template.ImagePullSecrets, oldConn.SecretName)
+				connectionapi.CleanupOCIImagePullSecrets(&(*template).ImagePullSecrets, oldConn.SecretName)
 			} else {
-				llmisvc.Spec.Template.ImagePullSecrets = nil
+				(*template).ImagePullSecrets = nil
 			}
 		}
 	}
 
-	// Phase 2: remove spec.model when spec.model.uri is set.
-	// Uses the hybrid unstructured approach because Model is a non-pointer non-omitempty struct
-	// and its URI field type (apis.URL) cannot be zeroed without failing CRD validation.
-	if llmisvc.Spec.Model.URI.String() != "" {
-		if err := removeModelSpec(llmisvc); err != nil {
-			return fmt.Errorf("failed to remove spec.model: %w", err)
-		}
+	// Phase 2: zero spec.model.uri if it was previously set.
+	if modelURI.String() != "" {
+		*modelURI = apis.URL{}
 	}
-
-	return nil
-}
-
-// removeModelSpec removes the entire spec.model field from the LLMInferenceService using a hybrid
-// unstructured approach.
-//
-// This is necessary because LLMInferenceServiceSpec.Model is a non-pointer non-omitempty struct
-// and its URI field has type apis.URL whose zero value fails CRD validation. The approach:
-//  1. Marshals the object to JSON.
-//  2. Unmarshals into an Unstructured map and removes the "spec.model" field.
-//  3. Unmarshals the cleaned JSON back into the typed struct.
-//  4. Replaces the content of llmisvc with the cleaned version.
-//
-// Parameters:
-//   - llmisvc: pointer to the LLMInferenceService whose spec.model should be removed
-//
-// Returns any marshaling/unmarshaling error.
-func removeModelSpec(llmisvc *kservev1alpha2.LLMInferenceService) error {
-	jsonBytes, err := json.Marshal(llmisvc)
-	if err != nil {
-		return fmt.Errorf("failed to marshal LLMInferenceService: %w", err)
-	}
-
-	u := &unstructured.Unstructured{}
-	if err := json.Unmarshal(jsonBytes, &u.Object); err != nil {
-		return fmt.Errorf("failed to unmarshal to unstructured: %w", err)
-	}
-
-	unstructured.RemoveNestedField(u.Object, "spec", "model")
-
-	cleanedJSON, err := json.Marshal(u.Object)
-	if err != nil {
-		return fmt.Errorf("failed to marshal cleaned object: %w", err)
-	}
-
-	cleaned := &kservev1alpha2.LLMInferenceService{}
-	if err := json.Unmarshal(cleanedJSON, cleaned); err != nil {
-		return fmt.Errorf("failed to unmarshal cleaned object back to typed struct: %w", err)
-	}
-
-	*llmisvc = *cleaned
-	return nil
 }
