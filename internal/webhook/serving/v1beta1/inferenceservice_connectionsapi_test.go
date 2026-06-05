@@ -34,6 +34,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/webhook/admission"
 
 	"github.com/opendatahub-io/odh-model-controller/internal/webhook/connectionapi"
+	testutils "github.com/opendatahub-io/odh-model-controller/test/utils"
 )
 
 // ── helpers ───────────────────────────────────────────────────────────────────
@@ -77,28 +78,6 @@ func buildISVC(annotations map[string]string) *kservev1beta1.InferenceService {
 	return &kservev1beta1.InferenceService{
 		ObjectMeta: metav1.ObjectMeta{Name: "test", Namespace: defaultNS, Annotations: annotations},
 		Spec:       kservev1beta1.InferenceServiceSpec{Predictor: kservev1beta1.PredictorSpec{}},
-	}
-}
-
-// buildSecret creates a Secret with a connection-type-protocol annotation.
-func buildSecret(name, connType string, data map[string][]byte) *corev1.Secret {
-	return &corev1.Secret{
-		ObjectMeta: metav1.ObjectMeta{
-			Name: name, Namespace: defaultNS,
-			Annotations: map[string]string{connectionapi.AnnotationConnectionTypeProtocol: connType},
-		},
-		Data: data,
-	}
-}
-
-// buildSecretWithRef creates a Secret with the deprecated connection-type-ref annotation.
-func buildSecretWithRef(name, ns, refType string, data map[string][]byte) *corev1.Secret {
-	return &corev1.Secret{
-		ObjectMeta: metav1.ObjectMeta{
-			Name: name, Namespace: ns,
-			Annotations: map[string]string{connectionapi.AnnotationConnectionTypeRef: refType},
-		},
-		Data: data,
 	}
 }
 
@@ -149,7 +128,7 @@ var _ = Describe("InferenceService ConnectionsAPI Defaulter", func() {
 		})
 
 		It("skips injection when resource is marked for deletion", func() {
-			secret := buildSecret("s", "s3", nil)
+			secret := testutils.BuildSecret("s", defaultNS, "s3", nil)
 			isvc := buildISVC(map[string]string{connectionapi.AnnotationConnections: "s"})
 			now := metav1.Now()
 			isvc.DeletionTimestamp = &now
@@ -160,7 +139,7 @@ var _ = Describe("InferenceService ConnectionsAPI Defaulter", func() {
 		Context("S3 connection type", func() {
 
 			It("creates SA and injects storage key and path", func() {
-				secret := buildSecret(defaultS3Secret, "s3", nil)
+				secret := testutils.BuildSecret(defaultS3Secret, defaultNS, "s3", nil)
 				cli := newDefaulterFakeClient(secret)
 				isvc := buildISVC(map[string]string{
 					connectionapi.AnnotationConnections:    defaultS3Secret,
@@ -178,7 +157,7 @@ var _ = Describe("InferenceService ConnectionsAPI Defaulter", func() {
 			})
 
 			It("injects storage fields but does not create SA on dry-run", func() {
-				secret := buildSecret(defaultS3Secret, "s3", nil)
+				secret := testutils.BuildSecret(defaultS3Secret, defaultNS, "s3", nil)
 				cli := newDefaulterFakeClient(secret)
 				isvc := buildISVC(map[string]string{
 					connectionapi.AnnotationConnections:    defaultS3Secret,
@@ -196,21 +175,21 @@ var _ = Describe("InferenceService ConnectionsAPI Defaulter", func() {
 		Context("URI connection type", func() {
 
 			It("injects storageUri from secret https-host key", func() {
-				secret := buildSecret("uri-s", "uri", map[string][]byte{"https-host": []byte("https://example.com/model")})
+				secret := testutils.BuildSecret("uri-s", defaultNS, "uri", map[string][]byte{"https-host": []byte("https://example.com/model")})
 				isvc := buildISVC(map[string]string{connectionapi.AnnotationConnections: "uri-s"})
 				Expect(newISVCDefaulter(newDefaulterFakeClient(secret)).Default(defaultCtx(admissionv1.Create, nil, false), isvc)).To(Succeed())
 				Expect(isvc.Spec.Predictor.Model.StorageURI).To(HaveValue(Equal("https://example.com/model")))
 			})
 
 			It("injects storageUri from secret URI key", func() {
-				secret := buildSecret("uri-s", "uri", map[string][]byte{"URI": []byte("s3://bucket/model")})
+				secret := testutils.BuildSecret("uri-s", defaultNS, "uri", map[string][]byte{"URI": []byte("s3://bucket/model")})
 				isvc := buildISVC(map[string]string{connectionapi.AnnotationConnections: "uri-s"})
 				Expect(newISVCDefaulter(newDefaulterFakeClient(secret)).Default(defaultCtx(admissionv1.Create, nil, false), isvc)).To(Succeed())
 				Expect(isvc.Spec.Predictor.Model.StorageURI).To(HaveValue(Equal("s3://bucket/model")))
 			})
 
 			It("returns error when secret has neither URI key", func() {
-				secret := buildSecret("uri-s", "uri", map[string][]byte{})
+				secret := testutils.BuildSecret("uri-s", defaultNS, "uri", map[string][]byte{})
 				isvc := buildISVC(map[string]string{connectionapi.AnnotationConnections: "uri-s"})
 				err := newISVCDefaulter(newDefaulterFakeClient(secret)).Default(defaultCtx(admissionv1.Create, nil, false), isvc)
 				Expect(err).To(HaveOccurred())
@@ -221,14 +200,14 @@ var _ = Describe("InferenceService ConnectionsAPI Defaulter", func() {
 		Context("OCI connection type", func() {
 
 			It("injects imagePullSecrets", func() {
-				secret := buildSecret("oci-s", "oci", nil)
+				secret := testutils.BuildSecret("oci-s", defaultNS, "oci", nil)
 				isvc := buildISVC(map[string]string{connectionapi.AnnotationConnections: "oci-s"})
 				Expect(newISVCDefaulter(newDefaulterFakeClient(secret)).Default(defaultCtx(admissionv1.Create, nil, false), isvc)).To(Succeed())
 				Expect(isvc.Spec.Predictor.ImagePullSecrets).To(ConsistOf(corev1.LocalObjectReference{Name: "oci-s"}))
 			})
 
 			It("does not duplicate imagePullSecrets when already present", func() {
-				secret := buildSecret("oci-s", "oci", nil)
+				secret := testutils.BuildSecret("oci-s", defaultNS, "oci", nil)
 				isvc := buildISVC(map[string]string{connectionapi.AnnotationConnections: "oci-s"})
 				isvc.Spec.Predictor.ImagePullSecrets = []corev1.LocalObjectReference{{Name: "oci-s"}}
 				Expect(newISVCDefaulter(newDefaulterFakeClient(secret)).Default(defaultCtx(admissionv1.Create, nil, false), isvc)).To(Succeed())
@@ -242,7 +221,7 @@ var _ = Describe("InferenceService ConnectionsAPI Defaulter", func() {
 		Context("inject (annotation added)", func() {
 
 			It("creates SA and injects S3 fields when annotation is added", func() {
-				secret := buildSecret(defaultS3Secret, "s3", nil)
+				secret := testutils.BuildSecret(defaultS3Secret, defaultNS, "s3", nil)
 				cli := newDefaulterFakeClient(secret)
 				oldISVC := buildISVC(nil)
 				newISVC := buildISVC(map[string]string{
@@ -255,13 +234,15 @@ var _ = Describe("InferenceService ConnectionsAPI Defaulter", func() {
 				Expect(newISVC.Spec.Predictor.ServiceAccountName).To(Equal(defaultS3SA))
 				Expect(newISVC.Spec.Predictor.Model.Storage.StorageKey).To(HaveValue(Equal(defaultS3Secret)))
 				Expect(newISVC.Spec.Predictor.Model.Storage.Path).To(HaveValue(Equal("models/v1")))
+				sa := &corev1.ServiceAccount{}
+				Expect(cli.Get(context.Background(), types.NamespacedName{Name: defaultS3SA, Namespace: defaultNS}, sa)).To(Succeed())
 			})
 		})
 
 		Context("remove (annotation removed)", func() {
 
 			It("clears SA and storage when S3 annotation is removed", func() {
-				secret := buildSecret(defaultS3Secret, "s3", nil)
+				secret := testutils.BuildSecret(defaultS3Secret, defaultNS, "s3", nil)
 				oldISVC := buildISVC(map[string]string{connectionapi.AnnotationConnections: defaultS3Secret})
 				path, key := "models/v1", defaultS3Secret
 				newISVC := buildISVC(nil)
@@ -277,7 +258,7 @@ var _ = Describe("InferenceService ConnectionsAPI Defaulter", func() {
 			})
 
 			It("clears storageUri when URI annotation is removed", func() {
-				secret := buildSecret("uri-s", "uri", nil)
+				secret := testutils.BuildSecret("uri-s", defaultNS, "uri", nil)
 				oldISVC := buildISVC(map[string]string{connectionapi.AnnotationConnections: "uri-s"})
 				uri := "https://example.com"
 				newISVC := buildISVC(nil)
@@ -289,7 +270,7 @@ var _ = Describe("InferenceService ConnectionsAPI Defaulter", func() {
 			})
 
 			It("removes OCI secret from imagePullSecrets when annotation is removed", func() {
-				secret := buildSecret("oci-s", "oci", nil)
+				secret := testutils.BuildSecret("oci-s", defaultNS, "oci", nil)
 				oldISVC := buildISVC(map[string]string{connectionapi.AnnotationConnections: "oci-s"})
 				newISVC := buildISVC(nil)
 				newISVC.Spec.Predictor.ImagePullSecrets = []corev1.LocalObjectReference{{Name: "oci-s"}}
@@ -317,7 +298,7 @@ var _ = Describe("InferenceService ConnectionsAPI Defaulter", func() {
 			})
 
 			It("preserves user-set SA name when removing S3 connection", func() {
-				secret := buildSecret(defaultS3Secret, "s3", nil)
+				secret := testutils.BuildSecret(defaultS3Secret, defaultNS, "s3", nil)
 				oldISVC := buildISVC(map[string]string{connectionapi.AnnotationConnections: defaultS3Secret})
 				newISVC := buildISVC(nil)
 				newISVC.Spec.Predictor.ServiceAccountName = "user-custom-sa"
@@ -330,8 +311,8 @@ var _ = Describe("InferenceService ConnectionsAPI Defaulter", func() {
 		Context("replace (type or secret changed)", func() {
 
 			It("cleans up S3 and injects URI when connection type changes", func() {
-				s3Secret := buildSecret(defaultS3Secret, "s3", nil)
-				uriSecret := buildSecret("uri-s", "uri", map[string][]byte{"URI": []byte("https://x")})
+				s3Secret := testutils.BuildSecret(defaultS3Secret, defaultNS, "s3", nil)
+				uriSecret := testutils.BuildSecret("uri-s", defaultNS, "uri", map[string][]byte{"URI": []byte("https://x")})
 				cli := newDefaulterFakeClient(s3Secret, uriSecret)
 				oldISVC := buildISVC(map[string]string{connectionapi.AnnotationConnections: defaultS3Secret})
 				key := defaultS3Secret
@@ -348,7 +329,7 @@ var _ = Describe("InferenceService ConnectionsAPI Defaulter", func() {
 			})
 
 			It("replaces S3 fields when connection path changes", func() {
-				secret := buildSecret(defaultS3Secret, "s3", nil)
+				secret := testutils.BuildSecret(defaultS3Secret, defaultNS, "s3", nil)
 				oldISVC := buildISVC(map[string]string{
 					connectionapi.AnnotationConnections:    defaultS3Secret,
 					connectionapi.AnnotationConnectionPath: "old-path",
@@ -373,7 +354,7 @@ var _ = Describe("InferenceService ConnectionsAPI Defaulter", func() {
 			})
 
 			It("produces no mutation for identical S3 connection", func() {
-				secret := buildSecret(defaultS3Secret, "s3", nil)
+				secret := testutils.BuildSecret(defaultS3Secret, defaultNS, "s3", nil)
 				annots := map[string]string{
 					connectionapi.AnnotationConnections:    defaultS3Secret,
 					connectionapi.AnnotationConnectionPath: "models/v1",
@@ -398,7 +379,7 @@ var _ = Describe("InferenceService ConnectionsAPI Defaulter", func() {
 			})
 
 			It("does not trigger replacement when URI path annotation changes", func() {
-				secret := buildSecret("uri-s", "uri", map[string][]byte{"URI": []byte("https://x")})
+				secret := testutils.BuildSecret("uri-s", defaultNS, "uri", map[string][]byte{"URI": []byte("https://x")})
 				uri := "https://x"
 				oldISVC := buildISVC(map[string]string{
 					connectionapi.AnnotationConnections:    "uri-s",
@@ -422,7 +403,7 @@ var _ = Describe("InferenceService ConnectionsAPI Defaulter", func() {
 	Describe("S3 path priority", func() {
 
 		It("prefers user-set path over annotation path", func() {
-			secret := buildSecret(defaultS3Secret, "s3", nil)
+			secret := testutils.BuildSecret(defaultS3Secret, defaultNS, "s3", nil)
 			isvc := buildISVC(map[string]string{
 				connectionapi.AnnotationConnections:    defaultS3Secret,
 				connectionapi.AnnotationConnectionPath: "ann-path",
@@ -437,7 +418,7 @@ var _ = Describe("InferenceService ConnectionsAPI Defaulter", func() {
 		})
 
 		It("uses annotation path over old spec path on UPDATE replace", func() {
-			secret := buildSecret(defaultS3Secret, "s3", nil)
+			secret := testutils.BuildSecret(defaultS3Secret, defaultNS, "s3", nil)
 			// Same secret but different path annotation forces replace action
 			oldISVC := buildISVC(map[string]string{
 				connectionapi.AnnotationConnections:    defaultS3Secret,
@@ -453,7 +434,7 @@ var _ = Describe("InferenceService ConnectionsAPI Defaulter", func() {
 		})
 
 		It("falls back to old spec path when no annotation is set on UPDATE inject", func() {
-			secret := buildSecret(defaultS3Secret, "s3", nil)
+			secret := testutils.BuildSecret(defaultS3Secret, defaultNS, "s3", nil)
 			// Old ISVC has no connection annotation (inject action on update)
 			oldPath := "old-spec-path"
 			oldISVC := buildISVC(nil)
@@ -473,7 +454,7 @@ var _ = Describe("InferenceService ConnectionsAPI Defaulter", func() {
 	Describe("Backward compatibility (deprecated connection-type-ref)", func() {
 
 		It("injects S3 fields using connection-type-ref: s3", func() {
-			secret := buildSecretWithRef(defaultS3Secret, defaultNS, "s3", nil)
+			secret := testutils.BuildSecretWithRef(defaultS3Secret, defaultNS, "s3", nil)
 			isvc := buildISVC(map[string]string{
 				connectionapi.AnnotationConnections:    defaultS3Secret,
 				connectionapi.AnnotationConnectionPath: "models/v1",
@@ -483,14 +464,14 @@ var _ = Describe("InferenceService ConnectionsAPI Defaulter", func() {
 		})
 
 		It("injects storageUri using connection-type-ref: uri-v1", func() {
-			secret := buildSecretWithRef("uri-s", defaultNS, "uri-v1", map[string][]byte{"URI": []byte("https://x")})
+			secret := testutils.BuildSecretWithRef("uri-s", defaultNS, "uri-v1", map[string][]byte{"URI": []byte("https://x")})
 			isvc := buildISVC(map[string]string{connectionapi.AnnotationConnections: "uri-s"})
 			Expect(newISVCDefaulter(newDefaulterFakeClient(secret)).Default(defaultCtx(admissionv1.Create, nil, false), isvc)).To(Succeed())
 			Expect(isvc.Spec.Predictor.Model.StorageURI).To(HaveValue(Equal("https://x")))
 		})
 
 		It("injects imagePullSecrets using connection-type-ref: oci-v1", func() {
-			secret := buildSecretWithRef("oci-s", defaultNS, "oci-v1", nil)
+			secret := testutils.BuildSecretWithRef("oci-s", defaultNS, "oci-v1", nil)
 			isvc := buildISVC(map[string]string{connectionapi.AnnotationConnections: "oci-s"})
 			Expect(newISVCDefaulter(newDefaulterFakeClient(secret)).Default(defaultCtx(admissionv1.Create, nil, false), isvc)).To(Succeed())
 			Expect(isvc.Spec.Predictor.ImagePullSecrets).To(ConsistOf(corev1.LocalObjectReference{Name: "oci-s"}))
@@ -500,7 +481,7 @@ var _ = Describe("InferenceService ConnectionsAPI Defaulter", func() {
 	Describe("Utility edge cases exercised through the webhook", func() {
 
 		It("does not overwrite user-set SA name on S3 CREATE", func() {
-			secret := buildSecret(defaultS3Secret, "s3", nil)
+			secret := testutils.BuildSecret(defaultS3Secret, defaultNS, "s3", nil)
 			isvc := buildISVC(map[string]string{
 				connectionapi.AnnotationConnections:    defaultS3Secret,
 				connectionapi.AnnotationConnectionPath: "models/v1",
@@ -514,7 +495,7 @@ var _ = Describe("InferenceService ConnectionsAPI Defaulter", func() {
 		})
 
 		It("merges OCI imagePullSecrets with pre-existing different entries", func() {
-			secret := buildSecret("oci-s", "oci", nil)
+			secret := testutils.BuildSecret("oci-s", defaultNS, "oci", nil)
 			isvc := buildISVC(map[string]string{connectionapi.AnnotationConnections: "oci-s"})
 			isvc.Spec.Predictor.ImagePullSecrets = []corev1.LocalObjectReference{{Name: "existing"}}
 
@@ -526,7 +507,7 @@ var _ = Describe("InferenceService ConnectionsAPI Defaulter", func() {
 		})
 
 		It("preserves other imagePullSecrets entries on OCI removal", func() {
-			secret := buildSecret("oci-s", "oci", nil)
+			secret := testutils.BuildSecret("oci-s", defaultNS, "oci", nil)
 			oldISVC := buildISVC(map[string]string{connectionapi.AnnotationConnections: "oci-s"})
 			newISVC := buildISVC(nil)
 			newISVC.Spec.Predictor.ImagePullSecrets = []corev1.LocalObjectReference{{Name: "other"}, {Name: "oci-s"}}
@@ -536,8 +517,8 @@ var _ = Describe("InferenceService ConnectionsAPI Defaulter", func() {
 		})
 
 		It("triggers replacement when same S3 type but different secret name", func() {
-			oldSec := buildSecret("old-secret", "s3", nil)
-			newSec := buildSecret(defaultS3Secret, "s3", nil)
+			oldSec := testutils.BuildSecret("old-secret", defaultNS, "s3", nil)
+			newSec := testutils.BuildSecret(defaultS3Secret, defaultNS, "s3", nil)
 			oldISVC := buildISVC(map[string]string{
 				connectionapi.AnnotationConnections:    "old-secret",
 				connectionapi.AnnotationConnectionPath: "models/v1",
@@ -554,7 +535,7 @@ var _ = Describe("InferenceService ConnectionsAPI Defaulter", func() {
 		})
 
 		It("prefers https-host over URI key when both present", func() {
-			secret := buildSecret("uri-s", "uri", map[string][]byte{
+			secret := testutils.BuildSecret("uri-s", defaultNS, "uri", map[string][]byte{
 				"https-host": []byte("https://preferred.com"),
 				"URI":        []byte("https://fallback.com"),
 			})
@@ -605,7 +586,7 @@ var _ = Describe("InferenceService ConnectionsAPI Defaulter", func() {
 		})
 
 		It("succeeds when SA already exists (idempotent creation)", func() {
-			secret := buildSecret(defaultS3Secret, "s3", nil)
+			secret := testutils.BuildSecret(defaultS3Secret, defaultNS, "s3", nil)
 			existingSA := &corev1.ServiceAccount{
 				ObjectMeta: metav1.ObjectMeta{Name: defaultS3SA, Namespace: defaultNS},
 			}

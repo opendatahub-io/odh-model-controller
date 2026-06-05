@@ -33,7 +33,10 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 	"sigs.k8s.io/controller-runtime/pkg/webhook/admission"
 
+	"knative.dev/pkg/apis"
+
 	"github.com/opendatahub-io/odh-model-controller/internal/webhook/connectionapi"
+	testutils "github.com/opendatahub-io/odh-model-controller/test/utils"
 )
 
 const (
@@ -97,34 +100,6 @@ func buildLLMISVC(annotations map[string]string) *kservev1alpha2.LLMInferenceSer
 			Namespace:   llmNS,
 			Annotations: annotations,
 		},
-	}
-}
-
-// buildLLMSecret creates a Secret with connection-type-protocol annotation.
-func buildLLMSecret(name, connType string, data map[string][]byte) *corev1.Secret {
-	return &corev1.Secret{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:      name,
-			Namespace: llmNS,
-			Annotations: map[string]string{
-				connectionapi.AnnotationConnectionTypeProtocol: connType,
-			},
-		},
-		Data: data,
-	}
-}
-
-// buildLLMSecretWithRef creates a Secret with the deprecated connection-type-ref annotation.
-func buildLLMSecretWithRef(name, ns, refType string, data map[string][]byte) *corev1.Secret {
-	return &corev1.Secret{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:      name,
-			Namespace: ns,
-			Annotations: map[string]string{
-				connectionapi.AnnotationConnectionTypeRef: refType,
-			},
-		},
-		Data: data,
 	}
 }
 
@@ -204,7 +179,7 @@ var _ = Describe("LLMInferenceService ConnectionsAPI Defaulter", func() {
 		})
 
 		It("skips injection when resource is marked for deletion", func() {
-			secret := buildLLMSecret(llmS3SecretName, "s3",
+			secret := testutils.BuildSecret(llmS3SecretName, llmNS, "s3",
 				map[string][]byte{"AWS_S3_BUCKET": []byte("my-bucket")})
 			cli := newLLMFakeClient(secret)
 			d := newLLMDefaulter(cli)
@@ -222,7 +197,7 @@ var _ = Describe("LLMInferenceService ConnectionsAPI Defaulter", func() {
 		Context("S3 connection type", func() {
 
 			It("creates SA and injects spec.model.uri", func() {
-				secret := buildLLMSecret(llmS3SecretName, "s3",
+				secret := testutils.BuildSecret(llmS3SecretName, llmNS, "s3",
 					map[string][]byte{"AWS_S3_BUCKET": []byte("my-bucket")})
 				cli := newLLMFakeClient(secret)
 				d := newLLMDefaulter(cli)
@@ -245,7 +220,7 @@ var _ = Describe("LLMInferenceService ConnectionsAPI Defaulter", func() {
 			})
 
 			It("initializes Template when nil before S3 inject", func() {
-				secret := buildLLMSecret(llmS3SecretName, "s3",
+				secret := testutils.BuildSecret(llmS3SecretName, llmNS, "s3",
 					map[string][]byte{"AWS_S3_BUCKET": []byte("my-bucket")})
 				cli := newLLMFakeClient(secret)
 				d := newLLMDefaulter(cli)
@@ -262,7 +237,7 @@ var _ = Describe("LLMInferenceService ConnectionsAPI Defaulter", func() {
 			})
 
 			It("injects URI but does not create SA on dry-run", func() {
-				secret := buildLLMSecret(llmS3SecretName, "s3",
+				secret := testutils.BuildSecret(llmS3SecretName, llmNS, "s3",
 					map[string][]byte{"AWS_S3_BUCKET": []byte("my-bucket")})
 				cli := newLLMFakeClient(secret)
 				d := newLLMDefaulter(cli)
@@ -284,7 +259,7 @@ var _ = Describe("LLMInferenceService ConnectionsAPI Defaulter", func() {
 			})
 
 			It("returns error when bucket key is missing", func() {
-				secret := buildLLMSecret(llmS3SecretName, "s3", map[string][]byte{})
+				secret := testutils.BuildSecret(llmS3SecretName, llmNS, "s3", map[string][]byte{})
 				cli := newLLMFakeClient(secret)
 				d := newLLMDefaulter(cli)
 				llmisvc := buildLLMISVC(map[string]string{
@@ -299,7 +274,7 @@ var _ = Describe("LLMInferenceService ConnectionsAPI Defaulter", func() {
 			})
 
 			It("returns error when connection-path annotation is missing", func() {
-				secret := buildLLMSecret(llmS3SecretName, "s3",
+				secret := testutils.BuildSecret(llmS3SecretName, llmNS, "s3",
 					map[string][]byte{"AWS_S3_BUCKET": []byte("b")})
 				cli := newLLMFakeClient(secret)
 				d := newLLMDefaulter(cli)
@@ -318,7 +293,7 @@ var _ = Describe("LLMInferenceService ConnectionsAPI Defaulter", func() {
 		Context("URI connection type", func() {
 
 			It("injects spec.model.uri from https-host key", func() {
-				secret := buildLLMSecret(llmURISecretName, "uri",
+				secret := testutils.BuildSecret(llmURISecretName, llmNS, "uri",
 					map[string][]byte{"https-host": []byte("https://hf.co/model")})
 				cli := newLLMFakeClient(secret)
 				d := newLLMDefaulter(cli)
@@ -332,7 +307,7 @@ var _ = Describe("LLMInferenceService ConnectionsAPI Defaulter", func() {
 			})
 
 			It("injects spec.model.uri from URI key", func() {
-				secret := buildLLMSecret(llmURISecretName, "uri",
+				secret := testutils.BuildSecret(llmURISecretName, llmNS, "uri",
 					map[string][]byte{"URI": []byte("hf://facebook/model")})
 				cli := newLLMFakeClient(secret)
 				d := newLLMDefaulter(cli)
@@ -346,7 +321,7 @@ var _ = Describe("LLMInferenceService ConnectionsAPI Defaulter", func() {
 			})
 
 			It("returns error when secret has neither URI key", func() {
-				secret := buildLLMSecret(llmURISecretName, "uri", map[string][]byte{})
+				secret := testutils.BuildSecret(llmURISecretName, llmNS, "uri", map[string][]byte{})
 				cli := newLLMFakeClient(secret)
 				d := newLLMDefaulter(cli)
 				llmisvc := buildLLMISVC(map[string]string{
@@ -363,7 +338,7 @@ var _ = Describe("LLMInferenceService ConnectionsAPI Defaulter", func() {
 		Context("OCI connection type", func() {
 
 			It("injects imagePullSecrets", func() {
-				secret := buildLLMSecret(llmOCISecretName, "oci", nil)
+				secret := testutils.BuildSecret(llmOCISecretName, llmNS, "oci", nil)
 				cli := newLLMFakeClient(secret)
 				d := newLLMDefaulter(cli)
 				llmisvc := buildLLMISVC(map[string]string{
@@ -379,7 +354,7 @@ var _ = Describe("LLMInferenceService ConnectionsAPI Defaulter", func() {
 			})
 
 			It("initializes Template when nil before OCI inject", func() {
-				secret := buildLLMSecret(llmOCISecretName, "oci", nil)
+				secret := testutils.BuildSecret(llmOCISecretName, llmNS, "oci", nil)
 				cli := newLLMFakeClient(secret)
 				d := newLLMDefaulter(cli)
 				llmisvc := buildLLMISVC(map[string]string{
@@ -393,7 +368,7 @@ var _ = Describe("LLMInferenceService ConnectionsAPI Defaulter", func() {
 			})
 
 			It("does not duplicate imagePullSecrets when already present", func() {
-				secret := buildLLMSecret(llmOCISecretName, "oci", nil)
+				secret := testutils.BuildSecret(llmOCISecretName, llmNS, "oci", nil)
 				cli := newLLMFakeClient(secret)
 				d := newLLMDefaulter(cli)
 				llmisvc := buildLLMISVC(map[string]string{
@@ -413,7 +388,7 @@ var _ = Describe("LLMInferenceService ConnectionsAPI Defaulter", func() {
 	Describe("UPDATE operations — removal (annotation removed)", func() {
 
 		It("clears SA and removes spec.model on S3 removal", func() {
-			secret := buildLLMSecret(llmS3SecretName, "s3",
+			secret := testutils.BuildSecret(llmS3SecretName, llmNS, "s3",
 				map[string][]byte{"AWS_S3_BUCKET": []byte("b")})
 			cli := newLLMFakeClient(secret)
 			d := newLLMDefaulter(cli)
@@ -422,7 +397,9 @@ var _ = Describe("LLMInferenceService ConnectionsAPI Defaulter", func() {
 			})
 			newLLM := buildLLMISVC(nil)
 			newLLM.Spec.Template = &corev1.PodSpec{ServiceAccountName: llmS3SecretName + "-sa"}
-			// Model.URI will be removed by cleanup
+			s3URI, parseErr := apis.ParseURL("s3://my-bucket/models")
+			Expect(parseErr).ToNot(HaveOccurred())
+			newLLM.Spec.Model.URI = *s3URI
 			admCtx := llmAdmissionCtx(admissionv1.Update, oldLLM, false)
 
 			Expect(d.Default(admCtx, newLLM)).To(Succeed())
@@ -432,7 +409,7 @@ var _ = Describe("LLMInferenceService ConnectionsAPI Defaulter", func() {
 		})
 
 		It("removes spec.model on URI removal", func() {
-			secret := buildLLMSecret(llmURISecretName, "uri",
+			secret := testutils.BuildSecret(llmURISecretName, llmNS, "uri",
 				map[string][]byte{"URI": []byte("https://x")})
 			cli := newLLMFakeClient(secret)
 			d := newLLMDefaulter(cli)
@@ -440,6 +417,9 @@ var _ = Describe("LLMInferenceService ConnectionsAPI Defaulter", func() {
 				connectionapi.AnnotationConnections: llmURISecretName,
 			})
 			newLLM := buildLLMISVC(nil)
+			preURI, parseErr := apis.ParseURL("https://x")
+			Expect(parseErr).ToNot(HaveOccurred())
+			newLLM.Spec.Model.URI = *preURI
 			admCtx := llmAdmissionCtx(admissionv1.Update, oldLLM, false)
 
 			Expect(d.Default(admCtx, newLLM)).To(Succeed())
@@ -447,7 +427,7 @@ var _ = Describe("LLMInferenceService ConnectionsAPI Defaulter", func() {
 		})
 
 		It("cleans up imagePullSecrets on OCI removal", func() {
-			secret := buildLLMSecret(llmOCISecretName, "oci", nil)
+			secret := testutils.BuildSecret(llmOCISecretName, llmNS, "oci", nil)
 			cli := newLLMFakeClient(secret)
 			d := newLLMDefaulter(cli)
 			oldLLM := buildLLMISVC(map[string]string{
@@ -469,11 +449,10 @@ var _ = Describe("LLMInferenceService ConnectionsAPI Defaulter", func() {
 			llmisvc.Spec.Template = &corev1.PodSpec{
 				ImagePullSecrets: []corev1.LocalObjectReference{{Name: "a"}},
 			}
-			err := performLLMISVCCleanup(llmisvc, connectionapi.ConnectionInfo{
+			performLLMISVCCleanup(&llmisvc.Spec.Model.URI, &llmisvc.Spec.Template, connectionapi.ConnectionInfo{
 				SecretName: "",
 				Type:       connectionapi.ConnectionTypeProtocolOCI.String(),
 			})
-			Expect(err).ToNot(HaveOccurred())
 			Expect(llmisvc.Spec.Template.ImagePullSecrets).To(BeNil())
 		})
 
@@ -496,7 +475,7 @@ var _ = Describe("LLMInferenceService ConnectionsAPI Defaulter", func() {
 		})
 
 		It("preserves user-set SA name when removing S3 connection", func() {
-			secret := buildLLMSecret(llmS3SecretName, "s3",
+			secret := testutils.BuildSecret(llmS3SecretName, llmNS, "s3",
 				map[string][]byte{"AWS_S3_BUCKET": []byte("b")})
 			cli := newLLMFakeClient(secret)
 			d := newLLMDefaulter(cli)
@@ -515,9 +494,9 @@ var _ = Describe("LLMInferenceService ConnectionsAPI Defaulter", func() {
 	Describe("UPDATE operations — replacement", func() {
 
 		It("replaces URI with S3 when connection type changes", func() {
-			uriSecret := buildLLMSecret(llmURISecretName, "uri",
+			uriSecret := testutils.BuildSecret(llmURISecretName, llmNS, "uri",
 				map[string][]byte{"URI": []byte("https://x")})
-			s3Secret := buildLLMSecret(llmS3SecretName, "s3",
+			s3Secret := testutils.BuildSecret(llmS3SecretName, llmNS, "s3",
 				map[string][]byte{"AWS_S3_BUCKET": []byte("b")})
 			cli := newLLMFakeClient(uriSecret, s3Secret)
 			d := newLLMDefaulter(cli)
@@ -537,7 +516,7 @@ var _ = Describe("LLMInferenceService ConnectionsAPI Defaulter", func() {
 		})
 
 		It("replaces S3 fields when connection path changes", func() {
-			secret := buildLLMSecret(llmS3SecretName, "s3",
+			secret := testutils.BuildSecret(llmS3SecretName, llmNS, "s3",
 				map[string][]byte{"AWS_S3_BUCKET": []byte("b")})
 			cli := newLLMFakeClient(secret)
 			d := newLLMDefaulter(cli)
@@ -560,7 +539,7 @@ var _ = Describe("LLMInferenceService ConnectionsAPI Defaulter", func() {
 
 		It("zeros spec.model.uri after removal", func() {
 			// Trigger cleanup via Update removal
-			secret := buildLLMSecret(llmURISecretName, "uri",
+			secret := testutils.BuildSecret(llmURISecretName, llmNS, "uri",
 				map[string][]byte{"URI": []byte("https://hf.co/model")})
 			cli := newLLMFakeClient(secret)
 			d := newLLMDefaulter(cli)
@@ -568,15 +547,18 @@ var _ = Describe("LLMInferenceService ConnectionsAPI Defaulter", func() {
 				connectionapi.AnnotationConnections: llmURISecretName,
 			})
 			newLLM := buildLLMISVC(nil)
+			preURI, parseErr := apis.ParseURL("https://hf.co/model")
+			Expect(parseErr).ToNot(HaveOccurred())
+			newLLM.Spec.Model.URI = *preURI
 			admCtx := llmAdmissionCtx(admissionv1.Update, oldLLM, false)
 
 			Expect(d.Default(admCtx, newLLM)).To(Succeed())
-			// After removeModelSpec, Model.URI is zero-valued
+			// After cleanup, Model.URI is zero-valued
 			Expect(newLLM.Spec.Model.URI.String()).To(BeEmpty())
 		})
 
 		It("preserves other spec fields after model removal", func() {
-			secret := buildLLMSecret(llmURISecretName, "uri",
+			secret := testutils.BuildSecret(llmURISecretName, llmNS, "uri",
 				map[string][]byte{"URI": []byte("https://hf.co/model")})
 			cli := newLLMFakeClient(secret)
 			d := newLLMDefaulter(cli)
@@ -585,6 +567,9 @@ var _ = Describe("LLMInferenceService ConnectionsAPI Defaulter", func() {
 			})
 			newLLM := buildLLMISVC(nil)
 			newLLM.Spec.Template = &corev1.PodSpec{ServiceAccountName: "some-sa"}
+			preURI, parseErr := apis.ParseURL("https://hf.co/model")
+			Expect(parseErr).ToNot(HaveOccurred())
+			newLLM.Spec.Model.URI = *preURI
 			admCtx := llmAdmissionCtx(admissionv1.Update, oldLLM, false)
 
 			Expect(d.Default(admCtx, newLLM)).To(Succeed())
@@ -598,7 +583,7 @@ var _ = Describe("LLMInferenceService ConnectionsAPI Defaulter", func() {
 	Describe("Backward compatibility (deprecated connection-type-ref)", func() {
 
 		It("injects S3 fields using connection-type-ref: s3", func() {
-			secret := buildLLMSecretWithRef(llmS3SecretName, llmNS, "s3",
+			secret := testutils.BuildSecretWithRef(llmS3SecretName, llmNS, "s3",
 				map[string][]byte{"AWS_S3_BUCKET": []byte("b")})
 			cli := newLLMFakeClient(secret)
 			d := newLLMDefaulter(cli)
@@ -614,7 +599,7 @@ var _ = Describe("LLMInferenceService ConnectionsAPI Defaulter", func() {
 		})
 
 		It("injects spec.model.uri using connection-type-ref: uri-v1", func() {
-			secret := buildLLMSecretWithRef(llmURISecretName, llmNS, "uri-v1",
+			secret := testutils.BuildSecretWithRef(llmURISecretName, llmNS, "uri-v1",
 				map[string][]byte{"URI": []byte("https://x")})
 			cli := newLLMFakeClient(secret)
 			d := newLLMDefaulter(cli)
@@ -628,7 +613,7 @@ var _ = Describe("LLMInferenceService ConnectionsAPI Defaulter", func() {
 		})
 
 		It("injects imagePullSecrets using connection-type-ref: oci-v1", func() {
-			secret := buildLLMSecretWithRef(llmOCISecretName, llmNS, "oci-v1", nil)
+			secret := testutils.BuildSecretWithRef(llmOCISecretName, llmNS, "oci-v1", nil)
 			cli := newLLMFakeClient(secret)
 			d := newLLMDefaulter(cli)
 			llmisvc := buildLLMISVC(map[string]string{
@@ -646,7 +631,7 @@ var _ = Describe("LLMInferenceService ConnectionsAPI Defaulter", func() {
 	Describe("Utility edge cases exercised through the webhook", func() {
 
 		It("prefers https-host over URI key when both present", func() {
-			secret := buildLLMSecret(llmURISecretName, "uri", map[string][]byte{
+			secret := testutils.BuildSecret(llmURISecretName, llmNS, "uri", map[string][]byte{
 				"https-host": []byte("https://preferred.com"),
 				"URI":        []byte("https://fallback.com"),
 			})
@@ -662,7 +647,7 @@ var _ = Describe("LLMInferenceService ConnectionsAPI Defaulter", func() {
 		})
 
 		It("returns error when bucket value is empty", func() {
-			secret := buildLLMSecret(llmS3SecretName, "s3",
+			secret := testutils.BuildSecret(llmS3SecretName, llmNS, "s3",
 				map[string][]byte{"AWS_S3_BUCKET": []byte("")})
 			cli := newLLMFakeClient(secret)
 			d := newLLMDefaulter(cli)
@@ -678,7 +663,7 @@ var _ = Describe("LLMInferenceService ConnectionsAPI Defaulter", func() {
 		})
 
 		It("does not trigger replacement when URI path annotation changes", func() {
-			secret := buildLLMSecret(llmURISecretName, "uri",
+			secret := testutils.BuildSecret(llmURISecretName, llmNS, "uri",
 				map[string][]byte{"URI": []byte("https://x")})
 			cli := newLLMFakeClient(secret)
 			d := newLLMDefaulter(cli)
@@ -726,11 +711,10 @@ var _ = Describe("LLMInferenceService ConnectionsAPI Defaulter", func() {
 			llmisvc.Spec.Template = &corev1.PodSpec{
 				ImagePullSecrets: []corev1.LocalObjectReference{{Name: "a"}},
 			}
-			err := performLLMISVCCleanup(llmisvc, connectionapi.ConnectionInfo{
+			performLLMISVCCleanup(&llmisvc.Spec.Model.URI, &llmisvc.Spec.Template, connectionapi.ConnectionInfo{
 				SecretName: "",
 				Type:       "",
 			})
-			Expect(err).ToNot(HaveOccurred())
 			Expect(llmisvc.Spec.Template.ImagePullSecrets).To(BeNil())
 		})
 
@@ -762,7 +746,7 @@ var _ = Describe("LLMInferenceService ConnectionsAPI Defaulter", func() {
 		})
 
 		It("succeeds when SA already exists (idempotent creation)", func() {
-			secret := buildLLMSecret(llmS3SecretName, "s3",
+			secret := testutils.BuildSecret(llmS3SecretName, llmNS, "s3",
 				map[string][]byte{"AWS_S3_BUCKET": []byte("b")})
 			existingSA := &corev1.ServiceAccount{
 				ObjectMeta: metav1.ObjectMeta{
@@ -783,7 +767,7 @@ var _ = Describe("LLMInferenceService ConnectionsAPI Defaulter", func() {
 		})
 
 		It("does not overwrite user-set SA name on S3 CREATE", func() {
-			secret := buildLLMSecret(llmS3SecretName, "s3",
+			secret := testutils.BuildSecret(llmS3SecretName, llmNS, "s3",
 				map[string][]byte{"AWS_S3_BUCKET": []byte("b")})
 			cli := newLLMFakeClient(secret)
 			d := newLLMDefaulter(cli)
@@ -800,7 +784,7 @@ var _ = Describe("LLMInferenceService ConnectionsAPI Defaulter", func() {
 		})
 
 		It("merges OCI imagePullSecrets with pre-existing different entries", func() {
-			secret := buildLLMSecret(llmOCISecretName, "oci", nil)
+			secret := testutils.BuildSecret(llmOCISecretName, llmNS, "oci", nil)
 			cli := newLLMFakeClient(secret)
 			d := newLLMDefaulter(cli)
 			llmisvc := buildLLMISVC(map[string]string{
@@ -819,7 +803,7 @@ var _ = Describe("LLMInferenceService ConnectionsAPI Defaulter", func() {
 		})
 
 		It("preserves other imagePullSecrets entries on OCI removal", func() {
-			secret := buildLLMSecret(llmOCISecretName, "oci", nil)
+			secret := testutils.BuildSecret(llmOCISecretName, llmNS, "oci", nil)
 			cli := newLLMFakeClient(secret)
 			d := newLLMDefaulter(cli)
 			oldLLM := buildLLMISVC(map[string]string{
@@ -853,9 +837,9 @@ var _ = Describe("LLMInferenceService ConnectionsAPI Defaulter", func() {
 		})
 
 		It("triggers replacement when same S3 type but different secret name", func() {
-			oldSecret := buildLLMSecret(llmOldSecretName, "s3",
+			oldSecret := testutils.BuildSecret(llmOldSecretName, llmNS, "s3",
 				map[string][]byte{"AWS_S3_BUCKET": []byte("b")})
-			newSecret := buildLLMSecret(llmS3SecretName, "s3",
+			newSecret := testutils.BuildSecret(llmS3SecretName, llmNS, "s3",
 				map[string][]byte{"AWS_S3_BUCKET": []byte("b")})
 			cli := newLLMFakeClient(oldSecret, newSecret)
 			d := newLLMDefaulter(cli)
@@ -876,7 +860,7 @@ var _ = Describe("LLMInferenceService ConnectionsAPI Defaulter", func() {
 		})
 
 		It("produces no mutation for identical S3 connection", func() {
-			secret := buildLLMSecret(llmS3SecretName, "s3",
+			secret := testutils.BuildSecret(llmS3SecretName, llmNS, "s3",
 				map[string][]byte{"AWS_S3_BUCKET": []byte("b")})
 			cli := newLLMFakeClient(secret)
 			d := newLLMDefaulter(cli)
