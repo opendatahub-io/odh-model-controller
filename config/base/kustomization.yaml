@@ -352,6 +352,15 @@ replacements:
       - select:
           kind: Template
           name: vllm-cpu-x86-runtime-template-fast-2
+  - source:
+      kind: ConfigMap
+      version: v1
+      name: odh-model-controller-parameters
+      fieldPath: data.vllm-omni-cuda-image
+    targets:
+      - select:
+          kind: Template
+          name: vllm-omni-cuda-runtime-template
         fieldPaths:
           - objects.0.spec.containers.0.image
   - source:
