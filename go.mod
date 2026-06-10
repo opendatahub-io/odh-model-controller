@@ -22,8 +22,8 @@ require (
 	github.com/stretchr/testify v1.10.0
 	github.com/tidwall/gjson v1.18.0
 	go.uber.org/zap v1.27.0
-	istio.io/api v1.24.2
-	istio.io/client-go v1.24.2
+	istio.io/api v1.27.8
+	istio.io/client-go v1.27.8
 	k8s.io/api v0.33.1
 	k8s.io/apimachinery v0.33.1
 	k8s.io/apiserver v0.33.1
