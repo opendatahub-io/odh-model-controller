@@ -6,7 +6,7 @@ import (
 	"fmt"
 
 	"github.com/go-logr/logr"
-	infrctrl "github.com/kubeflow/model-registry/pkg/inferenceservice-controller"
+	infrctrl "github.com/kubeflow/hub/pkg/inferenceservice-controller"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
