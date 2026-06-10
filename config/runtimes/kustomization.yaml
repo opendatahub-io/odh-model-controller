@@ -10,3 +10,4 @@ resources:
   - mlserver-template.yaml
   - vllm/
   - hf-detector-template.yaml
+  - autogluon-template.yaml
