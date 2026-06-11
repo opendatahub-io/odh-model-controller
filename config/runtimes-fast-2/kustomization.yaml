@@ -2,12 +2,7 @@ apiVersion: kustomize.config.k8s.io/v1beta1
 kind: Kustomization
 
 resources:
-  - ../../runtimes/vllm-cuda-template.yaml
-  - ../../runtimes/vllm-rocm-template.yaml
-  - ../../runtimes/vllm-gaudi-template.yaml
-  - ../../runtimes/vllm-spyre-s390x-template.yaml
-  - ../../runtimes/vllm-spyre-x86-template.yaml
-  - ../../runtimes/vllm-spyre-ppc64le-template.yaml
+  - ../runtimes/vllm
 
 nameSuffix: -fast-2
 
@@ -22,11 +17,11 @@ patches:
       kind: Template
     patch: |-
       - op: add
-        path: /metadata/annotations/opendatahub.io~1runtime-support
-        value: "Tech Preview - Unsupported"
+        path: /metadata/annotations/opendatahub.io~1support-status
+        value: "unsupported"
       - op: add
-        path: /objects/0/metadata/annotations/opendatahub.io~1runtime-support
-        value: "Tech Preview - Unsupported"
+        path: /objects/0/metadata/annotations/opendatahub.io~1support-status
+        value: "unsupported"
   - target: { kind: Template, name: vllm-cuda-runtime-template }
     patch: |-
       - op: replace
