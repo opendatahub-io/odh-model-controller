@@ -9,7 +9,4 @@ resources:
   - ovms-kserve-template.yaml
   - mlserver-template.yaml
   - vllm/
-  - vllm-multinode-template.yaml
-  - vllm-cpu-template.yaml
-  - vllm-cpu-x86-template.yaml
   - hf-detector-template.yaml
