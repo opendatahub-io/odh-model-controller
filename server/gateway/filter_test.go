@@ -7,6 +7,8 @@ import (
 	gatewayapiv1 "sigs.k8s.io/gateway-api/apis/v1"
 )
 
+const expectedProtocolHTTPS = "HTTPS"
+
 func ptr[T any](v T) *T { return &v }
 
 func TestListenerAllowsNamespace(t *testing.T) {
@@ -278,8 +280,8 @@ func TestFilterListeners(t *testing.T) {
 	if refs[0].Hostname != "gw.example.com" {
 		t.Errorf("hostname = %q, want %q", refs[0].Hostname, "gw.example.com")
 	}
-	if refs[0].Protocol != "HTTPS" {
-		t.Errorf("protocol = %q, want %q", refs[0].Protocol, "HTTPS")
+	if refs[0].Protocol != expectedProtocolHTTPS {
+		t.Errorf("protocol = %q, want %q", refs[0].Protocol, expectedProtocolHTTPS)
 	}
 	if refs[0].Port != 443 {
 		t.Errorf("port = %d, want %d", refs[0].Port, 443)
@@ -532,6 +534,65 @@ func TestExtractHostname(t *testing.T) {
 			t.Errorf("extractHostname(nil) = %q, want empty", got)
 		}
 	})
+
+	t.Run("invalid address values are skipped", func(t *testing.T) {
+		gw := &gatewayapiv1.Gateway{
+			Status: gatewayapiv1.GatewayStatus{
+				Addresses: []gatewayapiv1.GatewayStatusAddress{
+					{Type: ptr(gatewayapiv1.HostnameAddressType), Value: "not a valid hostname!"},
+					{Type: ptr(gatewayapiv1.HostnameAddressType), Value: "valid.example.com"},
+				},
+			},
+		}
+		got := extractHostname(gw)
+		if got != "valid.example.com" {
+			t.Errorf("extractHostname() = %q, want %q", got, "valid.example.com")
+		}
+	})
+
+	t.Run("all invalid addresses return empty", func(t *testing.T) {
+		gw := &gatewayapiv1.Gateway{
+			Status: gatewayapiv1.GatewayStatus{
+				Addresses: []gatewayapiv1.GatewayStatusAddress{
+					{Value: "http://evil.com/redirect"},
+					{Value: "spaces in hostname"},
+				},
+			},
+		}
+		got := extractHostname(gw)
+		if got != "" {
+			t.Errorf("extractHostname() = %q, want empty", got)
+		}
+	})
+}
+
+func TestIsValidHostnameOrIP(t *testing.T) {
+	tests := []struct {
+		value string
+		want  bool
+	}{
+		{"", false},
+		{"gw.example.com", true},
+		{"10.0.0.1", true},
+		{"::1", true},
+		{"fe80::1", true},
+		{"my-gateway", true},
+		{"a", true},
+		{"not a hostname", false},
+		{"http://evil.com", false},
+		{"-starts-with-dash.com", false},
+		{"ends-with-dash-.com", false},
+		{"valid-host.example.com", true},
+		{"123.456.789.0", false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.value, func(t *testing.T) {
+			got := isValidHostnameOrIP(tt.value)
+			if got != tt.want {
+				t.Errorf("isValidHostnameOrIP(%q) = %v, want %v", tt.value, got, tt.want)
+			}
+		})
+	}
 }
 
 func TestFilterListeners_ConnectionMetadata(t *testing.T) {
@@ -573,8 +634,8 @@ func TestFilterListeners_ConnectionMetadata(t *testing.T) {
 		if refs[0].Hostname != "listener.example.com" {
 			t.Errorf("hostname = %q, want %q", refs[0].Hostname, "listener.example.com")
 		}
-		if refs[0].Protocol != "HTTPS" {
-			t.Errorf("protocol = %q, want %q", refs[0].Protocol, "HTTPS")
+		if refs[0].Protocol != expectedProtocolHTTPS {
+			t.Errorf("protocol = %q, want %q", refs[0].Protocol, expectedProtocolHTTPS)
 		}
 		if refs[0].Port != 443 {
 			t.Errorf("port = %d, want %d", refs[0].Port, 443)
@@ -699,8 +760,8 @@ func TestFilterListeners_ConnectionMetadata(t *testing.T) {
 		if refs[0].Hostname != "" {
 			t.Errorf("hostname = %q, want empty", refs[0].Hostname)
 		}
-		if refs[0].Protocol != "HTTPS" {
-			t.Errorf("protocol = %q, want %q", refs[0].Protocol, "HTTPS")
+		if refs[0].Protocol != expectedProtocolHTTPS {
+			t.Errorf("protocol = %q, want %q", refs[0].Protocol, expectedProtocolHTTPS)
 		}
 		if refs[0].Port != 443 {
 			t.Errorf("port = %d, want %d", refs[0].Port, 443)

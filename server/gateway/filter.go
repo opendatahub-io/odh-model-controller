@@ -1,6 +1,9 @@
 package gateway
 
 import (
+	"net"
+	"regexp"
+
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/labels"
 	gatewayapiv1 "sigs.k8s.io/gateway-api/apis/v1"
@@ -40,18 +43,33 @@ func FilterListeners(gateways []gatewayapiv1.Gateway, targetNS string, nsLabels 
 	return refs
 }
 
+var dnsNameRegex = regexp.MustCompile(`^([a-zA-Z0-9]([a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?\.)*[a-zA-Z0-9]([a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?$`)
+
+func isValidHostnameOrIP(value string) bool {
+	if value == "" {
+		return false
+	}
+	if net.ParseIP(value) != nil {
+		return true
+	}
+	return len(value) <= 253 && dnsNameRegex.MatchString(value)
+}
+
 // extractHostname returns the best external hostname from Gateway status
 // addresses. It prefers Hostname-typed addresses over IP addresses.
+// Only well-formed DNS names or IP addresses are accepted (defense in depth).
 func extractHostname(gw *gatewayapiv1.Gateway) string {
 	if gw == nil {
 		return ""
 	}
 	var fallback string
 	for _, addr := range gw.Status.Addresses {
+		if !isValidHostnameOrIP(addr.Value) {
+			continue
+		}
 		if addr.Type != nil && *addr.Type == gatewayapiv1.HostnameAddressType {
 			return addr.Value
 		}
-		// Keep the first address value as fallback (IP or default type).
 		if fallback == "" {
 			fallback = addr.Value
 		}
