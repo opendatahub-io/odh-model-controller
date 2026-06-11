@@ -43,7 +43,12 @@ func FilterListeners(gateways []gatewayapiv1.Gateway, targetNS string, nsLabels 
 	return refs
 }
 
-var dnsNameRegex = regexp.MustCompile(`^([a-zA-Z0-9]([a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?\.)*[a-zA-Z0-9]([a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?$`)
+var dnsNameRegex = regexp.MustCompile(
+	`^([a-zA-Z0-9]([a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?\.)*` +
+		`[a-zA-Z0-9]([a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?$`)
+
+var ipv4LikeRegex = regexp.MustCompile(
+	`^\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}$`)
 
 func isValidHostnameOrIP(value string) bool {
 	if value == "" {
@@ -51,6 +56,11 @@ func isValidHostnameOrIP(value string) bool {
 	}
 	if net.ParseIP(value) != nil {
 		return true
+	}
+	// Reject strings that look like dotted-decimal IPv4 addresses
+	// but were rejected by net.ParseIP (e.g. octets > 255).
+	if ipv4LikeRegex.MatchString(value) {
+		return false
 	}
 	return len(value) <= 253 && dnsNameRegex.MatchString(value)
 }
