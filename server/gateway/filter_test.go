@@ -226,7 +226,9 @@ func TestFilterListeners(t *testing.T) {
 		Spec: gatewayapiv1.GatewaySpec{
 			Listeners: []gatewayapiv1.Listener{
 				{
-					Name: "https",
+					Name:     "https",
+					Port:     443,
+					Protocol: gatewayapiv1.HTTPSProtocolType,
 					AllowedRoutes: &gatewayapiv1.AllowedRoutes{
 						Namespaces: &gatewayapiv1.RouteNamespaces{
 							From: ptr(gatewayapiv1.NamespacesFromAll),
@@ -234,7 +236,9 @@ func TestFilterListeners(t *testing.T) {
 					},
 				},
 				{
-					Name: "internal",
+					Name:     "internal",
+					Port:     8080,
+					Protocol: gatewayapiv1.HTTPProtocolType,
 					AllowedRoutes: &gatewayapiv1.AllowedRoutes{
 						Namespaces: &gatewayapiv1.RouteNamespaces{
 							From: ptr(gatewayapiv1.NamespacesFromSame),
@@ -247,6 +251,12 @@ func TestFilterListeners(t *testing.T) {
 			Conditions: []metav1.Condition{
 				{Type: "Accepted", Status: metav1.ConditionTrue},
 				{Type: "Programmed", Status: metav1.ConditionTrue},
+			},
+			Addresses: []gatewayapiv1.GatewayStatusAddress{
+				{
+					Type:  ptr(gatewayapiv1.HostnameAddressType),
+					Value: "gw.example.com",
+				},
 			},
 		},
 	}
@@ -265,6 +275,15 @@ func TestFilterListeners(t *testing.T) {
 	if refs[0].Description != "Production ingress gateway" {
 		t.Errorf("description = %q, want %q", refs[0].Description, "Production ingress gateway")
 	}
+	if refs[0].Hostname != "gw.example.com" {
+		t.Errorf("hostname = %q, want %q", refs[0].Hostname, "gw.example.com")
+	}
+	if refs[0].Protocol != "HTTPS" {
+		t.Errorf("protocol = %q, want %q", refs[0].Protocol, "HTTPS")
+	}
+	if refs[0].Port != 443 {
+		t.Errorf("port = %d, want %d", refs[0].Port, 443)
+	}
 }
 
 func TestFilterListeners_MultipleGateways(t *testing.T) {
@@ -274,7 +293,9 @@ func TestFilterListeners_MultipleGateways(t *testing.T) {
 			Spec: gatewayapiv1.GatewaySpec{
 				Listeners: []gatewayapiv1.Listener{
 					{
-						Name: "https",
+						Name:     "https",
+						Port:     443,
+						Protocol: gatewayapiv1.HTTPSProtocolType,
 						AllowedRoutes: &gatewayapiv1.AllowedRoutes{
 							Namespaces: &gatewayapiv1.RouteNamespaces{
 								From: ptr(gatewayapiv1.NamespacesFromAll),
@@ -295,7 +316,9 @@ func TestFilterListeners_MultipleGateways(t *testing.T) {
 			Spec: gatewayapiv1.GatewaySpec{
 				Listeners: []gatewayapiv1.Listener{
 					{
-						Name: "http",
+						Name:     "http",
+						Port:     80,
+						Protocol: gatewayapiv1.HTTPProtocolType,
 					},
 				},
 			},
@@ -326,7 +349,9 @@ func TestFilterListeners_NoAnnotations(t *testing.T) {
 		Spec: gatewayapiv1.GatewaySpec{
 			Listeners: []gatewayapiv1.Listener{
 				{
-					Name: "https",
+					Name:     "https",
+					Port:     443,
+					Protocol: gatewayapiv1.HTTPSProtocolType,
 					AllowedRoutes: &gatewayapiv1.AllowedRoutes{
 						Namespaces: &gatewayapiv1.RouteNamespaces{
 							From: ptr(gatewayapiv1.NamespacesFromAll),
@@ -437,4 +462,248 @@ func TestNeedsNamespaceLabels(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestExtractHostname(t *testing.T) {
+	tests := []struct {
+		name      string
+		addresses []gatewayapiv1.GatewayStatusAddress
+		want      string
+	}{
+		{
+			name:      "no addresses returns empty",
+			addresses: nil,
+			want:      "",
+		},
+		{
+			name: "hostname address type preferred",
+			addresses: []gatewayapiv1.GatewayStatusAddress{
+				{Type: ptr(gatewayapiv1.IPAddressType), Value: "10.0.0.1"},
+				{Type: ptr(gatewayapiv1.HostnameAddressType), Value: "gw.example.com"},
+			},
+			want: "gw.example.com",
+		},
+		{
+			name: "IP address used as fallback",
+			addresses: []gatewayapiv1.GatewayStatusAddress{
+				{Type: ptr(gatewayapiv1.IPAddressType), Value: "10.0.0.1"},
+			},
+			want: "10.0.0.1",
+		},
+		{
+			name: "nil type falls back to value",
+			addresses: []gatewayapiv1.GatewayStatusAddress{
+				{Value: "192.168.1.1"},
+			},
+			want: "192.168.1.1",
+		},
+		{
+			name: "first hostname wins when multiple hostname addresses exist",
+			addresses: []gatewayapiv1.GatewayStatusAddress{
+				{Type: ptr(gatewayapiv1.HostnameAddressType), Value: "first.example.com"},
+				{Type: ptr(gatewayapiv1.HostnameAddressType), Value: "second.example.com"},
+			},
+			want: "first.example.com",
+		},
+		{
+			name:      "nil gateway returns empty",
+			addresses: nil,
+			want:      "",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			gw := &gatewayapiv1.Gateway{
+				Status: gatewayapiv1.GatewayStatus{
+					Addresses: tt.addresses,
+				},
+			}
+			got := extractHostname(gw)
+			if got != tt.want {
+				t.Errorf("extractHostname() = %q, want %q", got, tt.want)
+			}
+		})
+	}
+
+	t.Run("nil gateway", func(t *testing.T) {
+		got := extractHostname(nil)
+		if got != "" {
+			t.Errorf("extractHostname(nil) = %q, want empty", got)
+		}
+	})
+}
+
+func TestFilterListeners_ConnectionMetadata(t *testing.T) {
+	t.Run("listener hostname overrides gateway status address", func(t *testing.T) {
+		listenerHost := gatewayapiv1.Hostname("listener.example.com")
+		gw := gatewayapiv1.Gateway{
+			ObjectMeta: metav1.ObjectMeta{Name: "gw1", Namespace: "infra"},
+			Spec: gatewayapiv1.GatewaySpec{
+				Listeners: []gatewayapiv1.Listener{
+					{
+						Name:     "https",
+						Port:     443,
+						Protocol: gatewayapiv1.HTTPSProtocolType,
+						Hostname: &listenerHost,
+						AllowedRoutes: &gatewayapiv1.AllowedRoutes{
+							Namespaces: &gatewayapiv1.RouteNamespaces{
+								From: ptr(gatewayapiv1.NamespacesFromAll),
+							},
+						},
+					},
+				},
+			},
+			Status: gatewayapiv1.GatewayStatus{
+				Conditions: []metav1.Condition{
+					{Type: "Accepted", Status: metav1.ConditionTrue},
+					{Type: "Programmed", Status: metav1.ConditionTrue},
+				},
+				Addresses: []gatewayapiv1.GatewayStatusAddress{
+					{Type: ptr(gatewayapiv1.HostnameAddressType), Value: "gateway-status.example.com"},
+				},
+			},
+		}
+
+		refs := FilterListeners([]gatewayapiv1.Gateway{gw}, "my-project", nil)
+
+		if len(refs) != 1 {
+			t.Fatalf("expected 1 ref, got %d", len(refs))
+		}
+		if refs[0].Hostname != "listener.example.com" {
+			t.Errorf("hostname = %q, want %q", refs[0].Hostname, "listener.example.com")
+		}
+		if refs[0].Protocol != "HTTPS" {
+			t.Errorf("protocol = %q, want %q", refs[0].Protocol, "HTTPS")
+		}
+		if refs[0].Port != 443 {
+			t.Errorf("port = %d, want %d", refs[0].Port, 443)
+		}
+	})
+
+	t.Run("gateway status address used when listener has no hostname", func(t *testing.T) {
+		gw := gatewayapiv1.Gateway{
+			ObjectMeta: metav1.ObjectMeta{Name: "gw1", Namespace: "infra"},
+			Spec: gatewayapiv1.GatewaySpec{
+				Listeners: []gatewayapiv1.Listener{
+					{
+						Name:     "http",
+						Port:     80,
+						Protocol: gatewayapiv1.HTTPProtocolType,
+						AllowedRoutes: &gatewayapiv1.AllowedRoutes{
+							Namespaces: &gatewayapiv1.RouteNamespaces{
+								From: ptr(gatewayapiv1.NamespacesFromAll),
+							},
+						},
+					},
+				},
+			},
+			Status: gatewayapiv1.GatewayStatus{
+				Conditions: []metav1.Condition{
+					{Type: "Accepted", Status: metav1.ConditionTrue},
+					{Type: "Programmed", Status: metav1.ConditionTrue},
+				},
+				Addresses: []gatewayapiv1.GatewayStatusAddress{
+					{Type: ptr(gatewayapiv1.HostnameAddressType), Value: "external.example.com"},
+				},
+			},
+		}
+
+		refs := FilterListeners([]gatewayapiv1.Gateway{gw}, "my-project", nil)
+
+		if len(refs) != 1 {
+			t.Fatalf("expected 1 ref, got %d", len(refs))
+		}
+		if refs[0].Hostname != "external.example.com" {
+			t.Errorf("hostname = %q, want %q", refs[0].Hostname, "external.example.com")
+		}
+		if refs[0].Protocol != "HTTP" {
+			t.Errorf("protocol = %q, want %q", refs[0].Protocol, "HTTP")
+		}
+		if refs[0].Port != 80 {
+			t.Errorf("port = %d, want %d", refs[0].Port, 80)
+		}
+	})
+
+	t.Run("IP address fallback when no hostname address", func(t *testing.T) {
+		gw := gatewayapiv1.Gateway{
+			ObjectMeta: metav1.ObjectMeta{Name: "gw1", Namespace: "infra"},
+			Spec: gatewayapiv1.GatewaySpec{
+				Listeners: []gatewayapiv1.Listener{
+					{
+						Name:     "https",
+						Port:     8443,
+						Protocol: gatewayapiv1.HTTPSProtocolType,
+						AllowedRoutes: &gatewayapiv1.AllowedRoutes{
+							Namespaces: &gatewayapiv1.RouteNamespaces{
+								From: ptr(gatewayapiv1.NamespacesFromAll),
+							},
+						},
+					},
+				},
+			},
+			Status: gatewayapiv1.GatewayStatus{
+				Conditions: []metav1.Condition{
+					{Type: "Accepted", Status: metav1.ConditionTrue},
+					{Type: "Programmed", Status: metav1.ConditionTrue},
+				},
+				Addresses: []gatewayapiv1.GatewayStatusAddress{
+					{Type: ptr(gatewayapiv1.IPAddressType), Value: "10.0.0.1"},
+				},
+			},
+		}
+
+		refs := FilterListeners([]gatewayapiv1.Gateway{gw}, "my-project", nil)
+
+		if len(refs) != 1 {
+			t.Fatalf("expected 1 ref, got %d", len(refs))
+		}
+		if refs[0].Hostname != "10.0.0.1" {
+			t.Errorf("hostname = %q, want %q", refs[0].Hostname, "10.0.0.1")
+		}
+		if refs[0].Port != 8443 {
+			t.Errorf("port = %d, want %d", refs[0].Port, 8443)
+		}
+	})
+
+	t.Run("no addresses and no listener hostname returns empty hostname", func(t *testing.T) {
+		gw := gatewayapiv1.Gateway{
+			ObjectMeta: metav1.ObjectMeta{Name: "gw1", Namespace: "infra"},
+			Spec: gatewayapiv1.GatewaySpec{
+				Listeners: []gatewayapiv1.Listener{
+					{
+						Name:     "https",
+						Port:     443,
+						Protocol: gatewayapiv1.HTTPSProtocolType,
+						AllowedRoutes: &gatewayapiv1.AllowedRoutes{
+							Namespaces: &gatewayapiv1.RouteNamespaces{
+								From: ptr(gatewayapiv1.NamespacesFromAll),
+							},
+						},
+					},
+				},
+			},
+			Status: gatewayapiv1.GatewayStatus{
+				Conditions: []metav1.Condition{
+					{Type: "Accepted", Status: metav1.ConditionTrue},
+					{Type: "Programmed", Status: metav1.ConditionTrue},
+				},
+			},
+		}
+
+		refs := FilterListeners([]gatewayapiv1.Gateway{gw}, "my-project", nil)
+
+		if len(refs) != 1 {
+			t.Fatalf("expected 1 ref, got %d", len(refs))
+		}
+		if refs[0].Hostname != "" {
+			t.Errorf("hostname = %q, want empty", refs[0].Hostname)
+		}
+		if refs[0].Protocol != "HTTPS" {
+			t.Errorf("protocol = %q, want %q", refs[0].Protocol, "HTTPS")
+		}
+		if refs[0].Port != 443 {
+			t.Errorf("port = %d, want %d", refs[0].Port, 443)
+		}
+	})
 }

@@ -14,6 +14,11 @@ type GatewayRef struct {
 	Status      string `json:"status"`
 	DisplayName string `json:"displayName,omitempty"`
 	Description string `json:"description,omitempty"`
+
+	// Connection metadata derived from Gateway status and listener spec.
+	Hostname string `json:"hostname,omitempty"` // External hostname from Gateway status addresses or listener hostname
+	Protocol string `json:"protocol,omitempty"` // Listener protocol (e.g. "HTTPS", "HTTP")
+	Port     int32  `json:"port,omitempty"`     // Listener port number
 }
 
 // GatewaysResponse is the API response envelope.

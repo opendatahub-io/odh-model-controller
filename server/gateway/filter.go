@@ -13,20 +13,50 @@ func FilterListeners(gateways []gatewayapiv1.Gateway, targetNS string, nsLabels 
 	for i := range gateways {
 		gw := &gateways[i]
 		status := ExtractStatus(gw)
+		hostname := extractHostname(gw)
 		for _, listener := range gw.Spec.Listeners {
 			if listenerAllowsNamespace(listener, gw.Namespace, targetNS, nsLabels) {
-				refs = append(refs, GatewayRef{
+				ref := GatewayRef{
 					Name:        gw.Name,
 					Namespace:   gw.Namespace,
 					Listener:    string(listener.Name),
 					Status:      status,
 					DisplayName: gw.Annotations[AnnotationDisplayName],
 					Description: gw.Annotations[AnnotationDescription],
-				})
+					Protocol:    string(listener.Protocol),
+					Port:        int32(listener.Port),
+				}
+				// Prefer the listener-level hostname if set; otherwise
+				// fall back to the gateway-level hostname from status addresses.
+				if listener.Hostname != nil && *listener.Hostname != "" {
+					ref.Hostname = string(*listener.Hostname)
+				} else {
+					ref.Hostname = hostname
+				}
+				refs = append(refs, ref)
 			}
 		}
 	}
 	return refs
+}
+
+// extractHostname returns the best external hostname from Gateway status
+// addresses. It prefers Hostname-typed addresses over IP addresses.
+func extractHostname(gw *gatewayapiv1.Gateway) string {
+	if gw == nil {
+		return ""
+	}
+	var fallback string
+	for _, addr := range gw.Status.Addresses {
+		if addr.Type != nil && *addr.Type == gatewayapiv1.HostnameAddressType {
+			return addr.Value
+		}
+		// Keep the first address value as fallback (IP or default type).
+		if fallback == "" {
+			fallback = addr.Value
+		}
+	}
+	return fallback
 }
 
 // NeedsNamespaceLabels returns true if any listener in any gateway uses
