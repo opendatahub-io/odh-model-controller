@@ -155,6 +155,12 @@ replacements:
           name: vllm-cuda-runtime-template-fast-1
         fieldPaths:
           - objects.0.spec.containers.0.image
+      - select:
+          kind: Template
+          name: vllm-multinode-runtime-template-fast-1
+        fieldPaths:
+          - objects.0.spec.containers.0.image
+          - objects.0.spec.workerSpec.containers.0.image
   - source:
       kind: ConfigMap
       version: v1
@@ -166,6 +172,12 @@ replacements:
           name: vllm-cuda-runtime-template-fast-2
         fieldPaths:
           - objects.0.spec.containers.0.image
+      - select:
+          kind: Template
+          name: vllm-multinode-runtime-template-fast-2
+        fieldPaths:
+          - objects.0.spec.containers.0.image
+          - objects.0.spec.workerSpec.containers.0.image
   - source:
       kind: ConfigMap
       version: v1
@@ -320,30 +332,6 @@ replacements:
           name: vllm-cpu-x86-runtime-template-fast-2
         fieldPaths:
           - objects.0.spec.containers.0.image
-  - source:
-      kind: ConfigMap
-      version: v1
-      name: odh-model-controller-parameters
-      fieldPath: data.vllm-multinode-image-fast-1
-    targets:
-      - select:
-          kind: Template
-          name: vllm-multinode-runtime-template-fast-1
-        fieldPaths:
-          - objects.0.spec.containers.0.image
-          - objects.0.spec.workerSpec.containers.0.image
-  - source:
-      kind: ConfigMap
-      version: v1
-      name: odh-model-controller-parameters
-      fieldPath: data.vllm-multinode-image-fast-2
-    targets:
-      - select:
-          kind: Template
-          name: vllm-multinode-runtime-template-fast-2
-        fieldPaths:
-          - objects.0.spec.containers.0.image
-          - objects.0.spec.workerSpec.containers.0.image
   - source:
       kind: ConfigMap
       version: v1
