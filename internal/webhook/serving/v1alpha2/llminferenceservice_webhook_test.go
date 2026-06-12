@@ -20,6 +20,7 @@ import (
 	"context"
 	"encoding/json"
 
+	kservev1alpha1 "github.com/kserve/kserve/pkg/apis/serving/v1alpha1"
 	kservev1alpha2 "github.com/kserve/kserve/pkg/apis/serving/v1alpha2"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
@@ -884,6 +885,29 @@ var _ = Describe("LLMInferenceService ConnectionsAPI Defaulter", func() {
 			llmisvc := buildLLMISVC(nil)
 			spec := marshalSpec(llmisvc)
 			Expect(spec).ToNot(BeNil())
+		})
+	})
+
+	Describe("v1alpha1 API version", func() {
+
+		It("injects URI connection into a v1alpha1 LLMInferenceService", func() {
+			secret := testutils.BuildSecret(llmURISecretName, llmNS, "uri",
+				map[string][]byte{"URI": []byte("hf://meta-llama/Llama-4")})
+			cli := newLLMFakeClient(secret)
+			d := newLLMDefaulter(cli)
+			llmisvc := &kservev1alpha1.LLMInferenceService{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      llmISVCName,
+					Namespace: llmNS,
+					Annotations: map[string]string{
+						connectionapi.AnnotationConnections: llmURISecretName,
+					},
+				},
+			}
+			admCtx := llmAdmissionCtx(admissionv1.Create, nil, false)
+
+			Expect(d.Default(admCtx, llmisvc)).To(Succeed())
+			Expect(llmisvc.Spec.Model.URI.String()).To(Equal("hf://meta-llama/Llama-4"))
 		})
 	})
 })
