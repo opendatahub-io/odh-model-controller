@@ -11,7 +11,7 @@
 #      a GitHub release. Only the tag is pushed (the branch is not modified).
 #
 # Repos without config/**/params.env (e.g. llm-d-inference-scheduler,
-# workload-variant-autoscaler, llm-d-kv-cache) get only the tekton rewrite + tag.
+# workload-variant-autoscaler, llm-d-kv-cache, MLServer) get only the tekton rewrite + tag.
 #
 # Repository requirements:
 #   - .tekton/*-push.yaml files with:
@@ -27,15 +27,16 @@ on:
   workflow_dispatch:
     inputs:
       repository:
-        description: 'Target repository (odh-model-controller, kserve, llm-d-inference-scheduler, workload-variant-autoscaler, llm-d-kv-cache)'
+        description: 'Target repository'
         required: true
         type: choice
         options:
-          - odh-model-controller
+          - workload-variant-autoscaler
+          - llm-d-kv-cache
           - llm-d-inference-scheduler
           - kserve
-          - llm-d-kv-cache
-          - workload-variant-autoscaler
+          - MLServer
+          - odh-model-controller
       tag_name: # The new release tag to be created and used as the search value.
         description: 'New release tag (e.g., odh-v2.35)'
         required: true
@@ -51,7 +52,7 @@ on:
         type: boolean
         default: false
       dry_run:
-        description: 'Dry run: show what would change without writing files, tagging, or creating a release'
+        description: 'Dry run'
         required: false
         type: boolean
         default: false
@@ -212,7 +213,7 @@ jobs:
             # odh-model-serving-api is published under the odh-model-controller image repo
             # (e.g. quay.io/opendatahub/odh-model-controller:odh-model-serving-api-fast)
             image_pattern = re.compile(
-              r'([\w.-]+(?:\.[\w.-]+)*/[\w.-]+/(?:odh-model-controller|odh-model-serving-api|mlserver)):((?:odh-model-serving-api-)?)(fast|v[\d.]+-latest|release-v[\d.]+|odh-v[\d.]+(?:-EA\d)?)'
+              r'([\w.-]+(?:\.[\w.-]+)*/[\w.-]+/(?:odh-model-controller|odh-model-serving-api|mlserver)):((?:odh-model-serving-api-)?)(fast|odh-stable|v[\d.]+-latest|release-v[\d.]+|odh-v[\d.]+(?:-EA\d)?)'
             )
           else:
             image_pattern = re.compile(
@@ -330,6 +331,76 @@ jobs:
           print(f"\n✓ {prefix_label}{'Would rewrite' if dry_run else 'Rewrote'} {len(updated_files)} push pipeline(s) for tag {tag_name}")
         shell: python
 
+      - name: Set up Go
+        if: ${{ needs.validate-and-check.outputs.repo_name == 'odh-model-controller' }}
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: 'go.mod'
+
+      - name: Update kserve dependency (odh-model-controller only)
+        if: ${{ needs.validate-and-check.outputs.repo_name == 'odh-model-controller' }}
+        env:
+          DRY_RUN: ${{ github.event.inputs.dry_run }}
+          TAG_NAME: ${{ github.event.inputs.tag_name }}
+        run: |
+          import os
+          import re
+          import subprocess
+
+          dry_run = os.environ.get('DRY_RUN', 'false') == 'true'
+          tag_name = os.environ["TAG_NAME"]
+          prefix_label = "[DRY RUN] " if dry_run else ""
+
+          with open('go.mod', 'r') as f:
+            content = f.read()
+
+          pattern = re.compile(
+            r'(replace github\.com/kserve/kserve => github\.com/opendatahub-io/kserve) \S+'
+          )
+
+          match = pattern.search(content)
+          if not match:
+            print("::error::kserve replace directive not found in go.mod")
+            raise SystemExit(1)
+
+          old_version = match.group(0).rsplit(' ', 1)[1]
+
+          kserve_repo = "opendatahub-io/kserve"
+          result = subprocess.run(
+            ['git', 'ls-remote', '--tags', f'https://github.com/{kserve_repo}.git', f'refs/tags/{tag_name}'],
+            capture_output=True, text=True
+          )
+          if not result.stdout.strip():
+            print(f"::error::Tag '{tag_name}' not found on {kserve_repo}. Release kserve first.")
+            raise SystemExit(1)
+
+          new_content = pattern.sub(rf'\1 {tag_name}', content)
+
+          print(f"{prefix_label}Updating kserve dependency: {old_version} -> {tag_name}")
+
+          if dry_run:
+            print(f"✓ {prefix_label}kserve dependency would be updated")
+            raise SystemExit(0)
+
+          with open('go.mod', 'w') as f:
+            f.write(new_content)
+
+          print("Running go mod tidy...")
+          result = subprocess.run(['go', 'mod', 'tidy'], capture_output=True, text=True)
+          if result.returncode != 0:
+            print(f"::error::go mod tidy failed:\n{result.stderr}")
+            raise SystemExit(1)
+
+          with open('go.mod', 'r') as f:
+            resolved = f.read()
+          resolved_match = pattern.search(resolved)
+          if resolved_match:
+            resolved_version = resolved_match.group(0).rsplit(' ', 1)[1]
+            print(f"  Resolved to: {resolved_version}")
+
+          print(f"✓ kserve dependency updated")
+        shell: python
+
       - name: Commit release changes (if any)
         if: ${{ github.event.inputs.dry_run != 'true' }}
         env:
@@ -337,6 +408,7 @@ jobs:
         run: |
           git add config/**/params.env 2>/dev/null || true
           git add .tekton/ 2>/dev/null || true
+          git add go.mod go.sum 2>/dev/null || true
           
           if [[ -n "$(git status --porcelain)" ]]; then
             git commit -m "Update image refs and .tekton/ pipelines for release ${TAG_NAME}"
