@@ -162,6 +162,10 @@ func FindSupportingRuntimeForISvc(ctx context.Context, cli client.Client, log lo
 		}
 		return desiredServingRuntime, nil
 	} else {
+		if isvc.Spec.Predictor.Model == nil || isvc.Spec.Predictor.Model.ModelFormat.Name == "" {
+			return nil, nil
+		}
+
 		runtimes := &kservev1alpha1.ServingRuntimeList{}
 		err := cli.List(ctx, runtimes, client.InNamespace(isvc.Namespace))
 		if err != nil {

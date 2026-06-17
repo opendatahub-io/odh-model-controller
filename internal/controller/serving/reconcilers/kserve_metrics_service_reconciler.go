@@ -81,7 +81,7 @@ func (r *KserveRawMetricsServiceReconciler) createDesiredResource(ctx context.Co
 		return nil, err
 	}
 
-	if isvcRuntime.Spec.Annotations == nil || isvcRuntime.Spec.Annotations[constants.PrometheusPortAnnotationKey] == "" {
+	if isvcRuntime == nil || isvcRuntime.Spec.Annotations == nil || isvcRuntime.Spec.Annotations[constants.PrometheusPortAnnotationKey] == "" {
 		log.V(1).Info("No Prometheus annotations on ServingRuntime, skipping creation of metrics resources")
 		return nil, nil
 	}

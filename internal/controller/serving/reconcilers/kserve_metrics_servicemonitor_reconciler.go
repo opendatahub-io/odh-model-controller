@@ -82,6 +82,10 @@ func (r *KserveRawMetricsServiceMonitorReconciler) createDesiredResource(ctx con
 		return nil, err
 	}
 
+	if isvcRuntime == nil {
+		return nil, nil
+	}
+
 	endpoint := v1.Endpoint{
 		Port:   isvcRuntime.Name + "-metrics",
 		Scheme: ptr.To(v1.Scheme("http")),
