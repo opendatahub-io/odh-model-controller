@@ -1,0 +1,34 @@
+apiVersion: kuadrant.io/v1
+kind: AuthPolicy
+metadata:
+  name: {{.Name}}
+  namespace: {{.Namespace}}
+spec:
+  targetRef:
+    group: gateway.networking.k8s.io
+    kind: {{.TargetKind}}
+    name: {{.TargetName}}
+  rules:
+    authentication:
+      public:
+        anonymous: {}
+        metrics: false
+        priority: 0
+        overrides:
+          fairness:
+            value: "unauthenticated"
+          objective:
+            value: "unauthenticated"
+    response:
+        success:
+          headers:
+            x-gateway-inference-fairness-id:
+              metrics: false
+              plain:
+                expression: auth.identity.fairness
+              priority: 0
+            x-gateway-inference-objective:
+              metrics: false
+              plain:
+                expression: auth.identity.objective
+              priority: 0

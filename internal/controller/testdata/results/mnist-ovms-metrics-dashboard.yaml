@@ -1,0 +1,60 @@
+kind: ConfigMap
+apiVersion: v1
+metadata:
+  name: mnist-metrics-dashboard
+  namespace: default
+data:
+  metrics: |-
+    {
+      "config": [
+        {
+          "title": "Number of incoming requests",
+          "type": "REQUEST_COUNT",
+          "queries": [
+            {
+              "title": "Successful requests",
+              "query": "sum(increase(ovms_requests_success{namespace='default',name='mnist'}[1m]))"
+            },
+            {
+              "title": "Failed requests",
+              "query": "sum(increase(ovms_requests_fail{namespace='default',name='mnist'}[1m]))"
+            }
+          ]
+        },
+        {
+          "title": "Mean Model Latency",
+          "type": "MEAN_LATENCY",
+          "queries": [
+            {
+              "title": "Mean inference latency",
+              "query": "sum by (name) (rate(ovms_inference_time_us_sum{namespace='default', name='mnist'}[1m])) / sum by (name) (rate(ovms_inference_time_us_count{namespace='default', name='mnist'}[1m]))"
+            },
+            {
+              "title": "Mean request latency",
+              "query": "sum by (name) (rate(ovms_request_time_us_sum{name='mnist'}[1m])) / sum by (name) (rate(ovms_request_time_us_count{name='mnist'}[1m]))"
+            }
+          ]
+        },
+        {
+          "title": "CPU usage",
+          "type": "CPU_USAGE",
+          "queries": [
+            {
+              "title": "CPU usage",
+              "query": "sum(node_namespace_pod_container:container_cpu_usage_seconds_total:sum_irate{namespace='default'}* on(namespace,pod) group_left(workload, workload_type) namespace_workload_pod:kube_pod_owner:relabel{namespace='default', workload=~'mnist-predictor-.*', workload_type=~'deployment'}) by (pod)"
+            }
+          ]
+        },
+        {
+          "title": "Memory usage",
+          "type": "MEMORY_USAGE",
+          "queries": [
+            {
+              "title": "Memory usage",
+              "query": "sum(container_memory_working_set_bytes{namespace='default', container!='', image!=''} * on(namespace,pod) group_left(workload, workload_type) namespace_workload_pod:kube_pod_owner:relabel{cluster='', namespace='default', workload=~'mnist-.*', workload_type=~'deployment'}) by (pod)"
+            }
+          ]
+        }    
+      ]
+    }
+  supported: 'true'

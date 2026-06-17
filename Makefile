@@ -1,0 +1,374 @@
+# Image URL to use all building/pushing image targets
+IMG ?= quay.io/${USER}/odh-model-controller:latest
+SERVER_IMG_TAG ?= latest
+SERVER_IMG ?= quay.io/${USER}/odh-model-serving-api:${SERVER_IMG_TAG}
+NAMESPACE ?= opendatahub
+# ENVTEST_K8S_VERSION refers to the version of kubebuilder assets to be downloaded by envtest binary.
+ENVTEST_K8S_VERSION = 1.31.0
+
+# Get the currently used golang install path (in GOPATH/bin, unless GOBIN is set)
+ifeq (,$(shell go env GOBIN))
+GOBIN=$(shell go env GOPATH)/bin
+else
+GOBIN=$(shell go env GOBIN)
+endif
+
+KSERVE_MANIFESTS_REVISION ?= v0.17.0-rc1
+
+# KServe E2E test configuration
+KSERVE_E2E_REPO ?= https://github.com/opendatahub-io/kserve.git
+KSERVE_E2E_BRANCH ?= master
+KSERVE_E2E_DIR ?= $(LOCALBIN)/kserve
+KSERVE_E2E_TEST_ARGS ?= raw 2 raw
+ODH_MODEL_CONTROLLER_IMAGE ?= $(IMG)
+E2E_OVERLAY_DIR = $(LOCALBIN)/e2e-kserve-overlay
+# Define the file to store the last used KServe revision
+KSERVE_REVISION_FILE = config/crd/external/.kserve_manifests_revision
+
+# CONTAINER_TOOL defines the container tool to be used for building images.
+# Be aware that the target commands are only tested with Docker which is
+# scaffolded by default. However, you might want to replace it to use other
+# tools. (i.e. podman)
+ENGINE ?= docker # Backwards compatibility
+CONTAINER_TOOL ?= $(ENGINE)
+
+# Setting SHELL to bash allows bash commands to be executed by recipes.
+# Options are set to exit when a recipe line exits non-zero or a piped command fails.
+SHELL = /usr/bin/env bash -o pipefail
+.SHELLFLAGS = -ec
+
+.PHONY: all
+all: build
+
+##@ General
+
+# The help target prints out all targets with their descriptions organized
+# beneath their categories. The categories are represented by '##@' and the
+# target descriptions by '##'. The awk command is responsible for reading the
+# entire set of makefiles included in this invocation, looking for lines of the
+# file as xyz: ## something, and then pretty-format the target and help. Then,
+# if there's a line with ##@ something, that gets pretty-printed as a category.
+# More info on the usage of ANSI control characters for terminal formatting:
+# https://en.wikipedia.org/wiki/ANSI_escape_code#SGR_parameters
+# More info on the awk command:
+# http://linuxcommand.org/lc3_adv_awk.php
+
+.PHONY: help
+help: ## Display this help.
+	@awk 'BEGIN {FS = ":.*##"; printf "\nUsage:\n  make \033[36m<target>\033[0m\n"} /^[a-zA-Z_0-9-]+:.*?##/ { printf "  \033[36m%-15s\033[0m %s\n", $$1, $$2 } /^##@/ { printf "\n\033[1m%s\033[0m\n", substr($$0, 5) } ' $(MAKEFILE_LIST)
+
+##@ Development
+
+# This .PHONY target ensures KServe CRD manifests are downloaded if the KSERVE_MANIFESTS_REVISION variable
+# has changed compared to the version stored in KSERVE_REVISION_FILE, or if the file doesn't exist.
+.PHONY: manifests-update
+manifests-update:
+	@echo "Checking KServe manifest revision..."
+	@mkdir -p $$(dirname $(KSERVE_REVISION_FILE))
+	@current_stored_revision=""; \
+	if [ -f "$(KSERVE_REVISION_FILE)" ]; then \
+		current_stored_revision="$$(cat $(KSERVE_REVISION_FILE) 2>/dev/null)"; \
+	fi; \
+	if [ "$$current_stored_revision" != "$(KSERVE_MANIFESTS_REVISION)" ]; then \
+		echo "KSERVE_MANIFESTS_REVISION ($(KSERVE_MANIFESTS_REVISION)) differs from stored ('$$current_stored_revision') or no stored revision found."; \
+		echo "Updating KServe manifests..."; \
+		mkdir -p $$(dirname config/crd/external/serving.kserve.io_inferencegraphs.yaml); \
+		wget -O - https://raw.githubusercontent.com/kserve/kserve/$(KSERVE_MANIFESTS_REVISION)/config/crd/full/serving.kserve.io_inferencegraphs.yaml \
+			| tail -n +2 > config/crd/external/serving.kserve.io_inferencegraphs.yaml; \
+		wget -O - https://raw.githubusercontent.com/kserve/kserve/$(KSERVE_MANIFESTS_REVISION)/config/crd/full/serving.kserve.io_inferenceservices.yaml \
+			| tail -n +2 > config/crd/external/serving.kserve.io_inferenceservices.yaml; \
+		wget -O - https://raw.githubusercontent.com/kserve/kserve/$(KSERVE_MANIFESTS_REVISION)/config/crd/full/serving.kserve.io_servingruntimes.yaml \
+			| tail -n +2 > config/crd/external/serving.kserve.io_servingruntimes.yaml; \
+		wget -O - https://raw.githubusercontent.com/kserve/kserve/$(KSERVE_MANIFESTS_REVISION)/config/crd/full/llmisvc/serving.kserve.io_llminferenceservices.yaml \
+			| tail -n +2 > config/crd/external/serving.kserve.io_llminferenceservices.yaml; \
+		wget -O - https://raw.githubusercontent.com/kserve/kserve/$(KSERVE_MANIFESTS_REVISION)/config/crd/full/llmisvc/serving.kserve.io_llminferenceserviceconfigs.yaml \
+			| tail -n +2 > config/crd/external/serving.kserve.io_llminferenceserviceconfigs.yaml; \
+		echo "$(KSERVE_MANIFESTS_REVISION)" > "$(KSERVE_REVISION_FILE)"; \
+		echo "KServe manifests updated to revision $(KSERVE_MANIFESTS_REVISION) and revision stored in $(KSERVE_REVISION_FILE)."; \
+	else \
+		echo "KServe manifests for revision $(KSERVE_MANIFESTS_REVISION) are already up-to-date (based on $(KSERVE_REVISION_FILE))."; \
+	fi
+
+.PHONY: manifests
+manifests: manifests-update controller-gen ## Generate WebhookConfiguration, ClusterRole and CustomResourceDefinition objects.
+	# Any customization needed, apply to a patch in the kustomize.yaml file on webhooks
+	$(CONTROLLER_GEN) rbac:roleName=odh-model-controller-role,headerFile="hack/manifests_boilerplate.yaml.txt" crd webhook paths="./..." output:crd:artifacts:config=config/crd/bases
+
+.PHONY: generate
+generate: controller-gen ## Generate code containing DeepCopy, DeepCopyInto, and DeepCopyObject method implementations.
+	$(CONTROLLER_GEN) object:headerFile="hack/boilerplate.go.txt" paths="./..."
+
+.PHONY: fmt
+fmt: ## Run go fmt against code.
+	go fmt ./...
+
+.PHONY: vet
+vet: ## Run go vet against code.
+	go vet ./...
+
+.PHONY: test
+test: manifests generate fmt vet envtest validate-samples ## Run tests.
+	@go tool covdata >/dev/null 2>&1 || true
+	KUBEBUILDER_ASSETS="$(shell $(ENVTEST) use $(ENVTEST_K8S_VERSION) --bin-dir $(LOCALBIN) -p path)" POD_NAMESPACE=default \
+		go test $$(go list ./... | grep -v /e2e) -coverprofile cover.out -coverpkg=./...
+
+# TODO(user): To use a different cluster than Kind for e2e tests, modify the setup under 'tests/e2e'.
+# The default setup assumes Kind is pre-installed and builds/loads the Manager Docker image locally.
+# Prometheus and CertManager are installed by default; skip with:
+# - PROMETHEUS_INSTALL_SKIP=true
+# - CERT_MANAGER_INSTALL_SKIP=true
+.PHONY: test-e2e
+test-e2e: manifests generate fmt vet ## Run the e2e tests. Expected an isolated environment using Kind.
+	@command -v kind >/dev/null 2>&1 || { \
+		echo "Kind is not installed. Please install Kind manually."; \
+		exit 1; \
+	}
+	@kind get clusters | grep -q 'kind' || { \
+		echo "No Kind cluster is running. Please start a Kind cluster before running the e2e tests."; \
+		exit 1; \
+	}
+	POD_NAMESPACE=default go test ./test/e2e/ -v -ginkgo.v
+
+.PHONY: test-e2e-server
+test-e2e-server: ## Run model-serving-api e2e tests. Requires the server deployed and oc logged in.
+	@echo "Creating passthrough routes for model-serving-api..."
+	@oc create route passthrough model-serving-api-e2e \
+		--service=model-serving-api --port=https -n '$(NAMESPACE)' 2>/dev/null || true
+	@oc create route passthrough model-serving-api-metrics-e2e \
+		--service=model-serving-api --port=metrics -n '$(NAMESPACE)' 2>/dev/null || true
+	@trap 'echo "Cleaning up routes..."; \
+		oc delete route model-serving-api-e2e -n $(NAMESPACE) 2>/dev/null || true; \
+		oc delete route model-serving-api-metrics-e2e -n $(NAMESPACE) 2>/dev/null || true' EXIT; \
+	echo "Waiting for routes to be admitted..." && \
+	oc wait --for='jsonpath={.status.ingress[0].conditions[?(@.type=="Admitted")].status}=True' \
+		route/model-serving-api-e2e -n '$(NAMESPACE)' --timeout=60s && \
+	oc wait --for='jsonpath={.status.ingress[0].conditions[?(@.type=="Admitted")].status}=True' \
+		route/model-serving-api-metrics-e2e -n '$(NAMESPACE)' --timeout=60s && \
+	MODEL_SERVING_API_URL=https://$$(oc get route model-serving-api-e2e -n '$(NAMESPACE)' \
+		-o jsonpath='{.spec.host}') && \
+	MODEL_SERVING_API_METRICS_URL=https://$$(oc get route model-serving-api-metrics-e2e -n '$(NAMESPACE)' \
+		-o jsonpath='{.spec.host}') && \
+	echo "SERVER_URL=$$MODEL_SERVING_API_URL" && \
+	echo "METRICS_URL=$$MODEL_SERVING_API_METRICS_URL" && \
+	MODEL_SERVING_API_URL=$$MODEL_SERVING_API_URL \
+	MODEL_SERVING_API_METRICS_URL=$$MODEL_SERVING_API_METRICS_URL \
+		go test -v -tags=e2e -timeout=10m -parallel=12 ./server/test/e2e/ -v -count=1
+
+.PHONY: test-e2e-controller
+test-e2e-controller: ## Run controller e2e tests. Requires controller + gateway + Authorino deployed.
+	go test -v -tags=e2e -timeout=10m -parallel=12 ./internal/controller/test/e2e/ -count=1
+
+.PHONY: e2e-kserve-overlay
+e2e-kserve-overlay: kustomize ## Create a kustomize overlay injecting the controller image for e2e tests.
+	@rm -rf "$(E2E_OVERLAY_DIR)" && mkdir -p "$(E2E_OVERLAY_DIR)"
+	@cp config/base/params.env "$(E2E_OVERLAY_DIR)/params.env"
+	@sed -i 's|^odh-model-controller=.*|odh-model-controller=$(ODH_MODEL_CONTROLLER_IMAGE)|' "$(E2E_OVERLAY_DIR)/params.env"
+	@sed -i 's|^odh-model-serving-api=.*|odh-model-serving-api=$(SERVER_IMG)|' "$(E2E_OVERLAY_DIR)/params.env"
+	@cd "$(E2E_OVERLAY_DIR)" && \
+		$(KUSTOMIZE) init && \
+		$(KUSTOMIZE) edit add resource ../../config/base && \
+		$(KUSTOMIZE) edit add configmap odh-model-controller-parameters \
+			--behavior=merge \
+			--from-env-file=params.env && \
+		printf '[{"op":"replace","path":"/spec/template/spec/containers/0/image","value":"%s"}]' '$(ODH_MODEL_CONTROLLER_IMAGE)' > patch-controller.json && \
+		printf '[{"op":"replace","path":"/spec/template/spec/containers/0/image","value":"%s"}]' '$(SERVER_IMG)' > patch-server.json && \
+		$(KUSTOMIZE) edit add patch --kind Deployment --name odh-model-controller --path patch-controller.json && \
+		$(KUSTOMIZE) edit add patch --kind Deployment --name model-serving-api --path patch-server.json
+	@echo "Created e2e overlay at $(E2E_OVERLAY_DIR)"
+	@echo "  controller: $(ODH_MODEL_CONTROLLER_IMAGE)"
+	@echo "  server: $(SERVER_IMG)"
+
+.PHONY: test-e2e-kserve-ocp
+test-e2e-kserve-ocp: e2e-kserve-overlay ## Run KServe e2e tests on OpenShift.
+	@set -euo pipefail; \
+	if [ ! -d "$(KSERVE_E2E_DIR)/.git" ]; then \
+		echo "Cloning kserve from $(KSERVE_E2E_REPO) (branch: $(KSERVE_E2E_BRANCH))..."; \
+		git clone --branch "$(KSERVE_E2E_BRANCH)" "$(KSERVE_E2E_REPO)" "$(KSERVE_E2E_DIR)"; \
+	fi; \
+	cd "$(KSERVE_E2E_DIR)" && \
+	export ODH_MC_MANIFEST_SOURCE="$(E2E_OVERLAY_DIR)" && \
+	echo "ODH_MC_MANIFEST_SOURCE=$$ODH_MC_MANIFEST_SOURCE" && \
+	echo "=== Running KServe E2E Tests ====== '$(KSERVE_E2E_TEST_ARGS)'" && \
+	./test/scripts/openshift-ci/run-e2e-tests.sh $(KSERVE_E2E_TEST_ARGS)
+	$(MAKE) test-e2e-server
+	$(MAKE) test-e2e-controller
+
+.PHONY: lint
+lint: golangci-lint ## Run golangci-lint linter
+	$(GOLANGCI_LINT) run
+
+.PHONY: lint-fix
+lint-fix: golangci-lint ## Run golangci-lint linter and perform fixes
+	$(GOLANGCI_LINT) run --fix
+
+.PHONY: validate-samples
+validate-samples: kubectl-validate manifests-update ## Validate sample YAMLs against CRD schemas.
+	$(KUBECTL_VALIDATE) --local-crds config/crd/external/ server/samples/*.yaml
+
+##@ Build
+
+.PHONY: build
+build: manifests generate fmt vet ## Build manager binary.
+	go build -o bin/manager cmd/main.go
+
+.PHONY: build-server
+build-server: fmt vet ## Build model-serving-api binary.
+	go build -o bin/model-serving-api ./server/
+
+.PHONY: run
+run: manifests generate fmt vet ## Run a controller from your host.
+	go run ./cmd/main.go
+
+# If you wish to build the manager image targeting other platforms you can use the --platform flag.
+# (i.e. docker build --platform linux/arm64). However, you must enable docker buildKit for it.
+# More info: https://docs.docker.com/develop/develop-images/build_enhancements/
+.PHONY: container-build
+container-build: ## Build docker image with the manager.
+	$(CONTAINER_TOOL) build -t ${IMG} -f ./Containerfile .
+
+.PHONY: container-build-server
+container-build-server: ## Build docker image with the model-serving-api.
+	$(CONTAINER_TOOL) build -t ${SERVER_IMG} -f ./Containerfile.server .
+
+.PHONY: container-push
+container-push: ## Push docker image with the manager.
+	$(CONTAINER_TOOL) push ${IMG}
+
+.PHONY: container-push-server
+container-push-server: ## Push docker image with the model-serving-api.
+	$(CONTAINER_TOOL) push ${SERVER_IMG}
+
+# PLATFORMS defines the target platforms for the manager image be built to provide support to multiple
+# architectures. (i.e. make docker-buildx IMG=myregistry/mypoperator:0.0.1). To use this option you need to:
+# - be able to use docker buildx. More info: https://docs.docker.com/build/buildx/
+# - have enabled BuildKit. More info: https://docs.docker.com/develop/develop-images/build_enhancements/
+# - be able to push the image to your registry (i.e. if you do not set a valid value via IMG=<myregistry/image:<tag>> then the export will fail)
+# To adequately provide solutions that are compatible with multiple platforms, you should consider using this option.
+PLATFORMS ?= linux/arm64,linux/amd64,linux/s390x,linux/ppc64le
+.PHONY: docker-buildx
+docker-buildx: ## Build and push docker image for the manager for cross-platform support
+	# copy existing Dockerfile and insert --platform=${BUILDPLATFORM} into Dockerfile.cross, and preserve the original Dockerfile
+	sed -e '1 s/\(^FROM\)/FROM --platform=\$$\{BUILDPLATFORM\}/; t' -e ' 1,// s//FROM --platform=\$$\{BUILDPLATFORM\}/' Dockerfile > Dockerfile.cross
+	- $(CONTAINER_TOOL) buildx create --name odh-model-controller-builder
+	$(CONTAINER_TOOL) buildx use odh-model-controller-builder
+	- $(CONTAINER_TOOL) buildx build --push --platform=$(PLATFORMS) --tag ${IMG} -f Dockerfile.cross .
+	- $(CONTAINER_TOOL) buildx rm odh-model-controller-builder
+	rm Dockerfile.cross
+
+.PHONY: build-installer
+build-installer: manifests generate kustomize ## Generate a consolidated YAML with CRDs and deployment.
+	mkdir -p dist
+	cd config/manager && $(KUSTOMIZE) edit set image controller=${IMG}
+	$(KUSTOMIZE) build config/default > dist/install.yaml
+
+##@ Deployment
+
+ifndef ignore-not-found
+  ignore-not-found = false
+endif
+
+.PHONY: install
+install: manifests kustomize ## Install CRDs into the K8s cluster specified in ~/.kube/config.
+	$(KUSTOMIZE) build config/crd | $(KUBECTL) apply -f -
+
+.PHONY: uninstall
+uninstall: manifests kustomize ## Uninstall CRDs from the K8s cluster specified in ~/.kube/config. Call with ignore-not-found=true to ignore resource not found errors during deletion.
+	$(KUSTOMIZE) build config/crd | $(KUBECTL) delete --ignore-not-found=$(ignore-not-found) -f -
+
+.PHONY: deploy
+deploy: manifests kustomize ## Deploy controller to the K8s cluster specified in ~/.kube/config.
+	cd config/manager && $(KUSTOMIZE) edit set image controller=${IMG}
+	$(KUSTOMIZE) build config/default | $(KUBECTL) apply -f -
+
+.PHONY: deploy-server
+deploy-server: kustomize ## Deploy model-serving-api to the K8s cluster specified in ~/.kube/config.
+	@SERVER_IMG_REF="$(SERVER_IMG)"; \
+	if command -v $(CONTAINER_TOOL) >/dev/null 2>&1; then \
+		digest="$$($(CONTAINER_TOOL) inspect --format='{{index .RepoDigests 0}}' '$(SERVER_IMG)' 2>/dev/null)"; \
+		if [ -n "$$digest" ]; then \
+			SERVER_IMG_REF="$$digest"; \
+		fi; \
+	fi; \
+	rm -rf '$(LOCALBIN)/server-overlay' && mkdir -p '$(LOCALBIN)/server-overlay' && \
+	cd '$(LOCALBIN)/server-overlay' && \
+	$(KUSTOMIZE) init && \
+	$(KUSTOMIZE) edit add resource ../../config/server && \
+	$(KUSTOMIZE) edit set namespace '$(NAMESPACE)' && \
+	$(KUSTOMIZE) edit set image "controller=$$SERVER_IMG_REF" && \
+	$(KUSTOMIZE) build . > server-bundle.yaml && \
+	$(KUBECTL) apply -f server-bundle.yaml
+	$(KUBECTL) rollout status deployment/model-serving-api -n '$(NAMESPACE)' --timeout=120s
+
+.PHONY: undeploy
+undeploy: kustomize ## Undeploy controller from the K8s cluster specified in ~/.kube/config. Call with ignore-not-found=true to ignore resource not found errors during deletion.
+	$(KUSTOMIZE) build config/default | $(KUBECTL) delete --ignore-not-found=$(ignore-not-found) -f -
+
+##@ Dependencies
+
+## Location to install dependencies to
+LOCALBIN ?= $(shell pwd)/bin
+$(LOCALBIN):
+	mkdir -p $(LOCALBIN)
+
+## Tool Binaries
+KUBECTL ?= kubectl
+KUSTOMIZE ?= $(LOCALBIN)/kustomize
+CONTROLLER_GEN ?= $(LOCALBIN)/controller-gen
+ENVTEST ?= $(LOCALBIN)/setup-envtest
+GOLANGCI_LINT = $(LOCALBIN)/golangci-lint
+KUBECTL_VALIDATE = $(LOCALBIN)/kubectl-validate
+
+## Tool Versions
+KUSTOMIZE_VERSION ?= v5.5.0
+CONTROLLER_TOOLS_VERSION ?= v0.16.4
+ENVTEST_VERSION ?= release-0.19
+GOLANGCI_LINT_VERSION ?= v2.11.3
+KUBECTL_VALIDATE_VERSION ?= v0.0.4
+
+.PHONY: kustomize
+kustomize: $(KUSTOMIZE) ## Download kustomize locally if necessary.
+$(KUSTOMIZE): $(LOCALBIN)
+	$(call go-install-tool,$(KUSTOMIZE),sigs.k8s.io/kustomize/kustomize/v5,$(KUSTOMIZE_VERSION))
+
+.PHONY: controller-gen
+controller-gen: $(CONTROLLER_GEN) ## Download controller-gen locally if necessary.
+$(CONTROLLER_GEN): $(LOCALBIN)
+	$(call go-install-tool,$(CONTROLLER_GEN),sigs.k8s.io/controller-tools/cmd/controller-gen,$(CONTROLLER_TOOLS_VERSION))
+
+.PHONY: envtest
+envtest: $(ENVTEST) ## Download setup-envtest locally if necessary.
+$(ENVTEST): $(LOCALBIN)
+	$(call go-install-tool,$(ENVTEST),sigs.k8s.io/controller-runtime/tools/setup-envtest,$(ENVTEST_VERSION))
+
+.PHONY: golangci-lint
+golangci-lint: $(GOLANGCI_LINT) ## Download golangci-lint locally if necessary.
+$(GOLANGCI_LINT): $(LOCALBIN)
+	$(call go-install-tool,$(GOLANGCI_LINT),github.com/golangci/golangci-lint/v2/cmd/golangci-lint,$(GOLANGCI_LINT_VERSION))
+
+.PHONY: kubectl-validate
+kubectl-validate: $(KUBECTL_VALIDATE) ## Download kubectl-validate locally if necessary.
+$(KUBECTL_VALIDATE): $(LOCALBIN)
+	$(call go-install-tool,$(KUBECTL_VALIDATE),sigs.k8s.io/kubectl-validate,$(KUBECTL_VALIDATE_VERSION))
+
+# Macro `go-install-tool` installs a specific version of a Go package and ensures that
+# invoking the binary at the given path uses that version.
+#
+# Usage:
+#   $(call go-install-tool,<binary-path>,<pkg-url>,<version>)
+#
+# Arguments:
+#   $1 — binary-path: full path (including binary name) where the tool will be placed
+#   $2 — pkg-url: Go binary path (e.g. github.com/user/tool/cmd/binary)
+#   $3 — version: exact module version (e.g. v1.2.3)
+define go-install-tool
+@rm -f $(1); \
+[ -f "$(1)-$(3)" ] || { \
+set -e; \
+package=$(2)@$(3) ;\
+echo "Downloading $${package}" ;\
+rm -f $(1) || true ;\
+GOBIN=$(LOCALBIN) go install $${package} ;\
+mv $(1) $(1)-$(3) ;\
+} ;\
+ln -sf $(1)-$(3) $(1)
+endef

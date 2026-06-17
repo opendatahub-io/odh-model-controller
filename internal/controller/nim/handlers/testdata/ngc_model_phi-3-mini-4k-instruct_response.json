@@ -1,0 +1,57 @@
+{
+  "labels": [
+    "NSPECT-Y9G4-II8Q",
+    "NVIDIA AI Enterprise Supported",
+    "NVIDIA NIM",
+    "_LABEL_FAILED_TO_RESOLVE_",
+    "_LABEL_FAILED_TO_RESOLVE_"
+  ],
+  "sharedWithTeams": [
+    "nim/microsoft"
+  ],
+  "isMultiArchitecture": false,
+  "latestArchitectureVariants": [
+    {
+      "rating": "AAA",
+      "scanStatus": "SCAN_COMPLETE",
+      "compressedSize": 6835134649,
+      "architecture": "amd64",
+      "createdDate": "2024-10-18T04:07:55.199Z",
+      "os": "linux",
+      "digest": "sha256:8122d191ef30c2e7f96447c30de08f1d5feefae4f261b4434bc4cddde5b0a710"
+    }
+  ],
+  "isMultinodeEnabled": false,
+  "logo": "https://assets.ngc.nvidia.com/products/api-catalog/images/phi-3-mini-4k-instruct.jpg",
+  "shortDescription": "NVIDIA NIM for GPU supported Phi-3-Mini-4K-Instruct inference through OpenAI compatible APIs",
+  "manualScanEnabled": true,
+  "systemLabels": [
+    "signed images"
+  ],
+  "isReadOnly": true,
+  "namespace": "nim/microsoft",
+  "productNames": [
+    "nim-dev",
+    "nv-ai-enterprise"
+  ],
+  "hasSignedTag": true,
+  "latestImageSize": 6835134649,
+  "description": "## What Is NVIDIA NIM?\n\n\nNVIDIA NIM, part of NVIDIA AI Enterprise, is a set of easy-to-use microservices designed to speed up generative AI deployment in enterprises. Supporting a wide range of AI models, including NVIDIA AI foundation and custom models, it ensures seamless, scalable AI inferencing, on-premises or in the cloud, leveraging industry standard APIs.\n\n\nPhi-3-Mini-4K-Instruct is a language model that can follow instructions, complete requests, and generate creative text formats. The Phi-3-Mini-4K-Instruct Large Language Model (LLM) is an instruct fine-tuned version of the Phi-3-Mini-4K.\n\n\nNVIDIA NIM offers prebuilt containers for large language models (LLMs) that can be used to develop chatbots, content analyzers—or any application that needs to understand and generate human language. Each NIM consists of a container and a model and uses a CUDA-accelerated runtime for all NVIDIA GPUs, with special optimizations available for many configurations. Whether on-premises or in the cloud, NIM is the fastest way to achieve accelerated generative AI inference at scale.\n\n\n### High Performance Features\n\n\nNVIDIA NIM for LLMs abstracts away model inference internals such as execution engine and runtime operations. NVIDIA NIM for LLMs provides the most performant option available whether it be with TRT-LLM, vLLM or others.\n\n- Scalable Deployment: NVIDIA NIM for LLMs is performant and can easily and seamlessly scale from a few users to millions.  \n- Advanced Language Models: Built on cutting-edge LLM architectures, NVIDIA NIM for LLMs provides optimized and pre-generated engines for a variety of popular models.    \n- Flexible Integration: Easily incorporate the microservice into existing workflows and applications. NVIDIA NIM for LLMs provides an OpenAI API compatible programming model and custom NVIDIA extensions for additional functionality.\n- Enterprise-Grade Security: Data privacy is paramount. NVIDIA NIM for LLMs emphasizes security by using safetensors, constantly monitoring and patching CVEs in our stack and conducting internal penetration tests.\n\n\n### Applications\n\n\n- Chatbots & Virtual Assistants: Empower bots with human-like language understanding and responsiveness.    \n- Content Generation & Summarization: Generate high-quality content or distill lengthy articles into concise summaries with ease.\n- Sentiment Analysis: Understand user sentiments in real-time, driving better business decisions.\n- Language Translation: Break language barriers with efficient and accurate translation services.\n- And many more… The potential applications of NVIDIA NIM for LLMs are vast, spanning across various industries and use-cases.\n\n\n## Getting started with NVIDIA NIM\n\n\nDeploying and integrating NVIDIA NIM is straightforward thanks to our industry standard APIs. Visit the [NIM Container LLM](https://docs.nvidia.com/nim/large-language-models/latest/introduction.html) page for release documentation, deployment guides and more.\n\n\n## Security Vulnerabilities in Open Source Packages\n\n\nPlease review the Security Scanning [(LINK)](https://catalog.ngc.nvidia.com/orgs/nim/teams/microsoft/containers/phi-3-mini-4k-instruct/security) tab to view the latest security scan results.\n\n\nFor certain open-source vulnerabilities listed in the scan results, NVIDIA provides a response in the form of a Vulnerability Exploitability eXchange (VEX) document. The VEX information can be reviewed and downloaded from the Security Scanning  [(LINK)](https://catalog.ngc.nvidia.com/orgs/nim/teams/microsoft/containers/phi-3-mini-4k-instruct/security) tab.\n\n\n\n\n## Get Help\n\n\n### Enterprise Support\n\n\nGet access to knowledge base articles and support cases or [submit a ticket](https://www.nvidia.com/en-us/data-center/products/ai-enterprise-suite/support/).\n\n\n### NVIDIA NIM Documentation\n\n\nVisit the [NIM Container LLM](https://docs.nvidia.com/nim/large-language-models/latest/introduction.html) page for release documentation, deployment guides and more.\n\n\n  \n\n\n## Governing Terms\n\n\nThe NIM container is governed by the [NVIDIA AI Product Agreement](https://www.nvidia.com/en-us/data-center/products/nvidia-ai-enterprise/eula/); and the use of this model is governed by the [NVIDIA AI Foundation Models Community License](https://docs.nvidia.com/ai-foundation-models-community-license.pdf). ADDITIONAL INFORMATION: [MIT](https://opensource.org/license/mit).\n\n**You are responsible for ensuring that your use of NVIDIA AI Foundation Models complies with all applicable laws.**",
+  "tags": [
+    "1.2.3",
+    "latest",
+    "1.2",
+    "1"
+  ],
+  "accessType": "LISTED",
+  "isPublic": false,
+  "scanEnabled": true,
+  "canGuestPull": false,
+  "canPublicList": false,
+  "publisher": "NVIDIA",
+  "displayName": "Phi-3-Mini-4K-Instruct",
+  "name": "phi-3-mini-4k-instruct",
+  "showScanResults": true,
+  "updatedDate": "2024-10-22T18:14:56.808Z",
+  "latestTag": "1.2.3"
+}

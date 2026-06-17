@@ -1,0 +1,243 @@
+/*
+
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at
+
+    http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS IS" BASIS,
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+See the License for the specific language governing permissions and
+limitations under the License.
+*/
+
+package reconcilers
+
+import (
+	"context"
+	"fmt"
+
+	"github.com/go-logr/logr"
+	kservev1alpha2 "github.com/kserve/kserve/pkg/apis/serving/v1alpha2"
+	kuadrantv1 "github.com/kuadrant/kuadrant-operator/api/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
+	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/apimachinery/pkg/types"
+	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
+	gatewayapiv1 "sigs.k8s.io/gateway-api/apis/v1"
+
+	"github.com/opendatahub-io/odh-model-controller/internal/controller/comparators"
+	"github.com/opendatahub-io/odh-model-controller/internal/controller/constants"
+	"github.com/opendatahub-io/odh-model-controller/internal/controller/processors"
+	"github.com/opendatahub-io/odh-model-controller/internal/controller/resources"
+	parentreconcilers "github.com/opendatahub-io/odh-model-controller/internal/controller/serving/reconcilers"
+	"github.com/opendatahub-io/odh-model-controller/internal/controller/utils"
+)
+
+var _ parentreconcilers.LLMSubResourceReconciler = (*KserveAuthPolicyReconciler)(nil)
+
+type KserveAuthPolicyReconciler struct {
+	client         client.Client
+	scheme         *runtime.Scheme
+	deltaProcessor processors.DeltaProcessor
+	detector       resources.AuthPolicyDetector
+	templateLoader resources.AuthPolicyTemplateLoader
+	store          resources.AuthPolicyStore
+}
+
+func NewKserveAuthPolicyReconciler(client client.Client, scheme *runtime.Scheme) *KserveAuthPolicyReconciler {
+	return &KserveAuthPolicyReconciler{
+		client:         client,
+		scheme:         scheme,
+		deltaProcessor: processors.NewDeltaProcessor(),
+		detector:       resources.NewKServeAuthPolicyDetector(client),
+		templateLoader: resources.NewKServeAuthPolicyTemplateLoader(client),
+		store:          resources.NewClientAuthPolicyStore(client),
+	}
+}
+
+func (r *KserveAuthPolicyReconciler) Reconcile(ctx context.Context, log logr.Logger, llmisvc *kservev1alpha2.LLMInferenceService) error {
+	log.V(1).Info("Starting AuthPolicy reconciliation for LLMInferenceService")
+
+	if err := r.reconcileHTTPRouteAuthpolicy(ctx, log, llmisvc); err != nil {
+		log.Error(err, "Failed to reconcile HTTPRoute AuthPolicy")
+		return err
+	}
+
+	return nil
+}
+
+func (r *KserveAuthPolicyReconciler) reconcileHTTPRouteAuthpolicy(ctx context.Context, log logr.Logger, llmisvc *kservev1alpha2.LLMInferenceService) error {
+	log.V(1).Info("Reconciling HTTPRoute AuthPolicy")
+
+	httpRouteNames := r.getHTTPRouteNames(llmisvc)
+
+	for _, routeName := range httpRouteNames {
+		desired, err := r.templateLoader.Load(ctx, resources.AuthPolicyTarget{
+			Kind:      "HTTPRoute",
+			Name:      routeName,
+			Namespace: llmisvc.Namespace,
+			AuthType:  constants.Anonymous,
+		}, resources.WithLabels(map[string]string{
+			"app.kubernetes.io/name": llmisvc.Name,
+		}))
+		if err != nil {
+			log.Error(err, "Failed to load HTTPRoute AuthPolicy template", "httpRoute", routeName)
+			return err
+		}
+
+		existing, err := r.getExistingAuthPolicy(ctx, desired.GetName(), desired.GetNamespace())
+		if err != nil && !apierrors.IsNotFound(err) {
+			log.Error(err, "Failed to get existing HTTPRoute AuthPolicy", "name", desired.GetName())
+			return err
+		}
+
+		if existing != nil && !utils.IsManagedByOpenDataHub(existing) {
+			log.V(1).Info("Skipping reconciliation - AuthPolicy is not managed by odh-model-controller")
+			continue
+		}
+
+		if err := r.httpRouteAuthPolicyProcessDelta(ctx, log, llmisvc, desired, existing); err != nil {
+			log.Error(err, "Failed to process HTTPRoute AuthPolicy delta", "name", desired.GetName())
+			return err
+		}
+	}
+
+	return nil
+}
+
+func (r *KserveAuthPolicyReconciler) getHTTPRouteNames(llmisvc *kservev1alpha2.LLMInferenceService) []string {
+	if llmisvc.Spec.Router != nil && llmisvc.Spec.Router.Route != nil && llmisvc.Spec.Router.Route.HTTP != nil && llmisvc.Spec.Router.Route.HTTP.HasRefs() {
+		names := make([]string, 0, len(llmisvc.Spec.Router.Route.HTTP.Refs))
+		for _, ref := range llmisvc.Spec.Router.Route.HTTP.Refs {
+			names = append(names, ref.Name)
+		}
+		return names
+	}
+	return []string{constants.GetHTTPRouteName(llmisvc.Name)}
+}
+
+func (r *KserveAuthPolicyReconciler) Delete(ctx context.Context, log logr.Logger, llmisvc *kservev1alpha2.LLMInferenceService) error {
+	log.V(1).Info("Deleting AuthPolicies for LLMInferenceService")
+
+	if err := r.deleteHTTPRouteAuthPolicies(ctx, log, llmisvc); err != nil {
+		return err
+	}
+
+	return nil
+}
+
+func (r *KserveAuthPolicyReconciler) deleteHTTPRouteAuthPolicies(ctx context.Context, log logr.Logger, llmisvc *kservev1alpha2.LLMInferenceService) error {
+	log.V(1).Info("Deleting HTTPRoute AuthPolicy for LLMInferenceService")
+
+	httpRouteNames := r.getHTTPRouteNames(llmisvc)
+
+	for _, routeName := range httpRouteNames {
+		authPolicyName := constants.GetAuthPolicyName(routeName)
+		namespacedName := types.NamespacedName{
+			Name:      authPolicyName,
+			Namespace: llmisvc.Namespace,
+		}
+
+		log.V(1).Info("Attempting to delete HTTPRoute AuthPolicy", "name", namespacedName.Name)
+
+		if err := r.store.Remove(ctx, namespacedName); err != nil {
+			if !apierrors.IsNotFound(err) {
+				log.Error(err, "Failed to delete HTTPRoute AuthPolicy", "name", namespacedName.Name)
+				return err
+			}
+			log.V(1).Info("HTTPRoute AuthPolicy not found, already deleted", "name", namespacedName.Name)
+		} else {
+			log.Info("Successfully deleted HTTPRoute AuthPolicy", "name", namespacedName.Name)
+		}
+	}
+
+	return nil
+}
+
+func (r *KserveAuthPolicyReconciler) Cleanup(ctx context.Context, log logr.Logger, isvcNs string) error {
+	return nil
+}
+
+func (r *KserveAuthPolicyReconciler) getExistingAuthPolicy(ctx context.Context, name, namespace string) (*kuadrantv1.AuthPolicy, error) {
+	return r.store.Get(ctx, types.NamespacedName{
+		Name:      name,
+		Namespace: namespace,
+	})
+}
+
+func (r *KserveAuthPolicyReconciler) getHTTPRouteFromAuthPolicy(ctx context.Context, authPolicy *kuadrantv1.AuthPolicy) (*gatewayapiv1.HTTPRoute, error) {
+	if authPolicy.Spec.TargetRef.Kind != "HTTPRoute" {
+		return nil, fmt.Errorf("AuthPolicy %s does not target an HTTPRoute", authPolicy.GetName())
+	}
+
+	routeName := string(authPolicy.Spec.TargetRef.Name)
+	routeNamespace := authPolicy.GetNamespace()
+	httpRoute := &gatewayapiv1.HTTPRoute{}
+	if err := utils.GetResource(ctx, r.client, routeNamespace, routeName, httpRoute); err != nil {
+		return nil, fmt.Errorf("failed to get HTTPRoute %s/%s: %w", routeNamespace, routeName, err)
+	}
+
+	return httpRoute, nil
+}
+
+func (r *KserveAuthPolicyReconciler) httpRouteAuthPolicyProcessDelta(ctx context.Context, log logr.Logger, llmisvc *kservev1alpha2.LLMInferenceService, desired *kuadrantv1.AuthPolicy, existing *kuadrantv1.AuthPolicy) error {
+	log.V(1).Info("Processing HTTPRoute AuthPolicy delta", "name", desired.GetName())
+
+	authType := r.detector.Detect(ctx, llmisvc.GetAnnotations())
+	log.V(1).Info("AuthType", "authType", authType)
+
+	if authType == constants.UserDefined {
+		if existing != nil {
+			log.V(1).Info("Deleting existing AuthPolicy for UserDefined access", "authpolicy", existing.GetName())
+			if err := r.store.Remove(ctx, types.NamespacedName{
+				Name:      existing.GetName(),
+				Namespace: existing.GetNamespace(),
+			}); err != nil {
+				return fmt.Errorf("failed to delete AuthPolicy %s for UserDefined access: %w", existing.GetName(), err)
+			}
+		}
+		return nil
+	}
+
+	_, err := r.getHTTPRouteFromAuthPolicy(ctx, desired)
+	if err != nil {
+		return fmt.Errorf("failed to get HTTPRoute for AuthPolicy %s: %w", desired.GetName(), err)
+	}
+
+	delta := r.deltaProcessor.ComputeDelta(comparators.GetAuthPolicyComparator(), desired, existing)
+
+	if !delta.HasChanges() {
+		log.V(1).Info("No delta found for HTTPRoute AuthPolicy", "name", desired.GetName())
+		return nil
+	}
+
+	if delta.IsAdded() {
+		log.V(1).Info("Creating AuthPolicy for Anonymous access", "authpolicy", desired.GetName())
+
+		if err := controllerutil.SetControllerReference(llmisvc, desired, r.scheme); err != nil {
+			return fmt.Errorf("failed to set controller reference for HTTPRoute AuthPolicy %s: %w", desired.GetName(), err)
+		}
+
+		if err := r.store.Create(ctx, desired); err != nil {
+			return fmt.Errorf("failed to create HTTPRoute AuthPolicy %s: %w", desired.GetName(), err)
+		}
+	} else if delta.IsUpdated() {
+		log.V(1).Info("Updating AuthPolicy for Anonymous access", "authpolicy", existing.GetName())
+
+		if err := controllerutil.SetControllerReference(llmisvc, desired, r.scheme); err != nil {
+			return fmt.Errorf("failed to set controller reference for HTTPRoute AuthPolicy %s: %w", desired.GetName(), err)
+		}
+
+		utils.MergeUserLabelsAndAnnotations(desired, existing)
+
+		if err := r.store.Update(ctx, desired); err != nil {
+			return fmt.Errorf("failed to update HTTPRoute AuthPolicy %s: %w", existing.GetName(), err)
+		}
+	}
+
+	return nil
+}

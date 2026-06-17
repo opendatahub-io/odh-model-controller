@@ -1,0 +1,42 @@
+apiVersion: serving.kserve.io/v1alpha1
+kind: ServingRuntime
+metadata:
+  name: ovms-1.x
+  namespace: default
+spec:
+  supportedModelFormats:
+    - name: openvino_ir
+      version: opset1
+      autoSelect: true
+    - name: onnx
+      version: "1"
+      autoSelect: true
+  protocolVersions:
+    - grpc-v1
+  grpcEndpoint: "port:8085"
+  grpcDataEndpoint: "port:8001"
+  containers:
+    - name: ovms
+      image: quay.io/modh/odh-openvino-servingruntime-container:v1.19.0-18
+      args:
+        - --port=8001
+        - --rest_port=8888
+        # must match the default value in the ovms adapter server
+        - --config_path=/models/model_config_list.json
+        # the adapter will call `/v1/config/reload` to trigger reloads
+        - --file_system_poll_wait_seconds=0
+        # bind to localhost only to constrain requests to containers in the pod
+        - --grpc_bind_address=127.0.0.1
+        - --rest_bind_address=127.0.0.1
+      resources:
+        requests:
+          cpu: 500m
+          memory: 1Gi
+        limits:
+          cpu: 5
+          memory: 1Gi
+  builtInAdapter:
+    serverType: ovms
+    runtimeManagementPort: 8888
+    memBufferBytes: 134217728
+    modelLoadingTimeoutMillis: 90000

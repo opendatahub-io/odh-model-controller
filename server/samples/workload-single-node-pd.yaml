@@ -1,0 +1,191 @@
+# LLMInferenceServiceConfig: Single-Node Prefill/Decode Disaggregation
+#
+# This template defines a prefill/decode (P/D) disaggregated serving topology
+# on a single node. It creates separate pools for prefill and decode stages,
+# connected via RDMA (RoCE) for fast KV cache transfer.
+#
+# Prefill/Decode disaggregation separates the two inference phases:
+#   - Prefill: processes the full input prompt (compute-intensive, parallelizable)
+#   - Decode: generates tokens one at a time (memory-bandwidth-bound, sequential)
+#
+# Benefits:
+#   - Better GPU utilization by specializing pools for each phase
+#   - Independent scaling of prefill vs decode capacity
+#   - Reduced interference between long-prompt and short-generation requests
+#
+# Auto-injected defaults:
+#   The controller automatically merges this config with auto-injected defaults
+#   (kserve-config-llm-decode-template, kserve-config-llm-prefill-template).
+#   The following are provided automatically:
+#     - Container image, command, and ports (decode on 8001, prefill on 8000)
+#     - Routing sidecar (llm-d-routing-sidecar) for P/D request routing
+#     - Probes (liveness, readiness, startup)
+#     - Security context and lifecycle hooks
+#     - Volume mounts and volumes
+#     - TLS configuration
+#     - RoCE auto-detection: NCCL_IB_GID_INDEX, NVSHMEM_IB_GID_INDEX,
+#       UCX_IB_GID_INDEX, NCCL_IB_HCA, NVSHMEM_HCA_LIST, and UCX_NET_DEVICES
+#       are automatically discovered when KSERVE_INFER_ROCE=true.
+#       Set them explicitly only to override auto-detection.
+#   Only set fields you want to override or that are not auto-injected.
+#
+# Prerequisites:
+#   - RDMA-capable network (RoCE or InfiniBand) for KV cache transfer
+#   - SR-IOV network operator configured with RDMA resources
+#   - Network attachment definition (e.g., roce-p2) created by cluster admin
+#
+# To customize for your infrastructure:
+#   1. Replace the network annotation with your RDMA network name
+#   2. Adjust prefill/decode replica ratios based on workload profile
+#   3. Update RDMA resource names to match your SR-IOV configuration
+#   4. Tune GPU and memory resources per pool
+#
+apiVersion: serving.kserve.io/v1alpha2
+kind: LLMInferenceServiceConfig
+metadata:
+  # Name must be unique within the namespace.
+  # Choose a descriptive name that reflects the topology and hardware.
+  name: single-node-pd-roce
+  labels:
+    # This label classifies the config for the UI deployment wizard.
+    # The UI filters available configs by this label value.
+    opendatahub.io/config-type: workload-single-node-pd
+  annotations:
+    # Human-readable description shown in the UI when selecting a topology.
+    description: >-
+      Single node prefill/decode disaggregated serving with RoCE RDMA
+      for KV cache transfer. Default 2 prefill / 1 decode replicas.
+spec:
+  # Decode pool replicas default to 1 when not set.
+  #replicas: 1
+  # Annotations applied to decode pool pods.
+  annotations:
+    # Multus CNI annotation to attach the RDMA network interface.
+    # Replace "roce-p2" with your network attachment definition name.
+    #
+    # Common network names by environment:
+    #   On-prem RoCE:     roce-p2, roce-p13, mlnx-rdma
+    #   InfiniBand:       ib-sriov, mlnx-ib
+    #   Cloud (no RDMA):  remove this annotation and set KSERVE_INFER_ROCE=false
+    #
+    # To find available networks: oc get net-attach-def -A
+    k8s.v1.cni.cncf.io/networks: roce-p2
+  template:
+    containers:
+      - name: main
+        env:
+          # KSERVE_INFER_ROCE: enables RDMA transport for KV cache transfer.
+          #   "true"  - use RDMA/RoCE (requires SR-IOV network and rdma resources)
+          #   "false" - fall back to TCP (slower but works without RDMA hardware)
+          - name: KSERVE_INFER_ROCE
+            value: "true"
+          # VLLM_NIXL_SIDE_CHANNEL_HOST: the pod IP used for the NIXL side channel.
+          # This enables peer discovery for KV cache transfer between prefill and
+          # decode pods. Always use the pod IP via fieldRef.
+          - name: VLLM_NIXL_SIDE_CHANNEL_HOST
+            valueFrom:
+              fieldRef:
+                fieldPath: status.podIP
+          # UCX_TLS: UCX transport layer selection for RDMA communication.
+          #
+          # Transport options (comma-separated, order matters):
+          #   rc       - Reliable Connection (InfiniBand/RoCE verbs)
+          #   sm       - Shared memory (same-node communication)
+          #   self     - Self-loopback
+          #   cuda_copy - CUDA memory copy (GPU ↔ host)
+          #   cuda_ipc  - CUDA IPC (GPU ↔ GPU on same node)
+          #
+          # For InfiniBand clusters, add: dc (Dynamically Connected)
+          # For TCP fallback: tcp (add at the end as lowest priority)
+          - name: UCX_TLS
+            value: "rc,sm,self,cuda_copy,cuda_ipc"
+        # Container args passed to the vLLM engine.
+        # --kv_transfer_config enables the NixlConnector for RDMA-based
+        # KV cache transfer between prefill and decode pools.
+        #
+        # kv_connector options:
+        #   NixlConnector   - RDMA-based, highest performance (requires RDMA network)
+        #   PyNcclConnector - NCCL-based, works without RDMA but slower
+        #
+        # kv_role: "kv_consumer" for decode instances, "kv_producer" for prefill instances.
+        args:
+          - --kv_transfer_config
+          - '{"kv_connector":"NixlConnector","kv_role":"kv_consumer"}'
+        resources:
+          limits:
+            cpu: "4"
+            memory: 32Gi
+            nvidia.com/gpu: "1"
+            # RDMA resource from SR-IOV network operator.
+            # The resource name must match your SriovNetworkNodePolicy.
+            #
+            # Common RDMA resource names:
+            #   rdma/roce_gdr   - RoCE with GPU Direct RDMA
+            #   rdma/hca_shared - shared InfiniBand HCA
+            #   rdma/mlnx_ib    - Mellanox InfiniBand
+            #
+            # To find available resources: oc describe node <node> | grep rdma
+            # Remove this line if not using RDMA.
+            rdma/roce_gdr: 1
+          requests:
+            cpu: "2"
+            memory: 16Gi
+            nvidia.com/gpu: "1"
+            rdma/roce_gdr: 1
+        # Probes are auto-injected. The default startupProbe allows ~10 minutes
+        # for model loading (failureThreshold=60, periodSeconds=10).
+        # For very large models that take longer, override startupProbe:
+        #   startupProbe:
+        #     failureThreshold: 360   # 60 minutes
+        #     periodSeconds: 10
+  # Prefill pool configuration.
+  # The prefill stage processes the entire input prompt in parallel.
+  # It benefits from more replicas when handling many concurrent requests
+  # with long prompts.
+  prefill:
+    # Replica count for the prefill pool.
+    #
+    # Sizing guidelines:
+    #   - Start with 2:1 ratio (prefill:decode) for balanced workloads
+    #   - Increase prefill replicas for long-prompt workloads (>2K tokens)
+    #   - Increase decode replicas for long-generation workloads (>1K output tokens)
+    #   - Monitor queue depth to identify bottlenecks
+    #replicas: 2
+    # Annotations applied to prefill pool pods.
+    annotations:
+      # Multus CNI annotation to attach the RDMA network interface.
+      # Replace "roce-p2" with your network attachment definition name.
+      #
+      # Common network names by environment:
+      #   On-prem RoCE:     roce-p2, roce-p13, mlnx-rdma
+      #   InfiniBand:       ib-sriov, mlnx-ib
+      #   Cloud (no RDMA):  remove this annotation and set KSERVE_INFER_ROCE=false
+      #
+      # To find available networks: oc get net-attach-def -A
+      k8s.v1.cni.cncf.io/networks: roce-p2
+    template:
+      containers:
+        - name: main
+          env:
+            - name: KSERVE_INFER_ROCE
+              value: "true"
+            - name: VLLM_NIXL_SIDE_CHANNEL_HOST
+              valueFrom:
+                fieldRef:
+                  fieldPath: status.podIP
+            - name: UCX_TLS
+              value: "rc,sm,self,cuda_copy,cuda_ipc"
+          args:
+            - --kv_transfer_config
+            - '{"kv_connector":"NixlConnector","kv_role":"kv_producer"}'
+          resources:
+            limits:
+              cpu: "4"
+              memory: 32Gi
+              nvidia.com/gpu: "1"
+              rdma/roce_gdr: 1
+            requests:
+              cpu: "2"
+              memory: 16Gi
+              nvidia.com/gpu: "1"
+              rdma/roce_gdr: 1

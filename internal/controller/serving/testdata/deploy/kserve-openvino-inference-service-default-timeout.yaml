@@ -1,0 +1,19 @@
+apiVersion: serving.kserve.io/v1beta1
+kind: InferenceService
+metadata:
+  name: example-onnx-mnist-default-timeout
+  namespace: default
+spec:
+  predictor:
+    model:
+      modelFormat:
+        name: onnx
+      runtime: kserve-ovms
+      storage:
+        key: testkey
+        path: /testpath/test
+  transformer:
+    minReplicas: 1
+  explainer:
+    minReplicas: 1
+    

@@ -1,0 +1,2 @@
+# This file is generated automatically by `make manifests`,
+# Please, do not manually change this file.
