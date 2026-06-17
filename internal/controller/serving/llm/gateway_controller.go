@@ -26,6 +26,7 @@ import (
 
 	"github.com/go-logr/logr"
 	kservev1alpha2 "github.com/kserve/kserve/pkg/apis/serving/v1alpha2"
+	kserveutils "github.com/kserve/kserve/pkg/utils"
 	kuadrantv1 "github.com/kuadrant/kuadrant-operator/api/v1"
 	istioclientv1alpha3 "istio.io/client-go/pkg/apis/networking/v1alpha3"
 	corev1 "k8s.io/api/core/v1"
@@ -339,6 +340,9 @@ func (r *GatewayReconciler) isGatewayReferencedByLLMService(ctx context.Context,
 	}
 
 	for i := range llmSvcList.Items {
+		if kserveutils.GetForceStopRuntime(&llmSvcList.Items[i]) {
+			continue
+		}
 		for _, ref := range r.getEffectiveGatewayRefs(ctx, gateway, &llmSvcList.Items[i]) {
 			ns := string(ref.Namespace)
 			if ns == "" {
@@ -817,6 +821,9 @@ func (r *GatewayReconciler) SetupWithManager(mgr ctrl.Manager, setupLog logr.Log
 				UpdateFunc: func(e event.UpdateEvent) bool {
 					oldSvc := e.ObjectOld.(*kservev1alpha2.LLMInferenceService)
 					newSvc := e.ObjectNew.(*kservev1alpha2.LLMInferenceService)
+					if kserveutils.GetForceStopRuntime(oldSvc) != kserveutils.GetForceStopRuntime(newSvc) {
+						return true
+					}
 					return gatewayRefsChanged(oldSvc, newSvc)
 				},
 				DeleteFunc: func(_ event.DeleteEvent) bool {
