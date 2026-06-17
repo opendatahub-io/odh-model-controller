@@ -74,6 +74,7 @@ require (
 	github.com/cert-manager/cert-manager v1.16.3 // indirect
 	github.com/cespare/xxhash/v2 v2.3.0 // indirect
 	github.com/cncf/xds/go v0.0.0-20251210132809-ee656c7534f5 // indirect
+	github.com/coreos/go-semver v0.3.1 // indirect
 	github.com/davecgh/go-spew v1.1.2-0.20180830191138-d8f796af33cc // indirect
 	github.com/emicklei/dot v1.8.0 // indirect
 	github.com/emicklei/go-restful/v3 v3.13.0 // indirect
@@ -114,7 +115,7 @@ require (
 	github.com/kuadrant/policy-machinery v0.7.1-0.20251119154946-1ca17a075dd2 // indirect
 	github.com/kylelemons/godebug v1.1.0 // indirect
 	github.com/leodido/go-urn v1.4.0 // indirect
-	github.com/llm-d/llm-d-workload-variant-autoscaler v0.6.0 // indirect
+	github.com/llm-d/llm-d-workload-variant-autoscaler v0.7.0 // indirect
 	github.com/mailru/easyjson v0.9.0 // indirect
 	github.com/martinlindhe/base36 v1.1.1 // indirect
 	github.com/moby/spdystream v0.5.0 // indirect
@@ -187,7 +188,7 @@ require (
 replace sigs.k8s.io/controller-runtime => sigs.k8s.io/controller-runtime v0.19.7
 
 // Use ODH release branch instead
-replace github.com/kserve/kserve => github.com/opendatahub-io/kserve v0.0.0-20260504183808-1fed56624933
+replace github.com/kserve/kserve => github.com/opendatahub-io/kserve v0.0.0-20260615193157-c53af872808d
 
 // CVE-2025-68156: Update expr-lang/expr to v1.17.7
 replace github.com/expr-lang/expr => github.com/expr-lang/expr v1.17.7

@@ -267,7 +267,7 @@ var _ = Describe("BaseRefs and Spec Merging", func() {
 		)
 		config.Spec.Router = &kservev1alpha2.RouterSpec{
 			Gateway: &kservev1alpha2.GatewaySpec{
-				Refs: []kservev1alpha2.UntypedObjectReference{
+				Refs: []kservev1alpha2.GatewayObjectReference{
 					fixture.LLMGatewayRef(gatewayName, gatewayNamespace),
 				},
 			},

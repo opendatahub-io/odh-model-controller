@@ -385,7 +385,7 @@ var _ = Describe("Gateway Controller", func() {
 				}
 				llmSvc.Spec.Router = &kservev1alpha2.RouterSpec{
 					Gateway: &kservev1alpha2.GatewaySpec{
-						Refs: []kservev1alpha2.UntypedObjectReference{
+						Refs: []kservev1alpha2.GatewayObjectReference{
 							fixture.LLMGatewayRef(gatewayName, testNs),
 						},
 					},
@@ -419,7 +419,7 @@ var _ = Describe("Gateway Controller", func() {
 				if err := envTest.Client.Get(ctx, types.NamespacedName{Name: llmSvc.Name, Namespace: testNs}, llmSvc); err != nil {
 					return err
 				}
-				llmSvc.Spec.Router.Gateway.Refs = []kservev1alpha2.UntypedObjectReference{refB, refA}
+				llmSvc.Spec.Router.Gateway.Refs = []kservev1alpha2.GatewayObjectReference{refB, refA}
 				return envTest.Client.Update(ctx, llmSvc)
 			}).WithContext(ctx).Should(Succeed())
 
