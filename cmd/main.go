@@ -54,7 +54,6 @@ import (
 	webhookcorev1 "github.com/opendatahub-io/odh-model-controller/internal/webhook/core/v1"
 	webhooknimv1 "github.com/opendatahub-io/odh-model-controller/internal/webhook/nim/v1"
 	webhookservingv1alpha1 "github.com/opendatahub-io/odh-model-controller/internal/webhook/serving/v1alpha1"
-	webhookservingv1alpha2 "github.com/opendatahub-io/odh-model-controller/internal/webhook/serving/v1alpha2"
 	webhookservingv1beta1 "github.com/opendatahub-io/odh-model-controller/internal/webhook/serving/v1beta1"
 	// +kubebuilder:scaffold:imports
 )
@@ -292,7 +291,6 @@ func setupWebhooks(mgr ctrl.Manager, setupLog logr.Logger) error {
 		{"NIMAccount", webhooknimv1.SetupAccountWebhookWithManager},
 		{"InferenceService", webhookservingv1beta1.SetupInferenceServiceWebhookWithManager},
 		{"InferenceGraph", webhookservingv1alpha1.SetupInferenceGraphWebhookWithManager},
-		{"LLMInferenceService", webhookservingv1alpha2.SetupLLMInferenceServiceWebhookWithManager},
 	}
 
 	for _, webhookSetup := range webhookSetups {
