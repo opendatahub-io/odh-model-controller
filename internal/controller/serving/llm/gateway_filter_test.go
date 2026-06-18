@@ -10,10 +10,12 @@ import (
 	gatewayapiv1 "sigs.k8s.io/gateway-api/apis/v1"
 )
 
-func ref(name, namespace string) kservev1alpha2.UntypedObjectReference {
-	return kservev1alpha2.UntypedObjectReference{
-		Name:      gatewayapiv1.ObjectName(name),
-		Namespace: gatewayapiv1.Namespace(namespace),
+func ref(name, namespace string) kservev1alpha2.GatewayObjectReference {
+	return kservev1alpha2.GatewayObjectReference{
+		UntypedObjectReference: kservev1alpha2.UntypedObjectReference{
+			Name:      gatewayapiv1.ObjectName(name),
+			Namespace: gatewayapiv1.Namespace(namespace),
+		},
 	}
 }
 
@@ -64,16 +66,16 @@ func TestFilterAllowedRefs(t *testing.T) {
 	tests := []struct {
 		name     string
 		gateway  *gatewayapiv1.Gateway
-		refs     []kservev1alpha2.UntypedObjectReference
+		refs     []kservev1alpha2.GatewayObjectReference
 		targetNS string
 		nsLabels map[string]string
 		wantLen  int
-		wantRefs []kservev1alpha2.UntypedObjectReference
+		wantRefs []kservev1alpha2.GatewayObjectReference
 	}{
 		{
 			name:    "nil gateway returns all refs",
 			gateway: nil,
-			refs:    []kservev1alpha2.UntypedObjectReference{ref("gw", "ns")},
+			refs:    []kservev1alpha2.GatewayObjectReference{ref("gw", "ns")},
 			wantLen: 1,
 		},
 		{
@@ -86,49 +88,49 @@ func TestFilterAllowedRefs(t *testing.T) {
 		{
 			name:     "ref to different gateway is kept",
 			gateway:  gateway("gw-a", "ns", sameListener("http")),
-			refs:     []kservev1alpha2.UntypedObjectReference{ref("gw-b", "ns")},
+			refs:     []kservev1alpha2.GatewayObjectReference{ref("gw-b", "ns")},
 			targetNS: "other",
 			wantLen:  1,
 		},
 		{
 			name:     "From All allows ref from any namespace",
 			gateway:  gateway("gw", "gw-ns", allListener("http")),
-			refs:     []kservev1alpha2.UntypedObjectReference{ref("gw", "gw-ns")},
+			refs:     []kservev1alpha2.GatewayObjectReference{ref("gw", "gw-ns")},
 			targetNS: "other-ns",
 			wantLen:  1,
 		},
 		{
 			name:     "From Same allows ref from same namespace",
 			gateway:  gateway("gw", "ns", sameListener("http")),
-			refs:     []kservev1alpha2.UntypedObjectReference{ref("gw", "ns")},
+			refs:     []kservev1alpha2.GatewayObjectReference{ref("gw", "ns")},
 			targetNS: "ns",
 			wantLen:  1,
 		},
 		{
 			name:     "From Same rejects ref from different namespace",
 			gateway:  gateway("gw", "gw-ns", sameListener("http")),
-			refs:     []kservev1alpha2.UntypedObjectReference{ref("gw", "gw-ns")},
+			refs:     []kservev1alpha2.GatewayObjectReference{ref("gw", "gw-ns")},
 			targetNS: "other-ns",
 			wantLen:  0,
 		},
 		{
 			name:     "nil allowedRoutes defaults to Same, same namespace",
 			gateway:  gateway("gw", "ns", gatewayapiv1.Listener{Name: "http"}),
-			refs:     []kservev1alpha2.UntypedObjectReference{ref("gw", "ns")},
+			refs:     []kservev1alpha2.GatewayObjectReference{ref("gw", "ns")},
 			targetNS: "ns",
 			wantLen:  1,
 		},
 		{
 			name:     "nil allowedRoutes defaults to Same, different namespace",
 			gateway:  gateway("gw", "gw-ns", gatewayapiv1.Listener{Name: "http"}),
-			refs:     []kservev1alpha2.UntypedObjectReference{ref("gw", "gw-ns")},
+			refs:     []kservev1alpha2.GatewayObjectReference{ref("gw", "gw-ns")},
 			targetNS: "other-ns",
 			wantLen:  0,
 		},
 		{
 			name:     "From Selector with matching labels allows",
 			gateway:  gateway("gw", "gw-ns", selectorListener()),
-			refs:     []kservev1alpha2.UntypedObjectReference{ref("gw", "gw-ns")},
+			refs:     []kservev1alpha2.GatewayObjectReference{ref("gw", "gw-ns")},
 			targetNS: "any-ns",
 			nsLabels: map[string]string{"env": "prod"},
 			wantLen:  1,
@@ -136,7 +138,7 @@ func TestFilterAllowedRefs(t *testing.T) {
 		{
 			name:     "From Selector with non-matching labels rejects",
 			gateway:  gateway("gw", "gw-ns", selectorListener()),
-			refs:     []kservev1alpha2.UntypedObjectReference{ref("gw", "gw-ns")},
+			refs:     []kservev1alpha2.GatewayObjectReference{ref("gw", "gw-ns")},
 			targetNS: "any-ns",
 			nsLabels: map[string]string{"env": "staging"},
 			wantLen:  0,
@@ -144,7 +146,7 @@ func TestFilterAllowedRefs(t *testing.T) {
 		{
 			name:     "From Selector with nil labels rejects",
 			gateway:  gateway("gw", "gw-ns", selectorListener()),
-			refs:     []kservev1alpha2.UntypedObjectReference{ref("gw", "gw-ns")},
+			refs:     []kservev1alpha2.GatewayObjectReference{ref("gw", "gw-ns")},
 			targetNS: "any-ns",
 			nsLabels: nil,
 			wantLen:  0,
@@ -152,7 +154,7 @@ func TestFilterAllowedRefs(t *testing.T) {
 		{
 			name:    "empty ref namespace defaults to targetNS",
 			gateway: gateway("gw", "app-ns", allListener("http")),
-			refs:    []kservev1alpha2.UntypedObjectReference{ref("gw", "")},
+			refs:    []kservev1alpha2.GatewayObjectReference{ref("gw", "")},
 			// ref ns is empty → defaults to targetNS ("app-ns") → matches gateway ns
 			targetNS: "app-ns",
 			wantLen:  1,
@@ -160,7 +162,7 @@ func TestFilterAllowedRefs(t *testing.T) {
 		{
 			name:     "empty ref namespace defaults to targetNS, no match",
 			gateway:  gateway("gw", "gw-ns", sameListener("http")),
-			refs:     []kservev1alpha2.UntypedObjectReference{ref("gw", "")},
+			refs:     []kservev1alpha2.GatewayObjectReference{ref("gw", "")},
 			targetNS: "other-ns",
 			// ref ns defaults to "other-ns" → doesn't match gateway ns "gw-ns" → kept as different gateway
 			wantLen: 1,
@@ -168,7 +170,7 @@ func TestFilterAllowedRefs(t *testing.T) {
 		{
 			name:    "multiple listeners, one allows",
 			gateway: gateway("gw", "gw-ns", sameListener("internal"), allListener("external")),
-			refs:    []kservev1alpha2.UntypedObjectReference{ref("gw", "gw-ns")},
+			refs:    []kservev1alpha2.GatewayObjectReference{ref("gw", "gw-ns")},
 			// sameListener rejects "other-ns", but allListener allows it
 			targetNS: "other-ns",
 			wantLen:  1,
@@ -176,21 +178,21 @@ func TestFilterAllowedRefs(t *testing.T) {
 		{
 			name:     "gateway with no listeners rejects",
 			gateway:  gateway("gw", "gw-ns"),
-			refs:     []kservev1alpha2.UntypedObjectReference{ref("gw", "gw-ns")},
+			refs:     []kservev1alpha2.GatewayObjectReference{ref("gw", "gw-ns")},
 			targetNS: "gw-ns",
 			wantLen:  0,
 		},
 		{
 			name:    "mixed refs: matching and non-matching gateways",
 			gateway: gateway("gw", "gw-ns", sameListener("http")),
-			refs: []kservev1alpha2.UntypedObjectReference{
+			refs: []kservev1alpha2.GatewayObjectReference{
 				ref("gw", "gw-ns"),        // matches gateway, Same rejects "other-ns"
 				ref("other-gw", "gw-ns"),  // different gateway, kept
 				ref("gw", "different-ns"), // different namespace, kept
 			},
 			targetNS: "other-ns",
 			wantLen:  2,
-			wantRefs: []kservev1alpha2.UntypedObjectReference{
+			wantRefs: []kservev1alpha2.GatewayObjectReference{
 				ref("other-gw", "gw-ns"),
 				ref("gw", "different-ns"),
 			},

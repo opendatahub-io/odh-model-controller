@@ -165,15 +165,15 @@ e2e-kserve-overlay: kustomize ## Create a kustomize overlay injecting the contro
 	@sed -i 's|^odh-model-controller=.*|odh-model-controller=$(ODH_MODEL_CONTROLLER_IMAGE)|' "$(E2E_OVERLAY_DIR)/params.env"
 	@sed -i 's|^odh-model-serving-api=.*|odh-model-serving-api=$(SERVER_IMG)|' "$(E2E_OVERLAY_DIR)/params.env"
 	@cd "$(E2E_OVERLAY_DIR)" && \
-		ctrl_img=$$(sed -n 's/^odh-model-controller=\([^:@]*\).*/\1/p' ../../config/base/params.env) && \
-		srv_img=$$(sed -n 's/^odh-model-serving-api=\([^:@]*\).*/\1/p' ../../config/base/params.env) && \
 		$(KUSTOMIZE) init && \
 		$(KUSTOMIZE) edit add resource ../../config/base && \
 		$(KUSTOMIZE) edit add configmap odh-model-controller-parameters \
 			--behavior=merge \
 			--from-env-file=params.env && \
-		$(KUSTOMIZE) edit set image "$$ctrl_img=$(ODH_MODEL_CONTROLLER_IMAGE)" && \
-		$(KUSTOMIZE) edit set image "$$srv_img=$(SERVER_IMG)"
+		printf '[{"op":"replace","path":"/spec/template/spec/containers/0/image","value":"%s"}]' '$(ODH_MODEL_CONTROLLER_IMAGE)' > patch-controller.json && \
+		printf '[{"op":"replace","path":"/spec/template/spec/containers/0/image","value":"%s"}]' '$(SERVER_IMG)' > patch-server.json && \
+		$(KUSTOMIZE) edit add patch --kind Deployment --name odh-model-controller --path patch-controller.json && \
+		$(KUSTOMIZE) edit add patch --kind Deployment --name model-serving-api --path patch-server.json
 	@echo "Created e2e overlay at $(E2E_OVERLAY_DIR)"
 	@echo "  controller: $(ODH_MODEL_CONTROLLER_IMAGE)"
 	@echo "  server: $(SERVER_IMG)"

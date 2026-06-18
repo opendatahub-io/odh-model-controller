@@ -26,6 +26,7 @@ import (
 
 	"github.com/go-logr/logr"
 	kservev1alpha2 "github.com/kserve/kserve/pkg/apis/serving/v1alpha2"
+	kserveutils "github.com/kserve/kserve/pkg/utils"
 	kuadrantv1 "github.com/kuadrant/kuadrant-operator/api/v1"
 	istioclientv1alpha3 "istio.io/client-go/pkg/apis/networking/v1alpha3"
 	corev1 "k8s.io/api/core/v1"
@@ -36,6 +37,7 @@ import (
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/tools/record"
+	"k8s.io/utils/ptr"
 	ctrl "sigs.k8s.io/controller-runtime"
 	ctrlbuilder "sigs.k8s.io/controller-runtime/pkg/builder"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -339,6 +341,9 @@ func (r *GatewayReconciler) isGatewayReferencedByLLMService(ctx context.Context,
 	}
 
 	for i := range llmSvcList.Items {
+		if kserveutils.GetForceStopRuntime(&llmSvcList.Items[i]) {
+			continue
+		}
 		for _, ref := range r.getEffectiveGatewayRefs(ctx, gateway, &llmSvcList.Items[i]) {
 			ns := string(ref.Namespace)
 			if ns == "" {
@@ -355,7 +360,7 @@ func (r *GatewayReconciler) isGatewayReferencedByLLMService(ctx context.Context,
 // getEffectiveGatewayRefs returns the effective gateway references for an LLMInferenceService.
 // The service's own gateway refs take precedence over those inherited from BaseRef configs,
 // matching the "last one wins" merge semantics used by kserve's MergeSpecs.
-func (r *GatewayReconciler) getEffectiveGatewayRefs(ctx context.Context, gateway *gatewayapiv1.Gateway, llmSvc *kservev1alpha2.LLMInferenceService) []kservev1alpha2.UntypedObjectReference {
+func (r *GatewayReconciler) getEffectiveGatewayRefs(ctx context.Context, gateway *gatewayapiv1.Gateway, llmSvc *kservev1alpha2.LLMInferenceService) []kservev1alpha2.GatewayObjectReference {
 	nsLabels := r.fetchNamespaceLabels(ctx, llmSvc.Namespace)
 
 	// Service's own refs take precedence (replace config refs)
@@ -366,7 +371,7 @@ func (r *GatewayReconciler) getEffectiveGatewayRefs(ctx context.Context, gateway
 	logger := log.FromContext(ctx)
 
 	// Fall back to config refs; last BaseRef with gateway refs wins
-	var refs []kservev1alpha2.UntypedObjectReference
+	var refs []kservev1alpha2.GatewayObjectReference
 	for _, baseRef := range llmSvc.Spec.BaseRefs {
 		cfg, err := r.fetchLLMISvcConfig(ctx, baseRef.Name, llmSvc.Namespace)
 		if err != nil {
@@ -393,12 +398,12 @@ func (r *GatewayReconciler) fetchNamespaceLabels(ctx context.Context, namespace 
 	return ns.Labels
 }
 
-func filterAllowedRefs(ctx context.Context, gateway *gatewayapiv1.Gateway, refs []kservev1alpha2.UntypedObjectReference, targetNS string, nsLabels map[string]string) []kservev1alpha2.UntypedObjectReference {
+func filterAllowedRefs(ctx context.Context, gateway *gatewayapiv1.Gateway, refs []kservev1alpha2.GatewayObjectReference, targetNS string, nsLabels map[string]string) []kservev1alpha2.GatewayObjectReference {
 	if gateway == nil {
 		return refs
 	}
 
-	var allowed []kservev1alpha2.UntypedObjectReference
+	var allowed []kservev1alpha2.GatewayObjectReference
 	for _, ref := range refs {
 		refNs := string(ref.Namespace)
 		if refNs == "" {
@@ -627,14 +632,14 @@ func hasSelectorListeners(gw *gatewayapiv1.Gateway) bool {
 	return false
 }
 
-func getConfigGatewayRefs(cfg *kservev1alpha2.LLMInferenceServiceConfig) []kservev1alpha2.UntypedObjectReference {
+func getConfigGatewayRefs(cfg *kservev1alpha2.LLMInferenceServiceConfig) []kservev1alpha2.GatewayObjectReference {
 	if cfg.Spec.Router != nil && cfg.Spec.Router.Gateway.HasRefs() {
 		return cfg.Spec.Router.Gateway.Refs
 	}
 	return nil
 }
 
-func gatewayRequestsFromRefs(refs []kservev1alpha2.UntypedObjectReference, fallbackNamespace string) []reconcile.Request {
+func gatewayRequestsFromRefs(refs []kservev1alpha2.GatewayObjectReference, fallbackNamespace string) []reconcile.Request {
 	requests := make([]reconcile.Request, 0, len(refs))
 	for _, ref := range refs {
 		namespace := string(ref.Namespace)
@@ -662,16 +667,19 @@ func referencesConfig(svc *kservev1alpha2.LLMInferenceService, configName string
 }
 
 // gatewayRefsEqual reports whether two sets of gateway refs are equivalent (order-independent).
-func gatewayRefsEqual(a, b []kservev1alpha2.UntypedObjectReference) bool {
+func gatewayRefsEqual(a, b []kservev1alpha2.GatewayObjectReference) bool {
 	if len(a) != len(b) {
 		return false
 	}
 
-	cmp := func(x, y kservev1alpha2.UntypedObjectReference) int {
+	cmp := func(x, y kservev1alpha2.GatewayObjectReference) int {
 		if c := strings.Compare(string(x.Namespace), string(y.Namespace)); c != 0 {
 			return c
 		}
-		return strings.Compare(string(x.Name), string(y.Name))
+		if c := strings.Compare(string(x.Name), string(y.Name)); c != 0 {
+			return c
+		}
+		return strings.Compare(string(ptr.Deref(x.SectionName, "")), string(ptr.Deref(y.SectionName, "")))
 	}
 
 	sortedA := slices.Clone(a)
@@ -680,7 +688,8 @@ func gatewayRefsEqual(a, b []kservev1alpha2.UntypedObjectReference) bool {
 	slices.SortFunc(sortedB, cmp)
 
 	for i := range sortedA {
-		if sortedA[i].Name != sortedB[i].Name || sortedA[i].Namespace != sortedB[i].Namespace {
+		if sortedA[i].Name != sortedB[i].Name || sortedA[i].Namespace != sortedB[i].Namespace ||
+			ptr.Deref(sortedA[i].SectionName, "") != ptr.Deref(sortedB[i].SectionName, "") {
 			return false
 		}
 	}
@@ -733,7 +742,7 @@ func gatewayRefsChanged(old, new *kservev1alpha2.LLMInferenceService) bool {
 	return false
 }
 
-func getGatewayRefs(ctx context.Context, gateway *gatewayapiv1.Gateway, llmSvc *kservev1alpha2.LLMInferenceService, nsLabels map[string]string) []kservev1alpha2.UntypedObjectReference {
+func getGatewayRefs(ctx context.Context, gateway *gatewayapiv1.Gateway, llmSvc *kservev1alpha2.LLMInferenceService, nsLabels map[string]string) []kservev1alpha2.GatewayObjectReference {
 	if llmSvc.Spec.Router != nil && llmSvc.Spec.Router.Gateway.HasRefs() {
 		return filterAllowedRefs(ctx, gateway, slices.Clone(llmSvc.Spec.Router.Gateway.Refs), llmSvc.Namespace, nsLabels)
 	}
@@ -817,6 +826,9 @@ func (r *GatewayReconciler) SetupWithManager(mgr ctrl.Manager, setupLog logr.Log
 				UpdateFunc: func(e event.UpdateEvent) bool {
 					oldSvc := e.ObjectOld.(*kservev1alpha2.LLMInferenceService)
 					newSvc := e.ObjectNew.(*kservev1alpha2.LLMInferenceService)
+					if kserveutils.GetForceStopRuntime(oldSvc) != kserveutils.GetForceStopRuntime(newSvc) {
+						return true
+					}
 					return gatewayRefsChanged(oldSvc, newSvc)
 				},
 				DeleteFunc: func(_ event.DeleteEvent) bool {
