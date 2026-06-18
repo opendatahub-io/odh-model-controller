@@ -80,6 +80,8 @@ github.com/cespare/xxhash/v2 v2.3.0/go.mod h1:VGX0DQ3Q6kWi7AoAeZDth3/j3BFtOZR5XL
 github.com/client9/misspell v0.3.4/go.mod h1:qj6jICC3Q7zFZvVWo7KLAzC3yx5G7kyvSDkc90ppPyw=
 github.com/cncf/xds/go v0.0.0-20251210132809-ee656c7534f5 h1:6xNmx7iTtyBRev0+D/Tv1FZd4SCg8axKApyNyRsAt/w=
 github.com/cncf/xds/go v0.0.0-20251210132809-ee656c7534f5/go.mod h1:KdCmV+x/BuvyMxRnYBlmVaq4OLiKW6iRQfvC62cvdkI=
+github.com/coreos/go-semver v0.3.1 h1:yi21YpKnrx1gt5R+la8n5WgS0kCrsPp33dmEyHReZr4=
+github.com/coreos/go-semver v0.3.1/go.mod h1:irMmmIw/7yzSRPWryHsK7EYSg09caPQL03VsM8rvUec=
 github.com/cpuguy83/go-md2man/v2 v2.0.6/go.mod h1:oOW0eioCTA6cOiMLiUPZOpcVxMig6NIQQ7OS05n1F4g=
 github.com/datawire/dlib v1.3.0 h1:KkmyXU1kwm3oPBk1ypR70YbcOlEXWzEbx5RE0iRXTGk=
 github.com/datawire/dlib v1.3.0/go.mod h1:NiGDmetmbkBvtznpWSx6C0vA0s0LK9aHna3LJDqjruk=
@@ -246,8 +248,8 @@ github.com/kylelemons/godebug v1.1.0 h1:RPNrshWIDI6G2gRW9EHilWtl7Z6Sb1BR0xunSBf0
 github.com/kylelemons/godebug v1.1.0/go.mod h1:9/0rRGxNHcop5bhtWyNeEfOS8JIWk580+fNqagV/RAw=
 github.com/leodido/go-urn v1.4.0 h1:WT9HwE9SGECu3lg4d/dIA+jxlljEa1/ffXKmRjqdmIQ=
 github.com/leodido/go-urn v1.4.0/go.mod h1:bvxc+MVxLKB4z00jd1z+Dvzr47oO32F/QSNjSBOlFxI=
-github.com/llm-d/llm-d-workload-variant-autoscaler v0.6.0 h1:aMM1MSNB+Jki0X7upzlO41GJKqbxHBIcg5bcUM0mGKs=
-github.com/llm-d/llm-d-workload-variant-autoscaler v0.6.0/go.mod h1:cIQeclF2T5eoDQpCALS2qvormkaxRpkWyXQ1XsqmhxY=
+github.com/llm-d/llm-d-workload-variant-autoscaler v0.7.0 h1:tubrh9eoBR7lLhOyFyvW5/F2ws97b/sl5ogqwJtVEc8=
+github.com/llm-d/llm-d-workload-variant-autoscaler v0.7.0/go.mod h1:CC4Xh7HuMiqCWcOOKwU/AYFBj2m1qwuODDLoRdZkBRI=
 github.com/mailru/easyjson v0.9.0 h1:PrnmzHw7262yW8sTBwxi1PdJA3Iw/EKBa8psRf7d9a4=
 github.com/mailru/easyjson v0.9.0/go.mod h1:1+xMtQp2MRNVL/V1bOzuP3aP8VNwRW55fQUto+XFtTU=
 github.com/martinlindhe/base36 v1.1.1 h1:1F1MZ5MGghBXDZ2KJ3QfxmiydlWOGB8HCEtkap5NkVg=
@@ -282,8 +284,8 @@ github.com/open-telemetry/opentelemetry-operator v0.113.0 h1:EoN3SLwF9dP5Ou7gFcf
 github.com/open-telemetry/opentelemetry-operator v0.113.0/go.mod h1:eQ8W+MxP+q5Tewf5Cx1vNXvRynjP9JNgrBbUO7TqjXQ=
 github.com/opencontainers/go-digest v1.0.0 h1:apOUWs51W5PlhuyGyz9FCeeBIOUDA/6nW8Oi/yOhh5U=
 github.com/opencontainers/go-digest v1.0.0/go.mod h1:0JzlMkj0TRzQZfJkVvzbP0HBR3IKzErnv2BNG4W4MAM=
-github.com/opendatahub-io/kserve v0.0.0-20260504183808-1fed56624933 h1:dCwn+v11R58UxND1RhimSLi4Dub6nuKzJnvsltYuZkI=
-github.com/opendatahub-io/kserve v0.0.0-20260504183808-1fed56624933/go.mod h1:wBepkgRTeDeGTyuNsE22q0Z1hma4psyb05ZdV7XaCsM=
+github.com/opendatahub-io/kserve v0.0.0-20260615193157-c53af872808d h1:ZPhU64tZikAsNm0Iwf6DqrPsY1Lq4KWytYM36v6C4tM=
+github.com/opendatahub-io/kserve v0.0.0-20260615193157-c53af872808d/go.mod h1:cvJMuCP3Tj04bPk5m1gpTObnQJJdyHtPiZxRLr6BGW0=
 github.com/openshift/api v0.0.0-20260306002634-d3bbdada155c h1:YQYiDzOLJzwQunxCaa5OpyNyMLPz4HJ2CLaKqUQOQjQ=
 github.com/openshift/api v0.0.0-20260306002634-d3bbdada155c/go.mod h1:pyVjK0nZ4sRs4fuQVQ4rubsJdahI1PB94LnQ8sGdvxo=
 github.com/openshift/client-go v0.0.0-20260306160707-3935d929fc7d h1:T+9HFgEEcnu1TDDfsO5JcJC6N0/Kzob5AtG9IpITHJ8=

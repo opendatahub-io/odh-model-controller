@@ -25,6 +25,7 @@ import (
 	"github.com/hashicorp/go-multierror"
 	kservev1alpha2 "github.com/kserve/kserve/pkg/apis/serving/v1alpha2"
 	kservellmisvc "github.com/kserve/kserve/pkg/controller/v1alpha2/llmisvc"
+	kserveutils "github.com/kserve/kserve/pkg/utils"
 	authorinooperatorv1beta1 "github.com/kuadrant/authorino-operator/api/v1beta1"
 	kuadrantv1 "github.com/kuadrant/kuadrant-operator/api/v1"
 	kuadrantv1beta1 "github.com/kuadrant/kuadrant-operator/api/v1beta1"
@@ -117,6 +118,11 @@ func (r *LLMInferenceServiceReconciler) Reconcile(ctx context.Context, req ctrl.
 	// Do not override spec
 	llmisvc = llmisvc.DeepCopy()
 	llmisvc.Spec = spec
+
+	if kserveutils.GetForceStopRuntime(llmisvc) {
+		logger.V(1).Info("Service is stopped, skipping sub-resource reconciliation")
+		return ctrl.Result{}, nil
+	}
 
 	if err := r.reconcileSubResources(ctx, logger, llmisvc); err != nil {
 		logger.Error(err, "Failed to reconcile LLMInferenceService sub-resources")

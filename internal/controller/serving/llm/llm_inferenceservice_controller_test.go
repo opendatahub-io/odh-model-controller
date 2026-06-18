@@ -20,7 +20,10 @@ import (
 	"context"
 	"os"
 
+	"time"
+
 	kservev1alpha2 "github.com/kserve/kserve/pkg/apis/serving/v1alpha2"
+	kserveconstants "github.com/kserve/kserve/pkg/constants"
 	kuadrantv1 "github.com/kuadrant/kuadrant-operator/api/v1"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
@@ -209,6 +212,42 @@ var _ = Describe("LLMInferenceService Controller", func() {
 				})
 			})
 		})
+
+		Context("Stopped service behavior", func() {
+			It("should skip AuthPolicy reconciliation when LLMInferenceService is stopped and HTTPRoute is absent", func(ctx SpecContext) {
+				// Create the HTTPRoute before the LLMInferenceService so
+				// that the first reconciliation finds it and does not
+				// generate a stale ReconcileError event.
+				fixture.CreateHTTPRouteForLLMService(ctx, envTest.Client, testNs, LLMInferenceServiceName)
+
+				enableAuth := false
+				llmisvc := fixture.CreateBasicLLMInferenceService(ctx, envTest.Client, testNs, LLMInferenceServiceName, &enableAuth)
+
+				fixture.VerifyHTTPRouteAuthPolicyExists(ctx, envTest.Client, testNs, LLMInferenceServiceName)
+
+				// Snapshot current ReconcileError event count so we only
+				// detect NEW errors after the stop annotation is set.
+				initialErrorCount := countReconcileErrors(ctx, envTest.Client, testNs, LLMInferenceServiceName)
+
+				// Delete the HTTPRoute first to simulate kserve stop cleanup.
+				httpRouteName := constants.GetHTTPRouteName(LLMInferenceServiceName)
+				httpRoute := &gatewayapiv1.HTTPRoute{}
+				Expect(envTest.Client.Get(ctx, types.NamespacedName{Name: httpRouteName, Namespace: testNs}, httpRoute)).Should(Succeed())
+				Expect(envTest.Client.Delete(ctx, httpRoute)).Should(Succeed())
+
+				// Then set the stop annotation, so the reconcile it triggers
+				// observes the missing route.
+				llmisvc.Annotations[kserveconstants.StopAnnotationKey] = "true"
+				Expect(envTest.Client.Update(ctx, llmisvc)).Should(Succeed())
+
+				// The controller should not produce ReconcileError events for the
+				// stopped service (the bug's symptom was continuous warning events
+				// because AuthPolicy reconciliation tried to look up the deleted HTTPRoute).
+				Consistently(func() bool {
+					return countReconcileErrors(ctx, envTest.Client, testNs, LLMInferenceServiceName) > initialErrorCount
+				}).WithTimeout(2 * time.Second).WithPolling(100 * time.Millisecond).WithContext(ctx).Should(BeFalse())
+			})
+		})
 	})
 })
 
@@ -228,7 +267,7 @@ var _ = Describe("BaseRefs and Spec Merging", func() {
 		)
 		config.Spec.Router = &kservev1alpha2.RouterSpec{
 			Gateway: &kservev1alpha2.GatewaySpec{
-				Refs: []kservev1alpha2.UntypedObjectReference{
+				Refs: []kservev1alpha2.GatewayObjectReference{
 					fixture.LLMGatewayRef(gatewayName, gatewayNamespace),
 				},
 			},
@@ -428,6 +467,28 @@ func createCrossNamespaceGateway(ctx context.Context, name, namespace string) {
 		}),
 	)
 	Expect(envTest.Client.Create(ctx, gw)).Should(Succeed())
+}
+
+// countReconcileErrors returns the number of ReconcileError events for the
+// given LLMInferenceService, including aggregated event counts.
+func countReconcileErrors(ctx context.Context, c client.Client, namespace, name string) int32 {
+	eventList := &corev1.EventList{}
+	if err := c.List(ctx, eventList, client.InNamespace(namespace)); err != nil {
+		return 0
+	}
+	var total int32
+	for _, ev := range eventList.Items {
+		if ev.Reason == "ReconcileError" &&
+			ev.InvolvedObject.Name == name &&
+			ev.InvolvedObject.Kind == "LLMInferenceService" {
+			if ev.Count > 0 {
+				total += ev.Count
+			} else {
+				total++
+			}
+		}
+	}
+	return total
 }
 
 // verifyResourcePersistentlyAbsent checks that a resource remains absent (Consistently + IsNotFound).
