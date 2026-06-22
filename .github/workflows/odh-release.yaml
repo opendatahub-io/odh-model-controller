@@ -384,13 +384,21 @@ jobs:
             f.write(new_content)
 
           print("Running go mod tidy...")
-          result = subprocess.run(['go', 'mod', 'tidy'], capture_output=True, text=True)
+          try:
+            result = subprocess.run(['go', 'mod', 'tidy'], capture_output=True, text=True, timeout=300)
+          except subprocess.TimeoutExpired:
+            print(f"::error::go mod tidy timed out after 300s")
+            raise SystemExit(1)
           if result.returncode != 0:
             print(f"::error::go mod tidy failed:\n{result.stderr}")
             raise SystemExit(1)
 
           print("Running go build ./... (smoke test)...")
-          result = subprocess.run(['go', 'build', './...'], capture_output=True, text=True)
+          try:
+            result = subprocess.run(['go', 'build', './...'], capture_output=True, text=True, timeout=300)
+          except subprocess.TimeoutExpired:
+            print(f"::error::go build timed out after 300s")
+            raise SystemExit(1)
           if result.returncode != 0:
             print(f"::error::go build failed after kserve dependency update:\n{result.stderr}")
             raise SystemExit(1)
