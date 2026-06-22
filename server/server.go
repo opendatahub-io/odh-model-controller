@@ -22,6 +22,10 @@ func NewServer(cfg Config, discoverer gateway.Discoverer, tlsConfig *tls.Config)
 	gatewayHandler := &handlers.GatewayHandler{Discoverer: discoverer}
 	mux.Handle("/api/v1/gateways", middleware.Auth(gatewayHandler))
 
+	// No auth — samples are static, public YAML templates embedded at build time.
+	samplesHandler := &handlers.SamplesHandler{}
+	mux.Handle("/api/v1/llm-d/samples", samplesHandler)
+
 	handler := otelhttp.NewHandler(
 		middleware.Recovery(middleware.SecurityHeaders(middleware.Logging(mux))),
 		"model-serving-api",

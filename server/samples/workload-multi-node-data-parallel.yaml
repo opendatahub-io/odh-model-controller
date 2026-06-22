@@ -1,0 +1,290 @@
+# LLMInferenceServiceConfig: Multi-Node Data-Parallel Deployment
+#
+# This template defines a multi-node data-parallel serving topology.
+# The model is replicated across multiple nodes, each running one or more
+# GPUs with configurable parallelism (data, tensor, expert).
+#
+# Use this topology when:
+#   - Your model requires multiple GPUs across nodes (e.g., large MoE models)
+#   - You need data parallelism for higher throughput
+#   - You want expert parallelism for Mixture-of-Experts (MoE) architectures
+#
+# Auto-injected defaults:
+#   The controller automatically merges this config with auto-injected defaults
+#   (kserve-config-llm-worker-data-parallel). The following are auto-injected:
+#     - Container image, command (including data-parallel args), and ports
+#     - DP address resolution and worker rank assignment
+#     - Probes (liveness, readiness, startup)
+#     - Security context (including IPC_LOCK, SYS_RAWIO, NET_RAW capabilities)
+#     - Lifecycle hooks, volume mounts, and volumes (dshm sized to 8Gi)
+#     - TLS configuration
+#     - RoCE auto-detection: NCCL_IB_GID_INDEX, NVSHMEM_IB_GID_INDEX,
+#       UCX_IB_GID_INDEX, NCCL_IB_HCA, NVSHMEM_HCA_LIST, and UCX_NET_DEVICES
+#       are automatically discovered when KSERVE_INFER_ROCE=true.
+#       Set them explicitly only to override auto-detection.
+#   Only set fields you want to override or that are not auto-injected.
+#
+# Prerequisites:
+#   - Multi-node GPU cluster with high-bandwidth interconnect
+#   - RDMA-capable network (RoCE or InfiniBand) for inter-node communication
+#   - SR-IOV network operator configured with RDMA resources
+#   - Sufficient GPU memory across all nodes for the model
+#   - PVC with model weights accessible from all nodes (recommended)
+#
+# To customize for your infrastructure:
+#   1. Set parallelism values based on model architecture and GPU count
+#   2. Replace the network annotation with your RDMA network name
+#   3. Adjust NCCL and NVSHMEM settings for your network fabric
+#   4. Size GPU, CPU, and memory resources per node
+#
+apiVersion: serving.kserve.io/v1alpha2
+kind: LLMInferenceServiceConfig
+metadata:
+  # Name must be unique within the namespace.
+  # Choose a descriptive name that reflects the topology and hardware.
+  name: multi-node-data-parallel-gpu
+  labels:
+    # This label classifies the config for the UI deployment wizard.
+    # The UI filters available configs by this label value.
+    opendatahub.io/config-type: workload-multi-node-data-parallel
+  annotations:
+    # Human-readable description shown in the UI when selecting a topology.
+    description: >-
+      Multi-node data-parallel GPU deployment with RDMA interconnect.
+      Suitable for large models requiring multiple GPUs across nodes.
+spec:
+  # Parallelism configuration controls how the model is distributed.
+  #
+  # data: total number of data-parallel ranks across all nodes.
+  #   Each rank runs an independent copy of the model (or model shard).
+  #   Set to (number of nodes) x (GPUs per node) for full data parallelism.
+  #   Example: 4 nodes x 8 GPUs = 32 data-parallel ranks.
+  #
+  # dataLocal: number of data-parallel ranks per node.
+  #   Must evenly divide into "data". Typically equals GPUs per node.
+  #   Example: 8 GPUs per node → dataLocal: 8
+  #
+  # tensor: tensor parallelism degree (splits individual layers across GPUs).
+  #   Set to 1 unless the model is too large for a single GPU's memory.
+  #   Common values: 1, 2, 4, 8 (must divide evenly into GPUs per node).
+  #   Higher values increase inter-GPU communication overhead.
+  #
+  # expert: enable expert parallelism for MoE (Mixture-of-Experts) models.
+  #   Set to true for models like DeepSeek, Mixtral, or other MoE architectures.
+  #   Set to false for dense models (LLaMA, Qwen, Mistral non-MoE).
+  # CROSS-CONFIG NOTE: parallelism settings, GPU count, and resources must be consistent.
+  #
+  #   dataLocal MUST equal nvidia.com/gpu in resources below (GPUs per node).
+  #   data / dataLocal = number of nodes the controller will schedule.
+  #   Example: data: 32, dataLocal: 8 → 4 nodes, each with 8 GPUs.
+  #
+  #   If using tensor parallelism (tensor > 1), each tensor-parallel group
+  #   shares GPUs on the same node: dataLocal / tensor = data-parallel ranks per node.
+  parallelism:
+    data: 32
+    dataLocal: 8
+    expert: true
+    tensor: 1
+  annotations:
+    # RDMA network annotation. See workload-single-node-pd for details.
+    # The same networks will get propagated to `spec.template` and `spec.worker` pods.
+    k8s.v1.cni.cncf.io/networks: roce-p2
+  template:
+    containers:
+      - name: main
+        env:
+          # --- RDMA and KV transfer ---
+          - name: KSERVE_INFER_ROCE
+            value: "true"
+          # CUDA_DEVICE_ORDER: ensures consistent GPU ordering across nodes.
+          # PCI_BUS_ID ordering is required for multi-node NCCL communication.
+          - name: CUDA_DEVICE_ORDER
+            value: "PCI_BUS_ID"
+          # VLLM_ALL2ALL_BACKEND: backend for all-to-all communication in MoE models.
+          #
+          # Options:
+          #   deepep_high_throughput - optimized for throughput (larger batch sizes)
+          #   deepep_low_latency    - optimized for latency (smaller batch sizes)
+          #   naive                 - fallback using standard NCCL (no NVSHMEM required)
+          #
+          # deepep_* backends require NVSHMEM and RDMA support.
+          # Use "naive" for TCP-only clusters or initial testing.
+          - name: VLLM_ALL2ALL_BACKEND
+            value: deepep_high_throughput
+          # PYTORCH_CUDA_ALLOC_CONF: CUDA memory allocator configuration.
+          # expandable_segments reduces memory fragmentation for large models.
+          - name: PYTORCH_CUDA_ALLOC_CONF
+            value: "expandable_segments:True"
+          # --- NCCL configuration (inter-node GPU communication) ---
+          #
+          # NCCL is used for collective operations (allreduce, allgather) across GPUs.
+          # These settings must be tuned for your network fabric.
+          #
+          # NCCL_IB_GID_INDEX is auto-detected when KSERVE_INFER_ROCE=true.
+          # The entrypoint script discovers active RoCE HCAs and finds the correct
+          # IPv4 RoCEv2 GID index automatically. Set it explicitly only to override:
+          #   - name: NCCL_IB_GID_INDEX
+          #     value: "3"
+          #
+          # NCCL_DEBUG: logging verbosity.
+          #   WARN for production, INFO for debugging, TRACE for detailed diagnostics.
+          - name: NCCL_DEBUG
+            value: WARN
+          # NCCL_SOCKET_IFNAME: network interface for NCCL socket communication.
+          #   Must match the RDMA network interface name.
+          #   Common values: net1 (SR-IOV), eth0 (default), ib0 (InfiniBand)
+          #   Use "ip link show" on a node to find the correct interface.
+          - name: NCCL_SOCKET_IFNAME
+            value: net1
+          # NCCL_IB_TIMEOUT: InfiniBand/RoCE retry timeout (log2 of 4.096µs units).
+          #   22 ≈ 17s — standard for RoCE, balances congestion tolerance
+          #   with failure detection. Increase to 23 (~34s) for lossy fabrics.
+          - name: NCCL_IB_TIMEOUT
+            value: "22"
+          # --- NVSHMEM configuration (required for deepep_* backends) ---
+          #
+          # NVSHMEM provides GPU-initiated RDMA communication.
+          # Remove this section if using VLLM_ALL2ALL_BACKEND=naive.
+          #
+          # NVSHMEM_REMOTE_TRANSPORT: transport protocol for remote GPU access.
+          #   ibgda - InfiniBand GPU Direct Async (highest performance, requires RDMA)
+          #   ibrc  - InfiniBand Reliable Connection (fallback, lower performance)
+          - name: NVSHMEM_REMOTE_TRANSPORT
+            value: ibgda
+          # NVSHMEM_BOOTSTRAP_TWO_STAGE: enables two-stage bootstrap for large clusters.
+          # Required when the number of nodes exceeds the bootstrap socket limit.
+          - name: NVSHMEM_BOOTSTRAP_TWO_STAGE
+            value: "1"
+          # NVSHMEM_BOOTSTRAP_TIMEOUT: timeout in seconds for NVSHMEM initialization.
+          #   Increase for large clusters (>8 nodes) or slow networks.
+          - name: NVSHMEM_BOOTSTRAP_TIMEOUT
+            value: "120"
+          # NVSHMEM_BOOTSTRAP_UID_SOCK_IFNAME: network interface for bootstrap.
+          # Must match NCCL_SOCKET_IFNAME.
+          - name: NVSHMEM_BOOTSTRAP_UID_SOCK_IFNAME
+            value: net1
+          # NVSHMEM_IB_GID_INDEX is auto-detected (see NCCL_IB_GID_INDEX note above).
+          - name: NVSHMEM_USE_IBGDA
+            value: "1"
+          - name: NVSHMEM_ENABLE_NIC_PE_MAPPING
+            value: "1"
+          - name: NVSHMEM_IBGDA_SUPPORT
+            value: "1"
+          - name: NVSHMEM_IB_ENABLE_IBGDA
+            value: "1"
+          # NVSHMEM_IBGDA_NIC_HANDLER: controls which processor handles NIC requests.
+          #   "gpu" - GPU-initiated RDMA (best for deepep_high_throughput)
+          #   "cpu" - CPU-initiated RDMA (fallback)
+          - name: NVSHMEM_IBGDA_NIC_HANDLER
+            value: "gpu"
+          - name: NVSHMEM_DEBUG
+            value: WARN
+          # --- UCX configuration (underlying RDMA transport) ---
+          - name: UCX_TLS
+            value: "rc,sm,self,cuda_copy,cuda_ipc"
+          # UCX_IB_GID_INDEX is auto-detected (see NCCL_IB_GID_INDEX note above).
+          - name: UCX_RC_MLX5_TM_ENABLE
+            value: "n"
+          - name: UCX_UD_MLX5_RX_QUEUE_LEN
+            value: "1024"
+          # NVIDIA_GDRCOPY: enables GPU Direct RDMA copy for faster data transfer.
+          # Requires gdrcopy kernel module installed on the host.
+          # Set to "disabled" if gdrcopy is not available.
+          - name: NVIDIA_GDRCOPY
+            value: enabled
+        resources:
+          # Multi-node deployments typically use all GPUs on a node.
+          # Adjust based on your hardware:
+          #   8x A100 80GB: nvidia.com/gpu: "8", memory: 512Gi
+          #   8x H100 80GB: nvidia.com/gpu: "8", memory: 512Gi
+          #   4x A100 40GB: nvidia.com/gpu: "4", memory: 256Gi
+          # CROSS-CONFIG NOTE: nvidia.com/gpu MUST match parallelism.dataLocal above.
+          limits:
+            cpu: 128
+            ephemeral-storage: 800Gi
+            memory: 512Gi
+            nvidia.com/gpu: "8"
+            # RDMA resource from SR-IOV network operator.
+            # This resource name is cluster-specific — it must match the resource
+            # name defined in your SriovNetworkNodePolicy.
+            # Common names: rdma/roce_gdr, rdma/hca_shared, rdma/mlnx_ib
+            # To find available resources: oc describe node <node> | grep rdma
+            # Remove if not using RDMA (also set KSERVE_INFER_ROCE=false).
+            rdma/roce_gdr: 1
+          requests:
+            cpu: 64
+            ephemeral-storage: 800Gi
+            memory: 256Gi
+            nvidia.com/gpu: "8"
+            rdma/roce_gdr: 1
+        # Probes are auto-injected. The default startupProbe allows ~10 minutes.
+        # For very large models (e.g., DeepSeek-R1 671B), override startupProbe:
+        #   startupProbe:
+        #     failureThreshold: 360   # 60 minutes
+        #     periodSeconds: 10
+  # Worker specification for non-head nodes.
+  # Workers run the model shards but do not serve the HTTP endpoint.
+  # The head node (template above) coordinates inference across workers.
+  worker:
+    containers:
+      - name: main
+        env:
+          - name: KSERVE_INFER_ROCE
+            value: "true"
+          - name: CUDA_DEVICE_ORDER
+            value: "PCI_BUS_ID"
+          - name: VLLM_ALL2ALL_BACKEND
+            value: deepep_high_throughput
+          - name: PYTORCH_CUDA_ALLOC_CONF
+            value: "expandable_segments:True"
+          # GID index env vars (NCCL, NVSHMEM, UCX) are auto-detected.
+          - name: NCCL_DEBUG
+            value: WARN
+          - name: NCCL_SOCKET_IFNAME
+            value: net1
+          - name: NCCL_IB_TIMEOUT
+            value: "22"
+          - name: NVSHMEM_REMOTE_TRANSPORT
+            value: ibgda
+          - name: NVSHMEM_BOOTSTRAP_TWO_STAGE
+            value: "1"
+          - name: NVSHMEM_BOOTSTRAP_TIMEOUT
+            value: "120"
+          - name: NVSHMEM_BOOTSTRAP_UID_SOCK_IFNAME
+            value: net1
+          # NVSHMEM_IB_GID_INDEX is auto-detected (see NCCL_IB_GID_INDEX note above).
+          - name: NVSHMEM_USE_IBGDA
+            value: "1"
+          - name: NVSHMEM_ENABLE_NIC_PE_MAPPING
+            value: "1"
+          - name: NVSHMEM_IBGDA_SUPPORT
+            value: "1"
+          - name: NVSHMEM_IB_ENABLE_IBGDA
+            value: "1"
+          - name: NVSHMEM_IBGDA_NIC_HANDLER
+            value: "gpu"
+          - name: NVSHMEM_DEBUG
+            value: WARN
+          - name: UCX_TLS
+            value: "rc,sm,self,cuda_copy,cuda_ipc"
+          # UCX_IB_GID_INDEX is auto-detected (see NCCL_IB_GID_INDEX note above).
+          - name: UCX_RC_MLX5_TM_ENABLE
+            value: "n"
+          - name: UCX_UD_MLX5_RX_QUEUE_LEN
+            value: "1024"
+          - name: NVIDIA_GDRCOPY
+            value: enabled
+        resources:
+          # Worker resources should match the head node for balanced execution.
+          limits:
+            cpu: 128
+            ephemeral-storage: 800Gi
+            memory: 512Gi
+            nvidia.com/gpu: "8"
+            rdma/roce_gdr: 1
+          requests:
+            cpu: 64
+            ephemeral-storage: 800Gi
+            memory: 256Gi
+            nvidia.com/gpu: "8"
+            rdma/roce_gdr: 1
