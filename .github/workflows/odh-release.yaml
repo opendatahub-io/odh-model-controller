@@ -379,10 +379,7 @@ jobs:
 
           print(f"{prefix_label}Updating kserve dependency: {old_version} -> {tag_name}")
 
-          if dry_run:
-            print(f"✓ {prefix_label}kserve dependency would be updated")
-            raise SystemExit(0)
-
+          # Write go.mod even in dry run — needed for tidy + build validation
           with open('go.mod', 'w') as f:
             f.write(new_content)
 
@@ -392,6 +389,12 @@ jobs:
             print(f"::error::go mod tidy failed:\n{result.stderr}")
             raise SystemExit(1)
 
+          print("Running go build ./... (smoke test)...")
+          result = subprocess.run(['go', 'build', './...'], capture_output=True, text=True)
+          if result.returncode != 0:
+            print(f"::error::go build failed after kserve dependency update:\n{result.stderr}")
+            raise SystemExit(1)
+
           with open('go.mod', 'r') as f:
             resolved = f.read()
           resolved_match = pattern.search(resolved)
@@ -399,7 +402,11 @@ jobs:
             resolved_version = resolved_match.group(0).rsplit(' ', 1)[1]
             print(f"  Resolved to: {resolved_version}")
 
-          print(f"✓ kserve dependency updated")
+          if dry_run:
+            print(f"✓ {prefix_label}kserve dependency validated (build passed) — changes not committed")
+            raise SystemExit(0)
+
+          print(f"✓ kserve dependency updated and validated")
         shell: python
 
       - name: Commit release changes (if any)
