@@ -42,7 +42,7 @@
 # To customize for your infrastructure:
 #   1. Adjust plugin weights to match your workload patterns
 #   2. Add or remove plugins based on your optimization goals
-#   3. Set the supported-topologies label to restrict compatibility
+#   3. Set the supported-topologies annotation to restrict compatibility
 #
 apiVersion: serving.kserve.io/v1alpha2
 kind: LLMInferenceServiceConfig
@@ -54,8 +54,9 @@ metadata:
     # This label classifies the config for the UI deployment wizard.
     # The UI filters available configs by this label value.
     opendatahub.io/config-type: router
+  annotations:
     # JSON array of topology types this router is compatible with.
-    # The UI uses this label to filter router options based on the selected topology.
+    # The UI uses this annotation to filter router options based on the selected topology.
     #
     # Set this to the topology types you have validated this routing policy against.
     # Example values:
@@ -67,13 +68,14 @@ metadata:
     # P/D topologies are excluded here because they require disagg-profile-handler
     # with separate prefill/decode scheduling profiles — see router-pd.yaml.
     opendatahub.io/supported-topologies: '["workload-single-node", "workload-multi-node-data-parallel"]'
-  annotations:
     # Human-readable description shown in the UI when selecting a routing policy.
     description: >-
       Optimized baseline scheduling policy with queue, KV cache
       utilization, prefix cache, and LRU scoring.
 spec:
   router:
+    gateway: { }
+    route: { }
     scheduler:
       # EndpointPickerConfig defines the scoring plugins and scheduling profiles
       # used by the inference scheduler (EPP) to select pods for each request.

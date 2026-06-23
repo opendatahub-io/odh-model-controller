@@ -48,5 +48,5 @@ func (h *SamplesHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 }
 
 func isNotExist(err error) bool {
-	return errors.Is(err, fs.ErrNotExist)
+	return errors.Is(err, fs.ErrNotExist) || errors.Is(err, fs.ErrInvalid)
 }

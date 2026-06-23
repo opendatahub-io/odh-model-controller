@@ -125,7 +125,7 @@ Each YAML file is a complete `LLMInferenceServiceConfig` CR with:
 
 - `opendatahub.io/config-type` label
 - `annotations.description` field
-- `opendatahub.io/supported-topologies` placeholder on router sample (with comment explaining what to fill in)
+- `opendatahub.io/supported-topologies` annotation on router samples (JSON array of compatible topology types)
 - Extensive inline YAML comments on every field explaining purpose, valid alternatives, and how to adapt for different
   infrastructure
 

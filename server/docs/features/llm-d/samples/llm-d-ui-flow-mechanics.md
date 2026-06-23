@@ -14,10 +14,10 @@ The configuration surface for llm-d is substantial, involving approximately 46 i
 
 Platform Admins define reusable configuration templates via the LLMInferenceServiceConfig Custom Resource (CR). These resources are now classified using specific labels to drive the UI logic.
 
-| Label Key | Values / Purpose |
-| :---- | :---- |
-| opendatahub.io/config-type | \<workload-topology-type\>: Defines the physical layout of the deployment [(see below)](#bookmark=id.7nn6x05qcc3). router: Defines routing, flow control, and prioritization policies. *\<any other type to add associated with other steps\>* |
-| opendatahub.io/supported-topologies | Applied to router types or any other type that is tied with a topology.  A JSON array of topology types this router configuration is compatible with. |
+| Key | Kind | Values / Purpose |
+| :---- | :---- | :---- |
+| opendatahub.io/config-type | Label | \<workload-topology-type\>: Defines the physical layout of the deployment [(see below)](#bookmark=id.7nn6x05qcc3). router: Defines routing, flow control, and prioritization policies. *\<any other type to add associated with other steps\>* |
+| opendatahub.io/supported-topologies | Annotation | Applied to router types or any other type that is tied with a topology.  A JSON array of topology types this router configuration is compatible with. Stored as an annotation because JSON arrays violate K8s label value constraints (max 63 chars, no brackets/commas/spaces). |
 
 # **Administrative Setup**
 
@@ -137,8 +137,8 @@ metadata:
   name: precise-prefix-queue-kv-cache-utilization
   labels:
     opendatahub.io/config-type: router
-    opendatahub.io/supported-topologies: '["workload-single-node"]'
   annotations:
+    opendatahub.io/supported-topologies: '["workload-single-node"]'
     description: Routing profile with precise-prefix-cache-scorer + queue-scorer + kv-cache-utilization-scorer
 spec:
   router:

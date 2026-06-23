@@ -120,7 +120,9 @@ func TestSamplesHandler_TopologyNonPD(t *testing.T) {
 func TestSamplesHandler_TopologyIgnoredForWorkload(t *testing.T) {
 	h := &SamplesHandler{}
 
-	req := httptest.NewRequest(http.MethodGet, "/api/v1/llm-d/samples?type=workload-single-node&topology=workload-single-node-pd", nil)
+	url := "/api/v1/llm-d/samples?type=workload-single-node" +
+		"&topology=workload-single-node-pd"
+	req := httptest.NewRequest(http.MethodGet, url, nil)
 	rec := httptest.NewRecorder()
 	h.ServeHTTP(rec, req)
 

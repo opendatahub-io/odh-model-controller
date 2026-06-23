@@ -41,8 +41,10 @@ metadata:
     # This label classifies the config for the UI deployment wizard.
     # The UI filters available configs by this label value.
     opendatahub.io/config-type: router
-    opendatahub.io/supported-topologies: '["workload-single-node-pd", "workload-multi-node-data-parallel-pd"]'
   annotations:
+    # JSON array of topology types this router is compatible with.
+    # Annotations support arbitrary values, unlike labels (max 63 chars, no brackets).
+    opendatahub.io/supported-topologies: '["workload-single-node-pd", "workload-multi-node-data-parallel-pd"]'
     # Human-readable description shown in the UI when selecting a routing policy.
     description: >-
       Disaggregated prefill/decode scheduling policy with separate profiles
@@ -50,6 +52,8 @@ metadata:
       utilization, and active request scoring.
 spec:
   router:
+    gateway: { }
+    route: { }
     scheduler:
       config:
         inline:

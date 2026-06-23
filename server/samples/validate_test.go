@@ -8,6 +8,7 @@ import (
 
 	kservev1alpha2 "github.com/kserve/kserve/pkg/apis/serving/v1alpha2"
 	"github.com/kserve/kserve/pkg/controller/v1alpha2/llmisvc"
+	"k8s.io/apimachinery/pkg/util/validation"
 	"sigs.k8s.io/yaml"
 )
 
@@ -51,7 +52,10 @@ func TestSamplesValidateAgainstCRD(t *testing.T) {
 			}
 
 			if name != configType+".yaml" && !strings.HasPrefix(name, configType+"-") {
-				t.Errorf("filename %q does not match config-type label %q (expected %s.yaml or %s-*.yaml)", name, configType, configType, configType)
+				t.Errorf(
+					"filename %q does not match config-type label %q (expected %s.yaml or %s-*.yaml)",
+					name, configType, configType, configType,
+				)
 			}
 
 			if desc := cfg.Annotations["description"]; desc == "" {
@@ -87,6 +91,20 @@ func TestSamplesValidateAgainstCRD(t *testing.T) {
 			}
 			if _, err := llmisvc.ReplaceVariables(llmisvc.LLMInferenceServiceSample(), &cfg, reconcilerCfg); err != nil {
 				t.Errorf("variable replacement validation failed: %v", err)
+			}
+
+			for k, v := range cfg.Labels {
+				if errs := validation.IsQualifiedName(k); len(errs) > 0 {
+					t.Errorf("label key %q is invalid: %v", k, errs)
+				}
+				if errs := validation.IsValidLabelValue(v); len(errs) > 0 {
+					t.Errorf("invalid label %q=%q: %+v", k, v, errs)
+				}
+			}
+			for k := range cfg.Annotations {
+				if errs := validation.IsQualifiedName(k); len(errs) > 0 {
+					t.Errorf("annotation key %q is invalid: %v", k, errs)
+				}
 			}
 		})
 	}
