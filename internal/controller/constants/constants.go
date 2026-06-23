@@ -103,6 +103,7 @@ const (
 	OvmsRuntimeName         = "ovms"
 	TgisRuntimeName         = "tgis"
 	VllmRuntimeName         = "vllm"
+	VllmOmniRuntimeName     = "vllm-omni"
 	MLServerRuntimeName     = "mlserver"
 )
 

@@ -200,6 +200,7 @@ func (r *KserveMetricsDashboardReconciler) processDelta(ctx context.Context, log
 //   - IsNimRuntimeAnnotation: Returns NIMMetricsData if set to "true"
 //   - KServeRuntimeAnnotation with OvmsRuntimeName: Returns OvmsMetricsData
 //   - KServeRuntimeAnnotation with VllmRuntimeName: Returns VllmMetricsData
+//   - KServeRuntimeAnnotation with VllmOmniRuntimeName: Returns VllmMetricsData
 //   - KServeRuntimeAnnotation with TgisRuntimeName: Returns TgisMetricsData
 //   - KServeRuntimeAnnotation with MLServerRuntimeName: Returns MLServerMetricsData
 //
@@ -223,6 +224,8 @@ func getMetricsData(runtime *kservev1alpha1.ServingRuntime) (string, bool) {
 	case runtime.Spec.Annotations[constants.KServeRuntimeAnnotation] == constants.OvmsRuntimeName:
 		return constants.OvmsMetricsData, true
 	case runtime.Spec.Annotations[constants.KServeRuntimeAnnotation] == constants.VllmRuntimeName:
+		return constants.VllmMetricsData, true
+	case runtime.Spec.Annotations[constants.KServeRuntimeAnnotation] == constants.VllmOmniRuntimeName:
 		return constants.VllmMetricsData, true
 	case runtime.Spec.Annotations[constants.KServeRuntimeAnnotation] == constants.TgisRuntimeName:
 		return constants.TgisMetricsData, true

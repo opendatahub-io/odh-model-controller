@@ -17,4 +17,5 @@ resources:
   - vllm-spyre-x86-template.yaml
   - vllm-spyre-s390x-template.yaml
   - vllm-spyre-ppc64le-template.yaml
+  - vllm-omni-cuda-template.yaml
   - hf-detector-template.yaml
