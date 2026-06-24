@@ -20,6 +20,8 @@ package testutil
 import (
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime/schema"
+
+	"github.com/opendatahub-io/odh-model-controller/internal/webhook/serving/hardwareprofile"
 )
 
 var hwpGVK = schema.GroupVersionKind{
@@ -115,6 +117,20 @@ func TolerationMap(key, operator, effect string) map[string]interface{} {
 		"key":      key,
 		"operator": operator,
 		"effect":   effect,
+	}
+}
+
+// HWPAnnotations returns an annotation map carrying only the HardwareProfile name annotation.
+func HWPAnnotations(profileName string) map[string]string {
+	return map[string]string{hardwareprofile.HardwareProfileAnnotationName: profileName}
+}
+
+// HWPAnnotationsWithNS returns an annotation map carrying both the HardwareProfile name and
+// namespace annotations.
+func HWPAnnotationsWithNS(profileName, ns string) map[string]string {
+	return map[string]string{
+		hardwareprofile.HardwareProfileAnnotationName:      profileName,
+		hardwareprofile.HardwareProfileAnnotationNamespace: ns,
 	}
 }
 

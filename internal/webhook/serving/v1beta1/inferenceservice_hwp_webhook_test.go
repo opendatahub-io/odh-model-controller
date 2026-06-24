@@ -109,19 +109,6 @@ func isvcUpdateCtx(newISVC, oldISVC *servingv1beta1.InferenceService) context.Co
 	return admission.NewContextWithRequest(context.Background(), req)
 }
 
-// hwpAnnotations returns a single-annotation map with the HWP name annotation.
-func hwpAnnotations(profileName string) map[string]string {
-	return map[string]string{hardwareprofile.HardwareProfileAnnotationName: profileName}
-}
-
-// hwpAnnotationsWithNS returns annotation map with both HWP name and namespace annotations.
-func hwpAnnotationsWithNS(profileName, ns string) map[string]string {
-	return map[string]string{
-		hardwareprofile.HardwareProfileAnnotationName:      profileName,
-		hardwareprofile.HardwareProfileAnnotationNamespace: ns,
-	}
-}
-
 // ─── tests ────────────────────────────────────────────────────────────────────
 
 var _ = Describe("InferenceService HardwareProfile Webhook", func() {
@@ -151,7 +138,7 @@ var _ = Describe("InferenceService HardwareProfile Webhook", func() {
 					[]string{"nvidia.com/gpu", "2"},
 				))
 			d := newISVCDefaulter(newDefaulterFakeClient(hwp))
-			isvc := buildISVCForHWP(hwpAnnotations(hwpTestName), nil)
+			isvc := buildISVCForHWP(hwptestutil.HWPAnnotations(hwpTestName), nil)
 
 			Expect(d.Default(isvcCreateCtx(isvc), isvc)).To(Succeed())
 			Expect(isvc.Spec.Predictor.Model).NotTo(BeNil())
@@ -173,7 +160,7 @@ var _ = Describe("InferenceService HardwareProfile Webhook", func() {
 					[]interface{}{hwptestutil.TolerationMapWithSeconds("nvidia.com/gpu", "Exists", "NoSchedule", 300)},
 				))
 			d := newISVCDefaulter(newDefaulterFakeClient(hwp))
-			isvc := buildISVCForHWP(hwpAnnotations(hwpTestName), nil)
+			isvc := buildISVCForHWP(hwptestutil.HWPAnnotations(hwpTestName), nil)
 
 			Expect(d.Default(isvcCreateCtx(isvc), isvc)).To(Succeed())
 			Expect(isvc.Spec.Predictor.NodeSelector).To(HaveKeyWithValue("nvidia.com/gpu.product", "A100"))
@@ -187,19 +174,30 @@ var _ = Describe("InferenceService HardwareProfile Webhook", func() {
 		})
 
 		It("isvc-4: HWP with Kueue scheduling — label set, node scheduling not applied (nil labels init)", func() {
-			hwp := hwptestutil.NewHardwareProfile(hwpTestName, hwpTestNS, hwptestutil.KueueSpec("test-queue"))
+			// HWP spec contains both Kueue and node scheduling fields. parseProfile reads the
+			// Kueue queue name first and returns early, so the node section is never parsed and
+			// the ResolvedProfile has no NodeSelector. The webhook then sets only the Kueue label
+			// and returns before reaching the node scheduling block.
+			spec := map[string]interface{}{
+				"schedulingSpec": map[string]interface{}{
+					"kueue": map[string]interface{}{"localQueueName": "test-queue"},
+					"node":  map[string]interface{}{"nodeSelector": map[string]interface{}{"zone": "gpu-zone"}},
+				},
+			}
+			hwp := hwptestutil.NewHardwareProfile(hwpTestName, hwpTestNS, spec)
 			d := newISVCDefaulter(newDefaulterFakeClient(hwp))
-			isvc := buildISVCForHWP(hwpAnnotations(hwpTestName), nil)
+			isvc := buildISVCForHWP(hwptestutil.HWPAnnotations(hwpTestName), nil)
 			isvc.Labels = nil // explicitly nil to exercise nil-map initialisation in ApplyKueueLabel
 
 			Expect(d.Default(isvcCreateCtx(isvc), isvc)).To(Succeed())
 			Expect(isvc.Labels[hardwareprofile.KueueQueueNameLabel]).To(Equal("test-queue"))
+			// nodeSelector not set — node scheduling was not applied despite being present in the HWP spec.
 			Expect(isvc.Spec.Predictor.NodeSelector).To(BeNil())
 		})
 
 		It("isvc-5: HWP not found — admission blocked", func() {
 			d := newISVCDefaulter(newDefaulterFakeClient()) // no HWP registered
-			isvc := buildISVCForHWP(hwpAnnotations("missing-hwp"), nil)
+			isvc := buildISVCForHWP(hwptestutil.HWPAnnotations("missing-hwp"), nil)
 
 			err := d.Default(isvcCreateCtx(isvc), isvc)
 			Expect(err).To(HaveOccurred())
@@ -209,7 +207,7 @@ var _ = Describe("InferenceService HardwareProfile Webhook", func() {
 		It("isvc-6: namespace annotation stamped when absent", func() {
 			hwp := hwptestutil.NewHardwareProfile(hwpTestName, hwpTestNS, hwptestutil.KueueSpec("q"))
 			d := newISVCDefaulter(newDefaulterFakeClient(hwp))
-			isvc := buildISVCForHWP(hwpAnnotations(hwpTestName), nil)
+			isvc := buildISVCForHWP(hwptestutil.HWPAnnotations(hwpTestName), nil)
 
 			Expect(d.Default(isvcCreateCtx(isvc), isvc)).To(Succeed())
 			Expect(isvc.Annotations[hardwareprofile.HardwareProfileAnnotationNamespace]).To(Equal(hwpTestNS))
@@ -223,7 +221,7 @@ var _ = Describe("InferenceService HardwareProfile Webhook", func() {
 			}
 			hwp := hwptestutil.NewHardwareProfile(hwpTestName, hwpTestNS, spec)
 			d := newISVCDefaulter(newDefaulterFakeClient(hwp))
-			isvc := buildISVCForHWP(hwpAnnotations(hwpTestName), nil)
+			isvc := buildISVCForHWP(hwptestutil.HWPAnnotations(hwpTestName), nil)
 
 			Expect(d.Default(isvcCreateCtx(isvc), isvc)).To(HaveOccurred())
 		})
@@ -236,7 +234,7 @@ var _ = Describe("InferenceService HardwareProfile Webhook", func() {
 			}
 			hwp := hwptestutil.NewHardwareProfile(hwpTestName, hwpTestNS, spec)
 			d := newISVCDefaulter(newDefaulterFakeClient(hwp))
-			isvc := buildISVCForHWP(hwpAnnotations(hwpTestName), nil)
+			isvc := buildISVCForHWP(hwptestutil.HWPAnnotations(hwpTestName), nil)
 
 			Expect(d.Default(isvcCreateCtx(isvc), isvc)).To(HaveOccurred())
 		})
@@ -244,7 +242,7 @@ var _ = Describe("InferenceService HardwareProfile Webhook", func() {
 		It("isvc-18: HWP with completely empty spec — isvc unmodified, admitted", func() {
 			hwp := hwptestutil.NewHardwareProfile(hwpTestName, hwpTestNS, map[string]interface{}{})
 			d := newISVCDefaulter(newDefaulterFakeClient(hwp))
-			isvc := buildISVCForHWP(hwpAnnotations(hwpTestName), nil)
+			isvc := buildISVCForHWP(hwptestutil.HWPAnnotations(hwpTestName), nil)
 
 			Expect(d.Default(isvcCreateCtx(isvc), isvc)).To(Succeed())
 			if isvc.Spec.Predictor.Model != nil {
@@ -263,7 +261,7 @@ var _ = Describe("InferenceService HardwareProfile Webhook", func() {
 			hwp := hwptestutil.NewHardwareProfile(hwpTestName, hwpTestNS,
 				hwptestutil.ResourceSpec([]string{"cpu", "4"}, []string{"nvidia.com/gpu", "2"}))
 			d := newISVCDefaulter(newDefaulterFakeClient(hwp))
-			isvc := buildISVCForHWP(hwpAnnotations(hwpTestName), nil)
+			isvc := buildISVCForHWP(hwptestutil.HWPAnnotations(hwpTestName), nil)
 			isvc.Spec.Predictor.Model.Resources.Requests = corev1.ResourceList{
 				corev1.ResourceCPU: resource.MustParse("2"),
 			}
@@ -287,7 +285,7 @@ var _ = Describe("InferenceService HardwareProfile Webhook", func() {
 					nil,
 				))
 			d := newISVCDefaulter(newDefaulterFakeClient(hwp))
-			isvc := buildISVCForHWP(hwpAnnotations(hwpTestName), nil)
+			isvc := buildISVCForHWP(hwptestutil.HWPAnnotations(hwpTestName), nil)
 			isvc.Spec.Predictor.NodeSelector = map[string]string{"zone": "us-east"}
 
 			Expect(d.Default(isvcCreateCtx(isvc), isvc)).To(Succeed())
@@ -300,7 +298,7 @@ var _ = Describe("InferenceService HardwareProfile Webhook", func() {
 			hwp := hwptestutil.NewHardwareProfile(hwpTestName, hwpTestNS,
 				hwptestutil.NodeSpec(nil, []interface{}{tol}))
 			d := newISVCDefaulter(newDefaulterFakeClient(hwp))
-			isvc := buildISVCForHWP(hwpAnnotations(hwpTestName), nil)
+			isvc := buildISVCForHWP(hwptestutil.HWPAnnotations(hwpTestName), nil)
 			isvc.Spec.Predictor.Tolerations = []corev1.Toleration{
 				{Key: "nvidia.com/gpu", Operator: corev1.TolerationOpExists, Effect: corev1.TaintEffectNoSchedule},
 			}
@@ -315,7 +313,7 @@ var _ = Describe("InferenceService HardwareProfile Webhook", func() {
 		It("isvc-10: HWP overwrites existing Kueue label", func() {
 			hwp := hwptestutil.NewHardwareProfile(hwpTestName, hwpTestNS, hwptestutil.KueueSpec("hwp-queue"))
 			d := newISVCDefaulter(newDefaulterFakeClient(hwp))
-			isvc := buildISVCForHWP(hwpAnnotations(hwpTestName), map[string]string{
+			isvc := buildISVCForHWP(hwptestutil.HWPAnnotations(hwpTestName), map[string]string{
 				hardwareprofile.KueueQueueNameLabel: "user-queue",
 			})
 
@@ -327,7 +325,7 @@ var _ = Describe("InferenceService HardwareProfile Webhook", func() {
 			hwp := hwptestutil.NewHardwareProfile(hwpTestName, hwpTestNS,
 				hwptestutil.ResourceSpec([]string{"nvidia.com/gpu", "2"}))
 			d := newISVCDefaulter(newDefaulterFakeClient(hwp))
-			isvc := buildISVCForHWP(hwpAnnotations(hwpTestName), nil)
+			isvc := buildISVCForHWP(hwptestutil.HWPAnnotations(hwpTestName), nil)
 			isvc.Spec.Predictor.Model.Resources.Limits = corev1.ResourceList{
 				"nvidia.com/gpu": resource.MustParse("1"),
 			}
@@ -343,7 +341,7 @@ var _ = Describe("InferenceService HardwareProfile Webhook", func() {
 			hwp := hwptestutil.NewHardwareProfile(hwpTestName, hwpTestNS,
 				hwptestutil.NodeSpec(map[string]interface{}{"zone": "gpu-zone"}, nil))
 			d := newISVCDefaulter(newDefaulterFakeClient(hwp))
-			isvc := buildISVCNoModelForHWP(hwpAnnotations(hwpTestName))
+			isvc := buildISVCNoModelForHWP(hwptestutil.HWPAnnotations(hwpTestName))
 
 			Expect(d.Default(isvcCreateCtx(isvc), isvc)).To(Succeed())
 			Expect(isvc.Spec.Predictor.Model).To(BeNil())
@@ -356,7 +354,7 @@ var _ = Describe("InferenceService HardwareProfile Webhook", func() {
 					hwptestutil.TolerationMap("hwp-key", "Exists", "NoSchedule"),
 				}))
 			d := newISVCDefaulter(newDefaulterFakeClient(hwp))
-			isvc := buildISVCForHWP(hwpAnnotations(hwpTestName), nil)
+			isvc := buildISVCForHWP(hwptestutil.HWPAnnotations(hwpTestName), nil)
 			isvc.Spec.Predictor.Tolerations = []corev1.Toleration{
 				{Key: "manual-key", Operator: corev1.TolerationOpExists},
 			}
@@ -373,7 +371,7 @@ var _ = Describe("InferenceService HardwareProfile Webhook", func() {
 		It("isvc-22: Kueue label already matches HWP value — unchanged, no error", func() {
 			hwp := hwptestutil.NewHardwareProfile(hwpTestName, hwpTestNS, hwptestutil.KueueSpec("my-queue"))
 			d := newISVCDefaulter(newDefaulterFakeClient(hwp))
-			isvc := buildISVCForHWP(hwpAnnotations(hwpTestName), map[string]string{
+			isvc := buildISVCForHWP(hwptestutil.HWPAnnotations(hwpTestName), map[string]string{
 				hardwareprofile.KueueQueueNameLabel: "my-queue",
 			})
 
@@ -393,8 +391,8 @@ var _ = Describe("InferenceService HardwareProfile Webhook", func() {
 			}
 			hwp := hwptestutil.NewHardwareProfile(hwpTestName, hwpTestNS, spec)
 			d := newISVCDefaulter(newDefaulterFakeClient(hwp))
-			oldISVC := buildISVCForHWP(hwpAnnotationsWithNS(hwpTestName, hwpTestNS), nil)
-			newISVC := buildISVCForHWP(hwpAnnotationsWithNS(hwpTestName, hwpTestNS), nil)
+			oldISVC := buildISVCForHWP(hwptestutil.HWPAnnotationsWithNS(hwpTestName, hwpTestNS), nil)
+			newISVC := buildISVCForHWP(hwptestutil.HWPAnnotationsWithNS(hwpTestName, hwpTestNS), nil)
 
 			Expect(d.Default(isvcUpdateCtx(newISVC, oldISVC), newISVC)).To(Succeed())
 			// Resources applied (same as CREATE).
@@ -421,7 +419,7 @@ var _ = Describe("InferenceService HardwareProfile Webhook", func() {
 				))
 			d := newISVCDefaulter(newDefaulterFakeClient(hwpA, hwpB))
 
-			oldISVC := buildISVCForHWP(hwpAnnotationsWithNS("hwp-a", hwpTestNS),
+			oldISVC := buildISVCForHWP(hwptestutil.HWPAnnotationsWithNS("hwp-a", hwpTestNS),
 				map[string]string{hardwareprofile.KueueQueueNameLabel: "old-queue"})
 			oldISVC.Spec.Predictor.NodeSelector = map[string]string{"zone": "eu-west"}
 			oldISVC.Spec.Predictor.Tolerations = []corev1.Toleration{
@@ -429,7 +427,7 @@ var _ = Describe("InferenceService HardwareProfile Webhook", func() {
 			}
 
 			// apiserver carries over old stanzas in the new object body
-			newISVC := buildISVCForHWP(hwpAnnotationsWithNS("hwp-b", hwpTestNS),
+			newISVC := buildISVCForHWP(hwptestutil.HWPAnnotationsWithNS("hwp-b", hwpTestNS),
 				map[string]string{hardwareprofile.KueueQueueNameLabel: "old-queue"})
 			newISVC.Spec.Predictor.NodeSelector = map[string]string{"zone": "eu-west"}
 			newISVC.Spec.Predictor.Tolerations = []corev1.Toleration{
@@ -455,7 +453,7 @@ var _ = Describe("InferenceService HardwareProfile Webhook", func() {
 				))
 			d := newISVCDefaulter(newDefaulterFakeClient(hwpA))
 
-			oldISVC := buildISVCForHWP(hwpAnnotationsWithNS("hwp-a", hwpTestNS), nil)
+			oldISVC := buildISVCForHWP(hwptestutil.HWPAnnotationsWithNS("hwp-a", hwpTestNS), nil)
 			oldISVC.Spec.Predictor.NodeSelector = map[string]string{"zone": "eu-west"}
 			oldISVC.Spec.Predictor.Tolerations = []corev1.Toleration{{Key: "key-a"}, {Key: "manual"}}
 
@@ -479,7 +477,7 @@ var _ = Describe("InferenceService HardwareProfile Webhook", func() {
 		It("isvc-14: annotation removed, old HWP not found — admitted, namespace annotation cleaned", func() {
 			d := newISVCDefaulter(newDefaulterFakeClient()) // HWP CR was deleted
 
-			oldISVC := buildISVCForHWP(hwpAnnotationsWithNS("hwp-a", hwpTestNS), nil)
+			oldISVC := buildISVCForHWP(hwptestutil.HWPAnnotationsWithNS("hwp-a", hwpTestNS), nil)
 
 			newISVC := buildISVCForHWP(nil, nil) // annotation removed
 			newISVC.Annotations = map[string]string{
@@ -497,7 +495,7 @@ var _ = Describe("InferenceService HardwareProfile Webhook", func() {
 			hwp := hwptestutil.NewHardwareProfile(hwpTestName, "other-ns",
 				hwptestutil.ResourceSpec([]string{"cpu", "8"}))
 			d := newISVCDefaulter(newDefaulterFakeClient(hwp))
-			isvc := buildISVCForHWP(hwpAnnotationsWithNS(hwpTestName, "other-ns"), nil)
+			isvc := buildISVCForHWP(hwptestutil.HWPAnnotationsWithNS(hwpTestName, "other-ns"), nil)
 
 			Expect(d.Default(isvcCreateCtx(isvc), isvc)).To(Succeed())
 			Expect(isvc.Spec.Predictor.Model.Resources.Requests[corev1.ResourceCPU]).
@@ -509,10 +507,10 @@ var _ = Describe("InferenceService HardwareProfile Webhook", func() {
 				hwptestutil.NodeSpec(map[string]interface{}{"tier": "gpu"}, nil))
 			d := newISVCDefaulter(newDefaulterFakeClient(hwpNS2))
 
-			oldISVC := buildISVCForHWP(hwpAnnotationsWithNS(hwpTestName, "namespace-1"), nil)
+			oldISVC := buildISVCForHWP(hwptestutil.HWPAnnotationsWithNS(hwpTestName, "namespace-1"), nil)
 			oldISVC.Spec.Predictor.NodeSelector = map[string]string{"zone": "eu-west"}
 
-			newISVC := buildISVCForHWP(hwpAnnotationsWithNS(hwpTestName, "namespace-2"), nil)
+			newISVC := buildISVCForHWP(hwptestutil.HWPAnnotationsWithNS(hwpTestName, "namespace-2"), nil)
 			newISVC.Spec.Predictor.NodeSelector = map[string]string{"zone": "eu-west"} // carried over
 
 			Expect(d.Default(isvcUpdateCtx(newISVC, oldISVC), newISVC)).To(Succeed())
@@ -531,7 +529,7 @@ var _ = Describe("InferenceService HardwareProfile Webhook", func() {
 			d := newISVCDefaulter(newDefaulterFakeClient(hwp))
 
 			oldISVC := buildISVCForHWP(nil, nil) // old object has no HWP annotation
-			newISVC := buildISVCForHWP(hwpAnnotations(hwpTestName), nil)
+			newISVC := buildISVCForHWP(hwptestutil.HWPAnnotations(hwpTestName), nil)
 
 			Expect(d.Default(isvcUpdateCtx(newISVC, oldISVC), newISVC)).To(Succeed())
 			// Resources applied via merge semantics (same as CREATE — no blanket clear).
@@ -550,9 +548,9 @@ var _ = Describe("InferenceService HardwareProfile Webhook", func() {
 			hwpB := hwptestutil.NewHardwareProfile("hwp-b", hwpTestNS, hwptestutil.KueueSpec("queue-b"))
 			d := newISVCDefaulter(newDefaulterFakeClient(hwpA, hwpB))
 
-			oldISVC := buildISVCForHWP(hwpAnnotationsWithNS("hwp-a", hwpTestNS),
+			oldISVC := buildISVCForHWP(hwptestutil.HWPAnnotationsWithNS("hwp-a", hwpTestNS),
 				map[string]string{hardwareprofile.KueueQueueNameLabel: "queue-a"})
-			newISVC := buildISVCForHWP(hwpAnnotationsWithNS("hwp-b", hwpTestNS),
+			newISVC := buildISVCForHWP(hwptestutil.HWPAnnotationsWithNS("hwp-b", hwpTestNS),
 				map[string]string{hardwareprofile.KueueQueueNameLabel: "queue-a"}) // carried over
 
 			Expect(d.Default(isvcUpdateCtx(newISVC, oldISVC), newISVC)).To(Succeed())
@@ -564,7 +562,7 @@ var _ = Describe("InferenceService HardwareProfile Webhook", func() {
 				hwptestutil.NodeSpec(map[string]interface{}{"zone": "eu-west"}, nil))
 			d := newISVCDefaulter(newDefaulterFakeClient(hwpA))
 
-			oldISVC := buildISVCForHWP(hwpAnnotationsWithNS("hwp-a", hwpTestNS), nil)
+			oldISVC := buildISVCForHWP(hwptestutil.HWPAnnotationsWithNS("hwp-a", hwpTestNS), nil)
 			oldISVC.Spec.Predictor.NodeSelector = map[string]string{"zone": "eu-west"}
 
 			newISVC := buildISVCForHWP(nil, nil) // annotation removed
@@ -583,7 +581,7 @@ var _ = Describe("InferenceService HardwareProfile Webhook", func() {
 				hwptestutil.NodeSpec(map[string]interface{}{"zone": "eu-west"}, nil))
 			d := newISVCDefaulter(newDefaulterFakeClient(hwpA))
 
-			oldISVC := buildISVCForHWP(hwpAnnotationsWithNS("hwp-a", hwpTestNS), nil)
+			oldISVC := buildISVCForHWP(hwptestutil.HWPAnnotationsWithNS("hwp-a", hwpTestNS), nil)
 			oldISVC.Spec.Predictor.NodeSelector = map[string]string{"zone": "eu-west"}
 
 			newISVC := buildISVCForHWP(nil, nil) // annotation removed; user already cleaned stanzas
@@ -599,7 +597,7 @@ var _ = Describe("InferenceService HardwareProfile Webhook", func() {
 			hwpA := hwptestutil.NewHardwareProfile("hwp-a", hwpTestNS, hwptestutil.KueueSpec("hwp-queue"))
 			d := newISVCDefaulter(newDefaulterFakeClient(hwpA))
 
-			oldISVC := buildISVCForHWP(hwpAnnotationsWithNS("hwp-a", hwpTestNS),
+			oldISVC := buildISVCForHWP(hwptestutil.HWPAnnotationsWithNS("hwp-a", hwpTestNS),
 				map[string]string{hardwareprofile.KueueQueueNameLabel: "hwp-queue"})
 			newISVC := buildISVCForHWP(nil, map[string]string{
 				hardwareprofile.KueueQueueNameLabel: "user-queue", // user changed it
@@ -617,7 +615,7 @@ var _ = Describe("InferenceService HardwareProfile Webhook", func() {
 				hwptestutil.NodeSpec(map[string]interface{}{"zone": "eu-west"}, nil)) // node scheduling only
 			d := newISVCDefaulter(newDefaulterFakeClient(hwpA))
 
-			oldISVC := buildISVCForHWP(hwpAnnotationsWithNS("hwp-a", hwpTestNS), nil)
+			oldISVC := buildISVCForHWP(hwptestutil.HWPAnnotationsWithNS("hwp-a", hwpTestNS), nil)
 			oldISVC.Spec.Predictor.NodeSelector = map[string]string{"zone": "eu-west"}
 
 			newISVC := buildISVCForHWP(nil, nil) // annotation removed, no Kueue label
