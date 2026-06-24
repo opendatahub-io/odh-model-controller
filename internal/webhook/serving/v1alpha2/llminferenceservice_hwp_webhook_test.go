@@ -330,7 +330,7 @@ var _ = Describe("LLMInferenceService HardwareProfile Webhook", func() {
 			Expect(d.Default(llmHWPUpdateCtx(newLLM, oldLLM), newLLM)).To(Succeed())
 			Expect(newLLM.Spec.Template.NodeSelector).To(HaveKeyWithValue("tier", "gpu"))
 			Expect(newLLM.Spec.Template.NodeSelector).NotTo(HaveKey("zone"))
-			keys := make([]string, 0)
+			keys := make([]string, 0, len(newLLM.Spec.Template.Tolerations))
 			for _, t := range newLLM.Spec.Template.Tolerations {
 				keys = append(keys, t.Key)
 			}

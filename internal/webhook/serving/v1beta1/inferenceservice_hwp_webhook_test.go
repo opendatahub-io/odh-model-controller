@@ -437,7 +437,7 @@ var _ = Describe("InferenceService HardwareProfile Webhook", func() {
 			Expect(d.Default(isvcUpdateCtx(newISVC, oldISVC), newISVC)).To(Succeed())
 			Expect(newISVC.Spec.Predictor.NodeSelector).To(HaveKeyWithValue("tier", "gpu"))
 			Expect(newISVC.Spec.Predictor.NodeSelector).NotTo(HaveKey("zone"))
-			keys := make([]string, 0)
+			keys := make([]string, 0, len(newISVC.Spec.Predictor.Tolerations))
 			for _, t := range newISVC.Spec.Predictor.Tolerations {
 				keys = append(keys, t.Key)
 			}
