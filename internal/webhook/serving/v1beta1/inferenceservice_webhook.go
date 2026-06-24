@@ -24,6 +24,8 @@ import (
 	admissionv1 "k8s.io/api/admission/v1"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/errors"
+	k8serr "k8s.io/apimachinery/pkg/api/errors"
+	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/util/validation/field"
@@ -37,6 +39,7 @@ import (
 
 	"github.com/opendatahub-io/odh-model-controller/internal/controller/utils"
 	"github.com/opendatahub-io/odh-model-controller/internal/webhook/connectionapi"
+	"github.com/opendatahub-io/odh-model-controller/internal/webhook/serving/hardwareprofile"
 )
 
 // nolint:unused
@@ -162,7 +165,11 @@ func (d *InferenceServiceCustomDefaulter) Default(ctx context.Context, obj runti
 		return fmt.Errorf("failed to get admission request from context: %w", err)
 	}
 
-	return d.applyConnectionsAPI(ctx, req, isvc)
+	if err := d.applyConnectionsAPI(ctx, req, isvc); err != nil {
+		return err
+	}
+
+	return d.applyHardwareProfile(ctx, req, isvc)
 }
 
 // applyConnectionsAPI validates the connection annotation and performs the appropriate injection,
@@ -333,6 +340,166 @@ func performISVCInjection(
 		log.V(1).Info("unknown connection type, skipping injection", "connectionType", connInfo.Type)
 		return nil
 	}
+}
+
+// +kubebuilder:rbac:groups=infrastructure.opendatahub.io,resources=hardwareprofiles,verbs=get;list;watch
+
+// applyHardwareProfile applies HardwareProfile scheduling stanzas to an InferenceService at admission time.
+//
+// Resolves the HardwareProfile referenced by opendatahub.io/hardware-profile-name annotation and
+// injects container resources, nodeSelector, tolerations, and the Kueue queue label into the
+// InferenceService spec. On UPDATE where the annotation is removed, surgically cleans up
+// previously-injected values from the old profile.
+//
+// Parameters:
+//   - ctx: context with logger
+//   - req: the admission request (used to read the old object on UPDATE)
+//   - isvc: the InferenceService being admitted (mutated in-place)
+//
+// Returns any error that should block admission.
+func (d *InferenceServiceCustomDefaulter) applyHardwareProfile(
+	ctx context.Context,
+	req admission.Request,
+	isvc *servingv1beta1.InferenceService,
+) error {
+	log := logf.FromContext(ctx)
+
+	if isvc.DeletionTimestamp != nil {
+		return nil
+	}
+
+	annotations := isvc.GetAnnotations()
+	profileName, profileNamespace := hardwareprofile.ProfileRef(annotations, isvc.Namespace)
+
+	if profileName == "" {
+		if req.Operation == admissionv1.Update {
+			return d.handleHWPRemovalISVC(ctx, req, isvc)
+		}
+		return nil
+	}
+
+	// Resolve the HardwareProfile CR.
+	profile, err := hardwareprofile.Resolve(ctx, d.client, profileName, profileNamespace)
+	if err != nil {
+		if k8serr.IsNotFound(err) {
+			return fmt.Errorf("hardware profile %q not found in namespace %q", profileName, profileNamespace)
+		}
+		return fmt.Errorf("failed fetching hardware profile: %w", err)
+	}
+
+	// Stamp the namespace annotation so callers can always find the namespace.
+	if annotations[hardwareprofile.HardwareProfileAnnotationNamespace] == "" {
+		if isvc.Annotations == nil {
+			isvc.Annotations = make(map[string]string)
+		}
+		isvc.Annotations[hardwareprofile.HardwareProfileAnnotationNamespace] = profileNamespace
+	}
+
+	profileChanged := hardwareprofile.ProfileChanged(req, profileName, profileNamespace)
+
+	// On profile switch, clear all previous scheduling stanzas before applying the new profile.
+	if profileChanged {
+		isvc.Spec.Predictor.NodeSelector = nil
+		isvc.Spec.Predictor.Tolerations = nil
+		if isvc.Labels != nil {
+			delete(isvc.Labels, hardwareprofile.KueueQueueNameLabel)
+		}
+	}
+
+	// Apply resource identifiers to the predictor model (existing values take priority).
+	hardwareprofile.ApplyToIsvcResources(profile, &isvc.Spec.Predictor)
+
+	// Kueue and node scheduling are mutually exclusive.
+	if profile.KueueQueueName != "" {
+		for _, w := range hardwareprofile.ApplyKueueLabel(profile, &isvc.ObjectMeta, profileChanged, profileName) {
+			log.Info(w)
+		}
+		return nil
+	}
+
+	// Apply node scheduling.
+	var newNS map[string]string
+	var newTols []corev1.Toleration
+	if profileChanged {
+		newNS, newTols = hardwareprofile.SetNodeScheduling(
+			profile, isvc.Spec.Predictor.NodeSelector, isvc.Spec.Predictor.Tolerations)
+	} else {
+		var warnings []string
+		newNS, newTols, warnings = hardwareprofile.MergeNodeScheduling(
+			profile, isvc.Spec.Predictor.NodeSelector, isvc.Spec.Predictor.Tolerations, profileName)
+		for _, w := range warnings {
+			log.Info(w)
+		}
+	}
+	isvc.Spec.Predictor.NodeSelector = newNS
+	isvc.Spec.Predictor.Tolerations = newTols
+
+	return nil
+}
+
+// handleHWPRemovalISVC handles the case where the HWP annotation is removed from an InferenceService
+// on UPDATE. Fetches the old HWP and surgically removes only its contributed nodeSelector entries,
+// tolerations, and Kueue label. When the old HWP cannot be fetched, logs a warning and removes
+// only the namespace annotation (does not block admission).
+//
+// Parameters:
+//   - ctx: context with logger
+//   - req: the admission request containing the old object
+//   - isvc: the InferenceService being admitted (mutated in-place)
+//
+// Returns any error that should block admission (only internal errors, not "old HWP not found").
+func (d *InferenceServiceCustomDefaulter) handleHWPRemovalISVC(
+	ctx context.Context,
+	req admission.Request,
+	isvc *servingv1beta1.InferenceService,
+) error {
+	log := logf.FromContext(ctx)
+
+	if req.OldObject.Raw == nil {
+		return nil
+	}
+	oldObj := &unstructured.Unstructured{}
+	if err := oldObj.UnmarshalJSON(req.OldObject.Raw); err != nil {
+		return nil
+	}
+
+	oldAnnotations := oldObj.GetAnnotations()
+	oldProfileName := oldAnnotations[hardwareprofile.HardwareProfileAnnotationName]
+	if oldProfileName == "" {
+		return nil
+	}
+
+	oldProfileNamespace := oldAnnotations[hardwareprofile.HardwareProfileAnnotationNamespace]
+	if oldProfileNamespace == "" {
+		oldProfileNamespace = oldObj.GetNamespace()
+	}
+
+	oldProfile, err := hardwareprofile.Resolve(ctx, d.client, oldProfileName, oldProfileNamespace)
+	if err != nil {
+		log.Info("could not fetch old HWP for ISVC cleanup — stanzas may remain in spec",
+			"error", err, "profile", oldProfileName, "namespace", oldProfileNamespace)
+		// Remove only the namespace annotation; do not block the user.
+		if isvc.Annotations != nil {
+			delete(isvc.Annotations, hardwareprofile.HardwareProfileAnnotationNamespace)
+		}
+		return nil
+	}
+
+	if oldProfile != nil {
+		newNS, newTols := hardwareprofile.RemoveNodeScheduling(
+			oldProfile, isvc.Spec.Predictor.NodeSelector, isvc.Spec.Predictor.Tolerations)
+		isvc.Spec.Predictor.NodeSelector = newNS
+		isvc.Spec.Predictor.Tolerations = newTols
+		if oldProfile.KueueQueueName != "" {
+			hardwareprofile.RemoveKueueLabel(&isvc.ObjectMeta)
+		}
+	}
+
+	if isvc.Annotations != nil {
+		delete(isvc.Annotations, hardwareprofile.HardwareProfileAnnotationNamespace)
+	}
+
+	return nil
 }
 
 // performISVCCleanup removes previously injected connection credentials from the InferenceService
