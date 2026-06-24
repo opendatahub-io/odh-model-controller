@@ -234,7 +234,7 @@ In the Advanced Settings section, users can further refine their deployment by s
 
 # **Additional future UX improvements**
 
-* Render the effective LLMInferenceService spec  
+* Render the effective LLMInferenceService spec for preview in the UI
 * Topology View (Graph view)  
 * Guided scheduler plugins configuration
 
