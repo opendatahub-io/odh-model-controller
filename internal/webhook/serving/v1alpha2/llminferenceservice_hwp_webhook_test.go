@@ -107,7 +107,7 @@ var _ = Describe("LLMInferenceService HardwareProfile Webhook", func() {
 
 		It("LLM-1: no annotation — LLMIsvc unmodified", func() {
 			d := newLLMDefaulter(newLLMFakeClient())
-			llm := buildLLMISVCHWP(nil, nil)
+			llm := buildLLMISVCHWP(nil, nil) // nil annotations exercises nil-map path through ProfileRef
 
 			Expect(d.Default(llmHWPCreateCtx(llm), llm)).To(Succeed())
 			Expect(llm.Spec.Template).To(BeNil())
@@ -133,11 +133,11 @@ var _ = Describe("LLMInferenceService HardwareProfile Webhook", func() {
 			Expect(lim[corev1.ResourceMemory]).To(Equal(resource.MustParse("8Gi")))
 		})
 
-		It("LLM-3: HWP with node scheduling — spec.template fields updated", func() {
+		It("LLM-3: HWP with node scheduling — spec.template fields updated (with tolerationSeconds)", func() {
 			hwp := hwptestutil.NewHardwareProfile(llmHWPName, llmHWPNS,
 				hwptestutil.NodeSpec(
 					map[string]interface{}{"zone": "gpu-zone"},
-					[]interface{}{hwptestutil.TolerationMap("nvidia.com/gpu", "Exists", "NoSchedule")},
+					[]interface{}{hwptestutil.TolerationMapWithSeconds("nvidia.com/gpu", "Exists", "NoSchedule", 300)},
 				))
 			d := newLLMDefaulter(newLLMFakeClient(hwp))
 			llm := buildLLMISVCHWP(hwptestutil.HWPAnnotations(llmHWPName), nil)
@@ -146,7 +146,12 @@ var _ = Describe("LLMInferenceService HardwareProfile Webhook", func() {
 			Expect(llm.Spec.Template).NotTo(BeNil())
 			Expect(llm.Spec.Template.NodeSelector).To(HaveKeyWithValue("zone", "gpu-zone"))
 			Expect(llm.Spec.Template.Tolerations).To(HaveLen(1))
-			Expect(llm.Spec.Template.Tolerations[0].Key).To(Equal("nvidia.com/gpu"))
+			tol := llm.Spec.Template.Tolerations[0]
+			Expect(tol.Key).To(Equal("nvidia.com/gpu"))
+			Expect(tol.Operator).To(Equal(corev1.TolerationOpExists))
+			Expect(tol.Effect).To(Equal(corev1.TaintEffectNoSchedule))
+			Expect(tol.TolerationSeconds).NotTo(BeNil())
+			Expect(*tol.TolerationSeconds).To(Equal(int64(300)))
 		})
 
 		It("LLM-4: HWP with Kueue scheduling — label set, node scheduling not applied", func() {
@@ -163,6 +168,7 @@ var _ = Describe("LLMInferenceService HardwareProfile Webhook", func() {
 			hwp := hwptestutil.NewHardwareProfile(llmHWPName, llmHWPNS, spec)
 			d := newLLMDefaulter(newLLMFakeClient(hwp))
 			llm := buildLLMISVCHWP(hwptestutil.HWPAnnotations(llmHWPName), nil)
+			llm.Labels = nil // explicitly nil to exercise nil-map initialisation in ApplyKueueLabel
 
 			Expect(d.Default(llmHWPCreateCtx(llm), llm)).To(Succeed())
 			Expect(llm.Labels[hardwareprofile.KueueQueueNameLabel]).To(Equal("test-queue"))
@@ -237,7 +243,7 @@ var _ = Describe("LLMInferenceService HardwareProfile Webhook", func() {
 
 		It("LLM-8: existing 'main' resource preserved; HWP provides others", func() {
 			hwp := hwptestutil.NewHardwareProfile(llmHWPName, llmHWPNS,
-				hwptestutil.ResourceSpec([]string{"cpu", "8"}, []string{"nvidia.com/gpu", "2"}))
+				hwptestutil.ResourceSpec([]string{"cpu", "4"}, []string{"nvidia.com/gpu", "2"}))
 			d := newLLMDefaulter(newLLMFakeClient(hwp))
 			llm := buildLLMISVCHWP(hwptestutil.HWPAnnotations(llmHWPName), nil)
 			llm.Spec.Template = &corev1.PodSpec{
@@ -363,6 +369,209 @@ var _ = Describe("LLMInferenceService HardwareProfile Webhook", func() {
 			Expect(newLLM.Spec.Template.Tolerations[0].Key).To(Equal("manual"))
 			// Namespace annotation removed
 			Expect(newLLM.Annotations).NotTo(HaveKey(hardwareprofile.HardwareProfileAnnotationNamespace))
+		})
+	})
+
+	Describe("Test Group 5 additions — Injection semantics (CREATE)", func() {
+
+		It("LLM-13: resource present in 'main' container limits only — request injected, limit preserved", func() {
+			hwp := hwptestutil.NewHardwareProfile(llmHWPName, llmHWPNS,
+				hwptestutil.ResourceSpec([]string{"nvidia.com/gpu", "2"}))
+			d := newLLMDefaulter(newLLMFakeClient(hwp))
+			llm := buildLLMISVCHWP(hwptestutil.HWPAnnotations(llmHWPName), nil)
+			llm.Spec.Template = &corev1.PodSpec{
+				Containers: []corev1.Container{
+					mainContainer(nil, corev1.ResourceList{"nvidia.com/gpu": resource.MustParse("1")}),
+				},
+			}
+
+			Expect(d.Default(llmHWPCreateCtx(llm), llm)).To(Succeed())
+			req := llm.Spec.Template.Containers[0].Resources.Requests
+			lim := llm.Spec.Template.Containers[0].Resources.Limits
+			// Request injected from HWP (was absent).
+			Expect(req["nvidia.com/gpu"]).To(Equal(resource.MustParse("2")))
+			// User-set limit preserved (not overwritten).
+			Expect(lim["nvidia.com/gpu"]).To(Equal(resource.MustParse("1")))
+		})
+
+		It("LLM-14: pre-existing non-conflicting toleration — HWP toleration added, original preserved", func() {
+			hwp := hwptestutil.NewHardwareProfile(llmHWPName, llmHWPNS,
+				hwptestutil.NodeSpec(nil, []interface{}{
+					hwptestutil.TolerationMap("hwp-key", "Exists", "NoSchedule"),
+				}))
+			d := newLLMDefaulter(newLLMFakeClient(hwp))
+			llm := buildLLMISVCHWP(hwptestutil.HWPAnnotations(llmHWPName), nil)
+			llm.Spec.Template = &corev1.PodSpec{
+				Tolerations: []corev1.Toleration{{Key: "manual-key", Operator: corev1.TolerationOpExists}},
+			}
+
+			Expect(d.Default(llmHWPCreateCtx(llm), llm)).To(Succeed())
+			Expect(llm.Spec.Template.Tolerations).To(HaveLen(2))
+			keys := make([]string, 0, 2)
+			for _, t := range llm.Spec.Template.Tolerations {
+				keys = append(keys, t.Key)
+			}
+			Expect(keys).To(ConsistOf("hwp-key", "manual-key"))
+		})
+
+		It("LLM-15: Kueue label already matches HWP value — label unchanged", func() {
+			hwp := hwptestutil.NewHardwareProfile(llmHWPName, llmHWPNS, hwptestutil.KueueSpec("my-queue"))
+			d := newLLMDefaulter(newLLMFakeClient(hwp))
+			llm := buildLLMISVCHWP(hwptestutil.HWPAnnotations(llmHWPName),
+				map[string]string{hardwareprofile.KueueQueueNameLabel: "my-queue"})
+
+			Expect(d.Default(llmHWPCreateCtx(llm), llm)).To(Succeed())
+			Expect(llm.Labels[hardwareprofile.KueueQueueNameLabel]).To(Equal("my-queue"))
+		})
+	})
+
+	Describe("Test Group 6 additions — Profile change and annotation removal (UPDATE)", func() {
+
+		It("LLM-16: namespace-only profile change on UPDATE — ALL stanzas cleared, new profile applied", func() {
+			hwpNS2 := hwptestutil.NewHardwareProfile(llmHWPName, "namespace-2",
+				hwptestutil.NodeSpec(map[string]interface{}{"tier": "gpu"}, nil))
+			d := newLLMDefaulter(newLLMFakeClient(hwpNS2))
+
+			oldLLM := buildLLMISVCHWP(hwptestutil.HWPAnnotationsWithNS(llmHWPName, "namespace-1"), nil)
+			oldLLM.Spec.Template = &corev1.PodSpec{
+				NodeSelector: map[string]string{"zone": "eu-west"},
+				Tolerations:  []corev1.Toleration{{Key: "old-key", Operator: corev1.TolerationOpExists}},
+			}
+
+			// apiserver carries over old stanzas in the new object body
+			newLLM := buildLLMISVCHWP(hwptestutil.HWPAnnotationsWithNS(llmHWPName, "namespace-2"), nil)
+			newLLM.Spec.Template = &corev1.PodSpec{
+				NodeSelector: map[string]string{"zone": "eu-west"},
+				Tolerations:  []corev1.Toleration{{Key: "old-key", Operator: corev1.TolerationOpExists}},
+			}
+
+			Expect(d.Default(llmHWPUpdateCtx(newLLM, oldLLM), newLLM)).To(Succeed())
+			// New profile's nodeSelector applied; old entry cleared.
+			Expect(newLLM.Spec.Template.NodeSelector).To(HaveKeyWithValue("tier", "gpu"))
+			Expect(newLLM.Spec.Template.NodeSelector).NotTo(HaveKey("zone"))
+			// Old toleration cleared (new profile has none).
+			Expect(newLLM.Spec.Template.Tolerations).To(BeEmpty())
+		})
+
+		It("LLM-17: initial annotation assignment on UPDATE — merge semantics applied", func() {
+			spec := hwptestutil.ResourceSpec([]string{"cpu", "4"})
+			spec["schedulingSpec"] = map[string]interface{}{
+				"node": map[string]interface{}{
+					"nodeSelector": map[string]interface{}{"zone": "gpu-zone"},
+				},
+			}
+			hwp := hwptestutil.NewHardwareProfile(llmHWPName, llmHWPNS, spec)
+			d := newLLMDefaulter(newLLMFakeClient(hwp))
+
+			oldLLM := buildLLMISVCHWP(nil, nil) // old object has no HWP annotation
+			newLLM := buildLLMISVCHWP(hwptestutil.HWPAnnotations(llmHWPName), nil)
+			newLLM.Spec.Template = &corev1.PodSpec{
+				Containers: []corev1.Container{{Name: "main"}},
+			}
+
+			Expect(d.Default(llmHWPUpdateCtx(newLLM, oldLLM), newLLM)).To(Succeed())
+			// Resources applied via merge semantics (same as CREATE — no blanket clear).
+			Expect(newLLM.Spec.Template.Containers[0].Resources.Requests[corev1.ResourceCPU]).
+				To(Equal(resource.MustParse("4")))
+			// Node scheduling applied.
+			Expect(newLLM.Spec.Template.NodeSelector).To(HaveKeyWithValue("zone", "gpu-zone"))
+			// Kueue label not set (HWP uses node scheduling, not Kueue).
+			Expect(newLLM.Labels).NotTo(HaveKey(hardwareprofile.KueueQueueNameLabel))
+		})
+
+		It("LLM-18: Kueue-to-Kueue profile switch — new label applied, no error", func() {
+			hwpA := hwptestutil.NewHardwareProfile("hwp-a", llmHWPNS, hwptestutil.KueueSpec("queue-a"))
+			hwpB := hwptestutil.NewHardwareProfile("hwp-b", llmHWPNS, hwptestutil.KueueSpec("queue-b"))
+			d := newLLMDefaulter(newLLMFakeClient(hwpA, hwpB))
+
+			oldLLM := buildLLMISVCHWP(hwptestutil.HWPAnnotationsWithNS("hwp-a", llmHWPNS),
+				map[string]string{hardwareprofile.KueueQueueNameLabel: "queue-a"})
+			newLLM := buildLLMISVCHWP(hwptestutil.HWPAnnotationsWithNS("hwp-b", llmHWPNS),
+				map[string]string{hardwareprofile.KueueQueueNameLabel: "queue-a"}) // carried over
+
+			Expect(d.Default(llmHWPUpdateCtx(newLLM, oldLLM), newLLM)).To(Succeed())
+			Expect(newLLM.Labels[hardwareprofile.KueueQueueNameLabel]).To(Equal("queue-b"))
+		})
+
+		It("LLM-19: annotation removed, nodeSelector value differs from old HWP — key preserved", func() {
+			hwpA := hwptestutil.NewHardwareProfile("hwp-a", llmHWPNS,
+				hwptestutil.NodeSpec(map[string]interface{}{"zone": "eu-west"}, nil))
+			d := newLLMDefaulter(newLLMFakeClient(hwpA))
+
+			oldLLM := buildLLMISVCHWP(hwptestutil.HWPAnnotationsWithNS("hwp-a", llmHWPNS), nil)
+			oldLLM.Spec.Template = &corev1.PodSpec{
+				NodeSelector: map[string]string{"zone": "eu-west"},
+			}
+
+			newLLM := buildLLMISVCHWP(nil, nil) // annotation removed
+			newLLM.Annotations = map[string]string{
+				hardwareprofile.HardwareProfileAnnotationNamespace: llmHWPNS,
+			}
+			newLLM.Spec.Template = &corev1.PodSpec{
+				NodeSelector: map[string]string{"zone": "us-east"}, // user-changed value
+			}
+
+			Expect(d.Default(llmHWPUpdateCtx(newLLM, oldLLM), newLLM)).To(Succeed())
+			// Value differs from HWP record — key preserved.
+			Expect(newLLM.Spec.Template.NodeSelector).To(HaveKeyWithValue("zone", "us-east"))
+		})
+
+		It("LLM-20: annotation removed, LLMIsvc has no HWP nodeSelector entries — no-op, no panic", func() {
+			hwpA := hwptestutil.NewHardwareProfile("hwp-a", llmHWPNS,
+				hwptestutil.NodeSpec(map[string]interface{}{"zone": "eu-west"}, nil))
+			d := newLLMDefaulter(newLLMFakeClient(hwpA))
+
+			oldLLM := buildLLMISVCHWP(hwptestutil.HWPAnnotationsWithNS("hwp-a", llmHWPNS), nil)
+			oldLLM.Spec.Template = &corev1.PodSpec{
+				NodeSelector: map[string]string{"zone": "eu-west"},
+			}
+
+			newLLM := buildLLMISVCHWP(nil, nil) // annotation removed; user already cleaned stanzas
+			newLLM.Annotations = map[string]string{
+				hardwareprofile.HardwareProfileAnnotationNamespace: llmHWPNS,
+			}
+			newLLM.Spec.Template = &corev1.PodSpec{}
+
+			Expect(d.Default(llmHWPUpdateCtx(newLLM, oldLLM), newLLM)).To(Succeed())
+			Expect(newLLM.Spec.Template.NodeSelector).To(BeNil())
+		})
+
+		It("LLM-21: annotation removed, user overwrote Kueue label — label removed unconditionally", func() {
+			hwpA := hwptestutil.NewHardwareProfile("hwp-a", llmHWPNS, hwptestutil.KueueSpec("hwp-queue"))
+			d := newLLMDefaulter(newLLMFakeClient(hwpA))
+
+			oldLLM := buildLLMISVCHWP(hwptestutil.HWPAnnotationsWithNS("hwp-a", llmHWPNS),
+				map[string]string{hardwareprofile.KueueQueueNameLabel: "hwp-queue"})
+			newLLM := buildLLMISVCHWP(nil,
+				map[string]string{hardwareprofile.KueueQueueNameLabel: "user-queue"}) // user changed it
+			newLLM.Annotations = map[string]string{
+				hardwareprofile.HardwareProfileAnnotationNamespace: llmHWPNS,
+			}
+
+			Expect(d.Default(llmHWPUpdateCtx(newLLM, oldLLM), newLLM)).To(Succeed())
+			Expect(newLLM.Labels).NotTo(HaveKey(hardwareprofile.KueueQueueNameLabel))
+		})
+
+		It("LLM-22: annotation removed, no Kueue label present — no-op, no panic", func() {
+			hwpA := hwptestutil.NewHardwareProfile("hwp-a", llmHWPNS,
+				hwptestutil.NodeSpec(map[string]interface{}{"zone": "eu-west"}, nil)) // node scheduling only
+			d := newLLMDefaulter(newLLMFakeClient(hwpA))
+
+			oldLLM := buildLLMISVCHWP(hwptestutil.HWPAnnotationsWithNS("hwp-a", llmHWPNS), nil)
+			oldLLM.Spec.Template = &corev1.PodSpec{
+				NodeSelector: map[string]string{"zone": "eu-west"},
+			}
+
+			newLLM := buildLLMISVCHWP(nil, nil) // annotation removed, no Kueue label
+			newLLM.Annotations = map[string]string{
+				hardwareprofile.HardwareProfileAnnotationNamespace: llmHWPNS,
+			}
+			newLLM.Spec.Template = &corev1.PodSpec{
+				NodeSelector: map[string]string{"zone": "eu-west"},
+			}
+
+			Expect(d.Default(llmHWPUpdateCtx(newLLM, oldLLM), newLLM)).To(Succeed())
+			Expect(newLLM.Labels).NotTo(HaveKey(hardwareprofile.KueueQueueNameLabel))
 		})
 	})
 })
