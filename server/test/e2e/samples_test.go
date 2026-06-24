@@ -22,7 +22,7 @@ func TestSamplesValidType(t *testing.T) {
 		t.Run(configType, func(t *testing.T) {
 			t.Parallel()
 
-			resp, body := env.HTTPGet(t, env.ServerURL+"/api/v1/llm-d/samples?type="+configType, "")
+			resp, body := env.HTTPGet(t, env.ServerURL+"/api/v1/samples/llm-d?type="+configType, "")
 			if resp.StatusCode != http.StatusOK {
 				t.Fatalf("status = %d, want %d; body = %s", resp.StatusCode, http.StatusOK, body)
 			}
@@ -43,7 +43,7 @@ func TestSamplesValidType(t *testing.T) {
 func TestSamplesRouterTopologyPD(t *testing.T) {
 	t.Parallel()
 
-	resp, body := env.HTTPGet(t, env.ServerURL+"/api/v1/llm-d/samples?type=router&topology=workload-single-node-pd", "")
+	resp, body := env.HTTPGet(t, env.ServerURL+"/api/v1/samples/llm-d?type=router&topology=workload-single-node-pd", "")
 	if resp.StatusCode != http.StatusOK {
 		t.Fatalf("status = %d, want %d; body = %s", resp.StatusCode, http.StatusOK, body)
 	}
@@ -56,7 +56,7 @@ func TestSamplesRouterTopologyPD(t *testing.T) {
 func TestSamplesRouterTopologyNonPD(t *testing.T) {
 	t.Parallel()
 
-	resp, body := env.HTTPGet(t, env.ServerURL+"/api/v1/llm-d/samples?type=router&topology=workload-single-node", "")
+	resp, body := env.HTTPGet(t, env.ServerURL+"/api/v1/samples/llm-d?type=router&topology=workload-single-node", "")
 	if resp.StatusCode != http.StatusOK {
 		t.Fatalf("status = %d, want %d; body = %s", resp.StatusCode, http.StatusOK, body)
 	}
@@ -69,7 +69,7 @@ func TestSamplesRouterTopologyNonPD(t *testing.T) {
 func TestSamplesMissingType(t *testing.T) {
 	t.Parallel()
 
-	resp, body := env.HTTPGet(t, env.ServerURL+"/api/v1/llm-d/samples", "")
+	resp, body := env.HTTPGet(t, env.ServerURL+"/api/v1/samples/llm-d", "")
 	if resp.StatusCode != http.StatusBadRequest {
 		t.Fatalf("status = %d, want %d; body = %s", resp.StatusCode, http.StatusBadRequest, body)
 	}
@@ -78,7 +78,7 @@ func TestSamplesMissingType(t *testing.T) {
 func TestSamplesUnknownType(t *testing.T) {
 	t.Parallel()
 
-	resp, body := env.HTTPGet(t, env.ServerURL+"/api/v1/llm-d/samples?type=nonexistent", "")
+	resp, body := env.HTTPGet(t, env.ServerURL+"/api/v1/samples/llm-d?type=nonexistent", "")
 	if resp.StatusCode != http.StatusNotFound {
 		t.Fatalf("status = %d, want %d; body = %s", resp.StatusCode, http.StatusNotFound, body)
 	}
@@ -87,7 +87,7 @@ func TestSamplesUnknownType(t *testing.T) {
 func TestSamplesWrongMethod(t *testing.T) {
 	t.Parallel()
 
-	resp, body := env.HTTPDo(t, http.MethodPost, env.ServerURL+"/api/v1/llm-d/samples?type=workload-single-node", "")
+	resp, body := env.HTTPDo(t, http.MethodPost, env.ServerURL+"/api/v1/samples/llm-d?type=workload-single-node", "")
 	if resp.StatusCode != http.StatusMethodNotAllowed {
 		t.Fatalf("status = %d, want %d; body = %s", resp.StatusCode, http.StatusMethodNotAllowed, body)
 	}

@@ -10,7 +10,7 @@ import (
 func TestSamplesHandler_ValidType(t *testing.T) {
 	h := &SamplesHandler{}
 
-	req := httptest.NewRequest(http.MethodGet, "/api/v1/llm-d/samples?type=workload-single-node", nil)
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/samples/llm-d?type=workload-single-node", nil)
 	rec := httptest.NewRecorder()
 	h.ServeHTTP(rec, req)
 
@@ -41,7 +41,7 @@ func TestSamplesHandler_AllTypes(t *testing.T) {
 	}
 	for _, configType := range types {
 		t.Run(configType, func(t *testing.T) {
-			req := httptest.NewRequest(http.MethodGet, "/api/v1/llm-d/samples?type="+configType, nil)
+			req := httptest.NewRequest(http.MethodGet, "/api/v1/samples/llm-d?type="+configType, nil)
 			rec := httptest.NewRecorder()
 			h.ServeHTTP(rec, req)
 
@@ -61,7 +61,7 @@ func TestSamplesHandler_AllTypes(t *testing.T) {
 func TestSamplesHandler_MissingType(t *testing.T) {
 	h := &SamplesHandler{}
 
-	req := httptest.NewRequest(http.MethodGet, "/api/v1/llm-d/samples", nil)
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/samples/llm-d", nil)
 	rec := httptest.NewRecorder()
 	h.ServeHTTP(rec, req)
 
@@ -73,7 +73,7 @@ func TestSamplesHandler_MissingType(t *testing.T) {
 func TestSamplesHandler_UnknownType(t *testing.T) {
 	h := &SamplesHandler{}
 
-	req := httptest.NewRequest(http.MethodGet, "/api/v1/llm-d/samples?type=nonexistent", nil)
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/samples/llm-d?type=nonexistent", nil)
 	rec := httptest.NewRecorder()
 	h.ServeHTTP(rec, req)
 
@@ -85,7 +85,7 @@ func TestSamplesHandler_UnknownType(t *testing.T) {
 func TestSamplesHandler_TopologyPD(t *testing.T) {
 	h := &SamplesHandler{}
 
-	req := httptest.NewRequest(http.MethodGet, "/api/v1/llm-d/samples?type=router&topology=workload-single-node-pd", nil)
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/samples/llm-d?type=router&topology=workload-single-node-pd", nil)
 	rec := httptest.NewRecorder()
 	h.ServeHTTP(rec, req)
 
@@ -104,7 +104,7 @@ func TestSamplesHandler_TopologyPD(t *testing.T) {
 func TestSamplesHandler_TopologyNonPD(t *testing.T) {
 	h := &SamplesHandler{}
 
-	req := httptest.NewRequest(http.MethodGet, "/api/v1/llm-d/samples?type=router&topology=workload-single-node", nil)
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/samples/llm-d?type=router&topology=workload-single-node", nil)
 	rec := httptest.NewRecorder()
 	h.ServeHTTP(rec, req)
 
@@ -120,7 +120,7 @@ func TestSamplesHandler_TopologyNonPD(t *testing.T) {
 func TestSamplesHandler_TopologyIgnoredForWorkload(t *testing.T) {
 	h := &SamplesHandler{}
 
-	url := "/api/v1/llm-d/samples?type=workload-single-node" +
+	url := "/api/v1/samples/llm-d?type=workload-single-node" +
 		"&topology=workload-single-node-pd"
 	req := httptest.NewRequest(http.MethodGet, url, nil)
 	rec := httptest.NewRecorder()
@@ -138,7 +138,7 @@ func TestSamplesHandler_TopologyIgnoredForWorkload(t *testing.T) {
 func TestSamplesHandler_WrongMethod(t *testing.T) {
 	h := &SamplesHandler{}
 
-	req := httptest.NewRequest(http.MethodPost, "/api/v1/llm-d/samples?type=workload-single-node", nil)
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/samples/llm-d?type=workload-single-node", nil)
 	rec := httptest.NewRecorder()
 	h.ServeHTTP(rec, req)
 

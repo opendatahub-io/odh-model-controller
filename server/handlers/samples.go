@@ -10,7 +10,7 @@ import (
 	"github.com/opendatahub-io/odh-model-controller/server/samples"
 )
 
-// SamplesHandler handles GET /api/v1/llm-d/samples requests.
+// SamplesHandler handles GET /api/v1/samples/llm-d requests.
 type SamplesHandler struct{}
 
 func (h *SamplesHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
