@@ -1,0 +1,127 @@
+# LLMInferenceServiceConfig: Router / Scheduling Policy
+#
+# This template defines a routing and scheduling policy for inference requests.
+# It configures the EndpointPickerConfig (scheduler) that controls how requests
+# are distributed across model-serving replicas.
+#
+# Auto-injected defaults:
+#   The scheduler infrastructure (EPP deployment, tokenizer sidecar, InferencePool)
+#   and HTTPRoute rules are provided by auto-injected configs
+#   (kserve-config-llm-scheduler, kserve-config-llm-router-route).
+#   This config only needs to specify the EndpointPickerConfig (scoring plugins
+#   and weights) which is NOT auto-injected — each topology can define its own
+#   routing algorithm.
+#
+# This is the upstream optimized baseline configuration combining four scorers:
+#   - queue-scorer (weight 2): routes to pods with shorter request queues
+#   - kv-cache-utilization-scorer (weight 2): favors pods with lower KV cache usage
+#   - prefix-cache-scorer (weight 3): prefers pods that have cached relevant KV data
+#   - no-hit-lru-scorer (weight 2): distributes requests to least-recently-used pods
+#     when no prefix cache hit is found
+#
+# Available scheduler plugins:
+#   Handlers (select the scheduling profile):
+#     - single-profile-handler: uses a single "default" profile (standard deployments)
+#     - disagg-profile-handler: routes to separate prefill/decode profiles (P/D topologies)
+#
+#   Scorers (evaluate and rank candidate pods):
+#     - queue-scorer:                 scores based on pending request queue length
+#     - prefix-cache-scorer:          scores based on prefix cache hit ratio (approximate)
+#     - precise-prefix-cache-scorer:  scores based on exact prefix cache matches (requires ZMQ)
+#     - kv-cache-utilization-scorer:  scores based on KV cache memory utilization
+#     - active-request-scorer:        scores based on number of active requests
+#     - no-hit-lru-scorer:            scores based on least-recently-used when no cache hit
+#
+#   Pickers (select the final pod from scored candidates):
+#     - max-score-picker:  picks the pod with the highest combined score
+#
+#   Filters (for P/D topologies only):
+#     - prefill-filter:  restricts candidates to prefill pool pods
+#     - decode-filter:   restricts candidates to decode pool pods
+#
+# To customize for your infrastructure:
+#   1. Adjust plugin weights to match your workload patterns
+#   2. Add or remove plugins based on your optimization goals
+#   3. Set the supported-topologies annotation to restrict compatibility
+#
+apiVersion: serving.kserve.io/v1alpha2
+kind: LLMInferenceServiceConfig
+metadata:
+  # Name must be unique within the namespace.
+  # Choose a descriptive name that reflects the scheduling policy.
+  name: default-scheduling-policy
+  labels:
+    # This label classifies the config for the UI deployment wizard.
+    # The UI filters available configs by this label value.
+    opendatahub.io/config-type: router
+  annotations:
+    # JSON array of topology types this router is compatible with.
+    # The UI uses this annotation to filter router options based on the selected topology.
+    #
+    # Set this to the topology types you have validated this routing policy against.
+    # Example values:
+    #   '["workload-single-node"]'
+    #   '["workload-single-node", "workload-multi-node-data-parallel"]'
+    #   '["workload-single-node-pd", "workload-multi-node-data-parallel-pd"]'
+    #
+    # Leave empty or omit to indicate compatibility with all topologies.
+    # P/D topologies are excluded here because they require disagg-profile-handler
+    # with separate prefill/decode scheduling profiles — see router-pd.yaml.
+    opendatahub.io/supported-topologies: '["workload-single-node", "workload-multi-node-data-parallel"]'
+    # Human-readable description shown in the UI when selecting a routing policy.
+    description: >-
+      Optimized baseline scheduling policy with queue, KV cache
+      utilization, prefix cache, and LRU scoring.
+spec:
+  router:
+    gateway: { }
+    route: { }
+    scheduler:
+      # EndpointPickerConfig defines the scoring plugins and scheduling profiles
+      # used by the inference scheduler (EPP) to select pods for each request.
+      config:
+        inline:
+          apiVersion: llm-d.ai/v1alpha1
+          kind: EndpointPickerConfig
+          # Plugins are registered in list order. Each plugin provides a scoring
+          # or filtering function that the scheduler invokes per request.
+          plugins:
+            # queue-scorer: penalizes pods with many queued requests.
+            # Helps distribute load evenly across replicas.
+            # No parameters needed — it reads queue depth from pod metrics.
+            - type: queue-scorer
+            # kv-cache-utilization-scorer: favors pods with lower KV cache memory
+            # utilization. Helps avoid OOM and ensures headroom for new sequences.
+            - type: kv-cache-utilization-scorer
+            # prefix-cache-scorer: favors pods that have cached KV data
+            # matching the request's prompt prefix. Reduces redundant computation.
+            #
+            # For more accurate prefix matching (at the cost of additional
+            # infrastructure), replace with precise-prefix-cache-scorer which
+            # uses ZMQ-based KV cache events for exact block-level matching.
+            - type: prefix-cache-scorer
+            # no-hit-lru-scorer: when no prefix cache hit is found, scores pods
+            # by least-recently-used to spread new prefixes across the fleet.
+            # Prevents hot-spotting when requests have unique prefixes.
+            - type: no-hit-lru-scorer
+          # Scheduling profiles define which plugins are active and their weights.
+          schedulingProfiles:
+            - name: default
+              plugins:
+                # Plugin weights control the relative importance of each scorer.
+                # Higher weight = more influence on pod selection.
+                #
+                # Tuning guidelines:
+                #   - Equal weights on queue/kv-cache/lru: balanced load and memory
+                #   - Higher prefix-cache-scorer weight: prioritizes cache reuse
+                #     (better for requests with shared prefixes, e.g., system prompts)
+                #   - Higher queue-scorer weight: prioritizes even load distribution
+                #     (better for uniform request patterns)
+                - pluginRef: queue-scorer
+                  weight: 2
+                - pluginRef: kv-cache-utilization-scorer
+                  weight: 2
+                - pluginRef: prefix-cache-scorer
+                  weight: 3
+                - pluginRef: no-hit-lru-scorer
+                  weight: 2
