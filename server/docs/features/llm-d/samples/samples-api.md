@@ -20,7 +20,7 @@ be adapted directly into config templates.
 ## API
 
 ```
-GET /api/v1/llm-d/samples?type=<config-type>[&topology=<topology>]
+GET /api/v1/samples/llm-d?type=<config-type>[&topology=<topology>]
 ```
 
 ### Query Parameters
@@ -42,11 +42,11 @@ GET /api/v1/llm-d/samples?type=<config-type>[&topology=<topology>]
 ### Examples
 
 ```
-GET /api/v1/llm-d/samples?type=workload-single-node-pd
+GET /api/v1/samples/llm-d?type=workload-single-node-pd
 ```
 
 ```
-GET /api/v1/llm-d/samples?type=router&topology=workload-single-node-pd
+GET /api/v1/samples/llm-d?type=router&topology=workload-single-node-pd
 ```
 
 ```yaml
@@ -118,7 +118,7 @@ In `server/server.go`, the handler is registered without auth middleware:
 
 ```go
 samplesHandler := &handlers.SamplesHandler{}
-mux.Handle("/api/v1/llm-d/samples", samplesHandler)
+mux.Handle("/api/v1/samples/llm-d", samplesHandler)
 ```
 
 ### Sample Content
