@@ -1,0 +1,73 @@
+# LLMInferenceServiceConfig: Single-Node GPU Deployment
+#
+# This template defines a standard single-instance GPU deployment topology.
+# It creates a single pool of model-serving replicas behind an intelligent
+# scheduler for load-balanced inference.
+#
+# Use this topology when:
+#   - Your model fits in a single GPU's memory
+#   - You need straightforward horizontal scaling via replicas
+#   - You do not require prefill/decode disaggregation or multi-node parallelism
+#
+# Auto-injected defaults:
+#   The controller automatically merges this config with auto-injected defaults
+#   (kserve-config-llm-*) via strategic merge. The following are provided by
+#   auto-injected configs and do NOT need to be set here:
+#     - Container image, command, and ports
+#     - Probes (liveness, readiness, startup)
+#     - Security context and lifecycle hooks
+#     - Volume mounts and volumes (home, tmp, dshm, model-cache, tls-certs)
+#     - TLS configuration
+#   Only set fields you want to override or that are not auto-injected.
+#
+# To customize for your infrastructure:
+#   1. Adjust GPU resource requests to match your GPU type (see comments below)
+#   2. Set replica count based on expected throughput
+#
+apiVersion: serving.kserve.io/v1alpha2
+kind: LLMInferenceServiceConfig
+metadata:
+  # Name must be unique within the namespace.
+  # Choose a descriptive name that reflects the topology and hardware.
+  name: single-node-gpu
+  labels:
+    # This label classifies the config for the UI deployment wizard.
+    # The UI filters available configs by this label value.
+    opendatahub.io/config-type: workload-single-node
+  annotations:
+    # Human-readable description shown in the UI when selecting a topology.
+    description: >-
+      Standard single-node GPU deployment with intelligent scheduling.
+      Suitable for models that fit in a single GPU.
+spec:
+  template:
+    containers:
+      - name: main
+        resources:
+          # GPU resource requests and limits.
+          #
+          # Common GPU resource names by vendor:
+          #   NVIDIA:  nvidia.com/gpu
+          #   AMD:     amd.com/gpu
+          #   Intel:   gpu.intel.com/i915  (or gpu.intel.com/xe for newer GPUs)
+          #
+          # Memory and CPU should be sized relative to the model:
+          #   - CPU: 2-4 cores per GPU is typical; increase for preprocessing-heavy workloads
+          #   - Memory: should be at least 2x the model size for weight loading + KV cache
+          #
+          # Examples by GPU type:
+          #   A100 40GB:  nvidia.com/gpu: "1", memory: 48Gi
+          #   A100 80GB:  nvidia.com/gpu: "1", memory: 96Gi
+          #   H100 80GB:  nvidia.com/gpu: "1", memory: 96Gi
+          #   L4 24GB:    nvidia.com/gpu: "1", memory: 32Gi
+          #   MI300X:     amd.com/gpu: "1", memory: 256Gi
+          limits:
+            cpu: "4"
+            memory: 32Gi
+            nvidia.com/gpu: "1"
+          requests:
+            cpu: "2"
+            memory: 16Gi
+            nvidia.com/gpu: "1"
+        # Probes are auto-injected. Override startupProbe.failureThreshold
+        # for models that take longer than 10 minutes to load.

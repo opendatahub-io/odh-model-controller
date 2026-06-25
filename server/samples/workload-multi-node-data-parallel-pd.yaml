@@ -1,0 +1,394 @@
+# LLMInferenceServiceConfig: Multi-Node Data-Parallel with Prefill/Decode Disaggregation
+#
+# This template combines multi-node data parallelism with prefill/decode (P/D)
+# disaggregation. The model is sharded across GPUs using data and expert
+# parallelism, while separate pools handle the prefill and decode phases.
+#
+# This is the most complex topology, designed for very large models (e.g.,
+# DeepSeek-R1 671B) that require both multi-node distribution and P/D
+# separation for optimal throughput and latency.
+#
+# Use this topology when:
+#   - Your model requires multi-node parallelism AND you want P/D separation
+#   - You need independent scaling of prefill and decode across node pools
+#   - You're serving large MoE models with high concurrency requirements
+#
+# Auto-injected defaults:
+#   The controller automatically merges this config with auto-injected defaults
+#   (kserve-config-llm-decode-worker-data-parallel,
+#    kserve-config-llm-prefill-worker-data-parallel). The following are auto-injected:
+#     - Container image, command (including data-parallel and P/D args), and ports
+#     - Routing sidecar (llm-d-routing-sidecar) for P/D request routing
+#     - DP address resolution and worker rank assignment
+#     - Probes (liveness, readiness, startup)
+#     - Security context (including IPC_LOCK, SYS_RAWIO, NET_RAW capabilities)
+#     - Lifecycle hooks, volume mounts, and volumes (dshm sized to 8Gi)
+#     - TLS configuration
+#     - RoCE auto-detection: NCCL_IB_GID_INDEX, NVSHMEM_IB_GID_INDEX,
+#       UCX_IB_GID_INDEX, NCCL_IB_HCA, NVSHMEM_HCA_LIST, and UCX_NET_DEVICES
+#       are automatically discovered when KSERVE_INFER_ROCE=true.
+#       Set them explicitly only to override auto-detection.
+#   Only set fields you want to override or that are not auto-injected.
+#
+# Prerequisites:
+#   - Multi-node GPU cluster with RDMA interconnect (RoCE or InfiniBand)
+#   - SR-IOV network operator with RDMA resources
+#   - Sufficient GPU memory across all nodes for both prefill and decode pools
+#   - PVC with model weights accessible from all nodes (recommended)
+#
+# To customize for your infrastructure:
+#   1. Set parallelism values independently for main (decode) and prefill pools
+#   2. Adjust KV transfer configuration for your network fabric
+#   3. Size GPU, CPU, and memory resources per pool
+#   4. Tune prefill/decode replica ratios and parallelism degrees
+#
+apiVersion: serving.kserve.io/v1alpha2
+kind: LLMInferenceServiceConfig
+metadata:
+  # Name must be unique within the namespace.
+  # Choose a descriptive name that reflects the topology and hardware.
+  name: multi-node-dp-pd-roce
+  labels:
+    # This label classifies the config for the UI deployment wizard.
+    # The UI filters available configs by this label value.
+    opendatahub.io/config-type: workload-multi-node-data-parallel-pd
+  annotations:
+    # Human-readable description shown in the UI when selecting a topology.
+    description: >-
+      Multi-node data-parallel deployment with prefill/decode disaggregation
+      and RDMA interconnect. For very large models requiring both multi-node
+      distribution and P/D separation.
+spec:
+  # Decode pool replicas default to 1 when not set.
+  #replicas: 1
+  # Main (decode) pool parallelism.
+  # See workload-multi-node-data-parallel for detailed parallelism documentation.
+  #
+  # CROSS-CONFIG NOTE: dataLocal MUST equal nvidia.com/gpu in resources below.
+  # data / dataLocal = number of nodes for the decode pool.
+  # Example: data: 16, dataLocal: 8 → 2 decode nodes, each with 8 GPUs.
+  parallelism:
+    data: 16
+    dataLocal: 8
+    expert: true
+    tensor: 1
+  annotations:
+    # RDMA network annotation. See workload-single-node-pd for details.
+    # The same networks will get propagated to `spec.template` and `spec.worker` pods.
+    k8s.v1.cni.cncf.io/networks: roce-p2
+  template:
+    containers:
+      - name: main
+        env:
+          - name: KSERVE_INFER_ROCE
+            value: "true"
+          - name: CUDA_DEVICE_ORDER
+            value: "PCI_BUS_ID"
+          # See workload-single-node-pd for detailed KV transfer documentation.
+          - name: VLLM_NIXL_SIDE_CHANNEL_HOST
+            valueFrom:
+              fieldRef:
+                fieldPath: status.podIP
+          # See workload-multi-node-data-parallel for detailed documentation on
+          # VLLM_ALL2ALL_BACKEND, NCCL, NVSHMEM, and UCX configuration.
+          - name: VLLM_ALL2ALL_BACKEND
+            value: deepep_high_throughput
+          - name: PYTORCH_CUDA_ALLOC_CONF
+            value: "expandable_segments:True"
+          # --- NCCL configuration ---
+          # GID index env vars (NCCL, NVSHMEM, UCX) are auto-detected.
+          - name: NCCL_DEBUG
+            value: WARN
+          - name: NCCL_SOCKET_IFNAME
+            value: net1
+          - name: NCCL_IB_TIMEOUT
+            value: "22"
+          # --- NVSHMEM configuration ---
+          - name: NVSHMEM_REMOTE_TRANSPORT
+            value: ibgda
+          - name: NVSHMEM_BOOTSTRAP_TWO_STAGE
+            value: "1"
+          - name: NVSHMEM_BOOTSTRAP_TIMEOUT
+            value: "120"
+          - name: NVSHMEM_BOOTSTRAP_UID_SOCK_IFNAME
+            value: net1
+          - name: NVSHMEM_USE_IBGDA
+            value: "1"
+          - name: NVSHMEM_ENABLE_NIC_PE_MAPPING
+            value: "1"
+          - name: NVSHMEM_IBGDA_SUPPORT
+            value: "1"
+          - name: NVSHMEM_IB_ENABLE_IBGDA
+            value: "1"
+          - name: NVSHMEM_IBGDA_NIC_HANDLER
+            value: "gpu"
+          - name: NVSHMEM_DEBUG
+            value: WARN
+          # --- UCX configuration ---
+          - name: UCX_TLS
+            value: "rc,sm,self,cuda_copy,cuda_ipc"
+          - name: UCX_RC_MLX5_TM_ENABLE
+            value: "n"
+          - name: UCX_UD_MLX5_RX_QUEUE_LEN
+            value: "1024"
+          - name: NVIDIA_GDRCOPY
+            value: enabled
+        # --kv_transfer_config enables KV cache transfer between prefill and decode pools.
+        # See workload-single-node-pd for detailed KV transfer documentation.
+        args:
+          - --kv_transfer_config
+          - '{"kv_connector":"NixlConnector","kv_role":"kv_consumer"}'
+        resources:
+          limits:
+            cpu: 128
+            ephemeral-storage: 800Gi
+            memory: 512Gi
+            nvidia.com/gpu: "8"
+            rdma/roce_gdr: 1
+          requests:
+            cpu: 64
+            ephemeral-storage: 800Gi
+            memory: 256Gi
+            nvidia.com/gpu: "8"
+            rdma/roce_gdr: 1
+        # Probes are auto-injected. The default startupProbe allows ~10 minutes
+        # for model loading (failureThreshold=60, periodSeconds=10).
+        # For very large models that take longer, override startupProbe:
+        #   startupProbe:
+        #     failureThreshold: 360   # 60 minutes
+        #     periodSeconds: 10
+  # Decode pool workers (non-head nodes for the main/decode pool).
+  worker:
+    containers:
+      - name: main
+        env:
+          - name: KSERVE_INFER_ROCE
+            value: "true"
+          - name: CUDA_DEVICE_ORDER
+            value: "PCI_BUS_ID"
+          - name: VLLM_NIXL_SIDE_CHANNEL_HOST
+            valueFrom:
+              fieldRef:
+                fieldPath: status.podIP
+          - name: VLLM_ALL2ALL_BACKEND
+            value: deepep_high_throughput
+          - name: PYTORCH_CUDA_ALLOC_CONF
+            value: "expandable_segments:True"
+          # GID index env vars (NCCL, NVSHMEM, UCX) are auto-detected.
+          - name: NCCL_DEBUG
+            value: WARN
+          - name: NCCL_SOCKET_IFNAME
+            value: net1
+          - name: NCCL_IB_TIMEOUT
+            value: "22"
+          - name: NVSHMEM_REMOTE_TRANSPORT
+            value: ibgda
+          - name: NVSHMEM_BOOTSTRAP_TWO_STAGE
+            value: "1"
+          - name: NVSHMEM_BOOTSTRAP_TIMEOUT
+            value: "120"
+          - name: NVSHMEM_BOOTSTRAP_UID_SOCK_IFNAME
+            value: net1
+          - name: NVSHMEM_USE_IBGDA
+            value: "1"
+          - name: NVSHMEM_ENABLE_NIC_PE_MAPPING
+            value: "1"
+          - name: NVSHMEM_IBGDA_SUPPORT
+            value: "1"
+          - name: NVSHMEM_IB_ENABLE_IBGDA
+            value: "1"
+          - name: NVSHMEM_IBGDA_NIC_HANDLER
+            value: "gpu"
+          - name: NVSHMEM_DEBUG
+            value: WARN
+          - name: UCX_TLS
+            value: "rc,sm,self,cuda_copy,cuda_ipc"
+          - name: UCX_RC_MLX5_TM_ENABLE
+            value: "n"
+          - name: UCX_UD_MLX5_RX_QUEUE_LEN
+            value: "1024"
+          - name: NVIDIA_GDRCOPY
+            value: enabled
+        args:
+          - --kv_transfer_config
+          - '{"kv_connector":"NixlConnector","kv_role":"kv_consumer"}'
+        resources:
+          limits:
+            cpu: 128
+            ephemeral-storage: 800Gi
+            memory: 512Gi
+            nvidia.com/gpu: "8"
+            rdma/roce_gdr: 1
+          requests:
+            cpu: 64
+            ephemeral-storage: 800Gi
+            memory: 256Gi
+            nvidia.com/gpu: "8"
+            rdma/roce_gdr: 1
+  # Prefill pool configuration.
+  # The prefill pool can have its own parallelism settings independent of
+  # the main (decode) pool. This allows tuning each phase separately.
+  prefill:
+    # Replica count for the prefill pool.
+    #
+    # Sizing guidelines:
+    #   - Start with 2:1 ratio (prefill:decode) for balanced workloads
+    #   - Increase prefill replicas for long-prompt workloads (>2K tokens)
+    #   - Increase decode replicas for long-generation workloads (>1K output tokens)
+    #   - Monitor queue depth to identify bottlenecks
+    #replicas: 2
+    # Prefill pool parallelism can differ from the main pool.
+    #
+    # CROSS-CONFIG NOTE: dataLocal MUST equal nvidia.com/gpu in prefill resources below.
+    # data / dataLocal = number of nodes for the prefill pool.
+    #
+    # Common patterns:
+    #   - Same as decode: equal parallelism for balanced resource allocation
+    #   - Higher data parallelism: more prefill throughput for prompt-heavy workloads
+    #   - Lower data parallelism: fewer nodes for prefill if decode is the bottleneck
+    parallelism:
+      data: 16
+      dataLocal: 8
+      expert: true
+      tensor: 1
+    template:
+      containers:
+        - name: main
+          env:
+            - name: KSERVE_INFER_ROCE
+              value: "true"
+            - name: CUDA_DEVICE_ORDER
+              value: "PCI_BUS_ID"
+            - name: VLLM_NIXL_SIDE_CHANNEL_HOST
+              valueFrom:
+                fieldRef:
+                  fieldPath: status.podIP
+            - name: VLLM_ALL2ALL_BACKEND
+              value: deepep_high_throughput
+            - name: PYTORCH_CUDA_ALLOC_CONF
+              value: "expandable_segments:True"
+            # GID index env vars (NCCL, NVSHMEM, UCX) are auto-detected.
+            - name: NCCL_DEBUG
+              value: WARN
+            - name: NCCL_SOCKET_IFNAME
+              value: net1
+            - name: NCCL_IB_TIMEOUT
+              value: "22"
+            - name: NVSHMEM_REMOTE_TRANSPORT
+              value: ibgda
+            - name: NVSHMEM_BOOTSTRAP_TWO_STAGE
+              value: "1"
+            - name: NVSHMEM_BOOTSTRAP_TIMEOUT
+              value: "120"
+            - name: NVSHMEM_BOOTSTRAP_UID_SOCK_IFNAME
+              value: net1
+            - name: NVSHMEM_USE_IBGDA
+              value: "1"
+            - name: NVSHMEM_ENABLE_NIC_PE_MAPPING
+              value: "1"
+            - name: NVSHMEM_IBGDA_SUPPORT
+              value: "1"
+            - name: NVSHMEM_IB_ENABLE_IBGDA
+              value: "1"
+            - name: NVSHMEM_IBGDA_NIC_HANDLER
+              value: "gpu"
+            - name: NVSHMEM_DEBUG
+              value: WARN
+            - name: UCX_TLS
+              value: "rc,sm,self,cuda_copy,cuda_ipc"
+            - name: UCX_RC_MLX5_TM_ENABLE
+              value: "n"
+            - name: UCX_UD_MLX5_RX_QUEUE_LEN
+              value: "1024"
+            - name: NVIDIA_GDRCOPY
+              value: enabled
+          args:
+            - --kv_transfer_config
+            - '{"kv_connector":"NixlConnector","kv_role":"kv_producer"}'
+          resources:
+            limits:
+              cpu: 128
+              ephemeral-storage: 800Gi
+              memory: 512Gi
+              nvidia.com/gpu: "8"
+              rdma/roce_gdr: 1
+            requests:
+              cpu: 64
+              ephemeral-storage: 800Gi
+              memory: 256Gi
+              nvidia.com/gpu: "8"
+              rdma/roce_gdr: 1
+          # Probes are auto-injected. The default startupProbe allows ~10 minutes
+          # for model loading (failureThreshold=60, periodSeconds=10).
+          # For very large models that take longer, override startupProbe:
+          #   startupProbe:
+          #     failureThreshold: 360   # 60 minutes
+          #     periodSeconds: 10
+    # Prefill pool workers.
+    worker:
+      containers:
+        - name: main
+          env:
+            - name: KSERVE_INFER_ROCE
+              value: "true"
+            - name: CUDA_DEVICE_ORDER
+              value: "PCI_BUS_ID"
+            - name: VLLM_NIXL_SIDE_CHANNEL_HOST
+              valueFrom:
+                fieldRef:
+                  fieldPath: status.podIP
+            - name: VLLM_ALL2ALL_BACKEND
+              value: deepep_high_throughput
+            - name: PYTORCH_CUDA_ALLOC_CONF
+              value: "expandable_segments:True"
+            # GID index env vars (NCCL, NVSHMEM, UCX) are auto-detected.
+            - name: NCCL_DEBUG
+              value: WARN
+            - name: NCCL_SOCKET_IFNAME
+              value: net1
+            - name: NCCL_IB_TIMEOUT
+              value: "22"
+            - name: NVSHMEM_REMOTE_TRANSPORT
+              value: ibgda
+            - name: NVSHMEM_BOOTSTRAP_TWO_STAGE
+              value: "1"
+            - name: NVSHMEM_BOOTSTRAP_TIMEOUT
+              value: "120"
+            - name: NVSHMEM_BOOTSTRAP_UID_SOCK_IFNAME
+              value: net1
+            - name: NVSHMEM_USE_IBGDA
+              value: "1"
+            - name: NVSHMEM_ENABLE_NIC_PE_MAPPING
+              value: "1"
+            - name: NVSHMEM_IBGDA_SUPPORT
+              value: "1"
+            - name: NVSHMEM_IB_ENABLE_IBGDA
+              value: "1"
+            - name: NVSHMEM_IBGDA_NIC_HANDLER
+              value: "gpu"
+            - name: NVSHMEM_DEBUG
+              value: WARN
+            - name: UCX_TLS
+              value: "rc,sm,self,cuda_copy,cuda_ipc"
+            - name: UCX_RC_MLX5_TM_ENABLE
+              value: "n"
+            - name: UCX_UD_MLX5_RX_QUEUE_LEN
+              value: "1024"
+            - name: NVIDIA_GDRCOPY
+              value: enabled
+          args:
+            - --kv_transfer_config
+            - '{"kv_connector":"NixlConnector","kv_role":"kv_producer"}'
+          resources:
+            limits:
+              cpu: 128
+              ephemeral-storage: 800Gi
+              memory: 512Gi
+              nvidia.com/gpu: "8"
+              rdma/roce_gdr: 1
+            requests:
+              cpu: 64
+              ephemeral-storage: 800Gi
+              memory: 256Gi
+              nvidia.com/gpu: "8"
+              rdma/roce_gdr: 1
