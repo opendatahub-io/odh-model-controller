@@ -107,7 +107,7 @@ vet: ## Run go vet against code.
 	go vet ./...
 
 .PHONY: test
-test: manifests generate fmt vet envtest ## Run tests.
+test: manifests generate fmt vet envtest validate-samples ## Run tests.
 	@go tool covdata >/dev/null 2>&1 || true
 	KUBEBUILDER_ASSETS="$(shell $(ENVTEST) use $(ENVTEST_K8S_VERSION) --bin-dir $(LOCALBIN) -p path)" POD_NAMESPACE=default \
 		go test $$(go list ./... | grep -v /e2e) -coverprofile cover.out -coverpkg=./...
@@ -200,6 +200,10 @@ lint: golangci-lint ## Run golangci-lint linter
 .PHONY: lint-fix
 lint-fix: golangci-lint ## Run golangci-lint linter and perform fixes
 	$(GOLANGCI_LINT) run --fix
+
+.PHONY: validate-samples
+validate-samples: kubectl-validate manifests-update ## Validate sample YAMLs against CRD schemas.
+	$(KUBECTL_VALIDATE) --local-crds config/crd/external/ server/samples/*.yaml
 
 ##@ Build
 
@@ -312,12 +316,14 @@ KUSTOMIZE ?= $(LOCALBIN)/kustomize
 CONTROLLER_GEN ?= $(LOCALBIN)/controller-gen
 ENVTEST ?= $(LOCALBIN)/setup-envtest
 GOLANGCI_LINT = $(LOCALBIN)/golangci-lint
+KUBECTL_VALIDATE = $(LOCALBIN)/kubectl-validate
 
 ## Tool Versions
 KUSTOMIZE_VERSION ?= v5.5.0
 CONTROLLER_TOOLS_VERSION ?= v0.16.4
 ENVTEST_VERSION ?= release-0.19
 GOLANGCI_LINT_VERSION ?= v2.11.3
+KUBECTL_VALIDATE_VERSION ?= v0.0.4
 
 .PHONY: kustomize
 kustomize: $(KUSTOMIZE) ## Download kustomize locally if necessary.
@@ -338,6 +344,11 @@ $(ENVTEST): $(LOCALBIN)
 golangci-lint: $(GOLANGCI_LINT) ## Download golangci-lint locally if necessary.
 $(GOLANGCI_LINT): $(LOCALBIN)
 	$(call go-install-tool,$(GOLANGCI_LINT),github.com/golangci/golangci-lint/v2/cmd/golangci-lint,$(GOLANGCI_LINT_VERSION))
+
+.PHONY: kubectl-validate
+kubectl-validate: $(KUBECTL_VALIDATE) ## Download kubectl-validate locally if necessary.
+$(KUBECTL_VALIDATE): $(LOCALBIN)
+	$(call go-install-tool,$(KUBECTL_VALIDATE),sigs.k8s.io/kubectl-validate,$(KUBECTL_VALIDATE_VERSION))
 
 # Macro `go-install-tool` installs a specific version of a Go package and ensures that
 # invoking the binary at the given path uses that version.
