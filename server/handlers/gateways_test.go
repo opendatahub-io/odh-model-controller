@@ -37,6 +37,9 @@ func TestGatewayHandler_Success(t *testing.T) {
 					Status:      "Ready",
 					DisplayName: "Shared Gateway",
 					Description: "Edge ingress",
+					Hostname:    "gw.example.com",
+					Protocol:    "HTTPS",
+					Port:        443,
 				},
 			},
 		},
@@ -54,8 +57,20 @@ func TestGatewayHandler_Success(t *testing.T) {
 	if err := json.NewDecoder(rec.Body).Decode(&resp); err != nil {
 		t.Fatalf("decode error: %v", err)
 	}
-	if len(resp.Gateways) != 1 || resp.Gateways[0].Name != "gw1" {
-		t.Errorf("unexpected response: %+v", resp)
+	if len(resp.Gateways) != 1 {
+		t.Fatalf("unexpected gateways length: got %d, want 1; resp=%+v", len(resp.Gateways), resp)
+	}
+	if resp.Gateways[0].Name != "gw1" {
+		t.Fatalf("gateway name = %q, want %q", resp.Gateways[0].Name, "gw1")
+	}
+	if resp.Gateways[0].Hostname != "gw.example.com" {
+		t.Errorf("hostname = %q, want %q", resp.Gateways[0].Hostname, "gw.example.com")
+	}
+	if resp.Gateways[0].Protocol != "HTTPS" {
+		t.Errorf("protocol = %q, want %q", resp.Gateways[0].Protocol, "HTTPS")
+	}
+	if resp.Gateways[0].Port != 443 {
+		t.Errorf("port = %d, want %d", resp.Gateways[0].Port, 443)
 	}
 }
 

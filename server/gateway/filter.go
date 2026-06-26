@@ -1,6 +1,9 @@
 package gateway
 
 import (
+	"net"
+	"regexp"
+
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/labels"
 	gatewayapiv1 "sigs.k8s.io/gateway-api/apis/v1"
@@ -13,20 +16,75 @@ func FilterListeners(gateways []gatewayapiv1.Gateway, targetNS string, nsLabels 
 	for i := range gateways {
 		gw := &gateways[i]
 		status := ExtractStatus(gw)
+		hostname := extractHostname(gw)
 		for _, listener := range gw.Spec.Listeners {
 			if listenerAllowsNamespace(listener, gw.Namespace, targetNS, nsLabels) {
-				refs = append(refs, GatewayRef{
+				ref := GatewayRef{
 					Name:        gw.Name,
 					Namespace:   gw.Namespace,
 					Listener:    string(listener.Name),
 					Status:      status,
 					DisplayName: gw.Annotations[AnnotationDisplayName],
 					Description: gw.Annotations[AnnotationDescription],
-				})
+					Protocol:    string(listener.Protocol),
+					Port:        int32(listener.Port),
+				}
+				// Prefer the listener-level hostname if set; otherwise
+				// fall back to the gateway-level hostname from status addresses.
+				if listener.Hostname != nil && *listener.Hostname != "" {
+					ref.Hostname = string(*listener.Hostname)
+				} else {
+					ref.Hostname = hostname
+				}
+				refs = append(refs, ref)
 			}
 		}
 	}
 	return refs
+}
+
+var dnsNameRegex = regexp.MustCompile(
+	`^([a-zA-Z0-9]([a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?\.)*` +
+		`[a-zA-Z0-9]([a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?$`)
+
+var ipv4LikeRegex = regexp.MustCompile(
+	`^\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}$`)
+
+func isValidHostnameOrIP(value string) bool {
+	if value == "" {
+		return false
+	}
+	if net.ParseIP(value) != nil {
+		return true
+	}
+	// Reject strings that look like dotted-decimal IPv4 addresses
+	// but were rejected by net.ParseIP (e.g. octets > 255).
+	if ipv4LikeRegex.MatchString(value) {
+		return false
+	}
+	return len(value) <= 253 && dnsNameRegex.MatchString(value)
+}
+
+// extractHostname returns the best external hostname from Gateway status
+// addresses. It prefers Hostname-typed addresses over IP addresses.
+// Only well-formed DNS names or IP addresses are accepted (defense in depth).
+func extractHostname(gw *gatewayapiv1.Gateway) string {
+	if gw == nil {
+		return ""
+	}
+	var fallback string
+	for _, addr := range gw.Status.Addresses {
+		if !isValidHostnameOrIP(addr.Value) {
+			continue
+		}
+		if addr.Type != nil && *addr.Type == gatewayapiv1.HostnameAddressType {
+			return addr.Value
+		}
+		if fallback == "" {
+			fallback = addr.Value
+		}
+	}
+	return fallback
 }
 
 // NeedsNamespaceLabels returns true if any listener in any gateway uses
