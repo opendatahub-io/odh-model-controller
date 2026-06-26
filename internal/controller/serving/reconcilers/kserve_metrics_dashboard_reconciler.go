@@ -202,6 +202,7 @@ func (r *KserveMetricsDashboardReconciler) processDelta(ctx context.Context, log
 //   - KServeRuntimeAnnotation with VllmRuntimeName: Returns VllmMetricsData
 //   - KServeRuntimeAnnotation with TgisRuntimeName: Returns TgisMetricsData
 //   - KServeRuntimeAnnotation with MLServerRuntimeName: Returns MLServerMetricsData
+//   - KServeRuntimeAnnotation with AutogluonRuntimeName: Returns AutogluonMetricsData
 //
 // Parameters:
 //   - runtime: A pointer to the ServingRuntime object containing annotations to evaluate
@@ -228,6 +229,8 @@ func getMetricsData(runtime *kservev1alpha1.ServingRuntime) (string, bool) {
 		return constants.TgisMetricsData, true
 	case runtime.Spec.Annotations[constants.KServeRuntimeAnnotation] == constants.MLServerRuntimeName:
 		return constants.MLServerMetricsData, true
+	case runtime.Spec.Annotations[constants.KServeRuntimeAnnotation] == constants.AutogluonRuntimeName:
+		return constants.AutogluonMetricsData, true
 	default:
 		return "", false
 	}
