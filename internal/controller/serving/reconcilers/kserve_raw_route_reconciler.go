@@ -181,6 +181,26 @@ func (r *KserveRawRouteReconciler) createDesiredResource(ctx context.Context, lo
 		return nil, err
 	}
 
+	if len(isvc.Spec.Canary) > 0 {
+		// Use numeric targetPort when canary is active — named ports differ
+		// per service (e.g. "canary-test-predictor" vs "canary-test-v2-predictor")
+		// and alternateBackends requires a port name that exists on all backends.
+		// Resolve the named port chosen by setRouteTargetPort to its numeric value.
+		if targetPort.Type == intstr.String {
+			for _, p := range targetService.Spec.Ports {
+				if p.Name == targetPort.StrVal {
+					desiredRoute.Spec.Port = &v1.RoutePort{
+						TargetPort: p.TargetPort,
+					}
+					break
+				}
+			}
+		}
+		if err := r.applyCanaryTrafficSplits(ctx, log, isvc, desiredRoute); err != nil {
+			return nil, err
+		}
+	}
+
 	return desiredRoute, nil
 }
 
@@ -278,5 +298,35 @@ func (r *KserveRawRouteReconciler) processDelta(ctx context.Context, log logr.Lo
 			return err
 		}
 	}
+	return nil
+}
+
+func (r *KserveRawRouteReconciler) applyCanaryTrafficSplits(ctx context.Context, log logr.Logger, isvc *kservev1beta1.InferenceService, route *v1.Route) error {
+	var totalCanaryPercent int32
+	for _, canary := range isvc.Spec.Canary {
+		totalCanaryPercent += canary.TrafficPercent
+	}
+	stableWeight := int32(100) - totalCanaryPercent
+	route.Spec.To.Weight = &stableWeight
+
+	var alternateBackends []v1.RouteTargetReference
+	for _, canary := range isvc.Spec.Canary {
+		canaryServiceName := fmt.Sprintf("%s-%s-predictor", isvc.Name, canary.Predictor.Name)
+
+		svc := &corev1.Service{}
+		if err := r.client.Get(ctx, types.NamespacedName{Name: canaryServiceName, Namespace: isvc.Namespace}, svc); err != nil {
+			return fmt.Errorf("canary service %q not found: %w", canaryServiceName, err)
+		}
+
+		weight := canary.TrafficPercent
+		alternateBackends = append(alternateBackends, v1.RouteTargetReference{
+			Kind:   "Service",
+			Name:   canaryServiceName,
+			Weight: &weight,
+		})
+		log.V(1).Info("Canary traffic split", "service", canaryServiceName, "weight", weight)
+	}
+	route.Spec.AlternateBackends = alternateBackends
+
 	return nil
 }

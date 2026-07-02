@@ -104,6 +104,11 @@ func (v *InferenceServiceCustomValidator) ValidateCreate(ctx context.Context, ob
 	}
 
 	logger.Info("Namespace is not protected")
+
+	if err := validateCanaryCount(inferenceservice); err != nil {
+		return nil, err
+	}
+
 	return nil, nil
 }
 
@@ -117,7 +122,9 @@ func (v *InferenceServiceCustomValidator) ValidateUpdate(ctx context.Context, ol
 	}
 	inferenceservicelog.Info("Validation for InferenceService upon update", "name", inferenceservice.GetName())
 
-	// TODO(user): fill in your validation logic upon object update.
+	if err := validateCanaryCount(inferenceservice); err != nil {
+		return nil, err
+	}
 
 	return nil, nil
 }
@@ -135,6 +142,19 @@ func (v *InferenceServiceCustomValidator) ValidateDelete(ctx context.Context, ob
 	// TODO(user): fill in your validation logic upon object deletion.
 
 	return nil, nil
+}
+
+// maxCanaryCount is the maximum number of canary deployments allowed per
+// InferenceService. OpenShift Routes support up to 3 alternateBackends
+// (4 total backends including the primary stable service).
+const maxCanaryCount = 3
+
+func validateCanaryCount(isvc *servingv1beta1.InferenceService) error {
+	if len(isvc.Spec.Canary) > maxCanaryCount {
+		return fmt.Errorf("canary count %d exceeds maximum of %d (OpenShift Route alternateBackends limit)",
+			len(isvc.Spec.Canary), maxCanaryCount)
+	}
+	return nil
 }
 
 // +kubebuilder:webhook:path=/mutate-serving-kserve-io-v1beta1-inferenceservice,mutating=true,failurePolicy=fail,sideEffects=NoneOnDryRun,groups=serving.kserve.io,resources=inferenceservices,verbs=create;update,versions=v1beta1,name=minferenceservice-v1beta1.odh-model-controller.opendatahub.io,admissionReviewVersions=v1
