@@ -3,11 +3,28 @@
 package e2e
 
 import (
+	"encoding/json"
 	"fmt"
 	"net/http"
-	"strings"
 	"testing"
 )
+
+// echoResponse captures the subset of the ealen/echo-server JSON response
+// needed to inspect reflected request headers.
+type echoResponse struct {
+	Request struct {
+		Headers map[string]string `json:"headers"`
+	} `json:"request"`
+}
+
+func parseEchoHeaders(t *testing.T, body []byte) map[string]string {
+	t.Helper()
+	var resp echoResponse
+	if err := json.Unmarshal(body, &resp); err != nil {
+		t.Fatalf("failed to parse echo server response: %v\nbody: %s", err, body)
+	}
+	return resp.Request.Headers
+}
 
 // TestFlowControlHeadersSA verifies that the AuthPolicy injects the correct
 // flow control headers for an authenticated ServiceAccount on an inference path.
@@ -30,18 +47,18 @@ func TestFlowControlHeadersSA(t *testing.T) {
 		t.Fatalf("expected 200, got %d", resp.StatusCode)
 	}
 
-	bodyStr := string(body)
+	headers := parseEchoHeaders(t, body)
 
-	if !strings.Contains(bodyStr, "x-gateway-inference-fairness-id") {
-		t.Error("response does not contain x-gateway-inference-fairness-id header")
-	}
-	if !strings.Contains(bodyStr, "https://kubernetes.default.svc") {
-		t.Error("fairness-id should be the cluster issuer (https://kubernetes.default.svc)")
+	if val, ok := headers["x-gateway-inference-fairness-id"]; !ok {
+		t.Error("x-gateway-inference-fairness-id header not injected")
+	} else if val != "https://kubernetes.default.svc" {
+		t.Errorf("fairness-id = %q, want %q", val, "https://kubernetes.default.svc")
 	}
 
-	expectedObjective := fmt.Sprintf("x-gateway-inference-objective\":%q", ns)
-	if !strings.Contains(bodyStr, expectedObjective) && !strings.Contains(bodyStr, fmt.Sprintf("x-gateway-inference-objective\": %q", ns)) {
-		t.Errorf("objective header value should be %q, body: %s", ns, bodyStr)
+	if val, ok := headers["x-gateway-inference-objective"]; !ok {
+		t.Error("x-gateway-inference-objective header not injected")
+	} else if val != ns {
+		t.Errorf("objective = %q, want namespace %q", val, ns)
 	}
 }
 
@@ -70,19 +87,21 @@ func TestFlowControlHeadersCrossNamespace(t *testing.T) {
 	if respA.StatusCode != http.StatusOK {
 		t.Fatalf("tenant A: expected 200, got %d", respA.StatusCode)
 	}
-	expectedA := fmt.Sprintf("x-gateway-inference-objective\":%q", nsA)
-	bodyAStr := string(bodyA)
-	if !strings.Contains(bodyAStr, expectedA) && !strings.Contains(bodyAStr, fmt.Sprintf("x-gateway-inference-objective\": %q", nsA)) {
-		t.Errorf("tenant A objective header value should be %q, body: %s", nsA, bodyAStr)
+	headersA := parseEchoHeaders(t, bodyA)
+	if val, ok := headersA["x-gateway-inference-objective"]; !ok {
+		t.Error("tenant A: x-gateway-inference-objective header not injected")
+	} else if val != nsA {
+		t.Errorf("tenant A: objective = %q, want %q", val, nsA)
 	}
 
 	respB, bodyB := batchEnv.gatewayGet(t, path, tokenB, nil)
 	if respB.StatusCode != http.StatusOK {
 		t.Fatalf("tenant B: expected 200, got %d", respB.StatusCode)
 	}
-	expectedB := fmt.Sprintf("x-gateway-inference-objective\":%q", nsB)
-	bodyBStr := string(bodyB)
-	if !strings.Contains(bodyBStr, expectedB) && !strings.Contains(bodyBStr, fmt.Sprintf("x-gateway-inference-objective\": %q", nsB)) {
-		t.Errorf("tenant B objective header value should be %q, body: %s", nsB, bodyBStr)
+	headersB := parseEchoHeaders(t, bodyB)
+	if val, ok := headersB["x-gateway-inference-objective"]; !ok {
+		t.Error("tenant B: x-gateway-inference-objective header not injected")
+	} else if val != nsB {
+		t.Errorf("tenant B: objective = %q, want %q", val, nsB)
 	}
 }
