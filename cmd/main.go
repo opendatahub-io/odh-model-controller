@@ -203,12 +203,14 @@ func setupNim(mgr manager.Manager, signalHandlerCtx context.Context,
 // is read via direct API calls (DisableFor).
 func stripConfigMapData(i interface{}) (interface{}, error) {
 	if cm, ok := i.(*corev1.ConfigMap); ok {
-		cm.Data = nil
-		cm.BinaryData = nil
-		if cm.Annotations != nil {
-			delete(cm.Annotations, "kubectl.kubernetes.io/last-applied-configuration")
+		cp := cm.DeepCopy()
+		cp.Data = nil
+		cp.BinaryData = nil
+		if cp.Annotations != nil {
+			delete(cp.Annotations, "kubectl.kubernetes.io/last-applied-configuration")
 		}
-		cm.SetManagedFields(nil)
+		cp.SetManagedFields(nil)
+		return cp, nil
 	}
 	return i, nil
 }
@@ -218,12 +220,14 @@ func stripConfigMapData(i interface{}) (interface{}, error) {
 // is read via direct API calls (DisableFor).
 func stripSecretData(i interface{}) (interface{}, error) {
 	if s, ok := i.(*corev1.Secret); ok {
-		s.Data = nil
-		s.StringData = nil
-		if s.Annotations != nil {
-			delete(s.Annotations, "kubectl.kubernetes.io/last-applied-configuration")
+		cp := s.DeepCopy()
+		cp.Data = nil
+		cp.StringData = nil
+		if cp.Annotations != nil {
+			delete(cp.Annotations, "kubectl.kubernetes.io/last-applied-configuration")
 		}
-		s.SetManagedFields(nil)
+		cp.SetManagedFields(nil)
+		return cp, nil
 	}
 	return i, nil
 }
