@@ -328,6 +328,75 @@ var _ = Describe("InferenceService ConnectionsAPI Defaulter", func() {
 				Expect(newISVC.Spec.Predictor.Model.StorageURI).To(HaveValue(Equal("https://x")))
 			})
 
+			It("preserves storageUri on OCI Replace when old secret is deleted", func() {
+				// Old OCI secret is gone, but the injected-connection-type annotation
+				// on the old ISVC lets GetOldConnectionInfo recover the type.
+				ociSecret := testutils.BuildSecret("new-oci", defaultNS, "oci", nil)
+				oldISVC := buildISVC(map[string]string{
+					connectionapi.AnnotationConnections:            "deleted-oci",
+					connectionapi.AnnotationInjectedConnectionType: "oci",
+				})
+				uri := "oci://registry.example.com/model:latest"
+				newISVC := buildISVC(map[string]string{connectionapi.AnnotationConnections: "new-oci"})
+				newISVC.Spec.Predictor.Model = &kservev1beta1.ModelSpec{}
+				newISVC.Spec.Predictor.Model.StorageURI = &uri
+				newISVC.Spec.Predictor.ImagePullSecrets = []corev1.LocalObjectReference{{Name: "deleted-oci"}}
+
+				Expect(newISVCDefaulter(newDefaulterFakeClient(ociSecret)).Default(defaultCtx(admissionv1.Update, oldISVC, false), newISVC)).To(Succeed())
+				// storageUri must survive — OCI cleanup only touches imagePullSecrets
+				Expect(newISVC.Spec.Predictor.Model.StorageURI).To(HaveValue(Equal(uri)))
+				// imagePullSecrets should be cleaned (old) and re-injected (new)
+				Expect(newISVC.Spec.Predictor.ImagePullSecrets).To(ConsistOf(corev1.LocalObjectReference{Name: "new-oci"}))
+			})
+
+			It("re-injects SA and storage on S3 Replace when old secret is deleted", func() {
+				// Old S3 secret is gone, annotation recovers the type.
+				s3Secret := testutils.BuildSecret(defaultS3Secret, defaultNS, "s3", nil)
+				cli := newDefaulterFakeClient(s3Secret)
+				oldISVC := buildISVC(map[string]string{
+					connectionapi.AnnotationConnections:            "deleted-s3",
+					connectionapi.AnnotationInjectedConnectionType: "s3",
+				})
+				uri := "oci://registry.example.com/model:latest"
+				newISVC := buildISVC(map[string]string{
+					connectionapi.AnnotationConnections:    defaultS3Secret,
+					connectionapi.AnnotationConnectionPath: "models/v1",
+				})
+				newISVC.Spec.Predictor.ServiceAccountName = "deleted-s3-sa"
+				newISVC.Spec.Predictor.Model = &kservev1beta1.ModelSpec{}
+				newISVC.Spec.Predictor.Model.StorageURI = &uri
+
+				Expect(newISVCDefaulter(cli).Default(defaultCtx(admissionv1.Update, oldISVC, false), newISVC)).To(Succeed())
+				// S3 fields should be re-injected
+				Expect(newISVC.Spec.Predictor.ServiceAccountName).To(Equal(defaultS3SA))
+				Expect(newISVC.Spec.Predictor.Model.Storage).ToNot(BeNil())
+				Expect(newISVC.Spec.Predictor.Model.Storage.StorageKey).To(HaveValue(Equal(defaultS3Secret)))
+				// storageUri should survive — S3 cleanup doesn't touch it
+				Expect(newISVC.Spec.Predictor.Model.StorageURI).To(HaveValue(Equal(uri)))
+			})
+
+			It("re-injects URI on Replace when old secret is deleted", func() {
+				// Old URI secret is gone, annotation recovers the type.
+				uriSecret := testutils.BuildSecret("new-uri", defaultNS, "uri", map[string][]byte{"URI": []byte("https://new.example.com")})
+				oldISVC := buildISVC(map[string]string{
+					connectionapi.AnnotationConnections:            "deleted-uri",
+					connectionapi.AnnotationInjectedConnectionType: "uri",
+				})
+				key := defaultS3Secret
+				newISVC := buildISVC(map[string]string{connectionapi.AnnotationConnections: "new-uri"})
+				newISVC.Spec.Predictor.Model = &kservev1beta1.ModelSpec{}
+				newISVC.Spec.Predictor.Model.Storage = &kservev1beta1.ModelStorageSpec{}
+				newISVC.Spec.Predictor.Model.Storage.StorageKey = &key
+				newISVC.Spec.Predictor.ImagePullSecrets = []corev1.LocalObjectReference{{Name: "user-pull-secret"}}
+
+				Expect(newISVCDefaulter(newDefaulterFakeClient(uriSecret)).Default(defaultCtx(admissionv1.Update, oldISVC, false), newISVC)).To(Succeed())
+				// URI field should be re-injected
+				Expect(newISVC.Spec.Predictor.Model.StorageURI).To(HaveValue(Equal("https://new.example.com")))
+				// storage and imagePullSecrets should survive — URI cleanup only touches storageUri
+				Expect(newISVC.Spec.Predictor.Model.Storage).ToNot(BeNil())
+				Expect(newISVC.Spec.Predictor.ImagePullSecrets).To(ConsistOf(corev1.LocalObjectReference{Name: "user-pull-secret"}))
+			})
+
 			It("replaces S3 fields when connection path changes", func() {
 				secret := testutils.BuildSecret(defaultS3Secret, defaultNS, "s3", nil)
 				oldISVC := buildISVC(map[string]string{
@@ -597,6 +666,61 @@ var _ = Describe("InferenceService ConnectionsAPI Defaulter", func() {
 			isvc.Spec.Predictor.Model = &kservev1beta1.ModelSpec{}
 			Expect(newISVCDefaulter(newDefaulterFakeClient(secret, existingSA)).Default(defaultCtx(admissionv1.Create, nil, false), isvc)).To(Succeed())
 			Expect(isvc.Spec.Predictor.ServiceAccountName).To(Equal(defaultS3SA))
+		})
+	})
+
+	Describe("Injected connection type annotation lifecycle", func() {
+
+		It("sets the annotation on CREATE injection", func() {
+			secret := testutils.BuildSecret(defaultS3Secret, defaultNS, "s3", nil)
+			isvc := buildISVC(map[string]string{
+				connectionapi.AnnotationConnections:    defaultS3Secret,
+				connectionapi.AnnotationConnectionPath: "models/v1",
+			})
+			isvc.Spec.Predictor.Model = &kservev1beta1.ModelSpec{}
+
+			Expect(newISVCDefaulter(newDefaulterFakeClient(secret)).Default(defaultCtx(admissionv1.Create, nil, false), isvc)).To(Succeed())
+			Expect(isvc.Annotations).To(HaveKeyWithValue(connectionapi.AnnotationInjectedConnectionType, "s3"))
+		})
+
+		It("sets the annotation for OCI injection", func() {
+			secret := testutils.BuildSecret("oci-s", defaultNS, "oci", nil)
+			isvc := buildISVC(map[string]string{connectionapi.AnnotationConnections: "oci-s"})
+
+			Expect(newISVCDefaulter(newDefaulterFakeClient(secret)).Default(defaultCtx(admissionv1.Create, nil, false), isvc)).To(Succeed())
+			Expect(isvc.Annotations).To(HaveKeyWithValue(connectionapi.AnnotationInjectedConnectionType, "oci"))
+		})
+
+		It("removes the annotation on connection Remove", func() {
+			secret := testutils.BuildSecret(defaultS3Secret, defaultNS, "s3", nil)
+			oldISVC := buildISVC(map[string]string{
+				connectionapi.AnnotationConnections:            defaultS3Secret,
+				connectionapi.AnnotationInjectedConnectionType: "s3",
+			})
+			newISVC := buildISVC(nil)
+			newISVC.Annotations = map[string]string{
+				connectionapi.AnnotationInjectedConnectionType: "s3",
+			}
+			newISVC.Spec.Predictor.ServiceAccountName = defaultS3SA
+
+			Expect(newISVCDefaulter(newDefaulterFakeClient(secret)).Default(defaultCtx(admissionv1.Update, oldISVC, false), newISVC)).To(Succeed())
+			Expect(newISVC.Annotations).ToNot(HaveKey(connectionapi.AnnotationInjectedConnectionType))
+		})
+
+		It("updates the annotation on connection Replace with different type", func() {
+			s3Secret := testutils.BuildSecret(defaultS3Secret, defaultNS, "s3", nil)
+			uriSecret := testutils.BuildSecret("uri-s", defaultNS, "uri", map[string][]byte{"URI": []byte("https://x")})
+			cli := newDefaulterFakeClient(s3Secret, uriSecret)
+			oldISVC := buildISVC(map[string]string{
+				connectionapi.AnnotationConnections:            defaultS3Secret,
+				connectionapi.AnnotationInjectedConnectionType: "s3",
+			})
+			newISVC := buildISVC(map[string]string{connectionapi.AnnotationConnections: "uri-s"})
+			newISVC.Annotations[connectionapi.AnnotationInjectedConnectionType] = "s3"
+			newISVC.Spec.Predictor.ServiceAccountName = defaultS3SA
+
+			Expect(newISVCDefaulter(cli).Default(defaultCtx(admissionv1.Update, oldISVC, false), newISVC)).To(Succeed())
+			Expect(newISVC.Annotations).To(HaveKeyWithValue(connectionapi.AnnotationInjectedConnectionType, "uri"))
 		})
 	})
 })

@@ -172,9 +172,11 @@ func (d *LLMInferenceServiceCustomDefaulter) applyLLMISVCDefaults(
 			log.Error(err, "failed to inject connection")
 			return err
 		}
+		connectionapi.SetInjectedConnectionType(obj, newConn.Type)
 
 	case connectionapi.ConnectionActionRemove:
 		performLLMISVCCleanup(modelURI, template, oldConn)
+		connectionapi.RemoveInjectedConnectionType(obj)
 
 	case connectionapi.ConnectionActionReplace:
 		log.V(1).Info("connection changed, performing replacement",
@@ -189,6 +191,7 @@ func (d *LLMInferenceServiceCustomDefaulter) applyLLMISVCDefaults(
 			log.Error(err, "failed to inject new connection")
 			return err
 		}
+		connectionapi.SetInjectedConnectionType(obj, newConn.Type)
 
 	case connectionapi.ConnectionActionNone:
 		// no-op

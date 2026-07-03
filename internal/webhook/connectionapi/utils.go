@@ -314,10 +314,11 @@ func GetOldConnectionInfo(ctx context.Context, req admission.Request, apiReader 
 	secretMeta.SetGroupVersionKind(schema.GroupVersionKind{Group: "", Version: "v1", Kind: "Secret"})
 	if err := apiReader.Get(ctx, types.NamespacedName{Name: secretName, Namespace: req.Namespace}, secretMeta); err != nil {
 		if k8serr.IsNotFound(err) {
-			log.V(1).Info("old connection not found, type unknown — full cleanup will be performed", "connection", secretName)
+			oldConnectionType := oldObj.GetAnnotations()[AnnotationInjectedConnectionType]
+			log.V(1).Info("old secret not found, recovering type from object annotation", "connection", secretName, "recoveredType", oldConnectionType)
 			return ConnectionInfo{
 				SecretName: secretName,
-				Type:       "",
+				Type:       oldConnectionType,
 				Path:       oldObj.GetAnnotations()[AnnotationConnectionPath],
 			}, nil
 		}
