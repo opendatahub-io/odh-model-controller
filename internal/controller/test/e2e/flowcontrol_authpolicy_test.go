@@ -13,17 +13,31 @@ import (
 // needed to inspect reflected request headers.
 type echoResponse struct {
 	Request struct {
-		Headers map[string]string `json:"headers"`
+		Headers map[string]json.RawMessage `json:"headers"`
 	} `json:"request"`
 }
 
-func parseEchoHeaders(t *testing.T, body []byte) map[string]string {
+// parseEchoHeader extracts a single header value from the echo server response.
+// Handles both string ("value") and array (["value"]) formats.
+func parseEchoHeader(t *testing.T, body []byte, header string) (string, bool) {
 	t.Helper()
 	var resp echoResponse
 	if err := json.Unmarshal(body, &resp); err != nil {
 		t.Fatalf("failed to parse echo server response: %v\nbody: %s", err, body)
 	}
-	return resp.Request.Headers
+	raw, ok := resp.Request.Headers[header]
+	if !ok {
+		return "", false
+	}
+	var s string
+	if json.Unmarshal(raw, &s) == nil {
+		return s, true
+	}
+	var arr []string
+	if json.Unmarshal(raw, &arr) == nil && len(arr) > 0 {
+		return arr[0], true
+	}
+	return "", false
 }
 
 // TestFlowControlHeadersSA verifies that the AuthPolicy injects the correct
@@ -47,15 +61,13 @@ func TestFlowControlHeadersSA(t *testing.T) {
 		t.Fatalf("expected 200, got %d", resp.StatusCode)
 	}
 
-	headers := parseEchoHeaders(t, body)
-
-	if val, ok := headers["x-gateway-inference-fairness-id"]; !ok {
+	if val, ok := parseEchoHeader(t, body, "x-gateway-inference-fairness-id"); !ok {
 		t.Error("x-gateway-inference-fairness-id header not injected")
 	} else if val != "https://kubernetes.default.svc" {
 		t.Errorf("fairness-id = %q, want %q", val, "https://kubernetes.default.svc")
 	}
 
-	if val, ok := headers["x-gateway-inference-objective"]; !ok {
+	if val, ok := parseEchoHeader(t, body, "x-gateway-inference-objective"); !ok {
 		t.Error("x-gateway-inference-objective header not injected")
 	} else if val != ns {
 		t.Errorf("objective = %q, want namespace %q", val, ns)
@@ -87,8 +99,12 @@ func TestFlowControlHeadersCrossNamespace(t *testing.T) {
 	if respA.StatusCode != http.StatusOK {
 		t.Fatalf("tenant A: expected 200, got %d", respA.StatusCode)
 	}
-	headersA := parseEchoHeaders(t, bodyA)
-	if val, ok := headersA["x-gateway-inference-objective"]; !ok {
+	if val, ok := parseEchoHeader(t, bodyA, "x-gateway-inference-fairness-id"); !ok {
+		t.Error("tenant A: x-gateway-inference-fairness-id header not injected")
+	} else if val != "https://kubernetes.default.svc" {
+		t.Errorf("tenant A: fairness-id = %q, want %q", val, "https://kubernetes.default.svc")
+	}
+	if val, ok := parseEchoHeader(t, bodyA, "x-gateway-inference-objective"); !ok {
 		t.Error("tenant A: x-gateway-inference-objective header not injected")
 	} else if val != nsA {
 		t.Errorf("tenant A: objective = %q, want %q", val, nsA)
@@ -98,10 +114,42 @@ func TestFlowControlHeadersCrossNamespace(t *testing.T) {
 	if respB.StatusCode != http.StatusOK {
 		t.Fatalf("tenant B: expected 200, got %d", respB.StatusCode)
 	}
-	headersB := parseEchoHeaders(t, bodyB)
-	if val, ok := headersB["x-gateway-inference-objective"]; !ok {
+	if val, ok := parseEchoHeader(t, bodyB, "x-gateway-inference-fairness-id"); !ok {
+		t.Error("tenant B: x-gateway-inference-fairness-id header not injected")
+	} else if val != "https://kubernetes.default.svc" {
+		t.Errorf("tenant B: fairness-id = %q, want %q", val, "https://kubernetes.default.svc")
+	}
+	if val, ok := parseEchoHeader(t, bodyB, "x-gateway-inference-objective"); !ok {
 		t.Error("tenant B: x-gateway-inference-objective header not injected")
 	} else if val != nsB {
 		t.Errorf("tenant B: objective = %q, want %q", val, nsB)
+	}
+}
+
+// TestNonInferencePathNoFlowControlHeaders verifies that flow control headers
+// are NOT injected on non-inference paths. The AuthPolicy should scope header
+// injection to inference paths only (e.g., /v1/chat/completions).
+func TestNonInferencePathNoFlowControlHeaders(t *testing.T) {
+	t.Parallel()
+
+	ns := batchEnv.createNamespace(t, "e2e-fc", nil)
+	batchEnv.deployEchoServer(t, ns)
+	batchEnv.createHTTPRoute(t, ns, "echo-noninference", fmt.Sprintf("/%s/echo-server", ns))
+	batchEnv.createServiceAccount(t, ns, "fc-user")
+	batchEnv.grantInferenceAccess(t, ns, ns, "fc-user")
+	token := batchEnv.requestToken(t, ns, "fc-user")
+	batchEnv.waitForGatewayRoute(t, fmt.Sprintf("/%s/echo-server/test", ns), token)
+
+	path := fmt.Sprintf("/%s/echo-server/v1/files", ns)
+	resp, body := batchEnv.gatewayGet(t, path, token, nil)
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("expected 200, got %d", resp.StatusCode)
+	}
+
+	if _, ok := parseEchoHeader(t, body, "x-gateway-inference-fairness-id"); ok {
+		t.Error("non-inference path should not have x-gateway-inference-fairness-id header")
+	}
+	if _, ok := parseEchoHeader(t, body, "x-gateway-inference-objective"); ok {
+		t.Error("non-inference path should not have x-gateway-inference-objective header")
 	}
 }
