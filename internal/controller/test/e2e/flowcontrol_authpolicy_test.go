@@ -39,11 +39,9 @@ func TestFlowControlHeadersSA(t *testing.T) {
 		t.Error("fairness-id should be the cluster issuer (https://kubernetes.default.svc)")
 	}
 
-	if !strings.Contains(bodyStr, "x-gateway-inference-objective") {
-		t.Error("response does not contain x-gateway-inference-objective header")
-	}
-	if !strings.Contains(bodyStr, ns) {
-		t.Errorf("objective should be the SA namespace %q", ns)
+	expectedObjective := fmt.Sprintf("x-gateway-inference-objective\":%q", ns)
+	if !strings.Contains(bodyStr, expectedObjective) && !strings.Contains(bodyStr, fmt.Sprintf("x-gateway-inference-objective\": %q", ns)) {
+		t.Errorf("objective header value should be %q, body: %s", ns, bodyStr)
 	}
 }
 
@@ -72,15 +70,19 @@ func TestFlowControlHeadersCrossNamespace(t *testing.T) {
 	if respA.StatusCode != http.StatusOK {
 		t.Fatalf("tenant A: expected 200, got %d", respA.StatusCode)
 	}
-	if !strings.Contains(string(bodyA), nsA) {
-		t.Errorf("tenant A objective should contain namespace %q", nsA)
+	expectedA := fmt.Sprintf("x-gateway-inference-objective\":%q", nsA)
+	bodyAStr := string(bodyA)
+	if !strings.Contains(bodyAStr, expectedA) && !strings.Contains(bodyAStr, fmt.Sprintf("x-gateway-inference-objective\": %q", nsA)) {
+		t.Errorf("tenant A objective header value should be %q, body: %s", nsA, bodyAStr)
 	}
 
 	respB, bodyB := batchEnv.gatewayGet(t, path, tokenB, nil)
 	if respB.StatusCode != http.StatusOK {
 		t.Fatalf("tenant B: expected 200, got %d", respB.StatusCode)
 	}
-	if !strings.Contains(string(bodyB), nsB) {
-		t.Errorf("tenant B objective should contain namespace %q", nsB)
+	expectedB := fmt.Sprintf("x-gateway-inference-objective\":%q", nsB)
+	bodyBStr := string(bodyB)
+	if !strings.Contains(bodyBStr, expectedB) && !strings.Contains(bodyBStr, fmt.Sprintf("x-gateway-inference-objective\": %q", nsB)) {
+		t.Errorf("tenant B objective header value should be %q, body: %s", nsB, bodyBStr)
 	}
 }
