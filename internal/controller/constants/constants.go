@@ -104,6 +104,7 @@ const (
 	TgisRuntimeName         = "tgis"
 	VllmRuntimeName         = "vllm"
 	MLServerRuntimeName     = "mlserver"
+	AutogluonRuntimeName    = "autogluon"
 )
 
 // openshift
