@@ -35,16 +35,13 @@ func VerifyGatewayPodMonitorNotExist(ctx context.Context, c client.Client, gatew
 }
 
 func VerifyGatewayPodMonitorOwnerRef(ctx context.Context, c client.Client, gatewayNamespace, gatewayName string) {
-	gomega.Eventually(func() error {
+	gomega.Eventually(func(g gomega.Gomega) {
 		podMonitor, err := GetResourceByName(ctx, c, gatewayNamespace, constants.GetGatewayPodMonitorName(gatewayName), &monitoringv1.PodMonitor{})
-		if err != nil {
-			return err
-		}
+		g.Expect(err).NotTo(gomega.HaveOccurred())
 		ownerRefs := podMonitor.GetOwnerReferences()
-		gomega.Expect(ownerRefs).To(gomega.HaveLen(1))
-		gomega.Expect(ownerRefs[0].Name).To(gomega.Equal(gatewayName))
-		gomega.Expect(ownerRefs[0].Kind).To(gomega.Equal("Gateway"))
-		gomega.Expect(ownerRefs[0].APIVersion).To(gomega.Equal("gateway.networking.k8s.io/v1"))
-		return nil
+		g.Expect(ownerRefs).To(gomega.HaveLen(1))
+		g.Expect(ownerRefs[0].Name).To(gomega.Equal(gatewayName))
+		g.Expect(ownerRefs[0].Kind).To(gomega.Equal("Gateway"))
+		g.Expect(ownerRefs[0].APIVersion).To(gomega.Equal("gateway.networking.k8s.io/v1"))
 	}).WithContext(ctx).Should(gomega.Succeed())
 }

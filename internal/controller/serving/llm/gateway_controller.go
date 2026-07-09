@@ -376,12 +376,12 @@ func (r *GatewayReconciler) reconcileGatewayPodMonitor(ctx context.Context, logg
 		}
 	} else if delta.IsUpdated() {
 		logger.Info("Updating PodMonitor", "name", podMonitorName)
-		if err := controllerutil.SetControllerReference(gateway, desired, r.Scheme); err != nil {
+		updated := existing.DeepCopy()
+		updated.Spec = desired.Spec
+		if err := controllerutil.SetControllerReference(gateway, updated, r.Scheme); err != nil {
 			return fmt.Errorf("failed to set controller reference: %w", err)
 		}
-		rp := existing.DeepCopy()
-		rp.Spec = desired.Spec
-		if err := r.Client.Update(ctx, rp); err != nil {
+		if err := r.Client.Update(ctx, updated); err != nil {
 			return fmt.Errorf("failed to update PodMonitor: %w", err)
 		}
 	}
@@ -950,6 +950,11 @@ func (r *GatewayReconciler) SetupWithManager(mgr ctrl.Manager, setupLog logr.Log
 			oldTLS := e.ObjectOld.GetAnnotations()[constants.AuthorinoTLSBootstrapAnnotation]
 			newTLS := e.ObjectNew.GetAnnotations()[constants.AuthorinoTLSBootstrapAnnotation]
 			if oldTLS != newTLS {
+				return true
+			}
+			oldScrape := e.ObjectOld.GetLabels()[constants.RhoaiObservabilityLabel]
+			newScrape := e.ObjectNew.GetLabels()[constants.RhoaiObservabilityLabel]
+			if oldScrape != newScrape {
 				return true
 			}
 			return utils.ShouldCreateEnvoyFilterForGateway(e.ObjectNew.(*gatewayapiv1.Gateway))
