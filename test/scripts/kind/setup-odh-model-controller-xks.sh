@@ -51,9 +51,12 @@ openssl req -x509 -newkey rsa:2048 \
 
 CA_BUNDLE="$(base64 -w0 < "${CERT_DIR}/tls.crt")"
 
+log "Ensuring target namespace exists"
+kubectl create namespace "${NAMESPACE}" --dry-run=client -o yaml | kubectl apply -f -
+
 log "Rendering and applying xKS overlay"
 kubectl kustomize "${ROOT}/config/overlays/xks" \
-  | sed "s|image: controller:latest|image: ${IMAGE}|" \
+  | sed -E "s|(image: ).*odh-model-controller[^[:space:]]*|\\1${IMAGE}|" \
   | sed 's|imagePullPolicy: Always|imagePullPolicy: IfNotPresent|' \
   | kubectl apply -f -
 
@@ -69,7 +72,7 @@ kubectl patch deployment odh-model-controller -n "${NAMESPACE}" --type=json -p='
 ]'
 
 log "Patching mutating webhook CA bundle"
-kubectl patch mutatingwebhookconfiguration mutating-webhook-configuration \
+kubectl patch mutatingwebhookconfiguration mutating.odh-model-controller.opendatahub.io \
   --type='json' \
   -p="[{\"op\":\"add\",\"path\":\"/webhooks/0/clientConfig/caBundle\",\"value\":\"${CA_BUNDLE}\"},{\"op\":\"add\",\"path\":\"/webhooks/1/clientConfig/caBundle\",\"value\":\"${CA_BUNDLE}\"},{\"op\":\"add\",\"path\":\"/webhooks/2/clientConfig/caBundle\",\"value\":\"${CA_BUNDLE}\"}]"
 
@@ -79,7 +82,7 @@ kubectl -n "${NAMESPACE}" rollout status deployment/odh-model-controller --timeo
 log "Checking controller logs for xKS mode"
 kubectl -n "${NAMESPACE}" logs deployment/odh-model-controller -c manager | grep -q 'xKS mode enabled'
 
-WEBHOOK_COUNT="$(kubectl get mutatingwebhookconfiguration mutating-webhook-configuration -o jsonpath='{.webhooks[*].name}' | wc -w)"
+WEBHOOK_COUNT="$(kubectl get mutatingwebhookconfiguration mutating.odh-model-controller.opendatahub.io -o jsonpath='{.webhooks[*].name}' | wc -w)"
 [[ "${WEBHOOK_COUNT}" -eq 3 ]] || fail "expected 3 mutating webhooks, got ${WEBHOOK_COUNT}"
 
 if kubectl get validatingwebhookconfiguration -o name 2>/dev/null | grep -q .; then

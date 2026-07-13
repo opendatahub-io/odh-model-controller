@@ -1,0 +1,19 @@
+# Remove NIM CRD and aggregate RBAC (not used on xKS).
+---
+$patch: delete
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  name: accounts.nim.opendatahub.io
+---
+$patch: delete
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: account-editor-role
+---
+$patch: delete
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: account-viewer-role
