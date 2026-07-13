@@ -50,6 +50,7 @@ import (
 	servingcontroller "github.com/opendatahub-io/odh-model-controller/internal/controller/serving"
 	llmcontroller "github.com/opendatahub-io/odh-model-controller/internal/controller/serving/llm"
 	"github.com/opendatahub-io/odh-model-controller/internal/controller/utils"
+	"github.com/opendatahub-io/odh-model-controller/internal/platform"
 
 	webhookcorev1 "github.com/opendatahub-io/odh-model-controller/internal/webhook/core/v1"
 	webhooknimv1 "github.com/opendatahub-io/odh-model-controller/internal/webhook/nim/v1"
@@ -136,20 +137,25 @@ func main() {
 		os.Exit(1)
 	}
 
-	if err := setupReconcilers(mgr, setupLog, cfg); err != nil {
+	xksMode := platform.IsXKS()
+	if xksMode {
+		setupLog.Info("xKS mode enabled: running webhook-only profile for ConnectionsAPI and HardwareProfile")
+	} else if err := setupReconcilers(mgr, setupLog, cfg); err != nil {
 		os.Exit(1)
 	}
 	// +kubebuilder:scaffold:builder
-	if err := setupWebhooks(mgr, setupLog); err != nil {
+	if err := setupWebhooks(mgr, setupLog, xksMode); err != nil {
 		os.Exit(1)
 	}
 
-	if err = mgr.Add(&llmcontroller.MaaSRBACCleanupRunner{
-		Client: mgr.GetClient(),
-		Logger: setupLog.WithName("MaaSRBACCleanup"),
-	}); err != nil {
-		setupLog.Error(err, "failed to add MaaS RBAC cleanup runner")
-		os.Exit(1)
+	if !xksMode {
+		if err = mgr.Add(&llmcontroller.MaaSRBACCleanupRunner{
+			Client: mgr.GetClient(),
+			Logger: setupLog.WithName("MaaSRBACCleanup"),
+		}); err != nil {
+			setupLog.Error(err, "failed to add MaaS RBAC cleanup runner")
+			os.Exit(1)
+		}
 	}
 
 	if err := mgr.AddHealthzCheck("healthz", healthz.Ping); err != nil {
@@ -167,7 +173,9 @@ func main() {
 		os.Exit(1)
 	}
 	signalHandlerCtx := log.IntoContext(ctrl.SetupSignalHandler(), setupLog)
-	setupNim(mgr, signalHandlerCtx, kubeClient, templateClient)
+	if !xksMode {
+		setupNim(mgr, signalHandlerCtx, kubeClient, templateClient)
+	}
 
 	setupLog.Info("starting manager")
 	if err = mgr.Start(signalHandlerCtx); err != nil {
@@ -278,22 +286,13 @@ func createManager(cfg *rest.Config, metricsAddr, probeAddr string,
 	return mgr
 }
 
-func setupWebhooks(mgr ctrl.Manager, setupLog logr.Logger) error {
+func setupWebhooks(mgr ctrl.Manager, setupLog logr.Logger, xksMode bool) error {
 	if os.Getenv(enableWebhooksEnv) == "false" {
 		setupLog.Info("Webhooks are disabled via environment variable.")
 		return nil
 	}
 
-	webhookSetups := []struct {
-		name    string
-		setupFn func(ctrl.Manager) error
-	}{
-		{"Pod", webhookcorev1.SetupPodWebhookWithManager},
-		{"NIMAccount", webhooknimv1.SetupAccountWebhookWithManager},
-		{"InferenceService", webhookservingv1beta1.SetupInferenceServiceWebhookWithManager},
-		{"InferenceGraph", webhookservingv1alpha1.SetupInferenceGraphWebhookWithManager},
-		{"LLMInferenceService", webhookservingv1alpha2.SetupLLMInferenceServiceWebhookWithManager},
-	}
+	webhookSetups := webhookSetupsForMode(xksMode)
 
 	for _, webhookSetup := range webhookSetups {
 		if err := webhookSetup.setupFn(mgr); err != nil {
@@ -303,6 +302,41 @@ func setupWebhooks(mgr ctrl.Manager, setupLog logr.Logger) error {
 	}
 
 	return nil
+}
+
+func webhookSetupNames(xksMode bool) []string {
+	setups := webhookSetupsForMode(xksMode)
+	names := make([]string, len(setups))
+	for i, setup := range setups {
+		names[i] = setup.name
+	}
+	return names
+}
+
+func webhookSetupsForMode(xksMode bool) []struct {
+	name    string
+	setupFn func(ctrl.Manager) error
+} {
+	if xksMode {
+		return []struct {
+			name    string
+			setupFn func(ctrl.Manager) error
+		}{
+			{"InferenceService", webhookservingv1beta1.SetupInferenceServiceMutatingWebhookWithManager},
+			{"LLMInferenceService", webhookservingv1alpha2.SetupLLMInferenceServiceWebhookWithManager},
+		}
+	}
+
+	return []struct {
+		name    string
+		setupFn func(ctrl.Manager) error
+	}{
+		{"Pod", webhookcorev1.SetupPodWebhookWithManager},
+		{"NIMAccount", webhooknimv1.SetupAccountWebhookWithManager},
+		{"InferenceService", webhookservingv1beta1.SetupInferenceServiceWebhookWithManager},
+		{"InferenceGraph", webhookservingv1alpha1.SetupInferenceGraphWebhookWithManager},
+		{"LLMInferenceService", webhookservingv1alpha2.SetupLLMInferenceServiceWebhookWithManager},
+	}
 }
 
 func setupReconcilers(mgr ctrl.Manager, setupLog logr.Logger, cfg *rest.Config) error {

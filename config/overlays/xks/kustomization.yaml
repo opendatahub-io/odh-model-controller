@@ -1,0 +1,23 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+namespace: opendatahub
+
+resources:
+- ../../manager
+- webhook
+- rbac
+
+patches:
+- path: manager_webhook_patch.yaml
+  target:
+    group: apps
+    kind: Deployment
+    name: odh-model-controller
+    version: v1
+- path: manager_xks_env_patch.yaml
+  target:
+    group: apps
+    kind: Deployment
+    name: odh-model-controller
+    version: v1
