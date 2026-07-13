@@ -179,7 +179,7 @@ var _ = Describe("InferenceService HardwareProfile Webhook", func() {
 			// the ResolvedProfile has no NodeSelector. The webhook then sets only the Kueue label
 			// and returns before reaching the node scheduling block.
 			spec := map[string]interface{}{
-				"schedulingSpec": map[string]interface{}{
+				"scheduling": map[string]interface{}{
 					"kueue": map[string]interface{}{"localQueueName": "test-queue"},
 					"node":  map[string]interface{}{"nodeSelector": map[string]interface{}{"zone": "gpu-zone"}},
 				},
@@ -384,7 +384,7 @@ var _ = Describe("InferenceService HardwareProfile Webhook", func() {
 
 		It("isvc-11: same profile on UPDATE — merge semantics applied", func() {
 			spec := hwptestutil.ResourceSpec([]string{"cpu", "4"})
-			spec["schedulingSpec"] = map[string]interface{}{
+			spec["scheduling"] = map[string]interface{}{
 				"node": map[string]interface{}{
 					"nodeSelector": map[string]interface{}{"zone": "gpu-zone"},
 				},
@@ -520,7 +520,7 @@ var _ = Describe("InferenceService HardwareProfile Webhook", func() {
 
 		It("isvc-24: initial annotation assignment on UPDATE — merge semantics (no blanket clear)", func() {
 			spec := hwptestutil.ResourceSpec([]string{"cpu", "4"})
-			spec["schedulingSpec"] = map[string]interface{}{
+			spec["scheduling"] = map[string]interface{}{
 				"node": map[string]interface{}{
 					"nodeSelector": map[string]interface{}{"zone": "gpu-zone"},
 				},
