@@ -80,12 +80,14 @@ log "Waiting for controller deployment"
 kubectl -n "${NAMESPACE}" rollout status deployment/odh-model-controller --timeout=180s
 
 log "Checking controller logs for xKS mode"
-kubectl -n "${NAMESPACE}" logs deployment/odh-model-controller -c manager | grep -q 'xKS mode enabled'
+CONTROLLER_LOGS="$(kubectl -n "${NAMESPACE}" logs deployment/odh-model-controller -c manager --tail=200 2>/dev/null || true)"
+echo "${CONTROLLER_LOGS}" | grep -q 'xKS mode enabled' \
+  || fail "controller did not log xKS mode enabled"
 
 WEBHOOK_COUNT="$(kubectl get mutatingwebhookconfiguration mutating.odh-model-controller.opendatahub.io -o jsonpath='{.webhooks[*].name}' | wc -w)"
 [[ "${WEBHOOK_COUNT}" -eq 3 ]] || fail "expected 3 mutating webhooks, got ${WEBHOOK_COUNT}"
 
-if kubectl get validatingwebhookconfiguration -o name 2>/dev/null | grep -q .; then
+if [[ -n "$(kubectl get validatingwebhookconfiguration -o name 2>/dev/null || true)" ]]; then
   fail "expected no validating webhooks on xKS"
 fi
 
