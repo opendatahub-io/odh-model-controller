@@ -56,7 +56,7 @@ kubectl create namespace "${NAMESPACE}" --dry-run=client -o yaml | kubectl apply
 
 log "Rendering and applying xKS overlay"
 kubectl kustomize "${ROOT}/config/overlays/xks" \
-  | sed "s|image: controller:latest|image: ${IMAGE}|" \
+  | sed -E "s|(image: ).*odh-model-controller[^[:space:]]*|\\1${IMAGE}|" \
   | sed 's|imagePullPolicy: Always|imagePullPolicy: IfNotPresent|' \
   | kubectl apply -f -
 
@@ -72,7 +72,7 @@ kubectl patch deployment odh-model-controller -n "${NAMESPACE}" --type=json -p='
 ]'
 
 log "Patching mutating webhook CA bundle"
-kubectl patch mutatingwebhookconfiguration mutating-webhook-configuration \
+kubectl patch mutatingwebhookconfiguration mutating.odh-model-controller.opendatahub.io \
   --type='json' \
   -p="[{\"op\":\"add\",\"path\":\"/webhooks/0/clientConfig/caBundle\",\"value\":\"${CA_BUNDLE}\"},{\"op\":\"add\",\"path\":\"/webhooks/1/clientConfig/caBundle\",\"value\":\"${CA_BUNDLE}\"},{\"op\":\"add\",\"path\":\"/webhooks/2/clientConfig/caBundle\",\"value\":\"${CA_BUNDLE}\"}]"
 
@@ -84,7 +84,7 @@ CONTROLLER_LOGS="$(kubectl -n "${NAMESPACE}" logs deployment/odh-model-controlle
 echo "${CONTROLLER_LOGS}" | grep -q 'xKS mode enabled' \
   || fail "controller did not log xKS mode enabled"
 
-WEBHOOK_COUNT="$(kubectl get mutatingwebhookconfiguration mutating-webhook-configuration -o jsonpath='{.webhooks[*].name}' | wc -w)"
+WEBHOOK_COUNT="$(kubectl get mutatingwebhookconfiguration mutating.odh-model-controller.opendatahub.io -o jsonpath='{.webhooks[*].name}' | wc -w)"
 [[ "${WEBHOOK_COUNT}" -eq 3 ]] || fail "expected 3 mutating webhooks, got ${WEBHOOK_COUNT}"
 
 if [[ -n "$(kubectl get validatingwebhookconfiguration -o name 2>/dev/null || true)" ]]; then
