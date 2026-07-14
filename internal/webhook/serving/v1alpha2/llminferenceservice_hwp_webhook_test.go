@@ -160,7 +160,7 @@ var _ = Describe("LLMInferenceService HardwareProfile Webhook", func() {
 			// the ResolvedProfile has no NodeSelector. The webhook then sets only the Kueue label
 			// and returns before reaching the node scheduling block.
 			spec := map[string]interface{}{
-				"schedulingSpec": map[string]interface{}{
+				"scheduling": map[string]interface{}{
 					"kueue": map[string]interface{}{"localQueueName": "test-queue"},
 					"node":  map[string]interface{}{"nodeSelector": map[string]interface{}{"zone": "gpu-zone"}},
 				},
@@ -187,7 +187,7 @@ var _ = Describe("LLMInferenceService HardwareProfile Webhook", func() {
 
 		It("LLM-6: containers non-empty but no 'main' — ALL HWP application skipped", func() {
 			spec := hwptestutil.ResourceSpec([]string{"cpu", "8"})
-			spec["schedulingSpec"] = map[string]interface{}{
+			spec["scheduling"] = map[string]interface{}{
 				"node": map[string]interface{}{
 					"nodeSelector": map[string]interface{}{"zone": "gpu-zone"},
 				},
@@ -219,7 +219,7 @@ var _ = Describe("LLMInferenceService HardwareProfile Webhook", func() {
 		It("LLM-7: absent container list — 'main' created and resources injected", func() {
 			// Build a spec with both resource identifiers (triggers "main" creation) and node scheduling.
 			spec := hwptestutil.ResourceSpec([]string{"cpu", "4"})
-			spec["schedulingSpec"] = map[string]interface{}{
+			spec["scheduling"] = map[string]interface{}{
 				"node": map[string]interface{}{
 					"nodeSelector": map[string]interface{}{"zone": "gpu-zone"},
 				},
@@ -455,7 +455,7 @@ var _ = Describe("LLMInferenceService HardwareProfile Webhook", func() {
 
 		It("LLM-17: initial annotation assignment on UPDATE — merge semantics applied", func() {
 			spec := hwptestutil.ResourceSpec([]string{"cpu", "4"})
-			spec["schedulingSpec"] = map[string]interface{}{
+			spec["scheduling"] = map[string]interface{}{
 				"node": map[string]interface{}{
 					"nodeSelector": map[string]interface{}{"zone": "gpu-zone"},
 				},

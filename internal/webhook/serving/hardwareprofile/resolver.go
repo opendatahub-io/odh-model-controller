@@ -57,7 +57,7 @@ type ResolvedProfile struct {
 	NodeSelector map[string]string
 	// Tolerations to prepend to the workload spec.
 	Tolerations []corev1.Toleration
-	// KueueQueueName is the local Kueue queue name; non-empty when schedulingSpec.kueue is set.
+	// KueueQueueName is the local Kueue queue name; non-empty when scheduling.kueue is set.
 	// When non-empty, node scheduling (NodeSelector/Tolerations) is not applied.
 	KueueQueueName string
 }
@@ -164,8 +164,8 @@ func Resolve(ctx context.Context, c client.Client, name, namespace string) (*Res
 
 // parseProfile extracts scheduling and resource stanzas from an unstructured HardwareProfile object.
 //
-// Reads spec.identifiers, spec.schedulingSpec.kueue.localQueueName, spec.schedulingSpec.node.nodeSelector,
-// and spec.schedulingSpec.node.tolerations. Kueue and Node scheduling are mutually exclusive:
+// Reads spec.identifiers, spec.scheduling.kueue.localQueueName, spec.scheduling.node.nodeSelector,
+// and spec.scheduling.node.tolerations. Kueue and Node scheduling are mutually exclusive:
 // when a Kueue queue name is found, node scheduling fields are not populated.
 //
 // Parameters:
@@ -196,17 +196,19 @@ func parseProfile(obj *unstructured.Unstructured) (*ResolvedProfile, error) {
 	}
 
 	// Kueue scheduling takes precedence; when present, node scheduling is not read.
-	queueName, _, _ := unstructured.NestedString(obj.Object, "spec", "schedulingSpec", "kueue", "localQueueName")
+	// Note: the HardwareProfile CRD field is `spec.scheduling` (JSON tag "scheduling"),
+	// not "schedulingSpec" (the Go struct field name).
+	queueName, _, _ := unstructured.NestedString(obj.Object, "spec", "scheduling", "kueue", "localQueueName")
 	if queueName != "" {
 		profile.KueueQueueName = queueName
 		return profile, nil
 	}
 
 	// Node scheduling.
-	nodeSelector, _, _ := unstructured.NestedStringMap(obj.Object, "spec", "schedulingSpec", "node", "nodeSelector")
+	nodeSelector, _, _ := unstructured.NestedStringMap(obj.Object, "spec", "scheduling", "node", "nodeSelector")
 	profile.NodeSelector = nodeSelector
 
-	rawTols, _, _ := unstructured.NestedSlice(obj.Object, "spec", "schedulingSpec", "node", "tolerations")
+	rawTols, _, _ := unstructured.NestedSlice(obj.Object, "spec", "scheduling", "node", "tolerations")
 	for _, rt := range rawTols {
 		tolMap, ok := rt.(map[string]any)
 		if !ok {
