@@ -28,17 +28,12 @@ const (
 	InferenceServiceODHFinalizerName = "odh.inferenceservice.finalizers"
 	InferenceServiceConfigMapName    = "inferenceservice-config"
 
-	KserveNetworkVisibility = "networking.kserve.io/visibility"
 	KserveGroupAnnotation   = "serving.kserve.io/inferenceservice"
 	RhoaiObservabilityLabel = "monitoring.opendatahub.io/scrape"
 	RuntimesBaseAnnotation  = "opendatahub.io"
 
 	ODHManaged              = "opendatahub.io/managed"
 	EnableAuthODHAnnotation = "security.opendatahub.io/enable-auth"
-
-	LabelEnableKserveRawRoute = "exposed"
-
-	KserveServiceAccountName = "default"
 )
 
 // InferenceService container names
@@ -109,8 +104,7 @@ const (
 
 // openshift
 const (
-	ServingCertAnnotationKey  = "service.beta.openshift.io/serving-cert-secret-name"
-	RouteTimeoutAnnotationKey = "haproxy.router.openshift.io/timeout"
+	ServingCertAnnotationKey = "service.beta.openshift.io/serving-cert-secret-name"
 )
 
 // Events
@@ -145,9 +139,6 @@ const (
 	RayTLSVolumeMountPath            = "/etc/ray/tls"
 	RayTLSSecretMountPath            = "/etc/ray-secret"
 )
-
-// Default timeout value for Openshift routes
-const DefaultOpenshiftRouteTimeout int64 = 30
 
 type AuthType string
 
