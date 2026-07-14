@@ -18,9 +18,9 @@ jobs:
         id: expected-tag
         run: |
           if [ "${{ github.base_ref }}" == "incubating" ]; then
-            EXPECTED_TAG="fast"
+            EXPECTED_TAG="odh-incubating"
           elif [[ "${{ github.base_ref }}" == "main" ]]; then
-            EXPECTED_TAG="stable"
+            EXPECTED_TAG="odh-stable"
           elif [[ "${GITHUB_REF}" == refs/tags/odh-v* ]]; then
             EXPECTED_TAG="${GITHUB_REF#refs/tags/}"
           else
@@ -40,11 +40,8 @@ jobs:
               echo "WARNING: ${IMAGE} not found in params.env, skipping"
               continue
             fi
-            # Strip optional image-name prefix from tag (e.g. odh-model-serving-api-fast -> fast)
-            # to handle images published as tag prefixes under another repo
-            STRIPPED_TAG="${IMAGE_TAG#${IMAGE}-}"
-            if [[ ! "$STRIPPED_TAG" =~ ^"$EXPECTED_TAG"(\.[0-9]+)?$ ]]; then
-              echo "Image tag mismatch for ${IMAGE}! Expected '$EXPECTED_TAG' (or '${IMAGE}-${EXPECTED_TAG}') but found '$IMAGE_TAG'"
+            if [[ ! "$IMAGE_TAG" =~ ^"$EXPECTED_TAG"(\.[0-9]+)?$ ]]; then
+              echo "Image tag mismatch for ${IMAGE}! Expected '$EXPECTED_TAG' but found '$IMAGE_TAG'"
               FAILED=1
             else
               echo "Image tag for ${IMAGE} ('$IMAGE_TAG') is correct."
