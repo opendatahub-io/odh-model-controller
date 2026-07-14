@@ -208,12 +208,12 @@ jobs:
           
           # Define patterns based on repository
           if repo_name == "odh-model-controller":
-            # Only update odh-model-controller, odh-model-serving-api, and mlserver images.
+            # Only update odh-model-controller, odh-model-serving-api, mlserver, and mlserver-cuda images.
             # The optional (odh-model-serving-api-) tag prefix handles the case where
             # odh-model-serving-api is published under the odh-model-controller image repo
             # (e.g. quay.io/opendatahub/odh-model-controller:odh-model-serving-api-fast)
             image_pattern = re.compile(
-              r'([\w.-]+(?:\.[\w.-]+)*/[\w.-]+/(?:odh-model-controller|odh-model-serving-api|mlserver)):((?:odh-model-serving-api-)?)(odh-incubating|fast|odh-stable|v[\d.]+-latest|release-v[\d.]+|odh-v[\d.]+(?:-EA\d)?)'
+              r'([\w.-]+(?:\.[\w.-]+)*/[\w.-]+/(?:odh-model-controller|odh-model-serving-api|mlserver(?:-cuda)?)):((?:odh-model-serving-api-)?)(odh-incubating|fast|odh-stable|v[\d.]+-latest|release-v[\d.]+|odh-v[\d.]+(?:-EA\d)?)'
             )
           else:
             # For kserve and others: update all matching images except llm-d-* images
