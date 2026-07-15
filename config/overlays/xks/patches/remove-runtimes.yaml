@@ -32,6 +32,13 @@ $patch: delete
 apiVersion: template.openshift.io/v1
 kind: Template
 metadata:
+  name: mlserver-cuda-runtime-template
+  namespace: opendatahub
+---
+$patch: delete
+apiVersion: template.openshift.io/v1
+kind: Template
+metadata:
   name: vllm-cpu-runtime-template
   namespace: opendatahub
 ---
