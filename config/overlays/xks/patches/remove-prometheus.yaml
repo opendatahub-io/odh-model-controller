@@ -1,18 +1,4 @@
-# Remove Prometheus monitoring resources (not used on xKS).
----
-$patch: delete
-apiVersion: monitoring.coreos.com/v1
-kind: ServiceMonitor
-metadata:
-  name: odh-model-controller-metrics-monitor
-  namespace: opendatahub
----
-$patch: delete
-apiVersion: monitoring.coreos.com/v1
-kind: ServiceMonitor
-metadata:
-  name: model-serving-api-metrics
-  namespace: opendatahub
+# Remove Prometheus metrics resources not used on xKS.
 ---
 $patch: delete
 apiVersion: v1

@@ -3,7 +3,6 @@ kind: Kustomization
 
 resources:
 - ../../base
-- namespace.yaml
 
 configMapGenerator:
 - name: odh-model-controller-parameters
@@ -13,7 +12,6 @@ configMapGenerator:
 
 patchesStrategicMerge:
 - patches/remove-model-serving-api.yaml
-- patches/remove-runtimes.yaml
 - patches/remove-prometheus.yaml
 - patches/remove-nim.yaml
 - patches/remove-auth-proxy.yaml
@@ -32,6 +30,22 @@ patches:
     kind: MutatingWebhookConfiguration
     name: mutating.odh-model-controller.opendatahub.io
     version: v1
+- target:
+    kind: Template
+  patch: |-
+    $patch: delete
+    apiVersion: template.openshift.io/v1
+    kind: Template
+    metadata:
+      name: placeholder
+- target:
+    kind: ServiceMonitor
+  patch: |-
+    $patch: delete
+    apiVersion: monitoring.coreos.com/v1
+    kind: ServiceMonitor
+    metadata:
+      name: placeholder
 - target:
     kind: Service
     name: odh-model-controller-webhook-service

@@ -12,8 +12,6 @@ spec:
           value: xKS
         - name: NIM_STATE
           value: removed
-        - name: KSERVE_STATE
-          value: removed
         - name: MODELREGISTRY_STATE
           value: removed
         resources:
