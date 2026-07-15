@@ -36,6 +36,10 @@ const (
 	ODHManaged              = "opendatahub.io/managed"
 	EnableAuthODHAnnotation = "security.opendatahub.io/enable-auth"
 
+	// RoutingGroupLabel groups LLMInferenceServices that share weighted traffic distribution.
+	// ponytail: label stand-in for spec.router.route.group until ODH kserve fork picks up the field
+	RoutingGroupLabel = "serving.kserve.io/routing-group"
+
 	LabelEnableKserveRawRoute = "exposed"
 
 	KserveServiceAccountName = "default"
