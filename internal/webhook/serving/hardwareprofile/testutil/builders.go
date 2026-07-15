@@ -88,7 +88,7 @@ func NodeSpec(nodeSelector map[string]interface{}, tolerations []interface{}) ma
 		node["tolerations"] = tolerations
 	}
 	return map[string]interface{}{
-		"schedulingSpec": map[string]interface{}{"node": node},
+		"scheduling": map[string]interface{}{"node": node},
 	}
 }
 
@@ -100,7 +100,7 @@ func NodeSpec(nodeSelector map[string]interface{}, tolerations []interface{}) ma
 // Returns a spec map suitable for passing to NewHardwareProfile.
 func KueueSpec(localQueueName string) map[string]interface{} {
 	return map[string]interface{}{
-		"schedulingSpec": map[string]interface{}{
+		"scheduling": map[string]interface{}{
 			"kueue": map[string]interface{}{"localQueueName": localQueueName},
 		},
 	}

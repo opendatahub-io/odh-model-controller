@@ -23,6 +23,7 @@ import (
 	kuadrantv1 "github.com/kuadrant/kuadrant-operator/api/v1"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
+	monitoringv1 "github.com/prometheus-operator/prometheus-operator/pkg/apis/monitoring/v1"
 	istioclientv1alpha3 "istio.io/client-go/pkg/apis/networking/v1alpha3"
 	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -426,6 +427,67 @@ var _ = Describe("Gateway Controller", func() {
 			// Resources should remain stable
 			fixture.VerifyGatewayEnvoyFilterExists(ctx, envTest.Client, testNs, gatewayName)
 			fixture.VerifyGatewayEnvoyFilterExists(ctx, envTest.Client, testNs, secondGatewayName)
+		})
+	})
+
+	Context("Gateway PodMonitor", func() {
+		It("should create PodMonitor when gateway is referenced by LLMInferenceService", func(ctx SpecContext) {
+			gatewayName := setupReferencedGateway(ctx)
+
+			fixture.VerifyGatewayPodMonitorExists(ctx, envTest.Client, testNs, gatewayName)
+		})
+
+		It("should create PodMonitor with correct owner references", func(ctx SpecContext) {
+			gatewayName := setupReferencedGateway(ctx)
+
+			fixture.VerifyGatewayPodMonitorOwnerRef(ctx, envTest.Client, testNs, gatewayName)
+		})
+
+		It("should NOT create PodMonitor for unreferenced gateway", func(ctx SpecContext) {
+			gatewayName := pkgtest.GenerateUniqueTestName("unreferenced-gateway")
+			createGateway(ctx, gatewayName)
+
+			fixture.VerifyGatewayPodMonitorNotExist(ctx, envTest.Client, testNs, gatewayName)
+		})
+
+		It("should delete PodMonitor when the only referencing LLMInferenceService is stopped", func(ctx SpecContext) {
+			gatewayName := setupReferencedGateway(ctx)
+
+			fixture.VerifyGatewayPodMonitorExists(ctx, envTest.Client, testNs, gatewayName)
+
+			Eventually(func() error {
+				llmSvc := &kservev1alpha2.LLMInferenceService{}
+				if err := envTest.Client.Get(ctx, types.NamespacedName{Name: "test-llmisvc", Namespace: testNs}, llmSvc); err != nil {
+					return err
+				}
+				if llmSvc.Annotations == nil {
+					llmSvc.Annotations = make(map[string]string)
+				}
+				llmSvc.Annotations[kserveconstants.StopAnnotationKey] = "true"
+				return envTest.Client.Update(ctx, llmSvc)
+			}).WithContext(ctx).Should(Succeed())
+
+			fixture.VerifyGatewayPodMonitorNotExist(ctx, envTest.Client, testNs, gatewayName)
+		})
+
+		It("should recreate PodMonitor when deleted", func(ctx SpecContext) {
+			gatewayName := setupReferencedGateway(ctx)
+
+			podMonitor := fixture.WaitForResource(ctx, envTest.Client, testNs, constants.GetGatewayPodMonitorName(gatewayName), &monitoringv1.PodMonitor{})
+			Expect(envTest.Client.Delete(ctx, podMonitor)).Should(Succeed())
+
+			fixture.VerifyGatewayPodMonitorExists(ctx, envTest.Client, testNs, gatewayName)
+		})
+
+		It("should NOT create PodMonitor when scrape label is false", func(ctx SpecContext) {
+			gatewayName := pkgtest.GenerateUniqueTestName("no-scrape-gateway")
+			createGateway(ctx, gatewayName, fixture.WithGatewayLabels(map[string]string{
+				constants.RhoaiObservabilityLabel: "false",
+			}))
+			createLLMServiceForGateway(ctx, gatewayName)
+
+			fixture.VerifyGatewayEnvoyFilterExists(ctx, envTest.Client, testNs, gatewayName)
+			fixture.VerifyGatewayPodMonitorNotExist(ctx, envTest.Client, testNs, gatewayName)
 		})
 	})
 })

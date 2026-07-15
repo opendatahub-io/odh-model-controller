@@ -191,6 +191,10 @@ func GetGatewayEnvoyFilterName(gatewayName string) string {
 	return kmeta.ChildName(gatewayName, EnvoyFilterNameSuffix)
 }
 
+func GetGatewayPodMonitorName(gatewayName string) string {
+	return kmeta.ChildName(gatewayName, "-metrics")
+}
+
 func GetHTTPRouteName(llmisvcName string) string {
 	return kmeta.ChildName(llmisvcName, HTTPRouteNameSuffix)
 }
