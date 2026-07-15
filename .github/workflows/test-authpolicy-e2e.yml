@@ -1,0 +1,221 @@
+name: AuthPolicy E2E Tests
+
+on:
+  pull_request:
+    branches: [incubating]
+    paths:
+      - 'internal/controller/resources/template/authpolicy_*.yaml'
+      - 'internal/controller/resources/authpolicy.go'
+      - 'internal/controller/resources/options.go'
+      - 'internal/controller/test/e2e/**'
+      - 'internal/controller/serving/llm/gateway_controller.go'
+      - 'internal/controller/utils/utils.go'
+      - 'internal/controller/constants/constants.go'
+      - '.github/workflows/test-authpolicy-e2e.yml'
+      - 'hack/setup-authpolicy-e2e.sh'
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  ISTIO_VERSION: "1.28.1"
+  KUADRANT_VERSION: "1.5.0"
+  CERT_MANAGER_VERSION: "v1.17.0"
+  GATEWAY_API_VERSION: "v1.4.1"
+  METALLB_VERSION: "v0.14.9"
+  KIND_CLUSTER_NAME: authpolicy-e2e
+  GATEWAY_NAME: e2e-gateway
+  GATEWAY_NAMESPACE: e2e-authpolicy
+
+permissions:
+  contents: read
+
+jobs:
+  test-authpolicy-e2e:
+    name: AuthPolicy E2E (kind)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - name: Checkout
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+        with:
+          persist-credentials: false
+
+      - name: Setup Go
+        uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5.6.0
+        with:
+          go-version-file: go.mod
+
+      - name: Create kind cluster
+        run: |
+          curl -Lo ./kind "https://kind.sigs.k8s.io/dl/v0.27.0/kind-linux-amd64"
+          echo "a6875aaea358acf0ac07786b1a6755d08fd640f4c79b7a2e46681cc13f49a04b  ./kind" | sha256sum -c
+          chmod +x ./kind
+          sudo mv ./kind /usr/local/bin/kind
+
+          cat <<EOF | kind create cluster --name "$KIND_CLUSTER_NAME" --config=-
+          kind: Cluster
+          apiVersion: kind.x-k8s.io/v1alpha4
+          nodes:
+            - role: control-plane
+            - role: worker
+          EOF
+
+      - name: Install MetalLB
+        run: |
+          kubectl apply -f "https://raw.githubusercontent.com/metallb/metallb/${METALLB_VERSION}/config/manifests/metallb-native.yaml"
+          kubectl wait --timeout=120s -n metallb-system deployment/controller --for=condition=Available
+          kubectl wait --timeout=120s -n metallb-system pod -l component=speaker --for=condition=Ready
+
+          subnet=$(docker network inspect kind \
+            -f '{{range .IPAM.Config}}{{.Subnet}}{{"\n"}}{{end}}' | grep -v ':' | head -1)
+          base=$(echo "${subnet:-172.18.0.0/16}" | cut -d. -f1-2)
+
+          kubectl apply -f - <<EOF
+          apiVersion: metallb.io/v1beta1
+          kind: IPAddressPool
+          metadata:
+            name: kind-pool
+            namespace: metallb-system
+          spec:
+            addresses:
+              - ${base}.255.200-${base}.255.250
+          ---
+          apiVersion: metallb.io/v1beta1
+          kind: L2Advertisement
+          metadata:
+            name: kind-l2
+            namespace: metallb-system
+          EOF
+
+      - name: Install cert-manager
+        run: |
+          kubectl apply -f "https://github.com/cert-manager/cert-manager/releases/download/${CERT_MANAGER_VERSION}/cert-manager.yaml"
+          kubectl wait --timeout=120s -n cert-manager deployment/cert-manager-webhook --for=condition=Available
+
+      - name: Install Gateway API CRDs
+        run: |
+          kubectl apply -f "https://github.com/kubernetes-sigs/gateway-api/releases/download/${GATEWAY_API_VERSION}/standard-install.yaml"
+
+      - name: Install Istio
+        run: |
+          helm repo add istio https://istio-release.storage.googleapis.com/charts
+          helm repo update istio
+
+          kubectl create namespace istio-system
+          helm upgrade -i istio-base istio/base \
+            --namespace istio-system \
+            --version "${ISTIO_VERSION}" \
+            --wait
+          helm upgrade -i istiod istio/istiod \
+            --namespace istio-system \
+            --version "${ISTIO_VERSION}" \
+            --set resources.requests.cpu=5m \
+            --set resources.requests.memory=32Mi \
+            --wait
+          kubectl wait --timeout=120s -n istio-system deployment/istiod --for=condition=Available
+
+      - name: Install Kuadrant
+        run: |
+          helm repo add kuadrant https://kuadrant.io/helm-charts/ --force-update
+          helm upgrade -i kuadrant-operator kuadrant/kuadrant-operator \
+            --version "${KUADRANT_VERSION}" \
+            --create-namespace --namespace kuadrant-system \
+            --wait --timeout 300s
+
+          for crd in authpolicies.kuadrant.io kuadrants.kuadrant.io; do
+            kubectl wait --for=condition=established --timeout=60s "crd/${crd}"
+          done
+
+          kubectl apply -f - <<EOF
+          apiVersion: kuadrant.io/v1beta1
+          kind: Kuadrant
+          metadata:
+            name: kuadrant
+            namespace: kuadrant-system
+          spec: {}
+          EOF
+
+          kubectl wait kuadrant/kuadrant -n kuadrant-system \
+            --for=condition=Ready --timeout=180s
+
+      - name: Create Gateway
+        run: |
+          kubectl create namespace "$GATEWAY_NAMESPACE"
+
+          kubectl apply -f - <<EOF
+          apiVersion: gateway.networking.k8s.io/v1
+          kind: GatewayClass
+          metadata:
+            name: istio
+          spec:
+            controllerName: istio.io/gateway-controller
+          ---
+          apiVersion: gateway.networking.k8s.io/v1
+          kind: Gateway
+          metadata:
+            name: ${GATEWAY_NAME}
+            namespace: ${GATEWAY_NAMESPACE}
+          spec:
+            gatewayClassName: istio
+            listeners:
+              - name: http
+                port: 80
+                protocol: HTTP
+                allowedRoutes:
+                  namespaces:
+                    from: All
+          EOF
+
+          echo "Waiting for gateway address..."
+          for i in $(seq 1 30); do
+            gw_addr=$(kubectl get gateway "$GATEWAY_NAME" -n "$GATEWAY_NAMESPACE" \
+              -o jsonpath='{.status.addresses[0].value}' 2>/dev/null || echo "")
+            if [[ -n "$gw_addr" ]]; then
+              echo "Gateway address: ${gw_addr}"
+              echo "GATEWAY_URL=http://${gw_addr}" >> "$GITHUB_ENV"
+              break
+            fi
+            sleep 2
+          done
+          [[ -n "$gw_addr" ]] || { echo "Gateway has no address after 60s"; exit 1; }
+
+      - name: Deploy AuthPolicy
+        run: |
+          sed \
+            -e 's/{{.Name}}/e2e-authpolicy-authn/g' \
+            -e 's/{{.Namespace}}/'"${GATEWAY_NAMESPACE}"'/g' \
+            -e 's/{{.TargetKind}}/Gateway/g' \
+            -e 's/{{.TargetName}}/'"${GATEWAY_NAME}"'/g' \
+            -e 's/{{.ModelRoutingHeader}}/x-gateway-model-name/g' \
+            internal/controller/resources/template/authpolicy_llm_isvc_userdefined.yaml \
+            | kubectl apply -f -
+
+          kubectl wait authpolicy/e2e-authpolicy-authn -n "$GATEWAY_NAMESPACE" \
+            --for=condition=Accepted --timeout=120s
+
+      - name: Run AuthPolicy E2E tests
+        run: |
+          go test -tags e2e ./internal/controller/test/e2e/... \
+            -v -count=1 -timeout 8m
+        env:
+          GATEWAY_NAME: ${{ env.GATEWAY_NAME }}
+          GATEWAY_NAMESPACE: ${{ env.GATEWAY_NAMESPACE }}
+          GATEWAY_URL: ${{ env.GATEWAY_URL }}
+
+      - name: Collect logs on failure
+        if: failure()
+        run: |
+          echo "=== AuthPolicy status ==="
+          kubectl get authpolicy -n "$GATEWAY_NAMESPACE" -o yaml 2>/dev/null || true
+          echo ""
+          echo "=== Authorino logs ==="
+          kubectl logs -n kuadrant-system -l app=authorino --tail=100 2>/dev/null || true
+          echo ""
+          echo "=== Istiod logs ==="
+          kubectl logs -n istio-system -l app=istiod --tail=50 2>/dev/null || true
+          echo ""
+          echo "=== Gateway pod logs ==="
+          kubectl logs -n "$GATEWAY_NAMESPACE" -l gateway.networking.k8s.io/gateway-name="$GATEWAY_NAME" --tail=50 2>/dev/null || true

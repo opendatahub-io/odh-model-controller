@@ -6,6 +6,8 @@ import (
 	"github.com/opendatahub-io/odh-model-controller/internal/controller/constants"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 	gatewayapiv1 "sigs.k8s.io/gateway-api/apis/v1"
 )
 
@@ -626,5 +628,65 @@ var _ = Describe("ShouldCreateEnvoyFilterForGateway", func() {
 			},
 		}
 		Expect(ShouldCreateEnvoyFilterForGateway(gateway)).To(BeFalse())
+	})
+})
+
+var _ = Describe("GetModelRoutingHeader", func() {
+	var cli client.Client
+
+	makeConfigMap := func(headerName string) *corev1.ConfigMap {
+		data := map[string]string{}
+		if headerName != "" {
+			data["ingress"] = `{"modelBasedRoutingHeaderName":"` + headerName + `"}`
+		}
+		return &corev1.ConfigMap{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      KserveConfigMapName,
+				Namespace: "test-ns",
+			},
+			Data: data,
+		}
+	}
+
+	BeforeEach(func() {
+		GinkgoT().Setenv("POD_NAMESPACE", "test-ns")
+	})
+
+	It("should return configured header name", func(ctx SpecContext) {
+		cli = fake.NewClientBuilder().WithObjects(makeConfigMap("x-custom-header")).Build()
+		Expect(GetModelRoutingHeader(ctx, cli)).To(Equal("x-custom-header"))
+	})
+
+	It("should lowercase the configured header name", func(ctx SpecContext) {
+		cli = fake.NewClientBuilder().WithObjects(makeConfigMap("X-Gateway-Model-Name")).Build()
+		Expect(GetModelRoutingHeader(ctx, cli)).To(Equal("x-gateway-model-name"))
+	})
+
+	It("should return default when ConfigMap is missing", func(ctx SpecContext) {
+		cli = fake.NewClientBuilder().Build()
+		Expect(GetModelRoutingHeader(ctx, cli)).To(Equal(constants.DefaultModelRoutingHeader))
+	})
+
+	It("should return default when ingress key is missing", func(ctx SpecContext) {
+		cm := &corev1.ConfigMap{
+			ObjectMeta: metav1.ObjectMeta{Name: KserveConfigMapName, Namespace: "test-ns"},
+		}
+		cli = fake.NewClientBuilder().WithObjects(cm).Build()
+		Expect(GetModelRoutingHeader(ctx, cli)).To(Equal(constants.DefaultModelRoutingHeader))
+	})
+
+	It("should return default when header name contains single quotes", func(ctx SpecContext) {
+		cli = fake.NewClientBuilder().WithObjects(makeConfigMap("x-model'name")).Build()
+		Expect(GetModelRoutingHeader(ctx, cli)).To(Equal(constants.DefaultModelRoutingHeader))
+	})
+
+	It("should return default when header name contains spaces", func(ctx SpecContext) {
+		cli = fake.NewClientBuilder().WithObjects(makeConfigMap("x model")).Build()
+		Expect(GetModelRoutingHeader(ctx, cli)).To(Equal(constants.DefaultModelRoutingHeader))
+	})
+
+	It("should return default when header name contains template injection", func(ctx SpecContext) {
+		cli = fake.NewClientBuilder().WithObjects(makeConfigMap("x-model{{.Name}}")).Build()
+		Expect(GetModelRoutingHeader(ctx, cli)).To(Equal(constants.DefaultModelRoutingHeader))
 	})
 })

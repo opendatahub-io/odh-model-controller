@@ -27,26 +27,26 @@ type testFixture struct {
 // ServiceAccounts, and RBAC bindings needed by the batch AuthPolicy tests.
 //
 // Shared batch HTTPRoutes (/v1/batches, /v1/files) are created once in TestMain
-// via batchEnv.setupSharedBatchRoutes().
+// via authEnv.setupSharedBatchRoutes().
 //
 // The inference HTTPRoute (/{ns}/echo-server/...) is unique per namespace.
 func setupFixture(t *testing.T) *testFixture {
 	t.Helper()
 
-	ns := batchEnv.createNamespace(t, "e2e-batch", nil)
-	batchEnv.deployEchoServer(t, ns)
-	batchEnv.createHTTPRoute(t, ns, "echo-inference", fmt.Sprintf("/%s/echo-server", ns))
+	ns := authEnv.createNamespace(t, "e2e-batch", nil)
+	authEnv.deployEchoServer(t, ns)
+	authEnv.createHTTPRoute(t, ns, "echo-inference", fmt.Sprintf("/%s/echo-server", ns))
 
-	batchEnv.createServiceAccount(t, ns, saTestUser)
-	batchEnv.createServiceAccount(t, ns, saTestDelegate)
-	batchEnv.grantInferenceAccess(t, ns, ns, saTestUser)
-	batchEnv.grantInferenceAccess(t, ns, ns, saTestDelegate)
-	batchEnv.grantDelegateAccess(t, ns, ns, saTestDelegate)
+	authEnv.createServiceAccount(t, ns, saTestUser)
+	authEnv.createServiceAccount(t, ns, saTestDelegate)
+	authEnv.grantInferenceAccess(t, ns, ns, saTestUser)
+	authEnv.grantInferenceAccess(t, ns, ns, saTestDelegate)
+	authEnv.grantDelegateAccess(t, ns, ns, saTestDelegate)
 
-	testUserToken := batchEnv.requestToken(t, ns, saTestUser)
-	testDelegateToken := batchEnv.requestToken(t, ns, saTestDelegate)
+	testUserToken := authEnv.requestToken(t, ns, saTestUser)
+	testDelegateToken := authEnv.requestToken(t, ns, saTestDelegate)
 
-	batchEnv.waitForGatewayRoute(t, fmt.Sprintf("/%s/echo-server/test", ns), testUserToken)
+	authEnv.waitForGatewayRoute(t, fmt.Sprintf("/%s/echo-server/test", ns), testUserToken)
 	t.Log("fixture setup complete")
 
 	return &testFixture{
@@ -70,7 +70,7 @@ func TestBatchPathAuthnOnly(t *testing.T) {
 	t.Parallel()
 	f := setupFixture(t)
 
-	resp, body := batchEnv.gatewayGet(t, "/v1/batches", f.testUserToken, nil)
+	resp, body := authEnv.gatewayGet(t, "/v1/batches", f.testUserToken, nil)
 	if resp.StatusCode != http.StatusOK {
 		t.Fatalf("expected 200, got %d", resp.StatusCode)
 	}
@@ -90,7 +90,7 @@ func TestFilesPathAuthnOnly(t *testing.T) {
 	t.Parallel()
 	f := setupFixture(t)
 
-	resp, body := batchEnv.gatewayGet(t, "/v1/files", f.testUserToken, nil)
+	resp, body := authEnv.gatewayGet(t, "/v1/files", f.testUserToken, nil)
 	if resp.StatusCode != http.StatusOK {
 		t.Fatalf("expected 200, got %d", resp.StatusCode)
 	}
@@ -111,7 +111,7 @@ func TestFilesPathSpoofedHeader(t *testing.T) {
 	headers := map[string]string{
 		"x-maas-user": "spoofed-user",
 	}
-	resp, _ := batchEnv.gatewayGet(t, "/v1/files", f.testUserToken, headers)
+	resp, _ := authEnv.gatewayGet(t, "/v1/files", f.testUserToken, headers)
 	if resp.StatusCode != http.StatusOK {
 		t.Fatalf("expected 200, got %d", resp.StatusCode)
 	}
@@ -122,7 +122,7 @@ func TestFilesPathSpoofedHeader(t *testing.T) {
 func TestNoTokenReturns401(t *testing.T) {
 	t.Parallel()
 
-	resp, _ := batchEnv.gatewayGet(t, "/v1/batches", "", nil)
+	resp, _ := authEnv.gatewayGet(t, "/v1/batches", "", nil)
 	if resp.StatusCode != http.StatusUnauthorized {
 		t.Fatalf("expected 401, got %d", resp.StatusCode)
 	}
@@ -134,18 +134,18 @@ func TestNoTokenReturns401(t *testing.T) {
 func TestInferencePathNoRBAC(t *testing.T) {
 	t.Parallel()
 
-	ns := batchEnv.createNamespace(t, "e2e-batch", nil)
-	batchEnv.deployEchoServer(t, ns)
-	batchEnv.createHTTPRoute(t, ns, "echo-inference", fmt.Sprintf("/%s/echo-server", ns))
+	ns := authEnv.createNamespace(t, "e2e-batch", nil)
+	authEnv.deployEchoServer(t, ns)
+	authEnv.createHTTPRoute(t, ns, "echo-inference", fmt.Sprintf("/%s/echo-server", ns))
 
 	// Create SA with no RBAC at all.
-	batchEnv.createServiceAccount(t, ns, "no-rbac-user")
-	token := batchEnv.requestToken(t, ns, "no-rbac-user")
+	authEnv.createServiceAccount(t, ns, "no-rbac-user")
+	token := authEnv.requestToken(t, ns, "no-rbac-user")
 
-	batchEnv.waitForGatewayRoute(t, fmt.Sprintf("/%s/echo-server/test", ns), token)
+	authEnv.waitForGatewayRoute(t, fmt.Sprintf("/%s/echo-server/test", ns), token)
 
 	path := fmt.Sprintf("/%s/echo-server/v1/chat/completions", ns)
-	resp, _ := batchEnv.gatewayGet(t, path, token, nil)
+	resp, _ := authEnv.gatewayGet(t, path, token, nil)
 	if resp.StatusCode != http.StatusForbidden {
 		t.Fatalf("expected 403, got %d", resp.StatusCode)
 	}
@@ -160,7 +160,7 @@ func TestInferencePathStandardSAR(t *testing.T) {
 	f := setupFixture(t)
 
 	path := fmt.Sprintf("/%s/echo-server/v1/chat/completions", f.ns)
-	resp, _ := batchEnv.gatewayGet(t, path, f.testUserToken, nil)
+	resp, _ := authEnv.gatewayGet(t, path, f.testUserToken, nil)
 	if resp.StatusCode != http.StatusOK {
 		t.Fatalf("expected 200, got %d", resp.StatusCode)
 	}
@@ -180,7 +180,7 @@ func TestInferencePathDelegatedSAR(t *testing.T) {
 		"x-maas-user": saIdentity(f.ns, saTestUser),
 	}
 	// Caller is test-user-delegate (has post-delegate), forwarded user is test-user (has get).
-	resp, _ := batchEnv.gatewayGet(t, path, f.testDelegateToken, headers)
+	resp, _ := authEnv.gatewayGet(t, path, f.testDelegateToken, headers)
 	if resp.StatusCode != http.StatusOK {
 		t.Fatalf("expected 200, got %d", resp.StatusCode)
 	}
@@ -198,7 +198,7 @@ func TestBatchPathSpoofedHeader(t *testing.T) {
 	headers := map[string]string{
 		"x-maas-user": "spoofed-user",
 	}
-	resp, _ := batchEnv.gatewayGet(t, "/v1/batches", f.testUserToken, headers)
+	resp, _ := authEnv.gatewayGet(t, "/v1/batches", f.testUserToken, headers)
 	if resp.StatusCode != http.StatusOK {
 		t.Fatalf("expected 200, got %d", resp.StatusCode)
 	}
@@ -218,7 +218,7 @@ func TestInferencePathSpoofedNoRBAC(t *testing.T) {
 		"x-maas-user": "nonexistent-user",
 	}
 	// Caller is test-user-delegate (has post-delegate), forwarded user has no RBAC.
-	resp, _ := batchEnv.gatewayGet(t, path, f.testDelegateToken, headers)
+	resp, _ := authEnv.gatewayGet(t, path, f.testDelegateToken, headers)
 	if resp.StatusCode != http.StatusForbidden {
 		t.Fatalf("expected 403, got %d", resp.StatusCode)
 	}
@@ -240,7 +240,7 @@ func TestInferencePathDelegatedNoDelegate(t *testing.T) {
 		"x-maas-user": saIdentity(f.ns, saTestDelegate),
 	}
 	// Caller is test-user (no post-delegate), forwarded user is test-user-delegate (has get).
-	resp, _ := batchEnv.gatewayGet(t, path, f.testUserToken, headers)
+	resp, _ := authEnv.gatewayGet(t, path, f.testUserToken, headers)
 	if resp.StatusCode != http.StatusForbidden {
 		t.Fatalf("expected 403, got %d", resp.StatusCode)
 	}
@@ -253,28 +253,28 @@ func TestInferencePathDelegatedNoDelegate(t *testing.T) {
 func TestInferencePathDelegateVerbWrongResource(t *testing.T) {
 	t.Parallel()
 
-	ns := batchEnv.createNamespace(t, "e2e-batch", nil)
-	batchEnv.deployEchoServer(t, ns)
-	batchEnv.createHTTPRoute(t, ns, "echo-inference", fmt.Sprintf("/%s/echo-server", ns))
+	ns := authEnv.createNamespace(t, "e2e-batch", nil)
+	authEnv.deployEchoServer(t, ns)
+	authEnv.createHTTPRoute(t, ns, "echo-inference", fmt.Sprintf("/%s/echo-server", ns))
 
 	// Create caller SA with post-delegate on llminferenceservices (wrong resource —
 	// should be llminferenceservices/delegate).
 	const saCaller = "wrong-resource-caller"
-	batchEnv.createServiceAccount(t, ns, saCaller)
-	batchEnv.grantInferenceAccess(t, ns, ns, saCaller)
-	batchEnv.grantAccess(t, ns, ns, saCaller, saCaller+"-wrong-resource", []rbacv1.PolicyRule{{
+	authEnv.createServiceAccount(t, ns, saCaller)
+	authEnv.grantInferenceAccess(t, ns, ns, saCaller)
+	authEnv.grantAccess(t, ns, ns, saCaller, saCaller+"-wrong-resource", []rbacv1.PolicyRule{{
 		APIGroups: []string{"serving.kserve.io"},
 		Resources: []string{"llminferenceservices"},
 		Verbs:     []string{"post-delegate"},
 	}})
-	callerToken := batchEnv.requestToken(t, ns, saCaller)
+	callerToken := authEnv.requestToken(t, ns, saCaller)
 
 	// Create forwarded user SA with standard inference access (rule 1 passes).
 	const saForwarded = "forwarded-user"
-	batchEnv.createServiceAccount(t, ns, saForwarded)
-	batchEnv.grantInferenceAccess(t, ns, ns, saForwarded)
+	authEnv.createServiceAccount(t, ns, saForwarded)
+	authEnv.grantInferenceAccess(t, ns, ns, saForwarded)
 
-	batchEnv.waitForGatewayRoute(t, fmt.Sprintf("/%s/echo-server/test", ns), callerToken)
+	authEnv.waitForGatewayRoute(t, fmt.Sprintf("/%s/echo-server/test", ns), callerToken)
 
 	path := fmt.Sprintf("/%s/echo-server/v1/chat/completions", ns)
 	headers := map[string]string{
@@ -282,7 +282,7 @@ func TestInferencePathDelegateVerbWrongResource(t *testing.T) {
 	}
 	// Rule 1: forwarded-user has get → pass. Rule 2: caller has post-delegate on
 	// wrong resource (llminferenceservices, not llminferenceservices/delegate) → fail.
-	resp, _ := batchEnv.gatewayGet(t, path, callerToken, headers)
+	resp, _ := authEnv.gatewayGet(t, path, callerToken, headers)
 	if resp.StatusCode != http.StatusForbidden {
 		t.Fatalf("expected 403, got %d", resp.StatusCode)
 	}
@@ -295,7 +295,7 @@ func TestInferencePathNoToken(t *testing.T) {
 	f := setupFixture(t)
 
 	path := fmt.Sprintf("/%s/echo-server/v1/chat/completions", f.ns)
-	resp, _ := batchEnv.gatewayGet(t, path, "", nil)
+	resp, _ := authEnv.gatewayGet(t, path, "", nil)
 	if resp.StatusCode != http.StatusUnauthorized {
 		t.Fatalf("expected 401, got %d", resp.StatusCode)
 	}
@@ -308,29 +308,29 @@ func TestInferencePathNoToken(t *testing.T) {
 func TestDelegatedForwardedUserDelegateOnlyNoGet(t *testing.T) {
 	t.Parallel()
 
-	ns := batchEnv.createNamespace(t, "e2e-batch", nil)
-	batchEnv.deployEchoServer(t, ns)
-	batchEnv.createHTTPRoute(t, ns, "echo-inference", fmt.Sprintf("/%s/echo-server", ns))
+	ns := authEnv.createNamespace(t, "e2e-batch", nil)
+	authEnv.deployEchoServer(t, ns)
+	authEnv.createHTTPRoute(t, ns, "echo-inference", fmt.Sprintf("/%s/echo-server", ns))
 
 	// Caller SA with both get and post-delegate (rule 2 passes).
 	const saCaller = "delegate-caller"
-	batchEnv.createServiceAccount(t, ns, saCaller)
-	batchEnv.grantInferenceAccess(t, ns, ns, saCaller)
-	batchEnv.grantDelegateAccess(t, ns, ns, saCaller)
-	callerToken := batchEnv.requestToken(t, ns, saCaller)
+	authEnv.createServiceAccount(t, ns, saCaller)
+	authEnv.grantInferenceAccess(t, ns, ns, saCaller)
+	authEnv.grantDelegateAccess(t, ns, ns, saCaller)
+	callerToken := authEnv.requestToken(t, ns, saCaller)
 
 	// Forwarded user SA with post-delegate but NO get (rule 1 fails).
 	const saForwarded = "delegate-only-user"
-	batchEnv.createServiceAccount(t, ns, saForwarded)
-	batchEnv.grantDelegateAccess(t, ns, ns, saForwarded)
+	authEnv.createServiceAccount(t, ns, saForwarded)
+	authEnv.grantDelegateAccess(t, ns, ns, saForwarded)
 
-	batchEnv.waitForGatewayRoute(t, fmt.Sprintf("/%s/echo-server/test", ns), callerToken)
+	authEnv.waitForGatewayRoute(t, fmt.Sprintf("/%s/echo-server/test", ns), callerToken)
 
 	path := fmt.Sprintf("/%s/echo-server/v1/chat/completions", ns)
 	headers := map[string]string{
 		"x-maas-user": saIdentity(ns, saForwarded),
 	}
-	resp, _ := batchEnv.gatewayGet(t, path, callerToken, headers)
+	resp, _ := authEnv.gatewayGet(t, path, callerToken, headers)
 	if resp.StatusCode != http.StatusForbidden {
 		t.Fatalf("expected 403, got %d", resp.StatusCode)
 	}
@@ -351,7 +351,7 @@ func TestBatchSubpathAuthnOnly(t *testing.T) {
 	}
 	for _, sp := range subpaths {
 		t.Run(sp, func(t *testing.T) {
-			resp, _ := batchEnv.gatewayGet(t, sp, f.testUserToken, nil)
+			resp, _ := authEnv.gatewayGet(t, sp, f.testUserToken, nil)
 			if resp.StatusCode != http.StatusOK {
 				t.Fatalf("expected 200, got %d", resp.StatusCode)
 			}
@@ -373,7 +373,7 @@ func TestDelegatedSelfDelegation(t *testing.T) {
 	// Caller is test-user-delegate, forwarded user is also test-user-delegate.
 	// Rule 1: forwarded user (test-user-delegate) has get → pass.
 	// Rule 2: caller (test-user-delegate) has post-delegate → pass.
-	resp, _ := batchEnv.gatewayGet(t, path, f.testDelegateToken, headers)
+	resp, _ := authEnv.gatewayGet(t, path, f.testDelegateToken, headers)
 	if resp.StatusCode != http.StatusOK {
 		t.Fatalf("expected 200, got %d", resp.StatusCode)
 	}
@@ -387,7 +387,7 @@ func TestInferencePathNoBatchHeaders(t *testing.T) {
 	f := setupFixture(t)
 
 	path := fmt.Sprintf("/%s/echo-server/v1/chat/completions", f.ns)
-	resp, body := batchEnv.gatewayGet(t, path, f.testUserToken, nil)
+	resp, body := authEnv.gatewayGet(t, path, f.testUserToken, nil)
 	if resp.StatusCode != http.StatusOK {
 		t.Fatalf("expected 200, got %d", resp.StatusCode)
 	}
