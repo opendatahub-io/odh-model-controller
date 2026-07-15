@@ -9,6 +9,8 @@ import (
 	"sort"
 	"strings"
 
+	"golang.org/x/net/http/httpguts"
+
 	ocpconfigv1 "github.com/openshift/api/config/v1"
 	gatewayapiv1 "sigs.k8s.io/gateway-api/apis/v1"
 
@@ -323,6 +325,45 @@ func GetDefaultGatewayRef(ctx context.Context, cli client.Client) (namespace, na
 	}
 
 	return "", "", fmt.Errorf("failed to parse gateway info from configmap")
+}
+
+// GetModelRoutingHeader returns the model-based routing header name from the
+// inferenceservice-config ConfigMap (ingress.modelBasedRoutingHeaderName),
+// falling back to DefaultModelRoutingHeader if unavailable or not set.
+// The value is lowercased to match Authorino's header key normalization and
+// validated as an HTTP token (RFC 7230) to prevent CEL injection via the
+// template.
+func GetModelRoutingHeader(ctx context.Context, cli client.Client) string {
+	configMap, err := GetInferenceServiceConfigMap(ctx, cli)
+	if err != nil {
+		log.FromContext(ctx).V(1).Info("inferenceservice-config unavailable, using default model routing header", "error", err)
+		return constants.DefaultModelRoutingHeader
+	}
+
+	if ingressData := configMap.Data["ingress"]; ingressData != "" {
+		var config map[string]any
+		if err := json.Unmarshal([]byte(ingressData), &config); err != nil {
+			log.FromContext(ctx).V(0).Info("failed to parse inferenceservice-config ingress section", "error", err)
+		} else {
+			if header, ok := config["modelBasedRoutingHeaderName"].(string); ok && header != "" {
+				lower := strings.ToLower(header)
+				if isCELSafeHeaderName(lower) {
+					return lower
+				}
+				log.FromContext(ctx).V(0).Info("invalid modelBasedRoutingHeaderName, using default", "value", header)
+			}
+		}
+	}
+
+	return constants.DefaultModelRoutingHeader
+}
+
+// isCELSafeHeaderName reports whether name is a valid HTTP header token (RFC 7230)
+// that is also safe to interpolate into CEL string literals. Rejects quotes,
+// backticks, and backslashes which could break or inject into CEL expressions
+// like '{{.ModelRoutingHeader}}' in request.headers.
+func isCELSafeHeaderName(name string) bool {
+	return httpguts.ValidHeaderFieldName(name) && !strings.ContainsAny(name, "'\"`\\")
 }
 
 // MergeUserLabelsAndAnnotations merges user-added labels and annotations from existing resource

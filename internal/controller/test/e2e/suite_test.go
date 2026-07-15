@@ -8,17 +8,17 @@ import (
 	"testing"
 )
 
-var batchEnv *batchTestEnv
+var authEnv *authPolicyTestEnv
 
 func TestMain(m *testing.M) {
 	var err error
-	batchEnv, err = newTestEnv()
+	authEnv, err = newTestEnv()
 	if err != nil {
 		_, _ = fmt.Fprintf(os.Stderr, "failed to initialize e2e environment: %v\n", err)
 		os.Exit(1)
 	}
 
 	code := m.Run()
-	batchEnv.close()
+	authEnv.close()
 	os.Exit(code)
 }

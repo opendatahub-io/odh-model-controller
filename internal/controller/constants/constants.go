@@ -185,6 +185,8 @@ const (
 	// DefaultObjectiveExpression is the default CEL expression for computing the objective value.
 	// For ServiceAccount tokens, it extracts the namespace; for other users, it returns "authenticated".
 	DefaultObjectiveExpression = "auth.identity.user.username.startsWith('system:serviceaccount:') ? auth.identity.user.username.split(':')[2] : 'authenticated'"
+
+	DefaultModelRoutingHeader = "x-gateway-model-name"
 )
 
 func GetAuthPolicyName(targetName string) string {

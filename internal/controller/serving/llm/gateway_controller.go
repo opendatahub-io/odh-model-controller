@@ -233,10 +233,11 @@ func (r *GatewayReconciler) reconcileAuthPolicy(ctx context.Context, logger logr
 	}
 
 	desired, err := r.authPolicyLoader.Load(ctx, resources.AuthPolicyTarget{
-		Kind:      "Gateway",
-		Name:      gateway.Name,
-		Namespace: gateway.Namespace,
-		AuthType:  constants.UserDefined,
+		Kind:               "Gateway",
+		Name:               gateway.Name,
+		Namespace:          gateway.Namespace,
+		AuthType:           constants.UserDefined,
+		ModelRoutingHeader: utils.GetModelRoutingHeader(ctx, r.Client),
 	},
 		resources.WithLabels(map[string]string{"app.kubernetes.io/name": "llminferenceservice-auth"}),
 		resources.WithAudiences(audiences),
@@ -782,6 +783,36 @@ func hasSelectorListeners(gw *gatewayapiv1.Gateway) bool {
 	return false
 }
 
+// enqueueGatewaysFromConfigMap returns an event handler that enqueues all
+// Gateways when the inferenceservice-config ConfigMap's ingress section changes.
+// This ensures AuthPolicies are re-reconciled on all gateways when
+// modelBasedRoutingHeaderName or the default gateway reference changes.
+func (r *GatewayReconciler) enqueueGatewaysFromConfigMap() handler.EventHandler {
+	return handler.EnqueueRequestsFromMapFunc(func(ctx context.Context, object client.Object) []reconcile.Request {
+		podNS := os.Getenv("POD_NAMESPACE")
+		if object.GetName() != constants.InferenceServiceConfigMapName || object.GetNamespace() != podNS {
+			return nil
+		}
+
+		gwList := &gatewayapiv1.GatewayList{}
+		if err := r.Client.List(ctx, gwList); err != nil {
+			log.FromContext(ctx).Error(err, "Failed to list Gateways for ConfigMap change")
+			return nil
+		}
+
+		requests := make([]reconcile.Request, 0, len(gwList.Items))
+		for _, gw := range gwList.Items {
+			requests = append(requests, reconcile.Request{
+				NamespacedName: types.NamespacedName{
+					Name:      gw.Name,
+					Namespace: gw.Namespace,
+				},
+			})
+		}
+		return requests
+	})
+}
+
 func getConfigGatewayRefs(cfg *kservev1alpha2.LLMInferenceServiceConfig) []kservev1alpha2.GatewayObjectReference {
 	if cfg.Spec.Router != nil && cfg.Spec.Router.Gateway.HasRefs() {
 		return cfg.Spec.Router.Gateway.Refs
@@ -1023,6 +1054,27 @@ func (r *GatewayReconciler) SetupWithManager(mgr ctrl.Manager, setupLog logr.Log
 				},
 				UpdateFunc: func(e event.UpdateEvent) bool {
 					return !maps.Equal(e.ObjectOld.GetLabels(), e.ObjectNew.GetLabels())
+				},
+				DeleteFunc: func(_ event.DeleteEvent) bool {
+					return false
+				},
+			})).
+		Watches(&corev1.ConfigMap{},
+			r.enqueueGatewaysFromConfigMap(),
+			ctrlbuilder.WithPredicates(predicate.Funcs{
+				CreateFunc: func(_ event.CreateEvent) bool {
+					return false
+				},
+				UpdateFunc: func(e event.UpdateEvent) bool {
+					if e.ObjectNew.GetName() != constants.InferenceServiceConfigMapName {
+						return false
+					}
+					if podNS := os.Getenv("POD_NAMESPACE"); podNS != "" && e.ObjectNew.GetNamespace() != podNS {
+						return false
+					}
+					oldCM := e.ObjectOld.(*corev1.ConfigMap)
+					newCM := e.ObjectNew.(*corev1.ConfigMap)
+					return oldCM.Data["ingress"] != newCM.Data["ingress"]
 				},
 				DeleteFunc: func(_ event.DeleteEvent) bool {
 					return false
