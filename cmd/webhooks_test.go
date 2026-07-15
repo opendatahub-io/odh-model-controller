@@ -6,7 +6,7 @@ func TestWebhookSetupNamesForMode(t *testing.T) {
 	t.Parallel()
 
 	xksNames := webhookSetupNames(true)
-	wantXKS := []string{"InferenceService", "LLMInferenceService"}
+	wantXKS := []string{"LLMInferenceService"}
 	if len(xksNames) != len(wantXKS) {
 		t.Fatalf("xKS webhook count = %d, want %d (%v)", len(xksNames), len(wantXKS), xksNames)
 	}

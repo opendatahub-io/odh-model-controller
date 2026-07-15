@@ -322,7 +322,6 @@ func webhookSetupsForMode(xksMode bool) []struct {
 			name    string
 			setupFn func(ctrl.Manager) error
 		}{
-			{"InferenceService", webhookservingv1beta1.SetupInferenceServiceMutatingWebhookWithManager},
 			{"LLMInferenceService", webhookservingv1alpha2.SetupLLMInferenceServiceWebhookWithManager},
 		}
 	}

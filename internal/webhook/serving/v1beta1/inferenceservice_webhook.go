@@ -54,15 +54,6 @@ func SetupInferenceServiceWebhookWithManager(mgr ctrl.Manager) error {
 		Complete()
 }
 
-// SetupInferenceServiceMutatingWebhookWithManager registers only the mutating webhook for
-// InferenceService. Used in xKS mode where ConnectionsAPI and HardwareProfile injection
-// are required but validating admission is not.
-func SetupInferenceServiceMutatingWebhookWithManager(mgr ctrl.Manager) error {
-	return ctrl.NewWebhookManagedBy(mgr).For(&servingv1beta1.InferenceService{}).
-		WithDefaulter(newInferenceServiceCustomDefaulter(mgr)).
-		Complete()
-}
-
 func newInferenceServiceCustomDefaulter(mgr ctrl.Manager) *InferenceServiceCustomDefaulter {
 	return &InferenceServiceCustomDefaulter{
 		client:    mgr.GetClient(),

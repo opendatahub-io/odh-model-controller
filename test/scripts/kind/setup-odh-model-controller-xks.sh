@@ -37,7 +37,6 @@ log "Loading image into Kind"
 kind load docker-image "${IMAGE}" --name "${CLUSTER_NAME}"
 
 log "Installing minimal KServe CRDs"
-kubectl apply --server-side -f "${ROOT}/config/crd/external/serving.kserve.io_inferenceservices.yaml"
 kubectl apply --server-side -f "${ROOT}/test/crds/serving.kserve.io_llminferenceservices.yaml"
 
 log "Generating webhook TLS material"
@@ -74,7 +73,7 @@ kubectl patch deployment odh-model-controller -n "${NAMESPACE}" --type=json -p='
 log "Patching mutating webhook CA bundle"
 kubectl patch mutatingwebhookconfiguration mutating.odh-model-controller.opendatahub.io \
   --type='json' \
-  -p="[{\"op\":\"add\",\"path\":\"/webhooks/0/clientConfig/caBundle\",\"value\":\"${CA_BUNDLE}\"},{\"op\":\"add\",\"path\":\"/webhooks/1/clientConfig/caBundle\",\"value\":\"${CA_BUNDLE}\"},{\"op\":\"add\",\"path\":\"/webhooks/2/clientConfig/caBundle\",\"value\":\"${CA_BUNDLE}\"}]"
+  -p="[{\"op\":\"add\",\"path\":\"/webhooks/0/clientConfig/caBundle\",\"value\":\"${CA_BUNDLE}\"},{\"op\":\"add\",\"path\":\"/webhooks/1/clientConfig/caBundle\",\"value\":\"${CA_BUNDLE}\"}]"
 
 log "Waiting for controller deployment"
 kubectl -n "${NAMESPACE}" rollout status deployment/odh-model-controller --timeout=180s
@@ -85,28 +84,26 @@ echo "${CONTROLLER_LOGS}" | grep -q 'xKS mode enabled' \
   || fail "controller did not log xKS mode enabled"
 
 WEBHOOK_COUNT="$(kubectl get mutatingwebhookconfiguration mutating.odh-model-controller.opendatahub.io -o jsonpath='{.webhooks[*].name}' | wc -w)"
-[[ "${WEBHOOK_COUNT}" -eq 3 ]] || fail "expected 3 mutating webhooks, got ${WEBHOOK_COUNT}"
+[[ "${WEBHOOK_COUNT}" -eq 2 ]] || fail "expected 2 mutating webhooks, got ${WEBHOOK_COUNT}"
 
 if [[ -n "$(kubectl get validatingwebhookconfiguration -o name 2>/dev/null || true)" ]]; then
   fail "expected no validating webhooks on xKS"
 fi
 
-log "Creating InferenceService to verify mutating admission path"
+log "Creating LLMInferenceService to verify mutating admission path"
 cat <<EOF | kubectl apply -f -
-apiVersion: serving.kserve.io/v1beta1
-kind: InferenceService
+apiVersion: serving.kserve.io/v1alpha2
+kind: LLMInferenceService
 metadata:
-  name: xks-smoke-isvc
+  name: xks-smoke-llmisvc
   namespace: ${NAMESPACE}
 spec:
-  predictor:
-    model:
-      modelFormat:
-        name: sklearn
-      storageUri: "s3://test-bucket/model"
+  model:
+    name: test-model
+    uri: s3://test-bucket/test-model
 EOF
 
-kubectl -n "${NAMESPACE}" get inferenceservice xks-smoke-isvc >/dev/null 2>&1 \
-  || fail "InferenceService was not created; webhook admission may have failed"
+kubectl -n "${NAMESPACE}" get llminferenceservice xks-smoke-llmisvc >/dev/null 2>&1 \
+  || fail "LLMInferenceService was not created; webhook admission may have failed"
 
 log "xKS Kind smoke test passed"
