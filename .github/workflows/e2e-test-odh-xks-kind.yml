@@ -10,6 +10,7 @@ on:
       - "config/crd/**"
       - "test/scripts/kind/**"
       - "test/config/kind-xks-config.yaml"
+      - "test/config/kind-xks-cert-manager/**"
       - "test/crds/**"
       - "Containerfile"
       - ".github/workflows/e2e-test-odh-xks-kind.yml"
@@ -71,3 +72,9 @@ jobs:
           echo ""
           echo "=== Validating webhooks ==="
           kubectl get validatingwebhookconfiguration -o yaml 2>/dev/null || true
+          echo ""
+          echo "=== Certificates ==="
+          kubectl get certificate -A -o yaml 2>/dev/null || true
+          echo ""
+          echo "=== ClusterIssuers ==="
+          kubectl get clusterissuer -o yaml 2>/dev/null || true

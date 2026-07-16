@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
 # Smoke test: deploy OMC xKS overlay on Kind and verify webhook-only mode.
+# Webhook TLS follows the KServe odh-xks pattern (cert-manager Certificate + inject-ca-from).
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd)"
@@ -7,13 +8,11 @@ CLUSTER_NAME="${CLUSTER_NAME:-odh-model-controller-xks}"
 IMAGE="${IMAGE:-odh-model-controller:xks-smoke}"
 NAMESPACE="${NAMESPACE:-opendatahub}"
 KIND_CONFIG="${KIND_CONFIG:-${ROOT}/test/config/kind-xks-config.yaml}"
-CERT_DIR="$(mktemp -d)"
+CERT_MANAGER_VERSION="${CERT_MANAGER_VERSION:-v1.16.0}"
 KEEP_CLUSTER="${KEEP_CLUSTER:-false}"
 
 if [[ "${KEEP_CLUSTER}" != "true" ]]; then
-  trap 'rm -rf "${CERT_DIR}"; kind delete cluster --name "${CLUSTER_NAME}" >/dev/null 2>&1 || true' EXIT
-else
-  trap 'rm -rf "${CERT_DIR}"' EXIT
+  trap 'kind delete cluster --name "${CLUSTER_NAME}" >/dev/null 2>&1 || true' EXIT
 fi
 
 log() { printf '==> %s\n' "$*"; }
@@ -23,7 +22,6 @@ need() { command -v "$1" >/dev/null 2>&1 || fail "$1 is required"; }
 need kind
 need docker
 need kubectl
-need openssl
 
 log "Creating single-node Kind cluster ${CLUSTER_NAME}"
 kind delete cluster --name "${CLUSTER_NAME}" >/dev/null 2>&1 || true
@@ -36,19 +34,22 @@ docker build -t "${IMAGE}" -f "${ROOT}/Containerfile" "${ROOT}"
 log "Loading image into Kind"
 kind load docker-image "${IMAGE}" --name "${CLUSTER_NAME}"
 
+log "Installing cert-manager ${CERT_MANAGER_VERSION}"
+kubectl create namespace cert-manager --dry-run=client -o yaml | kubectl apply -f -
+kubectl apply -f "https://github.com/cert-manager/cert-manager/releases/download/${CERT_MANAGER_VERSION}/cert-manager.yaml"
+kubectl wait --for=condition=Available deployment/cert-manager-webhook \
+  -n cert-manager --timeout=300s
+# Give the webhook a moment after the Deployment reports Available.
+sleep 5
+
+log "Bootstrapping OpenDataHub CA ClusterIssuer (Kind PKI)"
+kubectl apply -k "${ROOT}/test/config/kind-xks-cert-manager"
+kubectl wait --for=condition=Ready clusterissuer/opendatahub-selfsigned-issuer --timeout=60s
+kubectl wait --for=condition=Ready certificate/opendatahub-ca -n cert-manager --timeout=120s
+kubectl wait --for=condition=Ready clusterissuer/opendatahub-ca-issuer --timeout=60s
+
 log "Installing minimal KServe CRDs"
 kubectl apply --server-side -f "${ROOT}/test/crds/serving.kserve.io_llminferenceservices.yaml"
-
-log "Generating webhook TLS material"
-openssl req -x509 -newkey rsa:2048 \
-  -keyout "${CERT_DIR}/tls.key" \
-  -out "${CERT_DIR}/tls.crt" \
-  -days 1 -nodes \
-  -subj "/CN=odh-model-controller-webhook-service.${NAMESPACE}.svc" \
-  -addext "subjectAltName=DNS:odh-model-controller-webhook-service.${NAMESPACE}.svc,DNS:odh-model-controller-webhook-service.${NAMESPACE}.svc.cluster.local" \
-  >/dev/null 2>&1
-
-CA_BUNDLE="$(base64 -w0 < "${CERT_DIR}/tls.crt")"
 
 log "Ensuring target namespace exists"
 kubectl create namespace "${NAMESPACE}" --dry-run=client -o yaml | kubectl apply -f -
@@ -59,21 +60,30 @@ kubectl kustomize "${ROOT}/config/overlays/xks" \
   | sed 's|imagePullPolicy: Always|imagePullPolicy: IfNotPresent|' \
   | kubectl apply -f -
 
-kubectl -n "${NAMESPACE}" create secret tls odh-model-controller-webhook-cert \
-  --cert="${CERT_DIR}/tls.crt" \
-  --key="${CERT_DIR}/tls.key" \
-  --dry-run=client -o yaml | kubectl apply -f -
-
 kubectl patch deployment odh-model-controller -n "${NAMESPACE}" --type=json -p='[
   {"op":"replace","path":"/spec/template/spec/containers/0/args","value":["--health-probe-bind-address=:8081"]},
   {"op":"replace","path":"/spec/template/spec/containers/0/livenessProbe/initialDelaySeconds","value":30},
   {"op":"replace","path":"/spec/template/spec/containers/0/readinessProbe/initialDelaySeconds","value":15}
 ]'
 
-log "Patching mutating webhook CA bundle"
-kubectl patch mutatingwebhookconfiguration mutating.odh-model-controller.opendatahub.io \
-  --type='json' \
-  -p="[{\"op\":\"add\",\"path\":\"/webhooks/0/clientConfig/caBundle\",\"value\":\"${CA_BUNDLE}\"},{\"op\":\"add\",\"path\":\"/webhooks/1/clientConfig/caBundle\",\"value\":\"${CA_BUNDLE}\"}]"
+log "Waiting for webhook Certificate to be Ready"
+kubectl wait --for=condition=Ready \
+  certificate/odh-model-controller-webhook \
+  -n "${NAMESPACE}" --timeout=120s
+
+log "Waiting for cert-manager to inject webhook CA bundle"
+deadline=$((SECONDS + 120))
+while true; do
+  ca_bundle="$(kubectl get mutatingwebhookconfiguration mutating.odh-model-controller.opendatahub.io \
+    -o jsonpath='{.webhooks[0].clientConfig.caBundle}' 2>/dev/null || true)"
+  if [[ -n "${ca_bundle}" ]]; then
+    break
+  fi
+  if (( SECONDS >= deadline )); then
+    fail "timed out waiting for cert-manager CA injection on MutatingWebhookConfiguration"
+  fi
+  sleep 2
+done
 
 log "Waiting for controller deployment"
 kubectl -n "${NAMESPACE}" rollout status deployment/odh-model-controller --timeout=180s
@@ -85,6 +95,11 @@ echo "${CONTROLLER_LOGS}" | grep -q 'xKS mode enabled' \
 
 WEBHOOK_COUNT="$(kubectl get mutatingwebhookconfiguration mutating.odh-model-controller.opendatahub.io -o jsonpath='{.webhooks[*].name}' | wc -w)"
 [[ "${WEBHOOK_COUNT}" -eq 2 ]] || fail "expected 2 mutating webhooks, got ${WEBHOOK_COUNT}"
+
+ANNOTATION="$(kubectl get mutatingwebhookconfiguration mutating.odh-model-controller.opendatahub.io \
+  -o jsonpath='{.metadata.annotations.cert-manager\.io/inject-ca-from}')"
+[[ "${ANNOTATION}" == "${NAMESPACE}/odh-model-controller-webhook" ]] \
+  || fail "expected cert-manager.io/inject-ca-from=${NAMESPACE}/odh-model-controller-webhook, got '${ANNOTATION}'"
 
 if [[ -n "$(kubectl get validatingwebhookconfiguration -o name 2>/dev/null || true)" ]]; then
   fail "expected no validating webhooks on xKS"
