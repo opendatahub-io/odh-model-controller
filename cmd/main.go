@@ -17,9 +17,9 @@ limitations under the License.
 package main
 
 import (
-	"context"
 	"crypto/tls"
 	"flag"
+	"fmt"
 	"os"
 	"strconv"
 
@@ -40,7 +40,6 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/healthz"
 	"sigs.k8s.io/controller-runtime/pkg/log"
 	"sigs.k8s.io/controller-runtime/pkg/log/zap"
-	"sigs.k8s.io/controller-runtime/pkg/manager"
 	"sigs.k8s.io/controller-runtime/pkg/metrics/filters"
 	metricsserver "sigs.k8s.io/controller-runtime/pkg/metrics/server"
 	"sigs.k8s.io/controller-runtime/pkg/webhook"
@@ -130,17 +129,13 @@ func main() {
 	cfg := ctrl.GetConfigOrDie()
 	mgr := createManager(cfg, metricsAddr, probeAddr, enableLeaderElection, secureMetrics, tlsOpts)
 
-	kubeClient, kubeClientErr := kubernetes.NewForConfig(cfg)
-	if kubeClientErr != nil {
-		setupLog.Error(kubeClientErr, "unable to create clientset")
-		os.Exit(1)
-	}
-
 	if err := setupReconcilers(mgr, setupLog, cfg); err != nil {
+		setupLog.Error(err, "failed to setup reconcilers")
 		os.Exit(1)
 	}
 	// +kubebuilder:scaffold:builder
 	if err := setupWebhooks(mgr, setupLog); err != nil {
+		setupLog.Error(err, "failed to setup webhooks")
 		os.Exit(1)
 	}
 
@@ -161,47 +156,10 @@ func main() {
 		os.Exit(1)
 	}
 
-	templateClient, tempClientErr := templatev1client.NewForConfig(cfg)
-	if tempClientErr != nil {
-		setupLog.Error(tempClientErr, "unable to create template clientset")
-		os.Exit(1)
-	}
 	signalHandlerCtx := log.IntoContext(ctrl.SetupSignalHandler(), setupLog)
-	setupNim(mgr, signalHandlerCtx, kubeClient, templateClient)
 
 	setupLog.Info("starting manager")
 	if err = mgr.Start(signalHandlerCtx); err != nil {
-		setupLog.Error(err, "problem running manager")
-		os.Exit(1)
-	}
-}
-
-func setupNim(mgr manager.Manager, signalHandlerCtx context.Context,
-	kubeClient *kubernetes.Clientset, templateClient *templatev1client.Clientset) {
-	var err error
-
-	nimState := os.Getenv("NIM_STATE")
-	if nimState == "" {
-		nimState = managedState
-	}
-	if nimState != "removed" {
-		if err = (&nim.AccountReconciler{
-			Client:         mgr.GetClient(),
-			Scheme:         mgr.GetScheme(),
-			KClient:        kubeClient,
-			TemplateClient: templateClient,
-		}).SetupWithManager(mgr, signalHandlerCtx); err != nil {
-			setupLog.Error(err, "unable to create controller", "controller", "NIMAccount")
-			os.Exit(1)
-		}
-	} else {
-		if err = mgr.Add(&utils.NIMCleanupRunner{Client: mgr.GetClient(), Logger: setupLog}); err != nil {
-			setupLog.Error(err, "failed to add NIM cleanup runner")
-		}
-	}
-
-	setupLog.Info("starting manager")
-	if err := mgr.Start(signalHandlerCtx); err != nil {
 		setupLog.Error(err, "problem running manager")
 		os.Exit(1)
 	}
@@ -289,10 +247,22 @@ func setupWebhooks(mgr ctrl.Manager, setupLog logr.Logger) error {
 		setupFn func(ctrl.Manager) error
 	}{
 		{"Pod", webhookcorev1.SetupPodWebhookWithManager},
-		{"NIMAccount", webhooknimv1.SetupAccountWebhookWithManager},
 		{"InferenceService", webhookservingv1beta1.SetupInferenceServiceWebhookWithManager},
 		{"InferenceGraph", webhookservingv1alpha1.SetupInferenceGraphWebhookWithManager},
 		{"LLMInferenceService", webhookservingv1alpha2.SetupLLMInferenceServiceWebhookWithManager},
+	}
+
+	nimState := os.Getenv("NIM_STATE")
+	switch nimState {
+	case "", managedState:
+		webhookSetups = append(webhookSetups, struct {
+			name    string
+			setupFn func(ctrl.Manager) error
+		}{"NIMAccount", webhooknimv1.SetupAccountWebhookWithManager})
+	case "removed":
+		setupLog.Info("NIM is removed, skipping NIMAccount webhook")
+	default:
+		return fmt.Errorf("invalid NIM_STATE %q for webhook setup: expected %q or %q", nimState, managedState, "removed")
 	}
 
 	for _, webhookSetup := range webhookSetups {
@@ -332,6 +302,10 @@ func setupReconcilers(mgr ctrl.Manager, setupLog logr.Logger, cfg *rest.Config) 
 	}
 	if err := setupGatewayReconciler(mgr); err != nil {
 		setupLog.Error(err, "unable to create controller", "controller", "Gateway")
+		return err
+	}
+	if err := setupNimReconciler(mgr, setupLog, cfg); err != nil {
+		setupLog.Error(err, "unable to create controller", "controller", "NIMAccount")
 		return err
 	}
 
@@ -398,4 +372,47 @@ func setupGatewayReconciler(mgr ctrl.Manager) error {
 		mgr.GetScheme(),
 		mgr.GetEventRecorderFor("GatewayAuthBootstrap"),
 	).SetupWithManager(mgr, setupLog)
+}
+
+func setupNimReconciler(mgr ctrl.Manager, setupLog logr.Logger, cfg *rest.Config) error {
+	nimState := os.Getenv("NIM_STATE")
+	setupLog.Info("configuring NIM reconciler", "NIM_STATE", nimState)
+	switch nimState {
+	case "", managedState:
+		// continue with controller registration
+	case "removed":
+		setupLog.Info("NIM is removed, registering cleanup runner")
+		return mgr.Add(&utils.NIMCleanupRunner{Client: mgr.GetClient(), Logger: setupLog})
+	default:
+		return fmt.Errorf("invalid NIM_STATE %q: expected %q or %q", nimState, managedState, "removed")
+	}
+
+	setupLog.Info("creating NIM kubernetes clientset")
+	kubeClient, err := kubernetes.NewForConfig(cfg)
+	if err != nil {
+		return fmt.Errorf("unable to create kubernetes clientset: %w", err)
+	}
+	if kubeClient == nil {
+		return fmt.Errorf("kubernetes clientset is nil after creation")
+	}
+
+	setupLog.Info("creating NIM template clientset")
+	templateClient, err := templatev1client.NewForConfig(cfg)
+	if err != nil {
+		return fmt.Errorf("unable to create template clientset: %w", err)
+	}
+	if templateClient == nil {
+		return fmt.Errorf("template clientset is nil after creation")
+	}
+
+	setupLog.Info("registering NIM AccountReconciler")
+	if err := (&nim.AccountReconciler{
+		Client:         mgr.GetClient(),
+		Scheme:         mgr.GetScheme(),
+		KClient:        kubeClient,
+		TemplateClient: templateClient,
+	}).SetupWithManager(mgr, setupLog); err != nil {
+		return fmt.Errorf("failed to register NIM AccountReconciler: %w", err)
+	}
+	return nil
 }
