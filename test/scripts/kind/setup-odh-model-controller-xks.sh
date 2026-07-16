@@ -101,8 +101,9 @@ ANNOTATION="$(kubectl get mutatingwebhookconfiguration mutating.odh-model-contro
 [[ "${ANNOTATION}" == "${NAMESPACE}/odh-model-controller-webhook" ]] \
   || fail "expected cert-manager.io/inject-ca-from=${NAMESPACE}/odh-model-controller-webhook, got '${ANNOTATION}'"
 
-if [[ -n "$(kubectl get validatingwebhookconfiguration -o name 2>/dev/null || true)" ]]; then
-  fail "expected no validating webhooks on xKS"
+# cert-manager installs its own ValidatingWebhookConfiguration; only OMC's must be absent.
+if kubectl get validatingwebhookconfiguration validating.odh-model-controller.opendatahub.io >/dev/null 2>&1; then
+  fail "expected no OMC validating webhook on xKS"
 fi
 
 log "Creating LLMInferenceService to verify mutating admission path"
