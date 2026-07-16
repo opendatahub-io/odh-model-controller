@@ -10,10 +10,6 @@ spec:
         env:
         - name: ODH_PLATFORM_TYPE
           value: xKS
-        - name: NIM_STATE
-          value: removed
-        - name: MODELREGISTRY_STATE
-          value: removed
         resources:
           limits:
             cpu: 200m

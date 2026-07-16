@@ -50,15 +50,11 @@ var inferenceservicelog = logf.Log.WithName("inferenceservice-resource")
 func SetupInferenceServiceWebhookWithManager(mgr ctrl.Manager) error {
 	return ctrl.NewWebhookManagedBy(mgr).For(&servingv1beta1.InferenceService{}).
 		WithValidator(&InferenceServiceCustomValidator{client: mgr.GetClient()}).
-		WithDefaulter(newInferenceServiceCustomDefaulter(mgr)).
+		WithDefaulter(&InferenceServiceCustomDefaulter{
+			client:    mgr.GetClient(),
+			apiReader: mgr.GetAPIReader(),
+		}).
 		Complete()
-}
-
-func newInferenceServiceCustomDefaulter(mgr ctrl.Manager) *InferenceServiceCustomDefaulter {
-	return &InferenceServiceCustomDefaulter{
-		client:    mgr.GetClient(),
-		apiReader: mgr.GetAPIReader(),
-	}
 }
 
 // NOTE: The 'path' attribute must follow a specific pattern and should not be modified directly here.

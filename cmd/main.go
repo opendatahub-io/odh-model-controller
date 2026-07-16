@@ -286,6 +286,11 @@ func createManager(cfg *rest.Config, metricsAddr, probeAddr string,
 	return mgr
 }
 
+type webhookSetup struct {
+	name    string
+	setupFn func(ctrl.Manager) error
+}
+
 func setupWebhooks(mgr ctrl.Manager, setupLog logr.Logger, xksMode bool) error {
 	if os.Getenv(enableWebhooksEnv) == "false" {
 		setupLog.Info("Webhooks are disabled via environment variable.")
@@ -313,23 +318,14 @@ func webhookSetupNames(xksMode bool) []string {
 	return names
 }
 
-func webhookSetupsForMode(xksMode bool) []struct {
-	name    string
-	setupFn func(ctrl.Manager) error
-} {
+func webhookSetupsForMode(xksMode bool) []webhookSetup {
 	if xksMode {
-		return []struct {
-			name    string
-			setupFn func(ctrl.Manager) error
-		}{
+		return []webhookSetup{
 			{"LLMInferenceService", webhookservingv1alpha2.SetupLLMInferenceServiceWebhookWithManager},
 		}
 	}
 
-	return []struct {
-		name    string
-		setupFn func(ctrl.Manager) error
-	}{
+	return []webhookSetup{
 		{"Pod", webhookcorev1.SetupPodWebhookWithManager},
 		{"NIMAccount", webhooknimv1.SetupAccountWebhookWithManager},
 		{"InferenceService", webhookservingv1beta1.SetupInferenceServiceWebhookWithManager},

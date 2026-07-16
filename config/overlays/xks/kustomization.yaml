@@ -10,14 +10,45 @@ configMapGenerator:
   envs:
   - params.env
 
-patchesStrategicMerge:
-- patches/remove-model-serving-api.yaml
-- patches/remove-prometheus.yaml
-- patches/remove-nim.yaml
-- patches/remove-auth-proxy.yaml
-- patches/remove-validating-webhook.yaml
+replacements:
+- source:
+    kind: ConfigMap
+    version: v1
+    name: odh-model-controller-parameters
+    fieldPath: data.nim-state
+  targets:
+  - select:
+      kind: Deployment
+      name: odh-model-controller
+    fieldPaths:
+    - spec.template.spec.containers.[name=manager].env.[name=NIM_STATE].value
+- source:
+    kind: ConfigMap
+    version: v1
+    name: odh-model-controller-parameters
+    fieldPath: data.modelregistry-state
+  targets:
+  - select:
+      kind: Deployment
+      name: odh-model-controller
+    fieldPaths:
+    - spec.template.spec.containers.[name=manager].env.[name=MODELREGISTRY_STATE].value
 
 patches:
+- path: patches/delete-model-serving-api-deployment.yaml
+- path: patches/delete-model-serving-api-service.yaml
+- path: patches/delete-model-serving-api-serviceaccount.yaml
+- path: patches/delete-model-serving-api-clusterrole.yaml
+- path: patches/delete-model-serving-api-clusterrolebinding.yaml
+- path: patches/delete-prometheus-metrics-service.yaml
+- path: patches/delete-prometheus-clusterrole.yaml
+- path: patches/delete-nim-crd.yaml
+- path: patches/delete-nim-editor-role.yaml
+- path: patches/delete-nim-viewer-role.yaml
+- path: patches/delete-proxy-role.yaml
+- path: patches/delete-proxy-rolebinding.yaml
+- path: patches/delete-metrics-reader.yaml
+- path: patches/delete-validating-webhook.yaml
 - path: manager_xks_env_patch.yaml
   target:
     group: apps
@@ -29,6 +60,12 @@ patches:
     group: admissionregistration.k8s.io
     kind: MutatingWebhookConfiguration
     name: mutating.odh-model-controller.opendatahub.io
+    version: v1
+- path: patches/remove-openshift-rbac.yaml
+  target:
+    group: rbac.authorization.k8s.io
+    kind: ClusterRole
+    name: odh-model-controller-role
     version: v1
 - target:
     kind: Template

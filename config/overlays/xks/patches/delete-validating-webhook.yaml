@@ -1,5 +1,3 @@
-# Remove validating admission (not registered in xKS webhook-only mode).
----
 $patch: delete
 apiVersion: admissionregistration.k8s.io/v1
 kind: ValidatingWebhookConfiguration
