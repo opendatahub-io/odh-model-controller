@@ -3,9 +3,15 @@
 package e2e
 
 import (
+	"context"
 	"fmt"
 	"net/http"
+	"strings"
 	"testing"
+
+	corev1 "k8s.io/api/core/v1"
+	rbacv1 "k8s.io/api/rbac/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
 // publisherFixture holds per-test resources for publisher-path authorization tests.
@@ -211,6 +217,111 @@ func TestEmptyModelHeaderAuthnOnlyFallthrough(t *testing.T) {
 	}
 }
 
+// --- /v1/ + model header gap ---
+
+func TestV1PathWithModelHeaderDenied(t *testing.T) {
+	t.Parallel()
+	f := setupPublisherFixture(t)
+
+	// /v1/chat/completions + valid model header: no resolvedPath (BBR not enabled),
+	// so model-access-path doesn't fire. deny-misrouted should block this to
+	// prevent authn-only access when a model routing header is present.
+	headers := map[string]string{
+		"x-gateway-model-name": fmt.Sprintf("publishers/%s/models/echo-server", f.ns),
+	}
+	resp, _ := authEnv.gatewayGet(t, "/v1/chat/completions", f.noAccessToken, headers)
+	if resp.StatusCode != http.StatusForbidden {
+		t.Fatalf("expected 403 (/v1/ + model header should be denied without BBR), got %d", resp.StatusCode)
+	}
+}
+
+func TestV1PathWithNonPublisherHeaderAuthnOnly(t *testing.T) {
+	t.Parallel()
+	f := setupPublisherFixture(t)
+
+	// /v1/chat/completions + non-publisher header: the header doesn't match the
+	// publisher format regex, so it shouldn't trigger the deny rule. But it also
+	// shouldn't grant access - without BBR, /v1/ paths are authn-only regardless.
+	// This test documents the current behavior (authn-only) vs the ideal (denied).
+	headers := map[string]string{
+		"x-gateway-model-name": "some-random-model",
+	}
+	resp, _ := authEnv.gatewayGet(t, "/v1/chat/completions", f.noAccessToken, headers)
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("expected 200 (non-publisher header on /v1/ = authn-only), got %d", resp.StatusCode)
+	}
+}
+
+func TestV1PathWithCrossTenantHeaderDenied(t *testing.T) {
+	t.Parallel()
+	f := setupPublisherFixture(t)
+
+	// /v1/chat/completions + valid model header pointing to a different tenant.
+	// The routing layer would use the header to route to the other tenant's
+	// backend, but no authorization rule checks the header on /v1/ paths.
+	headers := map[string]string{
+		"x-gateway-model-name": "publishers/other-tenant/models/secret-model",
+	}
+	resp, _ := authEnv.gatewayGet(t, "/v1/chat/completions", f.noAccessToken, headers)
+	if resp.StatusCode != http.StatusForbidden {
+		t.Fatalf("expected 403 (/v1/ + cross-tenant model header should be denied), got %d", resp.StatusCode)
+	}
+}
+
+// --- ns=v1 collision: user with RBAC for garbage SAR identity ---
+
+func TestV1NamespaceCollisionWithRBAC(t *testing.T) {
+	t.Parallel()
+
+	// Create namespace "v1" and grant get llminferenceservices for name=chat.
+	// The original template would run SAR for ns=v1/name=chat on /v1/chat/completions
+	// and this user would pass. The current template should NOT authorize based on
+	// this garbage path extraction.
+	ns := "v1"
+	_, err := authEnv.clientset.CoreV1().Namespaces().Create(
+		context.Background(),
+		&corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: ns}},
+		metav1.CreateOptions{},
+	)
+	if err != nil {
+		t.Logf("namespace v1 may already exist: %v", err)
+	}
+	t.Cleanup(func() {
+		_ = authEnv.clientset.CoreV1().Namespaces().Delete(context.Background(), ns, metav1.DeleteOptions{})
+	})
+
+	// Create SA in v1 namespace with get llminferenceservices for name=chat
+	authEnv.createServiceAccount(t, ns, "v1-collision-user")
+	authEnv.grantAccess(t, ns, ns, "v1-collision-user", "v1-collision-chat-access", []rbacv1.PolicyRule{{
+		APIGroups:     []string{"serving.kserve.io"},
+		Resources:     []string{"llminferenceservices"},
+		ResourceNames: []string{"chat"},
+		Verbs:         []string{"get"},
+	}})
+
+	token := authEnv.requestToken(t, ns, "v1-collision-user")
+
+	// /v1/chat/completions without header: in the original template, inference-access
+	// would fire and SAR for ns=v1/name=chat would PASS (user has that RBAC).
+	// The current template should NOT let this through as an authorized request.
+	resp, _ := authEnv.gatewayGet(t, "/v1/chat/completions", token, nil)
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("expected 200 (authn-only, no header on /v1/), got %d", resp.StatusCode)
+	}
+
+	// /v1/chat/completions with model header pointing elsewhere
+	headers := map[string]string{
+		"x-gateway-model-name": "publishers/other-ns/models/secret-model",
+	}
+	resp2, _ := authEnv.gatewayGet(t, "/v1/chat/completions", token, headers)
+	t.Logf("ns=v1 collision: /v1/chat/completions + cross-tenant header = %d", resp2.StatusCode)
+
+	// With header: deny-misrouted must block regardless of ns=v1 RBAC
+	if resp2.StatusCode != http.StatusForbidden {
+		t.Fatalf("expected 403 (deny-misrouted must block cross-tenant even with ns=v1 RBAC), got %d", resp2.StatusCode)
+	}
+}
+
 // --- Delegation on publisher paths ---
 
 func TestDelegatedModelAccess(t *testing.T) {
@@ -240,5 +351,73 @@ func TestSpoofedModelAccessCallerLacksDelegate(t *testing.T) {
 	resp, _ := authEnv.gatewayGet(t, path, f.modelUserToken, headers)
 	if resp.StatusCode != http.StatusForbidden {
 		t.Fatalf("expected 403, got %d", resp.StatusCode)
+	}
+}
+
+func TestDelegatedModelAccessForwardedUserNoRBAC(t *testing.T) {
+	t.Parallel()
+	f := setupPublisherFixture(t)
+
+	path := fmt.Sprintf("/publishers/%s/models/echo-server/v1/chat/completions", f.ns)
+	headers := map[string]string{
+		"x-maas-user": "nonexistent-user",
+	}
+	// Caller (delegate-user) has post-delegate, but forwarded user has no model RBAC.
+	resp, _ := authEnv.gatewayGet(t, path, f.delegateToken, headers)
+	if resp.StatusCode != http.StatusForbidden {
+		t.Fatalf("expected 403 (forwarded user lacks model RBAC), got %d", resp.StatusCode)
+	}
+}
+
+func TestDelegatedModelAccessForwardedUserDelegateOnly(t *testing.T) {
+	t.Parallel()
+	f := setupPublisherFixture(t)
+
+	// Forwarded user (no-access) has no model RBAC at all. Even though the caller
+	// (delegate-user) has both post and post-delegate, rule 1 checks the forwarded
+	// user's model access and should reject.
+	path := fmt.Sprintf("/publishers/%s/models/echo-server/v1/chat/completions", f.ns)
+	headers := map[string]string{
+		"x-maas-user": saIdentity(f.ns, "no-access"),
+	}
+	resp, _ := authEnv.gatewayGet(t, path, f.delegateToken, headers)
+	if resp.StatusCode != http.StatusForbidden {
+		t.Fatalf("expected 403 (forwarded user has no model access), got %d", resp.StatusCode)
+	}
+}
+
+// --- Authentication layer ---
+
+func TestPublisherPathNoToken(t *testing.T) {
+	t.Parallel()
+	f := setupPublisherFixture(t)
+
+	path := fmt.Sprintf("/publishers/%s/models/echo-server/v1/chat/completions", f.ns)
+	resp, _ := authEnv.gatewayGet(t, path, "", nil)
+	if resp.StatusCode != http.StatusUnauthorized {
+		t.Fatalf("expected 401 (no token), got %d", resp.StatusCode)
+	}
+}
+
+// --- Response headers ---
+
+func TestPublisherPathNoBatchHeaders(t *testing.T) {
+	t.Parallel()
+	f := setupPublisherFixture(t)
+
+	path := fmt.Sprintf("/publishers/%s/models/echo-server/v1/chat/completions", f.ns)
+	resp, body := authEnv.gatewayGet(t, path, f.modelUserToken, nil)
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("expected 200, got %d", resp.StatusCode)
+	}
+
+	// x-maas-user and x-maas-groups should NOT appear on publisher paths -
+	// they are only injected for batch paths.
+	bodyStr := string(body)
+	if strings.Contains(bodyStr, "x-maas-user") {
+		t.Errorf("publisher path response should not contain x-maas-user header")
+	}
+	if strings.Contains(bodyStr, "x-maas-groups") {
+		t.Errorf("publisher path response should not contain x-maas-groups header")
 	}
 }

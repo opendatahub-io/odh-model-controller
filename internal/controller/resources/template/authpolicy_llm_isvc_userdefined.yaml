@@ -96,16 +96,19 @@ spec:
             verb:
               value: post-delegate
         priority: 1
-      # Deny requests where routing identity (header) and authorization identity
-      # (path) would diverge. A per-participant path with a valid model header
-      # would be routed by the header (tenant-B) but authorized by the path
-      # (tenant-A). patternMatching with predicate "false" is an immediate local
-      # deny - no API server call.
+      # Deny requests where a valid model routing header is present on a path
+      # that isn't a publisher path or a batch API path. Without BBR's resolvedPath
+      # normalization, /v1/ paths can't be authorized via model-access-path, and
+      # per-participant paths would be authorized by path (tenant-A) but routed by
+      # header (tenant-B). patternMatching with predicate "false" is an immediate
+      # local deny - no API server call.
       deny-misrouted-model-header:
         when:
-          - predicate: "!request.path.startsWith('/v1/')"
           - predicate: >-
               !request.path.matches('^/publishers/[^/]+/models/')
+          - predicate: >-
+              !(request.path == '/v1/files' || request.path.startsWith('/v1/files/')
+              || request.path == '/v1/batches' || request.path.startsWith('/v1/batches/'))
           - predicate: >-
               '{{.ModelRoutingHeader}}' in request.headers
               && request.headers['{{.ModelRoutingHeader}}'].matches('^publishers/[^/]+/models/.+$')
