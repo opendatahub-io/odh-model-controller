@@ -197,14 +197,14 @@ require (
 replace sigs.k8s.io/controller-runtime => sigs.k8s.io/controller-runtime v0.19.7
 
 // Use ODH release branch instead
-replace github.com/kserve/kserve => github.com/opendatahub-io/kserve v0.0.0-20260717145853-dfcb3d9587fe
-
-// Pin gateway-api to v1.2.1 to avoid incompatibility with kuadrant/policy-machinery
-// (BackendLBPolicy graduated from v1alpha2 to v1 in gateway-api v1.4.x)
-replace sigs.k8s.io/gateway-api => sigs.k8s.io/gateway-api v1.2.1
+replace github.com/kserve/kserve => github.com/opendatahub-io/kserve v0.0.0-20260717163833-f157c41bcdb9
 
 // CVE-2025-68156: Update expr-lang/expr to v1.17.7
 replace github.com/expr-lang/expr => github.com/expr-lang/expr v1.17.7
+
+// Pin gateway-api to v1.3.0 to avoid incompatibility with kuadrant/policy-machinery
+// (BackendLBPolicy graduated from v1alpha2 to v1 in gateway-api v1.4.x)
+replace sigs.k8s.io/gateway-api => sigs.k8s.io/gateway-api v1.2.1
 
 // Pin k8s.io packages to v0.34.x to match kserve ODH fork requirements
 replace (
