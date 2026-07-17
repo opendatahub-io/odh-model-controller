@@ -8,6 +8,17 @@ spec:
     group: gateway.networking.k8s.io
     kind: {{.TargetKind}}
     name: {{.TargetName}}
+  patterns:
+    has-ns-and-name:
+      allOf:
+        - selector: context.request.http.path
+          operator: matches
+          value: "^/[^/]+/[^/]+"
+    is-publisher-path:
+      allOf:
+        - selector: context.request.http.path
+          operator: matches
+          value: "^/publishers/[^/]+/models/"
   rules:
     authentication:
       kubernetes-user:
@@ -19,15 +30,103 @@ spec:
             value: "https://kubernetes.default.svc"
           objective:
             expression: "auth.identity.user.username.startsWith('system:serviceaccount:') ? auth.identity.user.username.split(':')[2] : 'authenticated'"
+          resolvedUser:
+            expression: >-
+              'x-maas-user' in request.headers
+              ? request.headers['x-maas-user']
+              : auth.identity.user.username
+          resolvedGroups:
+            expression: >-
+              'x-maas-user' in request.headers
+              ? ('x-maas-groups' in request.headers
+                ? request.headers['x-maas-groups'].split(',')
+                : [])
+              : auth.identity.user.groups
     authorization:
-      inference-access:
+      model-access-path:
         when:
-          - predicate: "!(request.path == '/v1/files' || request.path.startsWith('/v1/files/') || request.path == '/v1/batches' || request.path.startsWith('/v1/batches/'))"
+          - patternRef: is-publisher-path
         kubernetesSubjectAccessReview:
           user:
-            expression: "'x-maas-user' in request.headers ? request.headers['x-maas-user'] : auth.identity.user.username"
+            expression: "auth.identity.resolvedUser"
           authorizationGroups:
-            expression: "'x-maas-user' in request.headers ? ('x-maas-groups' in request.headers ? request.headers['x-maas-groups'].split(',') : []) : auth.identity.user.groups"
+            expression: "auth.identity.resolvedGroups"
+          resourceAttributes:
+            group:
+              value: serving.opendatahub.io
+            resource:
+              value: models
+            namespace:
+              expression: "request.path.split('/')[2]"
+            # Model name: everything between /models/ and the first /v1/ segment.
+            # Supports multi-segment names (e.g. facebook/opt-125m). Model names
+            # containing a literal /v1/ segment are not supported - same limitation
+            # as the kserve HTTPRoute template which uses /v1/ as the API path delimiter.
+            name:
+              expression: >-
+                'publishers/'
+                + request.path.split('/')[2]
+                + '/models/'
+                + request.path.split('/models/')[1].split('/v1/')[0]
+            verb:
+              value: post
+        priority: 1
+      model-access-path-delegate:
+        when:
+          - patternRef: is-publisher-path
+          - predicate: "'x-maas-user' in request.headers"
+        kubernetesSubjectAccessReview:
+          user:
+            expression: "auth.identity.user.username"
+          authorizationGroups:
+            expression: "auth.identity.user.groups"
+          resourceAttributes:
+            group:
+              value: serving.opendatahub.io
+            resource:
+              value: models/delegate
+            namespace:
+              expression: "request.path.split('/')[2]"
+            name:
+              expression: >-
+                'publishers/'
+                + request.path.split('/')[2]
+                + '/models/'
+                + request.path.split('/models/')[1].split('/v1/')[0]
+            verb:
+              value: post-delegate
+        priority: 1
+      # Deny requests where a valid model routing header is present on a path
+      # that isn't a publisher path or a batch API path. Without BBR's resolvedPath
+      # normalization, /v1/ paths can't be authorized via model-access-path, and
+      # per-participant paths would be authorized by path (tenant-A) but routed by
+      # header (tenant-B). patternMatching with predicate "false" is an immediate
+      # local deny - no API server call.
+      deny-misrouted-model-header:
+        when:
+          - predicate: >-
+              !request.path.matches('^/publishers/[^/]+/models/')
+          - predicate: >-
+              !(request.path == '/v1/files' || request.path.startsWith('/v1/files/')
+              || request.path == '/v1/batches' || request.path.startsWith('/v1/batches/'))
+          - predicate: >-
+              '{{.ModelRoutingHeader}}' in request.headers
+              && request.headers['{{.ModelRoutingHeader}}'].matches('^publishers/[^/]+/models/.+$')
+        patternMatching:
+          patterns:
+            - predicate: "false"
+        priority: 0
+      inference-access:
+        when:
+          - patternRef: has-ns-and-name
+          - predicate: "!request.path.startsWith('/v1/')"
+          - predicate: >-
+              !request.path.matches('^/publishers/[^/]+/models/')
+        kubernetesSubjectAccessReview:
+          user:
+            expression: "auth.identity.resolvedUser"
+          authorizationGroups:
+            expression: "auth.identity.resolvedGroups"
           resourceAttributes:
             group:
               value: serving.kserve.io
@@ -42,7 +141,10 @@ spec:
         priority: 1
       inference-access-delegate:
         when:
-          - predicate: "!(request.path == '/v1/files' || request.path.startsWith('/v1/files/') || request.path == '/v1/batches' || request.path.startsWith('/v1/batches/'))"
+          - patternRef: has-ns-and-name
+          - predicate: "!request.path.startsWith('/v1/')"
+          - predicate: >-
+              !request.path.matches('^/publishers/[^/]+/models/')
           - predicate: "'x-maas-user' in request.headers"
         kubernetesSubjectAccessReview:
           user:

@@ -80,7 +80,14 @@ make container-build-server # Build model-serving-api container image
 For faster iteration on a specific package, run `make envtest` once, then:
 
 ```
-KUBEBUILDER_ASSETS="$(bin/setup-envtest use 1.31.0 --bin-dir bin -p path)" POD_NAMESPACE=default \
+KUBEBUILDER_ASSETS="$(make -s print-envtest-assets)" POD_NAMESPACE=default \
+  go test ./internal/controller/serving/... -run TestSpecificName -v
+```
+
+Or equivalently (the version is derived from `go.mod`, not hardcoded):
+
+```
+KUBEBUILDER_ASSETS="$(bin/setup-envtest use $(go list -m -f '{{ if .Replace }}{{ .Replace.Version }}{{ else }}{{ .Version }}{{ end }}' k8s.io/api | awk -F'[v.]' '{printf "1.%d", $3}') --bin-dir bin -p path)" POD_NAMESPACE=default \
   go test ./internal/controller/serving/... -run TestSpecificName -v
 ```
 

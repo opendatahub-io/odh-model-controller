@@ -49,8 +49,8 @@ const (
 	defaultEchoServerImage = "docker.io/ealen/echo-server:0.9.2@sha256:006b92e1d6682442e29d1d0d73c34a61166d42f8a5bf1ea10c318f07ad4790e2"
 )
 
-// batchTestEnv holds shared clients and configuration for e2e tests.
-type batchTestEnv struct {
+// authPolicyTestEnv holds shared clients and configuration for e2e tests.
+type authPolicyTestEnv struct {
 	gatewayURL       string
 	gatewayName      string
 	gatewayNamespace string
@@ -64,9 +64,9 @@ type batchTestEnv struct {
 	sharedBatchNS string
 }
 
-// close cleans up resources held by batchTestEnv, such as port-forward tunnels
+// close cleans up resources held by authPolicyTestEnv, such as port-forward tunnels
 // and shared namespaces.
-func (e *batchTestEnv) close() {
+func (e *authPolicyTestEnv) close() {
 	if e.sharedBatchNS != "" {
 		log.Printf("deleting shared batch namespace %s", e.sharedBatchNS)
 		_ = e.clientset.CoreV1().Namespaces().Delete(context.Background(), e.sharedBatchNS, metav1.DeleteOptions{})
@@ -78,10 +78,10 @@ func (e *batchTestEnv) close() {
 }
 
 // newTestEnv reads environment variables, creates Kubernetes clients, discovers
-// the gateway URL from the Gateway resource status, and returns a ready-to-use batchTestEnv.
+// the gateway URL from the Gateway resource status, and returns a ready-to-use authPolicyTestEnv.
 // If the gateway address is cluster-internal, a port-forward tunnel is set up
 // automatically. Call close() when done to release resources.
-func newTestEnv() (*batchTestEnv, error) {
+func newTestEnv() (*authPolicyTestEnv, error) {
 	log.Println("initializing e2e test environment")
 
 	gwName := os.Getenv("GATEWAY_NAME")
@@ -130,48 +130,53 @@ func newTestEnv() (*batchTestEnv, error) {
 		},
 	}
 
-	// Discover gateway address from the Gateway resource status.
-	log.Printf("discovering gateway address from %s/%s status...", gwNamespace, gwName)
-	gw := &gatewayapiv1.Gateway{}
-	if err := k8sClient.Get(context.Background(), client.ObjectKey{
-		Name:      gwName,
-		Namespace: gwNamespace,
-	}, gw); err != nil {
-		return nil, fmt.Errorf("get gateway %s/%s: %w", gwNamespace, gwName, err)
-	}
-
-	if len(gw.Status.Addresses) == 0 {
-		return nil, fmt.Errorf("gateway %s/%s has no addresses in status", gwNamespace, gwName)
-	}
-
-	gwAddr := gw.Status.Addresses[0].Value
-	gwPort := gatewayListenerPort(gw)
-	log.Printf("gateway address: %s, listener port: %d", gwAddr, gwPort)
-
 	var gatewayURL string
 	var portForwardStop chan struct{}
 
-	if isInternalAddress(gwAddr) {
-		log.Printf("gateway address %s is cluster-internal, setting up port-forward...", gwAddr)
-		localPort, stopCh, pfErr := portForwardToGateway(cfg, clientset, gwNamespace, gwAddr, gwPort)
-		if pfErr != nil {
-			return nil, fmt.Errorf("gateway address %s is cluster-internal, port-forward failed: %w", gwAddr, pfErr)
-		}
-		portForwardStop = stopCh
-		gatewayURL = fmt.Sprintf("http://localhost:%d", localPort)
-		log.Printf("port-forward established: %s -> localhost:%d", gwAddr, localPort)
+	if envURL := os.Getenv("GATEWAY_URL"); envURL != "" {
+		gatewayURL = envURL
+		log.Printf("using GATEWAY_URL from environment: %s", gatewayURL)
 	} else {
-		log.Printf("gateway address %s is externally reachable, using directly", gwAddr)
-		if gwPort == 80 {
-			gatewayURL = "http://" + gwAddr
+		// Discover gateway address from the Gateway resource status.
+		log.Printf("discovering gateway address from %s/%s status...", gwNamespace, gwName)
+		gw := &gatewayapiv1.Gateway{}
+		if err := k8sClient.Get(context.Background(), client.ObjectKey{
+			Name:      gwName,
+			Namespace: gwNamespace,
+		}, gw); err != nil {
+			return nil, fmt.Errorf("get gateway %s/%s: %w", gwNamespace, gwName, err)
+		}
+
+		if len(gw.Status.Addresses) == 0 {
+			return nil, fmt.Errorf("gateway %s/%s has no addresses in status", gwNamespace, gwName)
+		}
+
+		gwAddr := gw.Status.Addresses[0].Value
+		gwPort := gatewayListenerPort(gw)
+		log.Printf("gateway address: %s, listener port: %d", gwAddr, gwPort)
+
+		if isInternalAddress(gwAddr) {
+			log.Printf("gateway address %s is cluster-internal, setting up port-forward...", gwAddr)
+			localPort, stopCh, pfErr := portForwardToGateway(cfg, clientset, gwNamespace, gwAddr, gwPort)
+			if pfErr != nil {
+				return nil, fmt.Errorf("gateway address %s is cluster-internal, port-forward failed: %w", gwAddr, pfErr)
+			}
+			portForwardStop = stopCh
+			gatewayURL = fmt.Sprintf("http://localhost:%d", localPort)
+			log.Printf("port-forward established: %s -> localhost:%d", gwAddr, localPort)
 		} else {
-			gatewayURL = fmt.Sprintf("http://%s", net.JoinHostPort(gwAddr, fmt.Sprintf("%d", gwPort)))
+			log.Printf("gateway address %s is externally reachable, using directly", gwAddr)
+			if gwPort == 80 {
+				gatewayURL = "http://" + gwAddr
+			} else {
+				gatewayURL = fmt.Sprintf("http://%s", net.JoinHostPort(gwAddr, fmt.Sprintf("%d", gwPort)))
+			}
 		}
 	}
 
 	log.Printf("e2e environment ready, gateway URL: %s", gatewayURL)
 
-	env := &batchTestEnv{
+	env := &authPolicyTestEnv{
 		gatewayURL:       gatewayURL,
 		gatewayName:      gwName,
 		gatewayNamespace: gwNamespace,
@@ -193,7 +198,7 @@ func newTestEnv() (*batchTestEnv, error) {
 // setupSharedBatchRoutes creates the shared namespace, echo server, and
 // HTTPRoutes for /v1/batches and /v1/files. Called once during env init
 // (not bound to any test's lifecycle).
-func (e *batchTestEnv) setupSharedBatchRoutes() error {
+func (e *authPolicyTestEnv) setupSharedBatchRoutes() error {
 	log.Println("setting up shared batch routes...")
 
 	ctx := context.Background()
@@ -202,7 +207,7 @@ func (e *batchTestEnv) setupSharedBatchRoutes() error {
 	ns, err := e.clientset.CoreV1().Namespaces().Create(ctx, &corev1.Namespace{
 		ObjectMeta: metav1.ObjectMeta{
 			GenerateName: "e2e-batch-shared-",
-			Labels:       map[string]string{"batchTestEnv": "odh-test"},
+			Labels:       map[string]string{"authPolicyTestEnv": "odh-test"},
 		},
 	}, metav1.CreateOptions{})
 	if err != nil {
@@ -267,10 +272,14 @@ func (e *batchTestEnv) setupSharedBatchRoutes() error {
 		return fmt.Errorf("echo-server not ready in %s: %w", ns.Name, err)
 	}
 
-	// Create HTTPRoutes for batch paths.
+	// Create HTTPRoutes for batch paths and a catch-all for paths that don't
+	// have a test-specific route (/health, /v1/models, etc.). The catch-all
+	// lives here (not per-test) to avoid races when parallel tests create and
+	// delete competing PathPrefix "/" routes.
 	for _, r := range []struct{ name, path string }{
 		{"batch-routes-batches", "/v1/batches"},
 		{"batch-routes-files", "/v1/files"},
+		{"catch-all", "/"},
 	} {
 		if err := e.createHTTPRouteRaw(ctx, ns.Name, r.name, r.path); err != nil {
 			return err
@@ -284,7 +293,10 @@ func (e *batchTestEnv) setupSharedBatchRoutes() error {
 	}
 	expSeconds := int64(3600)
 	tokenResult, err := e.clientset.CoreV1().ServiceAccounts(ns.Name).CreateToken(ctx, "route-checker",
-		&authenticationv1.TokenRequest{Spec: authenticationv1.TokenRequestSpec{ExpirationSeconds: &expSeconds}},
+		&authenticationv1.TokenRequest{Spec: authenticationv1.TokenRequestSpec{
+			ExpirationSeconds: &expSeconds,
+			Audiences:         []string{"https://kubernetes.default.svc"},
+		}},
 		metav1.CreateOptions{})
 	if err != nil {
 		return fmt.Errorf("request route-checker token: %w", err)
@@ -297,7 +309,7 @@ func (e *batchTestEnv) setupSharedBatchRoutes() error {
 			if reqErr != nil {
 				return false, nil
 			}
-			return resp.StatusCode != http.StatusBadGateway && resp.StatusCode != http.StatusServiceUnavailable, nil
+			return resp.StatusCode != http.StatusBadGateway && resp.StatusCode != http.StatusServiceUnavailable && resp.StatusCode != http.StatusNotFound, nil
 		}); err != nil {
 		return fmt.Errorf("batch routes not reachable: %w", err)
 	}
@@ -307,7 +319,7 @@ func (e *batchTestEnv) setupSharedBatchRoutes() error {
 }
 
 // createHTTPRouteRaw creates an HTTPRoute without test helpers (for use in init).
-func (e *batchTestEnv) createHTTPRouteRaw(ctx context.Context, ns, name, pathPrefix string) error {
+func (e *authPolicyTestEnv) createHTTPRouteRaw(ctx context.Context, ns, name, pathPrefix string) error {
 	log.Printf("creating HTTPRoute %s/%s for path prefix %s", ns, name, pathPrefix)
 	gwNS := gatewayapiv1.Namespace(e.gatewayNamespace)
 	route := &gatewayapiv1.HTTPRoute{
@@ -528,10 +540,10 @@ func findGatewayService(clientset *kubernetes.Clientset, gwNS, gwAddr string) (*
 
 // createNamespace creates a namespace with a generated name based on the given
 // prefix. The namespace is deleted on test cleanup unless the test failed.
-func (e *batchTestEnv) createNamespace(t *testing.T, prefix string, labels map[string]string) string {
+func (e *authPolicyTestEnv) createNamespace(t *testing.T, prefix string, labels map[string]string) string {
 	t.Helper()
 
-	merged := map[string]string{"batchTestEnv": "odh-test"}
+	merged := map[string]string{"authPolicyTestEnv": "odh-test"}
 	for k, v := range labels {
 		merged[k] = v
 	}
@@ -562,7 +574,7 @@ func (e *batchTestEnv) createNamespace(t *testing.T, prefix string, labels map[s
 }
 
 // createServiceAccount creates a ServiceAccount in the given namespace.
-func (e *batchTestEnv) createServiceAccount(t *testing.T, ns, name string) {
+func (e *authPolicyTestEnv) createServiceAccount(t *testing.T, ns, name string) {
 	t.Helper()
 	t.Logf("creating service account %s/%s", ns, name)
 	sa := &corev1.ServiceAccount{
@@ -581,7 +593,9 @@ func (e *batchTestEnv) createServiceAccount(t *testing.T, ns, name string) {
 }
 
 // requestToken creates a short-lived token for the given ServiceAccount.
-func (e *batchTestEnv) requestToken(t *testing.T, ns, saName string) string {
+// The token includes the Kubernetes default audience required by the AuthPolicy's
+// kubernetesTokenReview configuration.
+func (e *authPolicyTestEnv) requestToken(t *testing.T, ns, saName string) string {
 	t.Helper()
 	t.Logf("requesting token for %s/%s", ns, saName)
 	expSeconds := int64(3600)
@@ -591,6 +605,7 @@ func (e *batchTestEnv) requestToken(t *testing.T, ns, saName string) string {
 		&authenticationv1.TokenRequest{
 			Spec: authenticationv1.TokenRequestSpec{
 				ExpirationSeconds: &expSeconds,
+				Audiences:         []string{"https://kubernetes.default.svc"},
 			},
 		},
 		metav1.CreateOptions{},
@@ -603,7 +618,7 @@ func (e *batchTestEnv) requestToken(t *testing.T, ns, saName string) string {
 
 // grantInferenceAccess creates a Role and RoleBinding in targetNS that grants
 // the ServiceAccount permission to get llminferenceservices.
-func (e *batchTestEnv) grantInferenceAccess(t *testing.T, targetNS, saNamespace, saName string) {
+func (e *authPolicyTestEnv) grantInferenceAccess(t *testing.T, targetNS, saNamespace, saName string) {
 	t.Helper()
 	e.grantAccess(t, targetNS, saNamespace, saName,
 		saName+"-inference-access",
@@ -617,7 +632,7 @@ func (e *batchTestEnv) grantInferenceAccess(t *testing.T, targetNS, saNamespace,
 
 // grantDelegateAccess creates a Role and RoleBinding in targetNS that grants
 // the ServiceAccount permission to post-delegate llminferenceservices/delegate.
-func (e *batchTestEnv) grantDelegateAccess(t *testing.T, targetNS, saNamespace, saName string) {
+func (e *authPolicyTestEnv) grantDelegateAccess(t *testing.T, targetNS, saNamespace, saName string) {
 	t.Helper()
 	e.grantAccess(t, targetNS, saNamespace, saName,
 		saName+"-delegate-access",
@@ -629,7 +644,50 @@ func (e *batchTestEnv) grantDelegateAccess(t *testing.T, targetNS, saNamespace, 
 	)
 }
 
-func (e *batchTestEnv) grantAccess(t *testing.T, targetNS, saNamespace, saName, roleName string, rules []rbacv1.PolicyRule) {
+// grantModelAccess creates a Role and RoleBinding in targetNS that grants
+// the ServiceAccount permission to post models (serving.opendatahub.io/models).
+func (e *authPolicyTestEnv) grantModelAccess(t *testing.T, targetNS, saNamespace, saName string) {
+	t.Helper()
+	e.grantAccess(t, targetNS, saNamespace, saName,
+		saName+"-model-access",
+		[]rbacv1.PolicyRule{{
+			APIGroups: []string{"serving.opendatahub.io"},
+			Resources: []string{"models"},
+			Verbs:     []string{"post"},
+		}},
+	)
+}
+
+// grantScopedModelAccess creates a Role and RoleBinding in targetNS that grants
+// the ServiceAccount permission to post a specific named model.
+func (e *authPolicyTestEnv) grantScopedModelAccess(t *testing.T, targetNS, saNamespace, saName, resourceName string) {
+	t.Helper()
+	e.grantAccess(t, targetNS, saNamespace, saName,
+		saName+"-scoped-model-access",
+		[]rbacv1.PolicyRule{{
+			APIGroups:     []string{"serving.opendatahub.io"},
+			Resources:     []string{"models"},
+			ResourceNames: []string{resourceName},
+			Verbs:         []string{"serve"},
+		}},
+	)
+}
+
+// grantModelDelegateAccess creates a Role and RoleBinding in targetNS that grants
+// the ServiceAccount permission to post-delegate models/delegate.
+func (e *authPolicyTestEnv) grantModelDelegateAccess(t *testing.T, targetNS, saNamespace, saName string) {
+	t.Helper()
+	e.grantAccess(t, targetNS, saNamespace, saName,
+		saName+"-model-delegate-access",
+		[]rbacv1.PolicyRule{{
+			APIGroups: []string{"serving.opendatahub.io"},
+			Resources: []string{"models/delegate"},
+			Verbs:     []string{"post-delegate"},
+		}},
+	)
+}
+
+func (e *authPolicyTestEnv) grantAccess(t *testing.T, targetNS, saNamespace, saName, roleName string, rules []rbacv1.PolicyRule) {
 	t.Helper()
 	t.Logf("granting RBAC %s to %s/%s in namespace %s", roleName, saNamespace, saName, targetNS)
 
@@ -676,7 +734,7 @@ func (e *batchTestEnv) grantAccess(t *testing.T, targetNS, saNamespace, saName, 
 
 // deployEchoServer creates an echo server Deployment and Service in the given
 // namespace and waits for it to become ready.
-func (e *batchTestEnv) deployEchoServer(t *testing.T, ns string) {
+func (e *authPolicyTestEnv) deployEchoServer(t *testing.T, ns string) {
 	t.Helper()
 	t.Logf("deploying echo server in namespace %s (image: %s)", ns, e.echoServerImage)
 
@@ -767,7 +825,7 @@ func (e *batchTestEnv) deployEchoServer(t *testing.T, ns string) {
 }
 
 // createHTTPRoute creates an HTTPRoute pointing to the echo-server Service.
-func (e *batchTestEnv) createHTTPRoute(t *testing.T, ns, name, pathPrefix string) {
+func (e *authPolicyTestEnv) createHTTPRoute(t *testing.T, ns, name, pathPrefix string) {
 	t.Helper()
 	t.Logf("creating HTTPRoute %s/%s for path prefix %s", ns, name, pathPrefix)
 
@@ -815,7 +873,7 @@ func (e *batchTestEnv) createHTTPRoute(t *testing.T, ns, name, pathPrefix string
 // waitForAuthPolicyAffected polls the HTTPRoute status until the Kuadrant policy
 // controller reports the route is affected by an AuthPolicy. This ensures the
 // AuthPolicy ext-authz filter is active before tests send requests.
-func (e *batchTestEnv) waitForAuthPolicyAffected(t *testing.T, ns, name string) {
+func (e *authPolicyTestEnv) waitForAuthPolicyAffected(t *testing.T, ns, name string) {
 	t.Helper()
 	t.Logf("waiting for AuthPolicy to be enforced on HTTPRoute %s/%s...", ns, name)
 
@@ -857,7 +915,7 @@ func (e *batchTestEnv) waitForAuthPolicyAffected(t *testing.T, ns, name string) 
 
 // gatewayDo performs a single HTTP GET through the gateway. Returns the response,
 // body, and any error. Callers are responsible for handling errors.
-func (e *batchTestEnv) gatewayDo(path, token string, extraHeaders map[string]string) (*http.Response, []byte, error) {
+func (e *authPolicyTestEnv) gatewayDo(path, token string, extraHeaders map[string]string) (*http.Response, []byte, error) {
 	url := e.gatewayURL + path
 	req, err := http.NewRequestWithContext(context.Background(), http.MethodGet, url, nil)
 	if err != nil {
@@ -889,7 +947,7 @@ func (e *batchTestEnv) gatewayDo(path, token string, extraHeaders map[string]str
 // gatewayGet performs an HTTP GET through the gateway with bearer token and
 // optional extra headers. Retries on transient errors (502, 503, connection
 // failures) up to requestRetries times. Returns the response and body bytes.
-func (e *batchTestEnv) gatewayGet(t *testing.T, path, token string, extraHeaders map[string]string) (*http.Response, []byte) {
+func (e *authPolicyTestEnv) gatewayGet(t *testing.T, path, token string, extraHeaders map[string]string) (*http.Response, []byte) {
 	t.Helper()
 
 	var lastResp *http.Response
@@ -923,7 +981,7 @@ func (e *batchTestEnv) gatewayGet(t *testing.T, path, token string, extraHeaders
 
 // waitForGatewayRoute polls the gateway until the given path returns a non-502/503
 // response, indicating the HTTPRoute has been accepted and the backend is reachable.
-func (e *batchTestEnv) waitForGatewayRoute(t *testing.T, path, token string) {
+func (e *authPolicyTestEnv) waitForGatewayRoute(t *testing.T, path, token string) {
 	t.Helper()
 	t.Logf("waiting for gateway route %s to become reachable...", path)
 	err := wait.PollUntilContextTimeout(context.Background(), pollInterval, pollTimeout, true,
@@ -932,7 +990,7 @@ func (e *batchTestEnv) waitForGatewayRoute(t *testing.T, path, token string) {
 			if reqErr != nil {
 				return false, nil // transient — keep polling
 			}
-			return resp.StatusCode != http.StatusBadGateway && resp.StatusCode != http.StatusServiceUnavailable, nil
+			return resp.StatusCode != http.StatusBadGateway && resp.StatusCode != http.StatusServiceUnavailable && resp.StatusCode != http.StatusNotFound, nil
 		})
 	if err != nil {
 		t.Fatalf("timed out waiting for gateway route %s to become ready", path)

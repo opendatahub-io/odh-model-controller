@@ -376,3 +376,7 @@ func WithEnableAuth(enable bool) LLMInferenceServiceOption {
 	}
 	return WithAnnotation(constants.EnableAuthODHAnnotation, value)
 }
+
+func WithRoutingGroup(group string) LLMInferenceServiceOption {
+	return WithLabel(constants.RoutingGroupLabel, group)
+}

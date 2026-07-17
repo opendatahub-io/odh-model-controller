@@ -303,6 +303,63 @@ var _ = Describe("AuthPolicyTemplateLoader", func() {
 			Expect(publicAuth.Overrides).To(HaveKey("fairness"))
 			Expect(string(publicAuth.Overrides["fairness"].Value.Raw)).To(Equal(`"unauthenticated"`))
 		})
+		It("should have 4 authorization rules in UserDefined template", func(ctx SpecContext) {
+			authPolicy, err := loader.Load(ctx, resources.AuthPolicyTarget{
+				Kind:      "Gateway",
+				Name:      "openshift-ai-inference",
+				Namespace: "openshift-ingress",
+				AuthType:  constants.UserDefined,
+			})
+
+			Expect(err).ToNot(HaveOccurred())
+			Expect(authPolicy.Spec.AuthScheme.Authorization).To(HaveLen(5))
+			Expect(authPolicy.Spec.AuthScheme.Authorization).To(HaveKey("deny-misrouted-model-header"))
+			Expect(authPolicy.Spec.AuthScheme.Authorization).To(HaveKey("model-access-path"))
+			Expect(authPolicy.Spec.AuthScheme.Authorization).To(HaveKey("model-access-path-delegate"))
+			Expect(authPolicy.Spec.AuthScheme.Authorization).To(HaveKey("inference-access"))
+			Expect(authPolicy.Spec.AuthScheme.Authorization).To(HaveKey("inference-access-delegate"))
+		})
+
+		It("should have resolvedPath override with default model routing header", func(ctx SpecContext) {
+			authPolicy, err := loader.Load(ctx, resources.AuthPolicyTarget{
+				Kind:      "Gateway",
+				Name:      "openshift-ai-inference",
+				Namespace: "openshift-ingress",
+				AuthType:  constants.UserDefined,
+			})
+
+			Expect(err).ToNot(HaveOccurred())
+			kubernetesUserAuth := authPolicy.Spec.AuthScheme.Authentication["kubernetes-user"]
+			Expect(kubernetesUserAuth.Overrides).To(HaveKey("resolvedUser"))
+			Expect(kubernetesUserAuth.Overrides).To(HaveKey("resolvedGroups"))
+		})
+
+		It("should substitute custom model routing header in deny rule", func(ctx SpecContext) {
+			authPolicy, err := loader.Load(ctx, resources.AuthPolicyTarget{
+				Kind:               "Gateway",
+				Name:               "openshift-ai-inference",
+				Namespace:          "openshift-ingress",
+				AuthType:           constants.UserDefined,
+				ModelRoutingHeader: "x-custom-model-header",
+			})
+
+			Expect(err).ToNot(HaveOccurred())
+			Expect(authPolicy.Spec.AuthScheme.Authorization).To(HaveKey("deny-misrouted-model-header"))
+		})
+
+		It("should reject model routing header with single quotes", func(ctx SpecContext) {
+			_, err := loader.Load(ctx, resources.AuthPolicyTarget{
+				Kind:               "Gateway",
+				Name:               "openshift-ai-inference",
+				Namespace:          "openshift-ingress",
+				AuthType:           constants.UserDefined,
+				ModelRoutingHeader: "x-model'name",
+			})
+
+			Expect(err).To(HaveOccurred())
+			Expect(err.Error()).To(ContainSubstring("invalid model routing header"))
+		})
+
 	})
 })
 
