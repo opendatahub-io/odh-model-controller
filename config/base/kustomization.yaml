@@ -43,11 +43,33 @@ replacements:
       kind: ConfigMap
       version: v1
       name: odh-model-controller-parameters
+      fieldPath: data.autogluon-image
+    targets:
+      - select:
+          kind: Template
+          name: autogluon-runtime-template
+        fieldPaths:
+          - objects.0.spec.containers.0.image
+  - source:
+      kind: ConfigMap
+      version: v1
+      name: odh-model-controller-parameters
       fieldPath: data.mlserver-image
     targets:
       - select:
           kind: Template
           name: mlserver-runtime-template
+        fieldPaths:
+          - objects.0.spec.containers.0.image
+  - source:
+      kind: ConfigMap
+      version: v1
+      name: odh-model-controller-parameters
+      fieldPath: data.mlserver-cuda-image
+    targets:
+      - select:
+          kind: Template
+          name: mlserver-cuda-runtime-template
         fieldPaths:
           - objects.0.spec.containers.0.image
   - source:

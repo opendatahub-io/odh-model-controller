@@ -218,6 +218,8 @@ Pre-built ServingRuntime templates for supported model servers live in `config/r
 | `vllm-multinode-template.yaml` | vLLM multi-node (Ray) |
 | `ovms-kserve-template.yaml` | OpenVINO Model Server |
 | `mlserver-template.yaml` | Seldon MLServer |
+| `mlserver-cuda-template.yaml` | Seldon MLServer (NVIDIA GPU) |
+| `autogluon-template.yaml` | AutoGluon (tabular & time-series) |
 | `hf-detector-template.yaml` | HuggingFace detector |
 
 These are kustomized into the deployment manifests and are the basis for the NIM Template handler's output.

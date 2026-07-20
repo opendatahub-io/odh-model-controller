@@ -22,6 +22,7 @@ import (
 	authorinooperatorv1beta1 "github.com/kuadrant/authorino-operator/api/v1beta1"
 	kuadrantv1 "github.com/kuadrant/kuadrant-operator/api/v1"
 	kuadrantv1beta1 "github.com/kuadrant/kuadrant-operator/api/v1beta1"
+	monitoringv1 "github.com/prometheus-operator/prometheus-operator/pkg/apis/monitoring/v1"
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	netv1 "k8s.io/api/networking/v1"
@@ -57,6 +58,7 @@ func NewEnvTest(options ...Option) *Config {
 		gatewayapiv1.Install,
 		igwapi.Install,
 		istioclientv1alpha3.AddToScheme,
+		monitoringv1.AddToScheme,
 	)
 
 	return Configure(append(options, testCRDs, schemes)...)

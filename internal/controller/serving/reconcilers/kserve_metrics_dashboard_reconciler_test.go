@@ -44,6 +44,19 @@ var _ = Describe("KserveMetricsDashboardReconciler", func() {
 		Expect(corev1.AddToScheme(scheme)).To(Succeed())
 	})
 
+	type metricsQuery struct {
+		Title string `json:"title"`
+		Query string `json:"query"`
+	}
+	type metricsSection struct {
+		Title   string         `json:"title"`
+		Type    string         `json:"type"`
+		Queries []metricsQuery `json:"queries"`
+	}
+	type metricsConfig struct {
+		Config []metricsSection `json:"config"`
+	}
+
 	Describe("When deploying a Inference Service", func() {
 		When("NIM Runtime is used", func() {
 			It("should create ConfigMap with supported=true and NIM metrics", func(ctx SpecContext) {
@@ -257,20 +270,56 @@ var _ = Describe("KserveMetricsDashboardReconciler", func() {
 			})
 		})
 
-		When("all runtime metrics templates are validated", func() {
-			type metricsQuery struct {
-				Title string `json:"title"`
-				Query string `json:"query"`
-			}
-			type metricsSection struct {
-				Title   string         `json:"title"`
-				Type    string         `json:"type"`
-				Queries []metricsQuery `json:"queries"`
-			}
-			type metricsConfig struct {
-				Config []metricsSection `json:"config"`
-			}
+		When("AutoGluon Runtime is used", func() {
+			It("should create ConfigMap with supported=true and AutoGluon metrics", func(ctx SpecContext) {
+				servingRuntime := createServingRuntime("autogluon-runtime", map[string]string{
+					constants.KServeRuntimeAnnotation: constants.AutogluonRuntimeName,
+				})
 
+				isvc := &kservev1beta1.InferenceService{
+					ObjectMeta: metav1.ObjectMeta{
+						Name:      "autogluon-model",
+						Namespace: "test-namespace",
+					},
+					Spec: kservev1beta1.InferenceServiceSpec{
+						Predictor: kservev1beta1.PredictorSpec{
+							Model: &kservev1beta1.ModelSpec{
+								ModelFormat: kservev1beta1.ModelFormat{Name: "autogluon"},
+								Runtime:     ptr.To("autogluon-runtime"),
+							},
+						},
+					},
+				}
+
+				client := fake.NewClientBuilder().
+					WithScheme(scheme).
+					WithObjects(isvc, servingRuntime).
+					Build()
+				reconciler := NewKserveMetricsDashboardReconciler(client)
+
+				err := reconciler.Reconcile(ctx, log.Log, isvc)
+				Expect(err).NotTo(HaveOccurred())
+
+				configMap := &corev1.ConfigMap{}
+				err = client.Get(ctx, k8stypes.NamespacedName{
+					Name:      isvc.Name + constants.KserveMetricsConfigMapNameSuffix,
+					Namespace: isvc.Namespace,
+				}, configMap)
+				Expect(err).NotTo(HaveOccurred())
+
+				fromGetMetrics, _ := getMetricsData(servingRuntime)
+				finaldata := utils.SubstituteVariablesInQueries(fromGetMetrics, isvc.Namespace, isvc.Name)
+
+				Expect(configMap.Data["supported"]).To(Equal("true"))
+				Expect(configMap.Data["metrics"]).To(Equal(finaldata))
+				Expect(configMap.Data["metrics"]).To(ContainSubstring("autogluon-model"))
+				Expect(configMap.Data["metrics"]).To(ContainSubstring("test-namespace"))
+				Expect(configMap.Data["metrics"]).To(ContainSubstring("request_predict_seconds_count"))
+				Expect(configMap.Data["metrics"]).To(ContainSubstring("request_preprocess_seconds"))
+			})
+		})
+
+		When("all runtime metrics templates are validated", func() {
 			runtimeData := map[string]string{
 				"Caikit":   constants.CaikitMetricsData,
 				"OVMS":     constants.OvmsMetricsData,
@@ -322,6 +371,61 @@ var _ = Describe("KserveMetricsDashboardReconciler", func() {
 					Expect(substituted).To(ContainSubstring("test-model"))
 				})
 			}
+		})
+
+		When("AutoGluon metrics template has valid JSON structure", func() {
+			It("should parse as valid JSON and contain all required section types", func() {
+				var cfg metricsConfig
+				Expect(json.Unmarshal([]byte(constants.AutogluonMetricsData), &cfg)).To(Succeed())
+
+				sectionTypes := map[string]bool{}
+				for _, section := range cfg.Config {
+					sectionTypes[section.Type] = true
+					Expect(section.Queries).NotTo(BeEmpty(),
+						"AutoGluon "+section.Type+" must have at least one query")
+				}
+				Expect(sectionTypes).To(HaveKey("REQUEST_COUNT"), "AutoGluon must define REQUEST_COUNT")
+				Expect(sectionTypes).To(HaveKey("MEAN_LATENCY"), "AutoGluon must define MEAN_LATENCY")
+				Expect(sectionTypes).To(HaveKey("CPU_USAGE"), "AutoGluon must define CPU_USAGE")
+				Expect(sectionTypes).To(HaveKey("MEMORY_USAGE"), "AutoGluon must define MEMORY_USAGE")
+			})
+
+			It("should have REQUEST_COUNT with 1 query (KServe SDK has no separate failure metric)", func() {
+				var cfg metricsConfig
+				Expect(json.Unmarshal([]byte(constants.AutogluonMetricsData), &cfg)).To(Succeed())
+
+				var requestCount *metricsSection
+				for i := range cfg.Config {
+					if cfg.Config[i].Type == "REQUEST_COUNT" {
+						requestCount = &cfg.Config[i]
+						break
+					}
+				}
+				Expect(requestCount).NotTo(BeNil())
+				Expect(requestCount.Queries).To(HaveLen(1),
+					"AutoGluon REQUEST_COUNT has 1 query — KServe Python SDK does not expose a separate failure counter")
+			})
+
+			It("should not use lowercase variable placeholders", func() {
+				var cfg metricsConfig
+				Expect(json.Unmarshal([]byte(constants.AutogluonMetricsData), &cfg)).To(Succeed())
+
+				for _, section := range cfg.Config {
+					for _, q := range section.Queries {
+						Expect(q.Query).NotTo(ContainSubstring("${model_name}"),
+							"AutoGluon "+section.Type+": must use ${MODEL_NAME}")
+						Expect(q.Query).NotTo(ContainSubstring("${namespace}"),
+							"AutoGluon "+section.Type+": must use ${NAMESPACE}")
+					}
+				}
+			})
+
+			It("should have all variables substituted after calling SubstituteVariablesInQueries", func() {
+				substituted := utils.SubstituteVariablesInQueries(constants.AutogluonMetricsData, "test-ns", "test-model")
+				Expect(substituted).NotTo(ContainSubstring("${"))
+				Expect(substituted).To(ContainSubstring("test-ns"))
+				Expect(substituted).To(ContainSubstring("test-model"))
+			})
 		})
 
 		When("no valid runtime annotations are set", func() {

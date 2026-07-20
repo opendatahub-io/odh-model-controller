@@ -4,7 +4,8 @@ SERVER_IMG_TAG ?= latest
 SERVER_IMG ?= quay.io/${USER}/odh-model-serving-api:${SERVER_IMG_TAG}
 NAMESPACE ?= opendatahub
 # ENVTEST_K8S_VERSION refers to the version of kubebuilder assets to be downloaded by envtest binary.
-ENVTEST_K8S_VERSION = 1.31.0
+# Derived from the effective k8s.io/api module version (respecting replace directives in go.mod).
+ENVTEST_K8S_VERSION ?= $(shell go list -m -f '{{ if .Replace }}{{ .Replace.Version }}{{ else }}{{ .Version }}{{ end }}' k8s.io/api | awk -F'[v.]' '{printf "1.%d", $$3}')
 
 # Get the currently used golang install path (in GOPATH/bin, unless GOBIN is set)
 ifeq (,$(shell go env GOBIN))
@@ -105,6 +106,10 @@ fmt: ## Run go fmt against code.
 .PHONY: vet
 vet: ## Run go vet against code.
 	go vet ./...
+
+.PHONY: print-envtest-assets
+print-envtest-assets: envtest ## Print KUBEBUILDER_ASSETS path for use in shell one-liners.
+	@$(ENVTEST) use $(ENVTEST_K8S_VERSION) --bin-dir $(LOCALBIN) -p path
 
 .PHONY: test
 test: manifests generate fmt vet envtest validate-samples ## Run tests.
@@ -321,7 +326,7 @@ KUBECTL_VALIDATE = $(LOCALBIN)/kubectl-validate
 ## Tool Versions
 KUSTOMIZE_VERSION ?= v5.5.0
 CONTROLLER_TOOLS_VERSION ?= v0.16.4
-ENVTEST_VERSION ?= release-0.19
+ENVTEST_VERSION ?= $(shell go list -m -f '{{ if .Replace }}{{ .Replace.Version }}{{ else }}{{ .Version }}{{ end }}' sigs.k8s.io/controller-runtime | awk -F'[v.]' '{printf "release-%d.%d", $$2, $$3}')
 GOLANGCI_LINT_VERSION ?= v2.11.3
 KUBECTL_VALIDATE_VERSION ?= v0.0.4
 

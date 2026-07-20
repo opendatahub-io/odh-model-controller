@@ -24,6 +24,7 @@ import (
 	"text/template"
 
 	kuadrantv1 "github.com/kuadrant/kuadrant-operator/api/v1"
+	"golang.org/x/net/http/httpguts"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/util/retry"
@@ -46,17 +47,19 @@ type AuthPolicyDetector interface {
 }
 
 type AuthPolicyTarget struct {
-	Kind      string // Currently only "Gateway" or "HTTPRoute" is supported
-	Name      string
-	Namespace string
-	AuthType  constants.AuthType
+	Kind               string // Currently only "Gateway" or "HTTPRoute" is supported
+	Name               string
+	Namespace          string
+	AuthType           constants.AuthType
+	ModelRoutingHeader string
 }
 
 type authPolicyTemplateData struct {
-	Name       string
-	Namespace  string
-	TargetKind string
-	TargetName string
+	Name               string
+	Namespace          string
+	TargetKind         string
+	TargetName         string
+	ModelRoutingHeader string
 }
 
 type AuthPolicyTemplateLoader interface {
@@ -119,11 +122,20 @@ func (k *kserveAuthPolicyTemplateLoader) Load(_ context.Context, target AuthPoli
 		return nil, fmt.Errorf("unsupported auth type %s", target.AuthType)
 	}
 
+	modelRoutingHeader := target.ModelRoutingHeader
+	if modelRoutingHeader == "" {
+		modelRoutingHeader = constants.DefaultModelRoutingHeader
+	}
+	if !httpguts.ValidHeaderFieldName(modelRoutingHeader) || strings.ContainsAny(modelRoutingHeader, "'\"`\\") {
+		return nil, fmt.Errorf("invalid model routing header name %q: must be a valid HTTP token safe for CEL interpolation", modelRoutingHeader)
+	}
+
 	authPolicy, err := k.renderTemplate(tmpl, authPolicyTemplateData{
-		Name:       kmeta.ChildName(target.Name, constants.AuthPolicyNameSuffix),
-		Namespace:  target.Namespace,
-		TargetKind: target.Kind,
-		TargetName: target.Name,
+		Name:               kmeta.ChildName(target.Name, constants.AuthPolicyNameSuffix),
+		Namespace:          target.Namespace,
+		TargetKind:         target.Kind,
+		TargetName:         target.Name,
+		ModelRoutingHeader: modelRoutingHeader,
 	})
 	if err != nil {
 		return nil, err
