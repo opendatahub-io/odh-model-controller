@@ -1,0 +1,80 @@
+name: xKS Smoke Tests (KinD OMC)
+
+on:
+  pull_request:
+    branches: [incubating, main, stable-*]
+    paths:
+      - "cmd/**"
+      - "internal/**"
+      - "config/overlays/xks/**"
+      - "config/crd/**"
+      - "test/scripts/kind/**"
+      - "test/config/kind-xks-config.yaml"
+      - "test/config/kind-xks-cert-manager/**"
+      - "test/crds/**"
+      - "Containerfile"
+      - ".github/workflows/e2e-test-odh-xks-kind.yml"
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test-odh-model-controller-xks-kind:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout source
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Merge target branch
+        if: github.event_name == 'pull_request'
+        env:
+          BASE_REF: ${{ github.event.pull_request.base.ref }}
+        run: |
+          if [[ ! "$BASE_REF" =~ ^[a-zA-Z0-9._/-]+$ ]]; then
+            echo "::error::Invalid base ref: $BASE_REF"
+            exit 1
+          fi
+          git fetch origin -- "$BASE_REF"
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git merge --no-edit "origin/$BASE_REF"
+
+      - name: Install KinD
+        run: |
+          curl -Lo ./kind https://kind.sigs.k8s.io/dl/v0.27.0/kind-linux-amd64
+          chmod +x ./kind
+          sudo mv ./kind /usr/local/bin/kind
+          kind version
+
+      - name: Install kubectl
+        run: |
+          curl -LO "https://dl.k8s.io/release/v1.32.0/bin/linux/amd64/kubectl"
+          chmod +x ./kubectl
+          sudo mv ./kubectl /usr/local/bin/kubectl
+          kubectl version --client
+
+      - name: Run xKS Kind smoke test
+        run: ./test/scripts/kind/setup-odh-model-controller-xks.sh
+
+      - name: Collect logs on failure
+        if: failure()
+        run: |
+          echo "=== Controller logs ==="
+          kubectl logs -n opendatahub deployment/odh-model-controller -c manager --tail=200 2>/dev/null || true
+          echo ""
+          echo "=== Mutating webhooks ==="
+          kubectl get mutatingwebhookconfiguration -o yaml 2>/dev/null || true
+          echo ""
+          echo "=== Validating webhooks ==="
+          kubectl get validatingwebhookconfiguration -o yaml 2>/dev/null || true
+          echo ""
+          echo "=== Certificates ==="
+          kubectl get certificate -A -o yaml 2>/dev/null || true
+          echo ""
+          echo "=== ClusterIssuers ==="
+          kubectl get clusterissuer -o yaml 2>/dev/null || true

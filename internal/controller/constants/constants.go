@@ -36,6 +36,10 @@ const (
 	ODHManaged              = "opendatahub.io/managed"
 	EnableAuthODHAnnotation = "security.opendatahub.io/enable-auth"
 
+	// RoutingGroupLabel groups LLMInferenceServices that share weighted traffic distribution.
+	// ponytail: label stand-in for spec.router.route.group until ODH kserve fork picks up the field
+	RoutingGroupLabel = "serving.kserve.io/routing-group"
+
 	LabelEnableKserveRawRoute = "exposed"
 
 	KserveServiceAccountName = "default"
@@ -181,6 +185,8 @@ const (
 	// DefaultObjectiveExpression is the default CEL expression for computing the objective value.
 	// For ServiceAccount tokens, it extracts the namespace; for other users, it returns "authenticated".
 	DefaultObjectiveExpression = "auth.identity.user.username.startsWith('system:serviceaccount:') ? auth.identity.user.username.split(':')[2] : 'authenticated'"
+
+	DefaultModelRoutingHeader = "x-gateway-model-name"
 )
 
 func GetAuthPolicyName(targetName string) string {

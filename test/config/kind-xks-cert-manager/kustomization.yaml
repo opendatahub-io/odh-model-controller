@@ -1,0 +1,9 @@
+# Bootstrap PKI for Kind xKS smoke tests (mirrors KServe odh-test/cert-manager).
+# Production xKS expects these ClusterIssuers to already exist on the cluster.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+resources:
+- selfsigned-issuer.yaml
+- ca-certificate.yaml
+- ca-issuer.yaml
