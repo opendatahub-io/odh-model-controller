@@ -30,6 +30,7 @@ import (
 	"github.com/go-logr/logr"
 	"github.com/hashicorp/go-multierror"
 	"github.com/kserve/kserve/pkg/apis/serving/v1alpha1"
+	kservev1beta1 "github.com/kserve/kserve/pkg/apis/serving/v1beta1"
 	kserveconstants "github.com/kserve/kserve/pkg/constants"
 	v1 "github.com/opendatahub-io/odh-model-controller/api/nim/v1"
 	templatev1 "github.com/openshift/api/template/v1"
@@ -113,6 +114,8 @@ const (
 	nimGetNgcToken           = "https://authn.nvidia.com/token?service=ngc&"
 	nimGetNgcModelDataFmt    = "https://api.ngc.nvidia.com/v2/org/%s/team/%s/repos/%s?resolve-labels=true"
 	IsNimRuntimeAnnotation   = "runtimes.opendatahub.io/nvidia-nim"
+	NimPassthroughArgsEnv    = "NIM_PASSTHROUGH_ARGS"
+	ServedModelNameFlag      = "--served-model-name"
 )
 
 var NimHttpClient HttpClient
@@ -135,6 +138,48 @@ func init() {
 			return a.UTC() == b.UTC()
 		},
 	)
+}
+
+// EnsureServedModelName prepends --served-model-name to NIM_PASSTHROUGH_ARGS
+// in the ISVC's predictor model env if not already present. Returns true if
+// the env was modified.
+func EnsureServedModelName(isvc *kservev1beta1.InferenceService) bool {
+	if isvc.Spec.Predictor.Model == nil {
+		return false
+	}
+
+	env := isvc.Spec.Predictor.Model.Container.Env
+	args := isvc.Spec.Predictor.Model.Container.Args
+
+	for _, e := range env {
+		if e.Name == NimPassthroughArgsEnv {
+			if e.ValueFrom != nil {
+				return false
+			}
+			if strings.Contains(e.Value, ServedModelNameFlag) {
+				return false
+			}
+		}
+	}
+	for _, a := range args {
+		if strings.Contains(a, ServedModelNameFlag) {
+			return false
+		}
+	}
+
+	desired := fmt.Sprintf("%s %s", ServedModelNameFlag, isvc.Name)
+	for i, e := range env {
+		if e.Name == NimPassthroughArgsEnv {
+			isvc.Spec.Predictor.Model.Container.Env[i].Value = desired + " " + e.Value
+			return true
+		}
+	}
+
+	isvc.Spec.Predictor.Model.Container.Env = append(
+		isvc.Spec.Predictor.Model.Container.Env,
+		corev1.EnvVar{Name: NimPassthroughArgsEnv, Value: desired},
+	)
+	return true
 }
 
 // IsNimAirGapped returns true when DSC enables NIM air-gapped mode.
