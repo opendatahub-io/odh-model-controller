@@ -106,6 +106,49 @@ if kubectl get validatingwebhookconfiguration validating.odh-model-controller.op
   fail "expected no OMC validating webhook on xKS"
 fi
 
+expect_admission_denied() {
+  local description="$1"
+  local tmp out rc=0
+  tmp="$(mktemp)"
+  cat >"${tmp}"
+  out="$(kubectl apply -f "${tmp}" 2>&1)" || rc=$?
+  rm -f "${tmp}"
+  if [[ "${rc}" -eq 0 ]]; then
+    fail "expected ${description} to be rejected by webhook, but apply succeeded"
+  fi
+  printf '==> Rejected as expected (%s): %s\n' "${description}" "${out}"
+}
+
+log "Negative test: ConnectionsAPI rejects missing connection Secret"
+expect_admission_denied "ConnectionsAPI missing connection" <<EOF
+apiVersion: serving.kserve.io/v1alpha2
+kind: LLMInferenceService
+metadata:
+  name: xks-smoke-llmisvc-bad-connection
+  namespace: ${NAMESPACE}
+  annotations:
+    opendatahub.io/connections: dummy
+spec:
+  model:
+    name: test-model
+    uri: s3://test-bucket/test-model
+EOF
+
+log "Negative test: HardwareProfile rejects missing HardwareProfile"
+expect_admission_denied "HardwareProfile missing profile" <<EOF
+apiVersion: serving.kserve.io/v1alpha2
+kind: LLMInferenceService
+metadata:
+  name: xks-smoke-llmisvc-bad-hwp
+  namespace: ${NAMESPACE}
+  annotations:
+    opendatahub.io/hardware-profile-name: dummy
+spec:
+  model:
+    name: test-model
+    uri: s3://test-bucket/test-model
+EOF
+
 log "Creating LLMInferenceService to verify mutating admission path"
 cat <<EOF | kubectl apply -f -
 apiVersion: serving.kserve.io/v1alpha2
@@ -121,5 +164,13 @@ EOF
 
 kubectl -n "${NAMESPACE}" get llminferenceservice xks-smoke-llmisvc >/dev/null 2>&1 \
   || fail "LLMInferenceService was not created; webhook admission may have failed"
+
+# Negative cases must not have been admitted.
+if kubectl -n "${NAMESPACE}" get llminferenceservice xks-smoke-llmisvc-bad-connection >/dev/null 2>&1; then
+  fail "ConnectionsAPI negative test resource was created; webhook did not reject"
+fi
+if kubectl -n "${NAMESPACE}" get llminferenceservice xks-smoke-llmisvc-bad-hwp >/dev/null 2>&1; then
+  fail "HardwareProfile negative test resource was created; webhook did not reject"
+fi
 
 log "xKS Kind smoke test passed"
