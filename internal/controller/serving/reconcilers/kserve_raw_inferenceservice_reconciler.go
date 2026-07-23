@@ -22,6 +22,8 @@ import (
 	"github.com/hashicorp/go-multierror"
 	kservev1beta1 "github.com/kserve/kserve/pkg/apis/serving/v1beta1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+
+	"github.com/opendatahub-io/odh-model-controller/internal/controller/utils"
 )
 
 var _ Reconciler = (*KserveRawInferenceServiceReconciler)(nil)
@@ -49,12 +51,34 @@ func NewKServeRawInferenceServiceReconciler(client client.Client) *KserveRawInfe
 }
 
 func (r *KserveRawInferenceServiceReconciler) Reconcile(ctx context.Context, log logr.Logger, isvc *kservev1beta1.InferenceService) error {
+	if err := r.injectNimServedModelName(ctx, log, isvc); err != nil {
+		return err
+	}
+
 	var reconcileErrors *multierror.Error
 	for _, reconciler := range r.subResourceReconcilers {
 		reconcileErrors = multierror.Append(reconcileErrors, reconciler.Reconcile(ctx, log, isvc))
 	}
 
 	return reconcileErrors.ErrorOrNil()
+}
+
+// injectNimServedModelName detects NIM ISVCs and prepends --served-model-name
+// to NIM_PASSTHROUGH_ARGS so the vLLM engine inside the NIM container serves
+// under the ISVC resource name instead of the HuggingFace model ID.
+func (r *KserveRawInferenceServiceReconciler) injectNimServedModelName(ctx context.Context, log logr.Logger, isvc *kservev1beta1.InferenceService) error {
+	if isvc.Spec.Predictor.Model == nil {
+		return nil
+	}
+	runtime, err := utils.FindSupportingRuntimeForISvc(ctx, r.client, log, isvc)
+	if err != nil || runtime.Annotations[utils.IsNimRuntimeAnnotation] != "true" {
+		return nil
+	}
+	if !utils.EnsureServedModelName(isvc) {
+		return nil
+	}
+	log.Info("Injecting --served-model-name into NIM InferenceService", "name", isvc.Name)
+	return r.client.Update(ctx, isvc)
 }
 
 func (r *KserveRawInferenceServiceReconciler) OnDeletionOfKserveInferenceService(ctx context.Context, log logr.Logger, isvc *kservev1beta1.InferenceService) error {
