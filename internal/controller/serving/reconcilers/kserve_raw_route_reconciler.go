@@ -181,6 +181,30 @@ func (r *KserveRawRouteReconciler) createDesiredResource(ctx context.Context, lo
 		return nil, err
 	}
 
+	if len(isvc.Spec.Canary) > 0 {
+		// Use numeric targetPort when canary is active — named ports differ
+		// per service (e.g. "canary-test-predictor" vs "canary-test-v2-predictor")
+		// and alternateBackends requires a port name that exists on all backends.
+		// Resolve the named port chosen by setRouteTargetPort to its numeric value.
+		if targetPort.Type == intstr.String {
+			found := false
+			for _, p := range targetService.Spec.Ports {
+				if p.Name == targetPort.StrVal {
+					desiredRoute.Spec.Port = &v1.RoutePort{TargetPort: p.TargetPort}
+					found = true
+					break
+				}
+			}
+			if !found {
+				return nil, fmt.Errorf("port %q not found on service %q; cannot resolve numeric targetPort for canary route",
+					targetPort.StrVal, targetService.Name)
+			}
+		}
+		if err := r.applyCanaryTrafficSplits(ctx, log, isvc, desiredRoute); err != nil {
+			return nil, err
+		}
+	}
+
 	return desiredRoute, nil
 }
 
@@ -278,5 +302,42 @@ func (r *KserveRawRouteReconciler) processDelta(ctx context.Context, log logr.Lo
 			return err
 		}
 	}
+	return nil
+}
+
+func (r *KserveRawRouteReconciler) applyCanaryTrafficSplits(ctx context.Context, log logr.Logger, isvc *kservev1beta1.InferenceService, route *v1.Route) error {
+	var totalCanaryPercent int32
+	for _, canary := range isvc.Spec.Canary {
+		totalCanaryPercent += canary.TrafficPercent
+	}
+	stableWeight := int32(100) - totalCanaryPercent
+	if stableWeight < 0 {
+		return fmt.Errorf("canary traffic percents sum to %d which exceeds 100; stable backend weight would be %d",
+			totalCanaryPercent, stableWeight)
+	}
+	route.Spec.To.Weight = &stableWeight
+
+	var alternateBackends []v1.RouteTargetReference
+	for _, canary := range isvc.Spec.Canary {
+		canaryServiceName := fmt.Sprintf("%s-%s-predictor", isvc.Name, canary.Predictor.Name)
+
+		// Verify the canary Service exists before registering it as an alternateBackend.
+		// Port resolution is not needed here — route.Spec.Port (resolved to a numeric value
+		// above) is applied uniformly by the OpenShift Router across all backends.
+		svc := &corev1.Service{}
+		if err := r.client.Get(ctx, types.NamespacedName{Name: canaryServiceName, Namespace: isvc.Namespace}, svc); err != nil {
+			return fmt.Errorf("canary service %q not found: %w", canaryServiceName, err)
+		}
+
+		weight := canary.TrafficPercent
+		alternateBackends = append(alternateBackends, v1.RouteTargetReference{
+			Kind:   "Service",
+			Name:   canaryServiceName,
+			Weight: &weight,
+		})
+		log.V(1).Info("Canary traffic split", "service", canaryServiceName, "weight", weight)
+	}
+	route.Spec.AlternateBackends = alternateBackends
+
 	return nil
 }

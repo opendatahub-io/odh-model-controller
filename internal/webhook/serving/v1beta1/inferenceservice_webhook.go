@@ -59,7 +59,7 @@ func SetupInferenceServiceWebhookWithManager(mgr ctrl.Manager) error {
 
 // NOTE: The 'path' attribute must follow a specific pattern and should not be modified directly here.
 // Modifying the path for an invalid path can cause API server errors; failing to locate the webhook.
-// +kubebuilder:webhook:path=/validate-serving-kserve-io-v1beta1-inferenceservice,mutating=false,failurePolicy=fail,sideEffects=None,groups=serving.kserve.io,resources=inferenceservices,verbs=create,versions=v1beta1,name=validating.isvc.odh-model-controller.opendatahub.io,admissionReviewVersions=v1
+// +kubebuilder:webhook:path=/validate-serving-kserve-io-v1beta1-inferenceservice,mutating=false,failurePolicy=fail,sideEffects=None,groups=serving.kserve.io,resources=inferenceservices,verbs=create;update,versions=v1beta1,name=validating.isvc.odh-model-controller.opendatahub.io,admissionReviewVersions=v1
 
 // InferenceServiceCustomValidator struct is responsible for validating the InferenceService resource
 // when it is created, updated, or deleted.
@@ -104,20 +104,25 @@ func (v *InferenceServiceCustomValidator) ValidateCreate(ctx context.Context, ob
 	}
 
 	logger.Info("Namespace is not protected")
+
+	if err := validateCanaryCount(inferenceservice); err != nil {
+		return nil, err
+	}
+
 	return nil, nil
 }
 
 // ValidateUpdate implements webhook.CustomValidator so a webhook will be registered for the type InferenceService.
 func (v *InferenceServiceCustomValidator) ValidateUpdate(ctx context.Context, oldObj, newObj runtime.Object) (admission.Warnings, error) {
-	// Unused. Code below is from scaffolding
-
 	inferenceservice, ok := newObj.(*servingv1beta1.InferenceService)
 	if !ok {
 		return nil, fmt.Errorf("expected a InferenceService object for the newObj but got %T", newObj)
 	}
 	inferenceservicelog.Info("Validation for InferenceService upon update", "name", inferenceservice.GetName())
 
-	// TODO(user): fill in your validation logic upon object update.
+	if err := validateCanaryCount(inferenceservice); err != nil {
+		return nil, err
+	}
 
 	return nil, nil
 }
@@ -135,6 +140,19 @@ func (v *InferenceServiceCustomValidator) ValidateDelete(ctx context.Context, ob
 	// TODO(user): fill in your validation logic upon object deletion.
 
 	return nil, nil
+}
+
+// maxCanaryCount is the maximum number of canary deployments allowed per
+// InferenceService. OpenShift Routes support up to 3 alternateBackends
+// (4 total backends including the primary stable service).
+const maxCanaryCount = 3
+
+func validateCanaryCount(isvc *servingv1beta1.InferenceService) error {
+	if len(isvc.Spec.Canary) > maxCanaryCount {
+		return fmt.Errorf("canary count %d exceeds maximum of %d (OpenShift Route alternateBackends limit)",
+			len(isvc.Spec.Canary), maxCanaryCount)
+	}
+	return nil
 }
 
 // +kubebuilder:webhook:path=/mutate-serving-kserve-io-v1beta1-inferenceservice,mutating=true,failurePolicy=fail,sideEffects=NoneOnDryRun,groups=serving.kserve.io,resources=inferenceservices,verbs=create;update,versions=v1beta1,name=minferenceservice-v1beta1.odh-model-controller.opendatahub.io,admissionReviewVersions=v1

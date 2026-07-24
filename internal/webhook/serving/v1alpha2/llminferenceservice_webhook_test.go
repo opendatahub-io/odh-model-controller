@@ -130,7 +130,7 @@ var _ = Describe("LLMInferenceService ConnectionsAPI Defaulter", func() {
 			Expect(llmisvc.Spec.Template).To(BeNil())
 		})
 
-		It("skips injection when secret has no connection type annotation", func() {
+		It("returns error when secret has no connection type annotation", func() {
 			secret := &corev1.Secret{
 				ObjectMeta: metav1.ObjectMeta{Name: "secret1", Namespace: llmNS},
 			}
@@ -141,11 +141,12 @@ var _ = Describe("LLMInferenceService ConnectionsAPI Defaulter", func() {
 			})
 			admCtx := llmAdmissionCtx(admissionv1.Create, nil, false)
 
-			Expect(d.Default(admCtx, llmisvc)).To(Succeed())
-			Expect(llmisvc.Spec.Model.URI.String()).To(BeEmpty())
+			err := d.Default(admCtx, llmisvc)
+			Expect(err).To(HaveOccurred())
+			Expect(err.Error()).To(ContainSubstring(connectionapi.AnnotationConnectionTypeProtocol))
 		})
 
-		It("skips injection when secret has an unknown connection type", func() {
+		It("returns error when secret has an unknown connection type", func() {
 			secret := &corev1.Secret{
 				ObjectMeta: metav1.ObjectMeta{
 					Name:      "secret1",
@@ -162,8 +163,9 @@ var _ = Describe("LLMInferenceService ConnectionsAPI Defaulter", func() {
 			})
 			admCtx := llmAdmissionCtx(admissionv1.Create, nil, false)
 
-			Expect(d.Default(admCtx, llmisvc)).To(Succeed())
-			Expect(llmisvc.Spec.Model.URI.String()).To(BeEmpty())
+			err := d.Default(admCtx, llmisvc)
+			Expect(err).To(HaveOccurred())
+			Expect(err.Error()).To(ContainSubstring("exotic"))
 		})
 
 		It("returns error when referenced secret does not exist", func() {
