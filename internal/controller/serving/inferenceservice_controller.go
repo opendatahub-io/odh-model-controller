@@ -148,6 +148,10 @@ func (r *InferenceServiceReconciler) ReconcileServing(ctx context.Context, req c
 			if err1 != nil {
 				deleteErrors = multierror.Append(deleteErrors, err1)
 			}
+			if deleteErrors.ErrorOrNil() != nil {
+				logger.Error(deleteErrors, "Cleanup failed, keeping finalizer to allow retry")
+				return reconcile.Result{}, deleteErrors.ErrorOrNil()
+			}
 			controllerutil.RemoveFinalizer(isvc, constants.InferenceServiceODHFinalizerName)
 			patchYaml := "metadata:\n  finalizers: [" + strings.Join(isvc.ObjectMeta.Finalizers, ",") + "]"
 			patchJson, _ := yaml.YAMLToJSON([]byte(patchYaml))
@@ -156,7 +160,7 @@ func (r *InferenceServiceReconciler) ReconcileServing(ctx context.Context, req c
 			}
 
 		}
-		return reconcile.Result{}, deleteErrors.ErrorOrNil()
+		return reconcile.Result{}, nil
 	}
 
 	// Only RawDeployment mode is supported
