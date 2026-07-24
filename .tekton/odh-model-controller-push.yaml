@@ -12,8 +12,8 @@ metadata:
       == "main"
   creationTimestamp: null
   labels:
-    appstudio.openshift.io/application: opendatahub-builds
-    appstudio.openshift.io/component: odh-model-controller-ci
+    appstudio.openshift.io/application: opendatahub-release
+    appstudio.openshift.io/component: odh-model-controller
     pipelines.appstudio.openshift.io/type: build
   name: odh-model-controller-on-push
   namespace: open-data-hub-tenant
@@ -31,7 +31,8 @@ spec:
     value: .
   - name: additional-tags
     value:
-    - 'odh-v3.4'
+    - 'odh-stable'
+    - 'odh-stable-{{revision}}'
   pipelineRef:
     resolver: git
     params:
