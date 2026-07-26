@@ -85,9 +85,9 @@ func (ct ConnectionType) String() string {
 //
 // Fetches the referenced Secret once and validates the connection type from its annotations.
 // Returns populated ConnectionInfo and the fetched Secret when a valid connection is found.
-// Returns empty ConnectionInfo and a nil Secret (no error) when no injection should be performed
-// (annotation absent, unknown type, or no type annotation on the Secret).
-// Returns an error when validation fails (e.g., Secret not found, API error).
+// Returns empty ConnectionInfo and a nil Secret (no error) when no annotation is present.
+// Returns an error when validation fails — including when the Secret is not found, the Secret
+// lacks a connection-type-protocol annotation, or the type value is not a supported one.
 //
 // The returned Secret is non-nil only when injection should proceed; callers must pass it to
 // injection helpers (GetURIValue, BuildS3URI) to avoid a second fetch.
@@ -119,12 +119,14 @@ func ValidateConnectionAnnotation(ctx context.Context, apiReader client.Reader, 
 
 	connType, isValid := ValidateConnectionType(secret)
 	if connType == "" {
-		log.Info("connection has no type annotation, skipping injection", "connection", secretName)
-		return ConnectionInfo{}, nil, nil
+		return ConnectionInfo{}, nil, fmt.Errorf(
+			"connection %q referenced by annotation %q must have a %q annotation on the Secret",
+			secretName, AnnotationConnections, AnnotationConnectionTypeProtocol)
 	}
 	if !isValid {
-		log.Info("unknown connection type, skipping injection", "connectionType", connType, "connection", secretName)
-		return ConnectionInfo{}, nil, nil
+		return ConnectionInfo{}, nil, fmt.Errorf(
+			"connection %q has unsupported connection type %q; supported types are s3, uri, oci",
+			secretName, connType)
 	}
 
 	connPath := obj.GetAnnotations()[AnnotationConnectionPath]

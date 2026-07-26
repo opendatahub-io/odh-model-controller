@@ -3,6 +3,18 @@ IMG ?= quay.io/${USER}/odh-model-controller:latest
 SERVER_IMG_TAG ?= latest
 SERVER_IMG ?= quay.io/${USER}/odh-model-serving-api:${SERVER_IMG_TAG}
 NAMESPACE ?= opendatahub
+# KServe OCP e2e deploys ODH MC via manual kustomize into the kserve namespace.
+# OpenShift CI exports NAMESPACE to the build pod namespace (ci-op-*), which must not
+# be used for post-KServe model-serving-api / controller e2e tests.
+KSERVE_E2E_NAMESPACE ?= kserve
+# Upstream Go for post-KServe OCP e2e. Prow ships Red Hat Go with GOTOOLCHAIN=local
+# forced, which cannot satisfy go.mod (env overrides are ignored by RH Go).
+E2E_GO_VERSION ?= 1.25.8
+# Official checksums from https://go.dev/dl/?mode=json&include=all (go1.25.8).
+E2E_GO_SHA256_AMD64 ?= ceb5e041bbc3893846bd1614d76cb4681c91dadee579426cf21a63f2d7e03be6
+E2E_GO_SHA256_ARM64 ?= 7d137f59f66bb93f40a6b2b11e713adc2a9d0c8d9ae581718e3fad19e5295dc7
+E2E_GO_ROOT = $(LOCALBIN)/go$(E2E_GO_VERSION)
+E2E_GO = $(E2E_GO_ROOT)/bin/go
 # ENVTEST_K8S_VERSION refers to the version of kubebuilder assets to be downloaded by envtest binary.
 # Derived from the effective k8s.io/api module version (respecting replace directives in go.mod).
 ENVTEST_K8S_VERSION ?= $(shell go list -m -f '{{ if .Replace }}{{ .Replace.Version }}{{ else }}{{ .Version }}{{ end }}' k8s.io/api | awk -F'[v.]' '{printf "1.%d", $$3}')
@@ -134,16 +146,37 @@ test-e2e: manifests generate fmt vet ## Run the e2e tests. Expected an isolated 
 	}
 	POD_NAMESPACE=default go test ./test/e2e/ -v -ginkgo.v
 
+.PHONY: ensure-e2e-go
+ensure-e2e-go: $(LOCALBIN) ## Download upstream Go for post-KServe OCP e2e (bypasses RH Go GOTOOLCHAIN=local).
+	@if [ -x '$(E2E_GO)' ] && '$(E2E_GO)' version | grep -Fq 'go$(E2E_GO_VERSION) '; then \
+		echo "Using cached upstream Go $(E2E_GO_VERSION) at $(E2E_GO)"; \
+	else \
+		arch=$$(uname -m); \
+		case "$$arch" in \
+			x86_64) arch=amd64; sha='$(E2E_GO_SHA256_AMD64)';; \
+			aarch64|arm64) arch=arm64; sha='$(E2E_GO_SHA256_ARM64)';; \
+			*) echo "unsupported arch: $$arch"; exit 1;; \
+		esac; \
+		echo "Downloading upstream Go $(E2E_GO_VERSION).$${arch} (Prow RH Go forces GOTOOLCHAIN=local)..."; \
+		rm -rf '$(E2E_GO_ROOT)' '$(LOCALBIN)/go' '$(LOCALBIN)/go.tar.gz'; \
+		curl -fsSL -o '$(LOCALBIN)/go.tar.gz' "https://go.dev/dl/go$(E2E_GO_VERSION).linux-$${arch}.tar.gz"; \
+		echo "$${sha}  $(LOCALBIN)/go.tar.gz" | sha256sum -c -; \
+		tar -C '$(LOCALBIN)' -xzf '$(LOCALBIN)/go.tar.gz'; \
+		rm -f '$(LOCALBIN)/go.tar.gz'; \
+		mv '$(LOCALBIN)/go' '$(E2E_GO_ROOT)'; \
+		'$(E2E_GO)' version; \
+	fi
+
 .PHONY: test-e2e-server
-test-e2e-server: ## Run model-serving-api e2e tests. Requires the server deployed and oc logged in.
+test-e2e-server: ensure-e2e-go ## Run model-serving-api e2e tests. Requires the server deployed and oc logged in.
 	@echo "Creating passthrough routes for model-serving-api..."
 	@oc create route passthrough model-serving-api-e2e \
 		--service=model-serving-api --port=https -n '$(NAMESPACE)' 2>/dev/null || true
 	@oc create route passthrough model-serving-api-metrics-e2e \
 		--service=model-serving-api --port=metrics -n '$(NAMESPACE)' 2>/dev/null || true
-	@trap 'echo "Cleaning up routes..."; \
-		oc delete route model-serving-api-e2e -n $(NAMESPACE) 2>/dev/null || true; \
-		oc delete route model-serving-api-metrics-e2e -n $(NAMESPACE) 2>/dev/null || true' EXIT; \
+	@trap "echo \"Cleaning up routes...\"; \
+		oc delete route model-serving-api-e2e -n '$(NAMESPACE)' 2>/dev/null || true; \
+		oc delete route model-serving-api-metrics-e2e -n '$(NAMESPACE)' 2>/dev/null || true" EXIT; \
 	echo "Waiting for routes to be admitted..." && \
 	oc wait --for='jsonpath={.status.ingress[0].conditions[?(@.type=="Admitted")].status}=True' \
 		route/model-serving-api-e2e -n '$(NAMESPACE)' --timeout=60s && \
@@ -155,13 +188,15 @@ test-e2e-server: ## Run model-serving-api e2e tests. Requires the server deploye
 		-o jsonpath='{.spec.host}') && \
 	echo "SERVER_URL=$$MODEL_SERVING_API_URL" && \
 	echo "METRICS_URL=$$MODEL_SERVING_API_METRICS_URL" && \
+	echo "Using $$('$(E2E_GO)' version)" && \
 	MODEL_SERVING_API_URL=$$MODEL_SERVING_API_URL \
 	MODEL_SERVING_API_METRICS_URL=$$MODEL_SERVING_API_METRICS_URL \
-		go test -v -tags=e2e -timeout=10m -parallel=12 ./server/test/e2e/ -v -count=1
+	'$(E2E_GO)' test -v -tags=e2e -timeout=10m -parallel=12 ./server/test/e2e/ -v -count=1
 
 .PHONY: test-e2e-controller
-test-e2e-controller: ## Run controller e2e tests. Requires controller + gateway + Authorino deployed.
-	go test -v -tags=e2e -timeout=10m -parallel=12 ./internal/controller/test/e2e/ -count=1
+test-e2e-controller: ensure-e2e-go ## Run controller e2e tests. Requires controller + gateway + Authorino deployed.
+	@echo "Using $$('$(E2E_GO)' version)"
+	'$(E2E_GO)' test -v -tags=e2e -timeout=10m -parallel=12 ./internal/controller/test/e2e/ -count=1
 
 .PHONY: e2e-kserve-overlay
 e2e-kserve-overlay: kustomize ## Create a kustomize overlay injecting the controller image for e2e tests.
@@ -195,8 +230,9 @@ test-e2e-kserve-ocp: e2e-kserve-overlay ## Run KServe e2e tests on OpenShift.
 	echo "ODH_MC_MANIFEST_SOURCE=$$ODH_MC_MANIFEST_SOURCE" && \
 	echo "=== Running KServe E2E Tests ====== '$(KSERVE_E2E_TEST_ARGS)'" && \
 	./test/scripts/openshift-ci/run-e2e-tests.sh $(KSERVE_E2E_TEST_ARGS)
-	$(MAKE) test-e2e-server
-	$(MAKE) test-e2e-controller
+	# Post-KServe: model-serving-api e2e only. Controller e2e needs Gateway
+	# openshift-ingress/openshift-ai-inference + Authorino, which this path does not install.
+	$(MAKE) test-e2e-server NAMESPACE="$(KSERVE_E2E_NAMESPACE)"
 
 .PHONY: lint
 lint: golangci-lint ## Run golangci-lint linter

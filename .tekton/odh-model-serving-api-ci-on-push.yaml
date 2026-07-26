@@ -11,7 +11,7 @@ metadata:
       == "main"
   creationTimestamp: null
   labels:
-    appstudio.openshift.io/application: opendatahub-builds
+    appstudio.openshift.io/application: opendatahub-release
     appstudio.openshift.io/component: odh-model-serving-api-ci
     pipelines.appstudio.openshift.io/type: build
   name: odh-model-serving-api-ci-on-push
@@ -28,6 +28,10 @@ spec:
     value: Containerfile.server
   - name: path-context
     value: .
+  - name: additional-tags
+    value:
+    - 'odh-stable'
+    - 'odh-stable-{{revision}}'
   pipelineRef:
     resolver: git
     params:

@@ -101,14 +101,15 @@ var _ = Describe("InferenceService ConnectionsAPI Defaulter", func() {
 			Expect(isvc.Spec.Predictor.ImagePullSecrets).To(BeEmpty())
 		})
 
-		It("skips injection when secret has no connection type annotation", func() {
+		It("returns error when secret has no connection type annotation", func() {
 			secret := &corev1.Secret{ObjectMeta: metav1.ObjectMeta{Name: "s", Namespace: defaultNS}}
 			isvc := buildISVC(map[string]string{connectionapi.AnnotationConnections: "s"})
-			Expect(newISVCDefaulter(newDefaulterFakeClient(secret)).Default(defaultCtx(admissionv1.Create, nil, false), isvc)).To(Succeed())
-			Expect(isvc.Spec.Predictor.Model).To(BeNil())
+			err := newISVCDefaulter(newDefaulterFakeClient(secret)).Default(defaultCtx(admissionv1.Create, nil, false), isvc)
+			Expect(err).To(HaveOccurred())
+			Expect(err.Error()).To(ContainSubstring(connectionapi.AnnotationConnectionTypeProtocol))
 		})
 
-		It("skips injection when secret has an unknown connection type", func() {
+		It("returns error when secret has an unknown connection type", func() {
 			secret := &corev1.Secret{
 				ObjectMeta: metav1.ObjectMeta{
 					Name: "s", Namespace: defaultNS,
@@ -116,8 +117,9 @@ var _ = Describe("InferenceService ConnectionsAPI Defaulter", func() {
 				},
 			}
 			isvc := buildISVC(map[string]string{connectionapi.AnnotationConnections: "s"})
-			Expect(newISVCDefaulter(newDefaulterFakeClient(secret)).Default(defaultCtx(admissionv1.Create, nil, false), isvc)).To(Succeed())
-			Expect(isvc.Spec.Predictor.Model).To(BeNil())
+			err := newISVCDefaulter(newDefaulterFakeClient(secret)).Default(defaultCtx(admissionv1.Create, nil, false), isvc)
+			Expect(err).To(HaveOccurred())
+			Expect(err.Error()).To(ContainSubstring("exotic"))
 		})
 
 		It("returns error when referenced secret does not exist", func() {

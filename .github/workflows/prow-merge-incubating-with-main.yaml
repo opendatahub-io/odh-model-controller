@@ -1,69 +1,76 @@
-name: "Prow merge incubating to main"
+# Caller workflow for the sync-branches action.
+# Defines the schedule and defaults for syncing incubating -> main.
+
+name: Sync incubating to main
 
 on:
+  schedule:
+    # Weekly sync to keep the release branch reasonably close to incubating,
+    # reducing the size of each merge and catching integration issues early.
+    - cron: '0 8 * * 3'
+    # Every Friday at 06:00 UTC (08:00 CEST). The schedule-gate job checks
+    # whether this Friday falls on a 4-week boundary starting from
+    # CODE_FREEZE_EPOCH, matching the project's code-freeze cadence.
+    - cron: '0 6 * * 5'
   workflow_dispatch:
+    inputs:
+      source_tag:
+        description: 'Image tag used on the source branch'
+        required: false
+        default: 'odh-incubating'
+      release_tag:
+        description: 'Image tag for the release branch'
+        required: false
+        default: 'odh-stable'
 
 concurrency:
   group: sync-incubating-to-main
   cancel-in-progress: false
 
 env:
-  SOURCE_BRANCH: "incubating"
-  TARGET_BRANCH: "main"
-
-permissions:
-  contents: write
-  pull-requests: write
+  # First code-freeze date. The Friday schedule runs every 4 weeks
+  # from this epoch. Update when the cadence shifts.
+  CODE_FREEZE_EPOCH: '2026-07-24'
 
 jobs:
-  auto-merge:
-    if: github.ref == 'refs/heads/incubating'
+  # Cron cannot express "every 4 weeks", so the Friday schedule fires
+  # weekly. This job skips Fridays that don't land on the 4-week
+  # code-freeze cadence. Wednesday runs and manual triggers pass through.
+  schedule-gate:
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    permissions: {}
+    outputs:
+      skip: ${{ steps.check.outputs.skip }}
     steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-
-      - name: Create sync PR instead of direct push
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      - name: Check 4-week cadence
+        id: check
+        if: github.event_name == 'schedule'
         run: |
-          set -euo pipefail
-          git fetch origin "$TARGET_BRANCH"
-          git fetch origin "$SOURCE_BRANCH"
-
-          # Skip if nothing to merge
-          if git merge-base --is-ancestor "origin/$SOURCE_BRANCH" "origin/$TARGET_BRANCH"; then
-            echo "Nothing to merge — $SOURCE_BRANCH is already merged into $TARGET_BRANCH"
-            exit 0
+          DAY_OF_WEEK=$(date +%u)
+          # 5 = Friday: only run on 4-week code-freeze boundaries
+          if [ "$DAY_OF_WEEK" -eq 5 ]; then
+            EPOCH=$(date -d "$CODE_FREEZE_EPOCH" +%s)
+            TODAY=$(date -d "$(date +%Y-%m-%d)" +%s)
+            WEEKS_SINCE=$(( (TODAY - EPOCH) / 604800 ))
+            if (( WEEKS_SINCE < 0 || WEEKS_SINCE % 4 != 0 )); then
+              echo "Not on a 4-week boundary from $CODE_FREEZE_EPOCH, skipping"
+              echo "skip=true" >> "$GITHUB_OUTPUT"
+            fi
           fi
 
-          # Skip if a sync PR already exists
-          SYNC_BRANCH="sync/merge-${SOURCE_BRANCH}-to-${TARGET_BRANCH}"
-          EXISTING_PR=$(gh pr list --base "$TARGET_BRANCH" --head "$SYNC_BRANCH" --state open --json number -q '.[0].number' || true)
-          if [ -n "$EXISTING_PR" ]; then
-            echo "Sync PR already exists: #$EXISTING_PR"
-            exit 0
-          fi
-
-          # Configure git
-          git config user.name "github-actions[bot]"
-          git config user.email "github-actions[bot]@users.noreply.github.com"
-
-          # Create sync branch and merge
-          git checkout -b "$SYNC_BRANCH" "origin/$TARGET_BRANCH"
-          git merge --no-ff "origin/$SOURCE_BRANCH"
-
-          # Push and create PR
-          git push --force origin "$SYNC_BRANCH"
-
-          PR_URL=$(gh pr create \
-            --base "$TARGET_BRANCH" \
-            --head "$SYNC_BRANCH" \
-            --title "Merge $SOURCE_BRANCH to $TARGET_BRANCH" \
-            --body "Automated merge of $SOURCE_BRANCH into $TARGET_BRANCH" \
-            --label "tide/merge-method-merge")
-
-          echo "Created sync PR: $PR_URL"
+  sync:
+    needs: schedule-gate
+    if: needs.schedule-gate.outputs.skip != 'true'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: write
+      issues: write
+    steps:
+      - uses: opendatahub-io/kserve/.github/actions/sync-branches@master
+        with:
+          source_branch: incubating
+          source_tag: ${{ inputs.source_tag || 'odh-incubating' }}
+          release_branch: main
+          release_tag: ${{ inputs.release_tag || 'odh-stable' }}
+          config_path: config/base
