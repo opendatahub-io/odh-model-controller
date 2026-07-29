@@ -23,6 +23,7 @@ import (
 	kservev1alpha2 "github.com/kserve/kserve/pkg/apis/serving/v1alpha2"
 	kuadrantv1 "github.com/kuadrant/kuadrant-operator/api/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
+	"k8s.io/apimachinery/pkg/api/meta"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -63,6 +64,10 @@ func (r *KserveAuthPolicyReconciler) Reconcile(ctx context.Context, log logr.Log
 	log.V(1).Info("Starting AuthPolicy reconciliation for LLMInferenceService")
 
 	if err := r.reconcileHTTPRouteAuthpolicy(ctx, log, llmisvc); err != nil {
+		if meta.IsNoMatchError(err) {
+			log.V(1).Info("AuthPolicy CRD not available, skipping reconciliation")
+			return nil
+		}
 		log.Error(err, "Failed to reconcile HTTPRoute AuthPolicy")
 		return err
 	}
@@ -124,6 +129,10 @@ func (r *KserveAuthPolicyReconciler) Delete(ctx context.Context, log logr.Logger
 	log.V(1).Info("Deleting AuthPolicies for LLMInferenceService")
 
 	if err := r.deleteHTTPRouteAuthPolicies(ctx, log, llmisvc); err != nil {
+		if meta.IsNoMatchError(err) {
+			log.V(1).Info("AuthPolicy CRD not available, nothing to delete")
+			return nil
+		}
 		return err
 	}
 
