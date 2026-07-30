@@ -19,7 +19,6 @@ package serving
 import (
 	"context"
 	"errors"
-	"strings"
 
 	"github.com/go-logr/logr"
 	"github.com/hashicorp/go-multierror"
@@ -41,7 +40,6 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/handler"
 	"sigs.k8s.io/controller-runtime/pkg/log"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
-	"sigs.k8s.io/yaml"
 
 	"github.com/opendatahub-io/odh-model-controller/internal/controller/constants"
 	"github.com/opendatahub-io/odh-model-controller/internal/controller/serving/reconcilers"
@@ -129,10 +127,9 @@ func (r *InferenceServiceReconciler) ReconcileServing(ctx context.Context, req c
 		// registering our finalizer.
 		logger.Info("Adding Finalizer")
 		if !controllerutil.ContainsFinalizer(isvc, constants.InferenceServiceODHFinalizerName) {
+			patch := client.MergeFromWithOptions(isvc.DeepCopy(), client.MergeFromWithOptimisticLock{})
 			controllerutil.AddFinalizer(isvc, constants.InferenceServiceODHFinalizerName)
-			patchYaml := "metadata:\n  finalizers: [" + strings.Join(isvc.ObjectMeta.Finalizers, ",") + "]"
-			patchJson, _ := yaml.YAMLToJSON([]byte(patchYaml))
-			if err := r.Patch(ctx, isvc, client.RawPatch(types.MergePatchType, patchJson)); err != nil {
+			if err := r.Patch(ctx, isvc, patch); err != nil {
 				return reconcile.Result{}, err
 			}
 		}
@@ -153,10 +150,9 @@ func (r *InferenceServiceReconciler) ReconcileServing(ctx context.Context, req c
 				logger.Error(merr, "Cleanup failed, keeping finalizer to allow retry")
 				return reconcile.Result{}, merr
 			}
+			patch := client.MergeFromWithOptions(isvc.DeepCopy(), client.MergeFromWithOptimisticLock{})
 			controllerutil.RemoveFinalizer(isvc, constants.InferenceServiceODHFinalizerName)
-			patchYaml := "metadata:\n  finalizers: [" + strings.Join(isvc.ObjectMeta.Finalizers, ",") + "]"
-			patchJson, _ := yaml.YAMLToJSON([]byte(patchYaml))
-			if err := r.Patch(ctx, isvc, client.RawPatch(types.MergePatchType, patchJson)); err != nil {
+			if err := r.Patch(ctx, isvc, patch); err != nil {
 				return reconcile.Result{}, err
 			}
 
