@@ -75,7 +75,7 @@ func (r *NimHttpClientMock) Do(req *http.Request) (*http.Response, error) {
 		if authHeaderParts[0] == "Bearer" && authHeaderParts[1] == "this-is-my-fake-token-please-dont-share-it-with-anyone" {
 			if req.Header.Get("Accept") == "application/vnd.oci.image.index.v1+json" {
 				// the token is returned by the nvcr.io/proxy-auth endpoint (stubbed), check testdata/runtime_token_response.json
-				return &http.Response{StatusCode: 200}, nil
+				return &http.Response{StatusCode: 200, Body: http.NoBody}, nil
 			}
 		}
 	}
@@ -126,5 +126,5 @@ func (r *NimHttpClientMock) Do(req *http.Request) (*http.Response, error) {
 		}
 	}
 
-	return &http.Response{StatusCode: 500}, errors.New("if not intentional, perhaps you forgot to stub something")
+	return &http.Response{StatusCode: 500, Body: http.NoBody}, errors.New("if not intentional, perhaps you forgot to stub something")
 }

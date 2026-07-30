@@ -20,7 +20,6 @@ import (
 	"crypto/tls"
 	"encoding/base64"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -188,13 +187,13 @@ func validatePersonalApiKey(logger logr.Logger, apiKey string) error {
 	req.Header.Add("Content-Type", "application/x-www-form-urlencoded")
 	req.Header.Add("Authorization", fmt.Sprintf("Bearer %s", apiKey))
 
-	resp, respErr := handleRequest(logger, req)
-	if respErr != nil {
-		return respErr
+	statusCode, _, err := handleRequest(logger, req)
+	if err != nil {
+		return err
 	}
 
-	if resp.StatusCode != http.StatusOK {
-		return fmt.Errorf("got response %s", resp.Status)
+	if statusCode != http.StatusOK {
+		return fmt.Errorf("got response %d", statusCode)
 	}
 	return nil
 }
@@ -209,12 +208,12 @@ func validateLegacyApiKey(logger logr.Logger, apiKey string, runtimes []NimRunti
 			return tokenErr
 		}
 
-		manifestResp, manifestErr := attemptToPullManifest(logger, runtime, tokenResp)
+		manifestStatus, manifestErr := attemptToPullManifest(logger, runtime, tokenResp)
 		if manifestErr != nil {
 			return manifestErr
 		}
 
-		switch manifestResp.StatusCode {
+		switch manifestStatus {
 		case http.StatusUnavailableForLegalReasons:
 			continue
 		case http.StatusOK:
@@ -268,18 +267,13 @@ func getNimRuntimes(logger logr.Logger, runtimes []NimRuntime, page, pageSize in
 
 	req.URL.RawQuery = query.Encode()
 
-	resp, respErr := handleRequest(logger, req)
-	if respErr != nil {
-		return runtimes, respErr
+	statusCode, body, err := handleRequest(logger, req)
+	if err != nil {
+		return runtimes, err
 	}
 
-	if resp.StatusCode != http.StatusOK {
-		return runtimes, errors.New(resp.Status)
-	}
-
-	body, bodyErr := io.ReadAll(resp.Body)
-	if bodyErr != nil {
-		return runtimes, bodyErr
+	if statusCode != http.StatusOK {
+		return runtimes, fmt.Errorf("got response %d", statusCode)
 	}
 
 	catRes := &NimCatalogResponse{}
@@ -349,18 +343,13 @@ func getNgcToken(logger logr.Logger, apiKey string) (*NimTokenResponse, error) {
 
 // requestToken is used for sending a token requests and parse the response
 func requestToken(logger logr.Logger, req *http.Request) (*NimTokenResponse, error) {
-	resp, respErr := handleRequest(logger, req)
-	if respErr != nil {
-		return nil, respErr
+	statusCode, body, err := handleRequest(logger, req)
+	if err != nil {
+		return nil, err
 	}
 
-	if resp.StatusCode != http.StatusOK {
-		return nil, errors.New(resp.Status)
-	}
-
-	body, bodyErr := io.ReadAll(resp.Body)
-	if bodyErr != nil {
-		return nil, bodyErr
+	if statusCode != http.StatusOK {
+		return nil, fmt.Errorf("got response %d", statusCode)
 	}
 
 	tokenResponse := &NimTokenResponse{}
@@ -372,16 +361,17 @@ func requestToken(logger logr.Logger, req *http.Request) (*NimTokenResponse, err
 }
 
 // attemptToPullManifest is used for pulling a runtime for verifying access
-func attemptToPullManifest(logger logr.Logger, runtime NimRuntime, tokenResp *NimTokenResponse) (*http.Response, error) {
+func attemptToPullManifest(logger logr.Logger, runtime NimRuntime, tokenResp *NimTokenResponse) (int, error) {
 	req, reqErr := http.NewRequest("GET", fmt.Sprintf(nimGetRuntimeManifestFmt, runtime.Resource, runtime.Version), nil)
 	if reqErr != nil {
-		return nil, reqErr
+		return 0, reqErr
 	}
 
 	req.Header.Add("Authorization", fmt.Sprintf("Bearer %s", tokenResp.Token))
 	req.Header.Add("Accept", "application/vnd.oci.image.index.v1+json")
 
-	return handleRequest(logger, req)
+	statusCode, _, err := handleRequest(logger, req)
+	return statusCode, err
 }
 
 // getModelData is used for fetching NIM model data for the given runtime
@@ -394,24 +384,18 @@ func getModelData(logger logr.Logger, runtime NimRuntime, key string) (*NimModel
 
 	req.Header.Add("Authorization", fmt.Sprintf("Bearer %s", key))
 
-	resp, respErr := handleRequest(logger, req)
-	if respErr != nil {
+	statusCode, body, err := handleRequest(logger, req)
+	if err != nil {
 		return nil, ""
 	}
 
-	if resp.StatusCode != http.StatusOK {
-		sErr := fmt.Errorf("got response %s", resp.Status)
-		if resp.StatusCode == http.StatusUnavailableForLegalReasons {
+	if statusCode != http.StatusOK {
+		sErr := fmt.Errorf("got response %d", statusCode)
+		if statusCode == http.StatusUnavailableForLegalReasons {
 			logger.Info("content not available for legal reasons")
 		} else {
 			logger.Error(sErr, "unexpected response status code")
 		}
-		return nil, ""
-	}
-
-	body, bodyErr := io.ReadAll(resp.Body)
-	if bodyErr != nil {
-		logger.Error(bodyErr, "failed to read response body")
 		return nil, ""
 	}
 
@@ -429,27 +413,33 @@ func getModelData(logger logr.Logger, runtime NimRuntime, key string) (*NimModel
 	return model, string(minimalJSON)
 }
 
-func handleRequest(logger logr.Logger, req *http.Request) (*http.Response, error) {
+// maxNIMResponseBytes caps how much we read from any NVIDIA API response.
+// Real payloads are single-digit KiB; 10 MiB is generous headroom.
+const maxNIMResponseBytes = 10 << 20
+
+// handleRequest executes req and returns the status code and body.
+// Body-read errors are logged but not propagated; callers that need the
+// body will fail at json.Unmarshal, status-only callers are unaffected.
+func handleRequest(logger logr.Logger, req *http.Request) (int, []byte, error) {
 	logger.V(1).Info(fmt.Sprintf("sending api request %s", req.URL))
 
 	resp, doErr := NimHttpClient.Do(req)
 	if doErr != nil {
 		logger.Error(doErr, "failed to send request")
-		return nil, doErr
+		return 0, nil, doErr
 	}
+	defer resp.Body.Close() //nolint:errcheck
 
 	logger.V(1).Info(fmt.Sprintf("got api response %s", resp.Status))
-	if resp.StatusCode != http.StatusOK {
-		if resp.ContentLength > 0 {
-			body, err := io.ReadAll(resp.Body)
-			if err != nil {
-				logger.V(1).Error(err, "failed to parse body")
-			} else {
-				logger.V(1).Info(fmt.Sprintf("got body %s", string(body)))
-			}
-		}
+
+	body, readErr := io.ReadAll(io.LimitReader(resp.Body, maxNIMResponseBytes))
+	if readErr != nil {
+		logger.V(1).Error(readErr, "failed to read response body")
+	} else if resp.StatusCode != http.StatusOK {
+		logger.V(1).Info("non-OK response", "status", resp.StatusCode, "bodyLength", len(body))
 	}
-	return resp, nil
+
+	return resp.StatusCode, body, nil
 }
 
 func isPersonalApiKey(apiKey string) bool {
