@@ -149,9 +149,9 @@ func (r *InferenceServiceReconciler) ReconcileServing(ctx context.Context, req c
 			if err1 != nil {
 				deleteErrors = multierror.Append(deleteErrors, err1)
 			}
-			if deleteErrors.ErrorOrNil() != nil {
-				logger.Error(deleteErrors, "Cleanup failed, keeping finalizer to allow retry")
-				return reconcile.Result{}, deleteErrors.ErrorOrNil()
+			if merr := deleteErrors.ErrorOrNil(); merr != nil {
+				logger.Error(merr, "Cleanup failed, keeping finalizer to allow retry")
+				return reconcile.Result{}, merr
 			}
 			controllerutil.RemoveFinalizer(isvc, constants.InferenceServiceODHFinalizerName)
 			patchYaml := "metadata:\n  finalizers: [" + strings.Join(isvc.ObjectMeta.Finalizers, ",") + "]"

@@ -60,7 +60,7 @@ var _ = Describe("InferenceService finalizer during deletion", func() {
 		}
 	}
 
-	It("should retain the finalizer when deletion cleanup fails", func() {
+	It("should retain the finalizer when namespace cleanup fails", func() {
 		isvc := newDeletingISVC("test-ns", "test-isvc")
 
 		fakeClient := fake.NewClientBuilder().
@@ -68,7 +68,10 @@ var _ = Describe("InferenceService finalizer during deletion", func() {
 			WithObjects(isvc).
 			WithInterceptorFuncs(interceptor.Funcs{
 				List: func(ctx context.Context, c client.WithWatch, list client.ObjectList, opts ...client.ListOption) error {
-					return fmt.Errorf("simulated cleanup failure")
+					if _, ok := list.(*kservev1beta1.InferenceServiceList); ok {
+						return fmt.Errorf("simulated namespace-cleanup failure")
+					}
+					return c.List(ctx, list, opts...)
 				},
 			}).
 			Build()
