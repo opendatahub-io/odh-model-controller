@@ -289,6 +289,28 @@ var _ = Describe("KserveRawRouteReconciler", func() {
 			})
 		})
 
+		When("visibility label is set but no matching services exist", func() {
+			It("should return an error so the controller requeues", func(ctx SpecContext) {
+				isvc := createISVC(
+					map[string]string{
+						constants.KserveNetworkVisibility: constants.LabelEnableKserveRawRoute,
+					},
+				)
+
+				client := fake.NewClientBuilder().
+					WithScheme(scheme).
+					WithObjects(isvc).
+					Build()
+
+				reconciler := NewKserveRawRouteReconciler(client)
+				route, err := reconciler.createDesiredResource(ctx, log.Log, isvc)
+
+				Expect(err).To(HaveOccurred())
+				Expect(err.Error()).To(ContainSubstring("no services found"))
+				Expect(route).To(BeNil())
+			})
+		})
+
 		When("canonical predictor is missing but another predictor exists", func() {
 			It("should fall back to any component=predictor service", func(ctx SpecContext) {
 				isvc := createISVC(
