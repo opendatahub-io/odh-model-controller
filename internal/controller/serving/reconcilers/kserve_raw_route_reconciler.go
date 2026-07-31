@@ -106,9 +106,11 @@ func (r *KserveRawRouteReconciler) createDesiredResource(ctx context.Context, lo
 	serviceList := &corev1.ServiceList{}
 	labelSelector := client.MatchingLabels{constants.KserveGroupAnnotation: isvc.Name}
 	err = r.client.List(ctx, serviceList, client.InNamespace(isvc.Namespace), labelSelector)
-	if err != nil || len(serviceList.Items) == 0 {
-		log.Error(err, "Failed to fetch service for InferenceService", "InferenceService", isvc.Name)
-		return nil, err
+	if err != nil {
+		return nil, fmt.Errorf("failed to list services for InferenceService %q: %w", isvc.Name, err)
+	}
+	if len(serviceList.Items) == 0 {
+		return nil, fmt.Errorf("no services found for InferenceService %q; the backing Service may not have been created yet", isvc.Name)
 	}
 	var targetService corev1.Service
 	var predictorService, transformerService *corev1.Service
