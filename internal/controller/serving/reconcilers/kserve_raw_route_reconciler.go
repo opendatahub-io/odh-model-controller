@@ -134,7 +134,7 @@ func (r *KserveRawRouteReconciler) createDesiredResource(ctx context.Context, lo
 		return nil, fmt.Errorf("no predictor or transformer Service found for InferenceService %q", isvc.Name)
 	}
 
-	targetPort, err := setRouteTargetPort(enableSSL, &targetService)
+	targetPort, err := setRouteTargetPort(enableSSL && transformerService == nil, &targetService)
 	if err != nil {
 		return nil, err
 	}
@@ -166,7 +166,8 @@ func (r *KserveRawRouteReconciler) createDesiredResource(ctx context.Context, lo
 	// Set route timeout
 	utils.SetOpenshiftRouteTimeoutForIsvc(desiredRoute, isvc)
 
-	if enableSSL {
+	if enableSSL && transformerService == nil {
+		// Reencrypt only for predictor (kube-rbac-proxy on port 8443)
 		desiredRoute.Spec.TLS = &v1.TLSConfig{
 			Termination:                   v1.TLSTerminationReencrypt,
 			InsecureEdgeTerminationPolicy: v1.InsecureEdgeTerminationPolicyRedirect,
