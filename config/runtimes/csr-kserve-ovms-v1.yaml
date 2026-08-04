@@ -39,7 +39,7 @@ spec:
     - grpc-v2
   containers:
     - name: kserve-container
-      image: quay.io/opendatahub/openvino_model_server:2025.1-release
+      image: $(ovms-image)
       args:
         - "--model_name={{.Name}}"
         - "--port=8001"

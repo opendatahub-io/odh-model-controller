@@ -18,7 +18,7 @@ spec:
     monitoring.opendatahub.io/scrape: "true"
   containers:
     - name: kserve-container
-      image: quay.io/opendatahub/mlserver:fast
+      image: $(mlserver-image)
       env:
         - name: MLSERVER_MODEL_IMPLEMENTATION
           value: "{{.Labels.modelClass}}"
@@ -52,6 +52,13 @@ spec:
         httpGet:
           path: /v2/models/{{.Name}}/ready
           port: 8080
+      resources:
+        requests:
+          cpu: "1"
+          memory: 2Gi
+        limits:
+          cpu: "2"
+          memory: 4Gi
       ports:
         - containerPort: 8080
           protocol: TCP
