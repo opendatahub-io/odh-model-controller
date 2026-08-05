@@ -17,12 +17,14 @@ package reconcilers
 
 import (
 	"context"
+	"errors"
 	"fmt"
 
 	"github.com/go-logr/logr"
 	kservev1alpha2 "github.com/kserve/kserve/pkg/apis/serving/v1alpha2"
 	kuadrantv1 "github.com/kuadrant/kuadrant-operator/api/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
+	"k8s.io/apimachinery/pkg/api/meta"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -63,6 +65,10 @@ func (r *KserveAuthPolicyReconciler) Reconcile(ctx context.Context, log logr.Log
 	log.V(1).Info("Starting AuthPolicy reconciliation for LLMInferenceService")
 
 	if err := r.reconcileHTTPRouteAuthpolicy(ctx, log, llmisvc); err != nil {
+		if isAuthPolicyNoMatchError(err) {
+			log.V(1).Info("AuthPolicy CRD not available, skipping reconciliation")
+			return nil
+		}
 		log.Error(err, "Failed to reconcile HTTPRoute AuthPolicy")
 		return err
 	}
@@ -124,6 +130,10 @@ func (r *KserveAuthPolicyReconciler) Delete(ctx context.Context, log logr.Logger
 	log.V(1).Info("Deleting AuthPolicies for LLMInferenceService")
 
 	if err := r.deleteHTTPRouteAuthPolicies(ctx, log, llmisvc); err != nil {
+		if isAuthPolicyNoMatchError(err) {
+			log.V(1).Info("AuthPolicy CRD not available, skipping deletion")
+			return nil
+		}
 		return err
 	}
 
@@ -240,4 +250,20 @@ func (r *KserveAuthPolicyReconciler) httpRouteAuthPolicyProcessDelta(ctx context
 	}
 
 	return nil
+}
+
+func isAuthPolicyNoMatchError(err error) bool {
+	var noKind *meta.NoKindMatchError
+	if errors.As(err, &noKind) {
+		return noKind.GroupKind.Group == kuadrantv1.GroupVersion.Group &&
+			noKind.GroupKind.Kind == "AuthPolicy"
+	}
+
+	var noRes *meta.NoResourceMatchError
+	if errors.As(err, &noRes) {
+		return noRes.PartialResource.Group == kuadrantv1.GroupVersion.Group &&
+			noRes.PartialResource.Resource == "authpolicies"
+	}
+
+	return false
 }

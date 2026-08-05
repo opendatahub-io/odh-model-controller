@@ -17,13 +17,12 @@ limitations under the License.
 package llm_test
 
 import (
-	"context"
+	"strings"
 	"time"
 
 	kservev1alpha2 "github.com/kserve/kserve/pkg/apis/serving/v1alpha2"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
-	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/util/retry"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -50,22 +49,18 @@ var _ = Describe("Auth Posture Enforcement", func() {
 		}
 	})
 
-	countAuthPostureMismatchEvents := func(ctx context.Context, namespace string) (int32, error) {
-		eventList := &corev1.EventList{}
-		if err := envTest.Client.List(ctx, eventList, client.InNamespace(namespace)); err != nil {
-			return 0, err
-		}
-		var total int32
-		for _, ev := range eventList.Items {
-			if ev.Reason == "AuthPostureMismatch" {
-				if ev.Count > 0 {
-					total += ev.Count
-				} else {
-					total++
+	drainEvents := func(reason string) []string {
+		var matched []string
+		for {
+			select {
+			case ev := <-eventRecorder.Events:
+				if strings.Contains(ev, reason) {
+					matched = append(matched, ev)
 				}
+			default:
+				return matched
 			}
 		}
-		return total, nil
 	}
 
 	Context("routing group auth posture consistency", func() {
@@ -83,14 +78,12 @@ var _ = Describe("Auth Posture Enforcement", func() {
 			Expect(envTest.Client.Create(ctx, svc1)).Should(Succeed())
 			Expect(envTest.Client.Create(ctx, svc2)).Should(Succeed())
 
-			Consistently(func(g Gomega) {
-				count, err := countAuthPostureMismatchEvents(ctx, testNs)
-				g.Expect(err).NotTo(HaveOccurred())
-				g.Expect(count).To(BeZero())
+			Consistently(func() []string {
+				return drainEvents("AuthPostureMismatch")
 			}).WithContext(ctx).
 				WithTimeout(2 * time.Second).
 				WithPolling(300 * time.Millisecond).
-				Should(Succeed())
+				Should(BeEmpty())
 		})
 
 		It("should emit Warning events when two members have different auth posture", func(ctx SpecContext) {
@@ -107,11 +100,9 @@ var _ = Describe("Auth Posture Enforcement", func() {
 			Expect(envTest.Client.Create(ctx, svc1)).Should(Succeed())
 			Expect(envTest.Client.Create(ctx, svc2)).Should(Succeed())
 
-			Eventually(func(g Gomega) {
-				count, err := countAuthPostureMismatchEvents(ctx, testNs)
-				g.Expect(err).NotTo(HaveOccurred())
-				g.Expect(count).To(BeNumerically(">=", 1))
-			}).WithContext(ctx).Should(Succeed())
+			Eventually(func() []string {
+				return drainEvents("AuthPostureMismatch")
+			}).WithContext(ctx).ShouldNot(BeEmpty())
 		})
 
 		It("should not emit events for standalone services without a routing group", func(ctx SpecContext) {
@@ -121,14 +112,12 @@ var _ = Describe("Auth Posture Enforcement", func() {
 			)
 			Expect(envTest.Client.Create(ctx, svc)).Should(Succeed())
 
-			Consistently(func(g Gomega) {
-				count, err := countAuthPostureMismatchEvents(ctx, testNs)
-				g.Expect(err).NotTo(HaveOccurred())
-				g.Expect(count).To(BeZero())
+			Consistently(func() []string {
+				return drainEvents("AuthPostureMismatch")
 			}).WithContext(ctx).
 				WithTimeout(2 * time.Second).
 				WithPolling(300 * time.Millisecond).
-				Should(Succeed())
+				Should(BeEmpty())
 		})
 
 		It("should emit Warning events when multiple members have mixed auth postures", func(ctx SpecContext) {
@@ -147,11 +136,9 @@ var _ = Describe("Auth Posture Enforcement", func() {
 			)
 			Expect(envTest.Client.Create(ctx, svc4)).Should(Succeed())
 
-			Eventually(func(g Gomega) {
-				count, err := countAuthPostureMismatchEvents(ctx, testNs)
-				g.Expect(err).NotTo(HaveOccurred())
-				g.Expect(count).To(BeNumerically(">=", 1))
-			}).WithContext(ctx).Should(Succeed())
+			Eventually(func() []string {
+				return drainEvents("AuthPostureMismatch")
+			}).WithContext(ctx).ShouldNot(BeEmpty())
 		})
 
 		It("should stop emitting events when annotation is fixed to match", func(ctx SpecContext) {
@@ -168,11 +155,9 @@ var _ = Describe("Auth Posture Enforcement", func() {
 			Expect(envTest.Client.Create(ctx, svc1)).Should(Succeed())
 			Expect(envTest.Client.Create(ctx, svc2)).Should(Succeed())
 
-			Eventually(func(g Gomega) {
-				count, err := countAuthPostureMismatchEvents(ctx, testNs)
-				g.Expect(err).NotTo(HaveOccurred())
-				g.Expect(count).To(BeNumerically(">=", 1))
-			}).WithContext(ctx).Should(Succeed())
+			Eventually(func() []string {
+				return drainEvents("AuthPostureMismatch")
+			}).WithContext(ctx).ShouldNot(BeEmpty())
 
 			err := retry.RetryOnConflict(retry.DefaultRetry, func() error {
 				Expect(envTest.Client.Get(ctx, client.ObjectKeyFromObject(svc2), svc2)).To(Succeed())
@@ -181,17 +166,14 @@ var _ = Describe("Auth Posture Enforcement", func() {
 			})
 			Expect(err).NotTo(HaveOccurred())
 
-			snapshotCount, err := countAuthPostureMismatchEvents(ctx, testNs)
-			Expect(err).NotTo(HaveOccurred())
+			drainEvents("AuthPostureMismatch")
 
-			Consistently(func(g Gomega) {
-				count, err := countAuthPostureMismatchEvents(ctx, testNs)
-				g.Expect(err).NotTo(HaveOccurred())
-				g.Expect(count).To(BeNumerically("<=", snapshotCount))
+			Consistently(func() []string {
+				return drainEvents("AuthPostureMismatch")
 			}).WithContext(ctx).
 				WithTimeout(2 * time.Second).
 				WithPolling(300 * time.Millisecond).
-				Should(Succeed())
+				Should(BeEmpty())
 		})
 
 		It("should exclude terminating members from mismatch detection", func(ctx SpecContext) {
@@ -208,11 +190,9 @@ var _ = Describe("Auth Posture Enforcement", func() {
 			Expect(envTest.Client.Create(ctx, svc1)).Should(Succeed())
 			Expect(envTest.Client.Create(ctx, svc2)).Should(Succeed())
 
-			Eventually(func(g Gomega) {
-				count, err := countAuthPostureMismatchEvents(ctx, testNs)
-				g.Expect(err).NotTo(HaveOccurred())
-				g.Expect(count).To(BeNumerically(">=", 1))
-			}).WithContext(ctx).Should(Succeed())
+			Eventually(func() []string {
+				return drainEvents("AuthPostureMismatch")
+			}).WithContext(ctx).ShouldNot(BeEmpty())
 
 			// Mark svc2 with a deletion timestamp by setting a finalizer then deleting
 			err := retry.RetryOnConflict(retry.DefaultRetry, func() error {
@@ -240,18 +220,15 @@ var _ = Describe("Auth Posture Enforcement", func() {
 			})
 			Expect(err).NotTo(HaveOccurred())
 
-			snapshotCount, err := countAuthPostureMismatchEvents(ctx, testNs)
-			Expect(err).NotTo(HaveOccurred())
+			drainEvents("AuthPostureMismatch")
 
 			// With svc2 terminating, svc1 is the only active member - no mismatch possible
-			Consistently(func(g Gomega) {
-				count, err := countAuthPostureMismatchEvents(ctx, testNs)
-				g.Expect(err).NotTo(HaveOccurred())
-				g.Expect(count).To(BeNumerically("<=", snapshotCount))
+			Consistently(func() []string {
+				return drainEvents("AuthPostureMismatch")
 			}).WithContext(ctx).
 				WithTimeout(2 * time.Second).
 				WithPolling(300 * time.Millisecond).
-				Should(Succeed())
+				Should(BeEmpty())
 
 			// Clean up finalizer so envtest can fully delete
 			Expect(envTest.Client.Get(ctx, client.ObjectKeyFromObject(svc2), svc2)).To(Succeed())

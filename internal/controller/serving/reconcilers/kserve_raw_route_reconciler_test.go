@@ -213,7 +213,7 @@ var _ = Describe("KserveRawRouteReconciler", func() {
 		})
 
 		When("transformer service exists", func() {
-			It("should target transformer service", func(ctx SpecContext) {
+			It("should target transformer service with edge TLS termination", func(ctx SpecContext) {
 				isvc := createISVC(
 					map[string]string{
 						constants.KserveNetworkVisibility: constants.LabelEnableKserveRawRoute,
@@ -248,6 +248,56 @@ var _ = Describe("KserveRawRouteReconciler", func() {
 				Expect(route).NotTo(BeNil())
 				Expect(route.Spec.To.Name).To(Equal("test-transformer"))
 				Expect(route.Spec.Port.TargetPort.StrVal).To(Equal("http"))
+				Expect(route.Spec.TLS.Termination).To(Equal(routev1.TLSTerminationEdge))
+			})
+		})
+
+		When("transformer service exists and auth is enabled", func() {
+			It("should use edge TLS termination and http port instead of reencrypt", func(ctx SpecContext) {
+				isvc := createISVCWithAnnotations(
+					map[string]string{
+						constants.KserveNetworkVisibility: constants.LabelEnableKserveRawRoute,
+					},
+					map[string]string{
+						constants.EnableAuthODHAnnotation: "true",
+					},
+				)
+
+				transformerSvc := createService("test-transformer",
+					map[string]string{
+						constants.KserveGroupAnnotation: "test",
+						"component":                     "transformer",
+					},
+					[]corev1.ServicePort{
+						{Name: "http", Port: 80},
+						{Name: "https", Port: 443},
+					},
+				)
+
+				predictorSvc := createService("test-predictor",
+					map[string]string{
+						constants.KserveGroupAnnotation: "test",
+						"component":                     "predictor",
+					},
+					[]corev1.ServicePort{
+						{Name: "http", Port: 80},
+						{Name: "https", Port: 443},
+					},
+				)
+
+				client := fake.NewClientBuilder().
+					WithScheme(scheme).
+					WithObjects(isvc, transformerSvc, predictorSvc).
+					Build()
+
+				reconciler := NewKserveRawRouteReconciler(client)
+				route, err := reconciler.createDesiredResource(ctx, log.Log, isvc)
+
+				Expect(err).NotTo(HaveOccurred())
+				Expect(route).NotTo(BeNil())
+				Expect(route.Spec.To.Name).To(Equal("test-transformer"))
+				Expect(route.Spec.Port.TargetPort.StrVal).To(Equal("http"))
+				Expect(route.Spec.TLS.Termination).To(Equal(routev1.TLSTerminationEdge))
 			})
 		})
 
@@ -289,6 +339,28 @@ var _ = Describe("KserveRawRouteReconciler", func() {
 			})
 		})
 
+		When("visibility label is set but no matching services exist", func() {
+			It("should return an error so the controller requeues", func(ctx SpecContext) {
+				isvc := createISVC(
+					map[string]string{
+						constants.KserveNetworkVisibility: constants.LabelEnableKserveRawRoute,
+					},
+				)
+
+				client := fake.NewClientBuilder().
+					WithScheme(scheme).
+					WithObjects(isvc).
+					Build()
+
+				reconciler := NewKserveRawRouteReconciler(client)
+				route, err := reconciler.createDesiredResource(ctx, log.Log, isvc)
+
+				Expect(err).To(HaveOccurred())
+				Expect(err.Error()).To(ContainSubstring("no services found"))
+				Expect(route).To(BeNil())
+			})
+		})
+
 		When("canonical predictor is missing but another predictor exists", func() {
 			It("should fall back to any component=predictor service", func(ctx SpecContext) {
 				isvc := createISVC(
@@ -322,11 +394,16 @@ var _ = Describe("KserveRawRouteReconciler", func() {
 })
 
 func createISVC(labels map[string]string) *kservev1beta1.InferenceService {
+	return createISVCWithAnnotations(labels, nil)
+}
+
+func createISVCWithAnnotations(labels, annotations map[string]string) *kservev1beta1.InferenceService {
 	return &kservev1beta1.InferenceService{
 		ObjectMeta: metav1.ObjectMeta{
-			Name:      "test",
-			Namespace: "ns",
-			Labels:    labels,
+			Name:        "test",
+			Namespace:   "ns",
+			Labels:      labels,
+			Annotations: annotations,
 		},
 		Spec: kservev1beta1.InferenceServiceSpec{},
 	}

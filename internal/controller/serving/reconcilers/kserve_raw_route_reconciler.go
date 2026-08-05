@@ -106,9 +106,11 @@ func (r *KserveRawRouteReconciler) createDesiredResource(ctx context.Context, lo
 	serviceList := &corev1.ServiceList{}
 	labelSelector := client.MatchingLabels{constants.KserveGroupAnnotation: isvc.Name}
 	err = r.client.List(ctx, serviceList, client.InNamespace(isvc.Namespace), labelSelector)
-	if err != nil || len(serviceList.Items) == 0 {
-		log.Error(err, "Failed to fetch service for InferenceService", "InferenceService", isvc.Name)
-		return nil, err
+	if err != nil {
+		return nil, fmt.Errorf("failed to list services for InferenceService %q: %w", isvc.Name, err)
+	}
+	if len(serviceList.Items) == 0 {
+		return nil, fmt.Errorf("no services found for InferenceService %q; the backing Service may not have been created yet", isvc.Name)
 	}
 	var targetService corev1.Service
 	var predictorService, transformerService *corev1.Service
@@ -134,7 +136,7 @@ func (r *KserveRawRouteReconciler) createDesiredResource(ctx context.Context, lo
 		return nil, fmt.Errorf("no predictor or transformer Service found for InferenceService %q", isvc.Name)
 	}
 
-	targetPort, err := setRouteTargetPort(enableSSL, &targetService)
+	targetPort, err := setRouteTargetPort(enableSSL && transformerService == nil, &targetService)
 	if err != nil {
 		return nil, err
 	}
@@ -166,7 +168,8 @@ func (r *KserveRawRouteReconciler) createDesiredResource(ctx context.Context, lo
 	// Set route timeout
 	utils.SetOpenshiftRouteTimeoutForIsvc(desiredRoute, isvc)
 
-	if enableSSL {
+	if enableSSL && transformerService == nil {
+		// Reencrypt only for predictor (kube-rbac-proxy on port 8443)
 		desiredRoute.Spec.TLS = &v1.TLSConfig{
 			Termination:                   v1.TLSTerminationReencrypt,
 			InsecureEdgeTerminationPolicy: v1.InsecureEdgeTerminationPolicyRedirect,
