@@ -8,6 +8,7 @@ import (
 	"reflect"
 	"sort"
 	"strings"
+	"time"
 
 	"github.com/go-logr/logr"
 	kservev1alpha1 "github.com/kserve/kserve/pkg/apis/serving/v1alpha1"
@@ -360,6 +361,44 @@ func SetAvailableResourcesForApi(groupVersion string, resources *metav1.APIResou
 	}
 
 	gvResourcesCache[groupVersion] = resources
+}
+
+// ClearResourceCache removes a cached entry for the given groupVersion from the
+// discovery cache. This allows subsequent calls to GetAvailableResourcesForApi
+// to re-query the API server instead of returning a stale cached result.
+func ClearResourceCache(groupVersion string) {
+	if gvResourcesCache != nil {
+		delete(gvResourcesCache, groupVersion)
+	}
+}
+
+// IsCrdAvailableWithRetry checks if a given CRD is present in the cluster,
+// retrying with backoff if it is not immediately available. This handles the
+// race condition where the controller starts before the CRD is fully served
+// (e.g., during an Authorino Operator upgrade). Between retries, the discovery
+// cache is cleared to ensure a fresh query to the API server.
+func IsCrdAvailableWithRetry(config *rest.Config, groupVersion, kind string, maxRetries int, retryInterval time.Duration, log logr.Logger) (bool, error) {
+	for attempt := 1; attempt <= maxRetries; attempt++ {
+		available, err := IsCrdAvailable(config, groupVersion, kind)
+		if err != nil {
+			return false, err
+		}
+		if available {
+			return true, nil
+		}
+
+		if attempt < maxRetries {
+			log.Info("CRD not yet available, retrying...",
+				"kind", kind,
+				"groupVersion", groupVersion,
+				"attempt", attempt,
+				"maxRetries", maxRetries,
+				"nextRetryIn", retryInterval.String())
+			ClearResourceCache(groupVersion)
+			time.Sleep(retryInterval)
+		}
+	}
+	return false, nil
 }
 
 func FindSupportingRuntimeForISvc(ctx context.Context, cli client.Client, log logr.Logger, isvc *kservev1beta1.InferenceService) (*kservev1alpha1.ServingRuntime, error) {
