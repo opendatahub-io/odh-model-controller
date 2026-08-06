@@ -216,6 +216,7 @@ Pre-built ServingRuntime templates for supported model servers live in `config/r
 | `vllm-gaudi-template.yaml` | vLLM (Intel Gaudi) |
 | `vllm-spyre-*.yaml` | vLLM (IBM Spyre accelerator) |
 | `vllm-multinode-template.yaml` | vLLM multi-node (Ray) |
+| `vllm-omni-cuda-template.yaml` | vLLM-Omni (NVIDIA GPU, multimodal) |
 | `ovms-kserve-template.yaml` | OpenVINO Model Server |
 | `mlserver-template.yaml` | Seldon MLServer |
 | `mlserver-cuda-template.yaml` | Seldon MLServer (NVIDIA GPU) |
