@@ -10,3 +10,4 @@ resources:
   - vllm-cpu-template.yaml
   - vllm-cpu-x86-template.yaml
   - vllm-multinode-template.yaml
+  - csr-kserve-vllm-cuda-v1.yaml
