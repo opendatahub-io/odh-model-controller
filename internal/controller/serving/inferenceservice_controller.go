@@ -21,7 +21,6 @@ import (
 	"errors"
 	"fmt"
 	"strings"
-	"time"
 
 	"github.com/go-logr/logr"
 	"github.com/hashicorp/go-multierror"
@@ -308,7 +307,7 @@ func (r *InferenceServiceReconciler) SetupWithManager(mgr ctrl.Manager, setupLog
 		setupLog.V(1).Error(kserveWithMeshEnabledErr, "could not determine if kserve have service mesh enabled")
 	}
 
-	isAuthConfigAvailable, crdErr := utils.IsCrdAvailableWithRetry(mgr.GetConfig(), authorinov1beta3.GroupVersion.String(), "AuthConfig", 5, 5*time.Second, setupLog)
+	isAuthConfigAvailable, crdErr := utils.IsCrdAvailable(mgr.GetConfig(), authorinov1beta3.GroupVersion.String(), "AuthConfig")
 	if crdErr != nil {
 		setupLog.V(1).Error(crdErr, "could not determine if AuthConfig CRD is available")
 		return crdErr

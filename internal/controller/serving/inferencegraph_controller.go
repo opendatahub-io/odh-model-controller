@@ -19,7 +19,6 @@ package serving
 import (
 	"context"
 	"fmt"
-	"time"
 
 	"github.com/go-logr/logr"
 	servingv1alpha1 "github.com/kserve/kserve/pkg/apis/serving/v1alpha1"
@@ -176,12 +175,10 @@ func (r *InferenceGraphReconciler) SetupWithManager(mgr ctrl.Manager, isServerle
 	}
 
 	// dynamic add authconfig to watchlist based on serving mode + if authconfig crd is available
-	setupLog := ctrl.Log.WithName("setup")
-	authConfigCrdAvailable, authCrdErr := utils.IsCrdAvailableWithRetry(
+	authConfigCrdAvailable, authCrdErr := utils.IsCrdAvailable(
 		mgr.GetConfig(),
 		authorinov1beta3.GroupVersion.String(),
-		"AuthConfig",
-		5, 5*time.Second, setupLog)
+		"AuthConfig")
 	if authCrdErr != nil {
 		return fmt.Errorf("failed to check if AuthConfig CRD in the cluster: %w", authCrdErr)
 	}
