@@ -220,6 +220,25 @@ like the batch processor SA can forward requests on behalf of others.
   `LISTENER` MERGE patch). Operators tune it per gateway with the annotation
   `inference.opendatahub.io/request-body-buffer-limit-bytes` (a positive integer number of
   bytes; invalid values fall back to the 32 MiB default).
+- **Duplicate top-level `model` keys (parser parity)**: a body with two top-level
+  `model` fields (`{"model":"a","model":"b"}`) is undefined by RFC 8259. The gateway
+  (`json_to_metadata`) and the backend must resolve the duplicate the same way, or the
+  gateway could authorize/route one identity while the backend serves the other - a
+  bypass risk when co-located adapters (LoRA) or multiple served-model-names share one
+  backend, since routing lands on the shared pod and the backend re-reads the body.
+  Measured on the current stack, both resolve **last-wins** (Envoy `json_to_metadata`
+  and vLLM's JSON parsing via stdlib `json` / `orjson`), so the derived identity matches
+  what the backend serves and there is no divergence. This parity is observed, not
+  contractual: a future Envoy parser change or a non-vLLM / different-JSON-lib backend
+  resolving first-wins would reintroduce the risk. The robust fix (reject a repeated
+  depth-1 `model`) is not expressible in `json_to_metadata`; it would require the
+  streaming-wasm extractor (see the body-based-routing spike) or a validating step.
+- **Nested `model` decoys**: a decoy `model` nested inside another object
+  (`{"messages":[{"model":"b"}],"model":"a"}`) is ignored - `json_to_metadata` does a
+  top-level lookup, so only the depth-1 `model` is extracted. Covered by the
+  `TestNestedModelDecoy*` e2e tests (both directions: top-level wins, nested cannot
+  escalate). The Lua also guards on the string type of the extracted value, so a
+  non-string `model` (`{"model":123}`, `{"model":{...}}`) fails safe to `unknown-model`.
 - **Future multi-segment model roots**: `is-model-api-root` enumerates the known roots
   (`/v1/`, `/inference/v1/`). A *new* multi-segment model root that does not start with one
   of these would be ns-shaped (>=2 segments) and fall to `inference-access` with garbage
