@@ -7,6 +7,7 @@ import (
 	"os"
 	"reflect"
 	"sort"
+	"strconv"
 	"strings"
 
 	"golang.org/x/net/http/httpguts"
@@ -493,6 +494,22 @@ func ShouldCreateEnvoyFilterForGateway(gateway *gatewayapiv1.Gateway) bool {
 		return false
 	}
 	return !IsExplicitlyUnmanaged(gateway)
+}
+
+// GetRequestBodyBufferLimit returns the per_connection_buffer_limit_bytes to apply to
+// the gateway listener, read from the RequestBodyBufferLimitAnnotation. It falls back to
+// constants.DefaultRequestBodyBufferLimitBytes when the annotation is absent, non-numeric,
+// or not a positive value.
+func GetRequestBodyBufferLimit(gateway *gatewayapiv1.Gateway) int64 {
+	raw, ok := gateway.GetAnnotations()[constants.RequestBodyBufferLimitAnnotation]
+	if !ok || raw == "" {
+		return constants.DefaultRequestBodyBufferLimitBytes
+	}
+	limit, err := strconv.ParseInt(raw, 10, 64)
+	if err != nil || limit <= 0 {
+		return constants.DefaultRequestBodyBufferLimitBytes
+	}
+	return limit
 }
 
 // IsOwnedByPlatformController checks if the Gateway is owned by a platform controller (GatewayConfig).

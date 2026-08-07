@@ -16,6 +16,27 @@ spec:
       name: {{.TargetName}}
   configPatches:
     # -------------------------------------------------------------------------
+    # PATCH 0: Raise the per-connection buffer limit on the gateway listener.
+    #
+    # PATCH 2/3 force the full request body to be buffered (json_to_metadata reads
+    # it, and the Lua calls request_handle:body()) so the model-routing header can
+    # be derived. That buffering is bounded by per_connection_buffer_limit_bytes;
+    # Envoy's default (1 MiB) is small for multimodal / long-prompt inference, and a
+    # body over the limit is rejected with 413. The value is operator-tunable via the
+    # Gateway annotation inference.opendatahub.io/request-body-buffer-limit-bytes.
+    #
+    # This is request-only: streamed responses (stream:true / SSE) are unaffected -
+    # the filter defines no response-path rules.
+    # -------------------------------------------------------------------------
+    - applyTo: LISTENER
+      match:
+        context: GATEWAY
+      patch:
+        operation: MERGE
+        value:
+          per_connection_buffer_limit_bytes: {{ .RequestBodyBufferLimitBytes }}
+
+    # -------------------------------------------------------------------------
     # PATCH 1: Cluster configuration for Authorino (external authorization)
     # -------------------------------------------------------------------------
     - applyTo: CLUSTER

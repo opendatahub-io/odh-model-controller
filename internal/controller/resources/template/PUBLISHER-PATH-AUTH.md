@@ -215,8 +215,11 @@ like the batch processor SA can forward requests on behalf of others.
   (`stream: true` / SSE) are unaffected, since the filter defines no `envoy_on_response`
   and `json_to_metadata` has only `request_rules`. Normal inference clients POST a complete
   JSON body, so the latency cost is negligible; but a body larger than the listener's
-  `per_connection_buffer_limit_bytes` (Envoy default 1 MiB) is rejected with 413. Raise that
-  limit on the gateway if large multimodal or long-prompt requests are expected.
+  `per_connection_buffer_limit_bytes` is rejected with 413. Envoy's own default (1 MiB) is
+  small for multimodal inference, so the EnvoyFilter raises it to 32 MiB by default (a
+  `LISTENER` MERGE patch). Operators tune it per gateway with the annotation
+  `inference.opendatahub.io/request-body-buffer-limit-bytes` (a positive integer number of
+  bytes; invalid values fall back to the 32 MiB default).
 - **Future multi-segment model roots**: `is-model-api-root` enumerates the known roots
   (`/v1/`, `/inference/v1/`). A *new* multi-segment model root that does not start with one
   of these would be ns-shaped (>=2 segments) and fall to `inference-access` with garbage
