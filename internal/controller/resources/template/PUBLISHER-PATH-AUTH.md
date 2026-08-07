@@ -50,8 +50,8 @@ and referenced with `patternRef`:
 | `has-maas-user` | `x-maas-user` header | `.+` | delegation marker present (non-empty) |
 
 **API constraint.** Kuadrant named patterns are an `allOf` of
-`selector`/`operator`/`value` — positive `matches` only, no CEL, no OR, no
-negation — and a `patternRef` in a `when` block cannot be negated. Consequently:
+`selector`/`operator`/`value` - positive `matches` only, no CEL, no OR, no
+negation - and a `patternRef` in a `when` block cannot be negated. Consequently:
 
 - Positive reused checks are patterns referenced by `patternRef`.
 - The model-header path scope (an OR of "model-API root" and "short path") is
@@ -99,8 +99,8 @@ request.path.startsWith('/v1/')
 
 **Positional matching is a security boundary.** The model-API roots are matched
 anchored at position 0 (`^/(v1|inference/v1)/`), not anywhere in the path. On a
-per-participant or ops path — `/<ns>/<name>/v1/chat/completions`,
-`/<ns>/<name>/scale_elastic_ep`, `/<ns>/<name>/tokenize` — the API portion (if any)
+per-participant or ops path - `/<ns>/<name>/v1/chat/completions`,
+`/<ns>/<name>/scale_elastic_ep`, `/<ns>/<name>/tokenize` - the API portion (if any)
 is a *suffix*, so `is-model-api-root` does not match and `model-access-header` does
 not fire. A caller with access to *some* model therefore cannot set the header on
 another tenant's `/<ns>/<name>/scale_elastic_ep` to have their model SAR stand in
@@ -180,7 +180,7 @@ body get `unknown-model`, which fails the publisher-format check and stays authn
 **Filter ordering and authority.** The extractor and Lua injector are inserted
 **before the Kuadrant auth WASM plugin** (Istio names it
 `extensions.istio.io/wasmplugin/<gateway-namespace>.kuadrant-<gateway-name>`), not before
-the router — the auth filter runs at the header phase and must see the derived header.
+the router - the auth filter runs at the header phase and must see the derived header.
 Because `json_to_metadata` writes its metadata during the request **data** phase while the
 Lua and auth filters run at the **header** phase, the Lua calls `request_handle:body()` to
 buffer the full body first, forcing the data through `json_to_metadata` (upstream in the
@@ -211,7 +211,7 @@ like the batch processor SA can forward requests on behalf of others.
   returns 404). The BBR follow-up will add `resolvedPath` normalization to authorize them.
 - **Request-body buffering (large payloads)**: the gateway EnvoyFilter's Lua calls
   `request_handle:body()`, which buffers the entire request body before the request is
-  forwarded and before auth runs. This is request-only — streamed *responses*
+  forwarded and before auth runs. This is request-only - streamed *responses*
   (`stream: true` / SSE) are unaffected, since the filter defines no `envoy_on_response`
   and `json_to_metadata` has only `request_rules`. Normal inference clients POST a complete
   JSON body, so the latency cost is negligible; but a body larger than the listener's
@@ -223,7 +223,7 @@ like the batch processor SA can forward requests on behalf of others.
 - **Future multi-segment model roots**: `is-model-api-root` enumerates the known roots
   (`/v1/`, `/inference/v1/`). A *new* multi-segment model root that does not start with one
   of these would be ns-shaped (>=2 segments) and fall to `inference-access` with garbage
-  ns/name extraction — the same class as the `ns=v1` collision above. Mitigate by adding the
+  ns/name extraction - the same class as the `ns=v1` collision above. Mitigate by adding the
   new root to the `is-model-api-root` pattern (and the mirrored CEL negation in
   `inference-access`), and/or by extending the reserved-namespace ValidatingAdmissionPolicy.
 
