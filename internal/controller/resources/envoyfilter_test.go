@@ -89,6 +89,46 @@ var _ = Describe("EnvoyFilterTemplateLoader", func() {
 			Expect(envoyFilter).ToNot(BeNil())
 			Expect(envoyFilter.GetLabels()).To(HaveKeyWithValue("app.kubernetes.io/managed-by", "odh-model-controller"))
 		})
+
+		It("should insert json_to_metadata and lua before the Kuadrant auth WASM plugin", func(ctx SpecContext) {
+			envoyFilter, err := loader.Load(ctx, "openshift-ingress", "openshift-ai-inference")
+			Expect(err).ToNot(HaveOccurred())
+
+			// The model-routing header must be derived (and made authoritative) before
+			// the auth filter runs, so both the body extractor and the Lua injector are
+			// inserted BEFORE the Kuadrant WASM plugin. Istio names that HTTP filter
+			// "extensions.istio.io/wasmplugin/<gateway-namespace>.kuadrant-<gateway-name>";
+			// targeting the router (or the short name) silently no-ops the injection.
+			const wasmFilter = "extensions.istio.io/wasmplugin/openshift-ingress.kuadrant-openshift-ai-inference"
+
+			targets := map[string]string{}
+			var luaSource string
+			for _, p := range envoyFilter.Spec.ConfigPatches {
+				if p.GetApplyTo() != istiov1alpha3.EnvoyFilter_HTTP_FILTER {
+					continue
+				}
+				name := p.GetPatch().GetValue().GetFields()["name"].GetStringValue()
+				Expect(p.GetPatch().GetOperation()).To(Equal(istiov1alpha3.EnvoyFilter_Patch_INSERT_BEFORE),
+					"HTTP filter %q must be INSERT_BEFORE", name)
+				targets[name] = p.GetMatch().GetListener().GetFilterChain().GetFilter().GetSubFilter().GetName()
+				if name == "envoy.filters.http.lua" {
+					luaSource = p.GetPatch().GetValue().
+						GetFields()["typed_config"].GetStructValue().
+						GetFields()["default_source_code"].GetStructValue().
+						GetFields()["inline_string"].GetStringValue()
+				}
+			}
+
+			Expect(targets).To(HaveKeyWithValue("envoy.filters.http.json_to_metadata", wasmFilter))
+			Expect(targets).To(HaveKeyWithValue("envoy.filters.http.lua", wasmFilter))
+
+			// The Lua must buffer the body (so json_to_metadata's data-phase output is
+			// available at the header phase) and replace (not add) the header so the
+			// body-derived value overwrites any client-supplied, spoofable value.
+			Expect(luaSource).To(ContainSubstring("request_handle:body()"))
+			Expect(luaSource).To(ContainSubstring(`headers():replace("X-Gateway-Model-Name"`))
+			Expect(luaSource).ToNot(ContainSubstring(`headers():add("X-Gateway-Model-Name"`))
+		})
 	})
 
 	Context("Kuadrant namespace detection", func() {
