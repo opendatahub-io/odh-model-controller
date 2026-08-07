@@ -20,6 +20,7 @@ import (
 	"context"
 	"crypto/tls"
 	"flag"
+	"fmt"
 	"os"
 	"strconv"
 
@@ -27,6 +28,7 @@ import (
 	// Import all Kubernetes client auth plugins (e.g. Azure, GCP, OIDC, etc.)
 	// to ensure that exec-entrypoint and run can make use of them.
 
+	configv1 "github.com/openshift/api/config/v1"
 	templatev1client "github.com/openshift/client-go/template/clientset/versioned"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/labels"
@@ -40,10 +42,11 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/healthz"
 	"sigs.k8s.io/controller-runtime/pkg/log"
 	"sigs.k8s.io/controller-runtime/pkg/log/zap"
-	"sigs.k8s.io/controller-runtime/pkg/manager"
 	"sigs.k8s.io/controller-runtime/pkg/metrics/filters"
 	metricsserver "sigs.k8s.io/controller-runtime/pkg/metrics/server"
 	"sigs.k8s.io/controller-runtime/pkg/webhook"
+
+	pkgtls "github.com/opendatahub-io/odh-model-controller/pkg/tls"
 
 	corecontroller "github.com/opendatahub-io/odh-model-controller/internal/controller/core"
 	"github.com/opendatahub-io/odh-model-controller/internal/controller/nim"
@@ -88,8 +91,6 @@ func main() {
 	var enableLeaderElection bool
 	var probeAddr string
 	var secureMetrics bool
-	var enableHTTP2 bool
-	var tlsOpts []func(*tls.Config)
 	var monitoringNS string
 
 	flag.StringVar(&metricsAddr, "metrics-bind-address", ":8080", "The address the metrics endpoint binds to. "+
@@ -98,10 +99,8 @@ func main() {
 	flag.BoolVar(&enableLeaderElection, "leader-elect", false,
 		"Enable leader election for controller manager. "+
 			"Enabling this will ensure there is only one active controller manager.")
-	flag.BoolVar(&secureMetrics, "metrics-secure", false, // TODO: restore to true by default.
+	flag.BoolVar(&secureMetrics, "metrics-secure", true,
 		"If set, the metrics endpoint is served securely via HTTPS. Use --metrics-secure=false to use HTTP instead.")
-	flag.BoolVar(&enableHTTP2, "enable-http2", false,
-		"If set, HTTP/2 will be enabled for the metrics and webhook servers")
 	flag.StringVar(&monitoringNS, "monitoring-namespace", "",
 		"The Namespace where the monitoring stack's Prometheus resides.")
 	opts := zap.Options{
@@ -112,31 +111,16 @@ func main() {
 
 	ctrl.SetLogger(zap.New(zap.UseFlagOptions(&opts)))
 
-	// if the enable-http2 flag is false (the default), http/2 should be disabled
-	// due to its vulnerabilities. More specifically, disabling http/2 will
-	// prevent from being vulnerable to the HTTP/2 Stream Cancellation and
-	// Rapid Reset CVEs. For more information see:
-	// - https://github.com/advisories/GHSA-qppj-fm5r-hxr3
-	// - https://github.com/advisories/GHSA-4374-p667-p6c8
-	disableHTTP2 := func(c *tls.Config) {
-		setupLog.Info("disabling http/2")
-		c.NextProtos = []string{"http/1.1"}
-	}
-
-	if !enableHTTP2 {
-		tlsOpts = append(tlsOpts, disableHTTP2)
-	}
-
 	// Create the manager
 	var err error
 	cfg := ctrl.GetConfigOrDie()
-	mgr := createManager(cfg, metricsAddr, probeAddr, enableLeaderElection, secureMetrics, tlsOpts)
-
-	kubeClient, kubeClientErr := kubernetes.NewForConfig(cfg)
-	if kubeClientErr != nil {
-		setupLog.Error(kubeClientErr, "unable to create clientset")
+	tlsResult, err := pkgtls.Resolve(context.Background(), cfg)
+	if err != nil {
+		setupLog.Error(err, "unable to resolve TLS configuration")
 		os.Exit(1)
 	}
+	tlsOpts := tlsResult.TLSOpts
+	mgr := createManager(cfg, metricsAddr, probeAddr, enableLeaderElection, secureMetrics, tlsOpts)
 
 	xksMode := platform.IsXKS()
 	if xksMode {
@@ -168,49 +152,26 @@ func main() {
 		os.Exit(1)
 	}
 
-	templateClient, tempClientErr := templatev1client.NewForConfig(cfg)
-	if tempClientErr != nil {
-		setupLog.Error(tempClientErr, "unable to create template clientset")
-		os.Exit(1)
-	}
-	signalHandlerCtx := log.IntoContext(ctrl.SetupSignalHandler(), setupLog)
-	if !xksMode {
-		setupNim(mgr, signalHandlerCtx, kubeClient, templateClient)
-	}
+	signalCtx, cancel := context.WithCancel(log.IntoContext(ctrl.SetupSignalHandler(), setupLog))
+	defer cancel()
 
-	setupLog.Info("starting manager")
-	if err = mgr.Start(signalHandlerCtx); err != nil {
-		setupLog.Error(err, "problem running manager")
-		os.Exit(1)
-	}
-}
-
-func setupNim(mgr manager.Manager, signalHandlerCtx context.Context,
-	kubeClient *kubernetes.Clientset, templateClient *templatev1client.Clientset) {
-	var err error
-
-	nimState := os.Getenv("NIM_STATE")
-	if nimState == "" {
-		nimState = managedState
-	}
-	if nimState != "removed" {
-		if err = (&nim.AccountReconciler{
-			Client:         mgr.GetClient(),
-			Scheme:         mgr.GetScheme(),
-			KClient:        kubeClient,
-			TemplateClient: templateClient,
-		}).SetupWithManager(mgr, signalHandlerCtx); err != nil {
-			setupLog.Error(err, "unable to create controller", "controller", "NIMAccount")
+	if tlsResult.ProfileFetched && !xksMode {
+		watcher := &pkgtls.ProfileWatcher{
+			Client:             mgr.GetClient(),
+			InitialProfileSpec: tlsResult.ProfileSpec,
+			OnProfileChange: func(_ context.Context, _, _ configv1.TLSProfileSpec) {
+				setupLog.Info("TLS profile changed, initiating shutdown to reload")
+				cancel()
+			},
+		}
+		if err := watcher.SetupWithManager(mgr); err != nil {
+			setupLog.Error(err, "unable to set up TLS profile watcher")
 			os.Exit(1)
 		}
-	} else {
-		if err = mgr.Add(&utils.NIMCleanupRunner{Client: mgr.GetClient(), Logger: setupLog}); err != nil {
-			setupLog.Error(err, "failed to add NIM cleanup runner")
-		}
 	}
 
 	setupLog.Info("starting manager")
-	if err := mgr.Start(signalHandlerCtx); err != nil {
+	if err = mgr.Start(signalCtx); err != nil {
 		setupLog.Error(err, "problem running manager")
 		os.Exit(1)
 	}
@@ -239,9 +200,7 @@ func createManager(cfg *rest.Config, metricsAddr, probeAddr string,
 		// https://pkg.go.dev/sigs.k8s.io/controller-runtime@v0.19.1/pkg/metrics/filters#WithAuthenticationAndAuthorization
 		metricsServerOptions.FilterProvider = filters.WithAuthenticationAndAuthorization
 
-		// TODO(user): If CertDir, CertName, and KeyName are not specified, controller-runtime will automatically
-		// generate self-signed certificates for the metrics server. While convenient for development and testing,
-		// this setup is not recommended for production.
+		metricsServerOptions.CertDir = "/tmp/k8s-metrics-server/metrics-certs"
 	}
 
 	mgr, err := ctrl.NewManager(cfg, ctrl.Options{
@@ -364,6 +323,10 @@ func setupReconcilers(mgr ctrl.Manager, setupLog logr.Logger, cfg *rest.Config) 
 		setupLog.Error(err, "unable to create controller", "controller", "Gateway")
 		return err
 	}
+	if err := setupNimReconciler(mgr, cfg); err != nil {
+		setupLog.Error(err, "unable to create controller", "controller", "NIMAccount")
+		return err
+	}
 
 	return nil
 }
@@ -428,4 +391,31 @@ func setupGatewayReconciler(mgr ctrl.Manager) error {
 		mgr.GetScheme(),
 		mgr.GetEventRecorderFor("GatewayAuthBootstrap"),
 	).SetupWithManager(mgr, setupLog)
+}
+
+func setupNimReconciler(mgr ctrl.Manager, cfg *rest.Config) error {
+	nimState := os.Getenv("NIM_STATE")
+	if nimState == "" {
+		nimState = managedState
+	}
+	if nimState == "removed" {
+		return mgr.Add(&utils.NIMCleanupRunner{Client: mgr.GetClient(), Logger: setupLog})
+	}
+
+	kubeClient, err := kubernetes.NewForConfig(cfg)
+	if err != nil {
+		return fmt.Errorf("unable to create kubernetes clientset: %w", err)
+	}
+
+	templateClient, err := templatev1client.NewForConfig(cfg)
+	if err != nil {
+		return fmt.Errorf("unable to create template clientset: %w", err)
+	}
+
+	return (&nim.AccountReconciler{
+		Client:         mgr.GetClient(),
+		Scheme:         mgr.GetScheme(),
+		KClient:        kubeClient,
+		TemplateClient: templateClient,
+	}).SetupWithManager(mgr)
 }

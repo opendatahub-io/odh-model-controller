@@ -19,7 +19,6 @@ package serving
 import (
 	"context"
 	"errors"
-	"strings"
 
 	"github.com/go-logr/logr"
 	"github.com/hashicorp/go-multierror"
@@ -41,7 +40,6 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/handler"
 	"sigs.k8s.io/controller-runtime/pkg/log"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
-	"sigs.k8s.io/yaml"
 
 	"github.com/opendatahub-io/odh-model-controller/internal/controller/constants"
 	"github.com/opendatahub-io/odh-model-controller/internal/controller/serving/reconcilers"
@@ -85,6 +83,7 @@ func NewInferenceServiceReconciler(setupLog logr.Logger, client client.Client, s
 // +kubebuilder:rbac:groups=serving.kserve.io,resources=inferenceservices,verbs=get;list;watch;update;patch
 // +kubebuilder:rbac:groups=serving.kserve.io,resources=inferenceservices/finalizers,verbs=get;list;watch;update;create;patch;delete
 
+// +kubebuilder:rbac:groups=config.openshift.io,resources=apiservers,verbs=get;list;watch
 // +kubebuilder:rbac:groups=route.openshift.io,resources=routes,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups=route.openshift.io,resources=routes/custom-host,verbs=create
 // +kubebuilder:rbac:groups=rbac.authorization.k8s.io,resources=clusterrolebindings;roles;rolebindings,verbs=get;list;watch;create;update;patch;watch;delete
@@ -128,10 +127,9 @@ func (r *InferenceServiceReconciler) ReconcileServing(ctx context.Context, req c
 		// registering our finalizer.
 		logger.Info("Adding Finalizer")
 		if !controllerutil.ContainsFinalizer(isvc, constants.InferenceServiceODHFinalizerName) {
+			patch := client.MergeFromWithOptions(isvc.DeepCopy(), client.MergeFromWithOptimisticLock{})
 			controllerutil.AddFinalizer(isvc, constants.InferenceServiceODHFinalizerName)
-			patchYaml := "metadata:\n  finalizers: [" + strings.Join(isvc.ObjectMeta.Finalizers, ",") + "]"
-			patchJson, _ := yaml.YAMLToJSON([]byte(patchYaml))
-			if err := r.Patch(ctx, isvc, client.RawPatch(types.MergePatchType, patchJson)); err != nil {
+			if err := r.Patch(ctx, isvc, patch); err != nil {
 				return reconcile.Result{}, err
 			}
 		}
@@ -148,15 +146,18 @@ func (r *InferenceServiceReconciler) ReconcileServing(ctx context.Context, req c
 			if err1 != nil {
 				deleteErrors = multierror.Append(deleteErrors, err1)
 			}
+			if merr := deleteErrors.ErrorOrNil(); merr != nil {
+				logger.Error(merr, "Cleanup failed, keeping finalizer to allow retry")
+				return reconcile.Result{}, merr
+			}
+			patch := client.MergeFromWithOptions(isvc.DeepCopy(), client.MergeFromWithOptimisticLock{})
 			controllerutil.RemoveFinalizer(isvc, constants.InferenceServiceODHFinalizerName)
-			patchYaml := "metadata:\n  finalizers: [" + strings.Join(isvc.ObjectMeta.Finalizers, ",") + "]"
-			patchJson, _ := yaml.YAMLToJSON([]byte(patchYaml))
-			if err := r.Patch(ctx, isvc, client.RawPatch(types.MergePatchType, patchJson)); err != nil {
+			if err := r.Patch(ctx, isvc, patch); err != nil {
 				return reconcile.Result{}, err
 			}
 
 		}
-		return reconcile.Result{}, deleteErrors.ErrorOrNil()
+		return reconcile.Result{}, nil
 	}
 
 	// Only RawDeployment mode is supported

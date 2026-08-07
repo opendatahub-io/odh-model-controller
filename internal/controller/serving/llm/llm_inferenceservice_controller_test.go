@@ -19,7 +19,7 @@ package llm_test
 import (
 	"context"
 	"os"
-
+	"strings"
 	"time"
 
 	kservev1alpha2 "github.com/kserve/kserve/pkg/apis/serving/v1alpha2"
@@ -225,9 +225,21 @@ var _ = Describe("LLMInferenceService Controller", func() {
 
 				fixture.VerifyHTTPRouteAuthPolicyExists(ctx, envTest.Client, testNs, LLMInferenceServiceName)
 
-				// Snapshot current ReconcileError event count so we only
-				// detect NEW errors after the stop annotation is set.
-				initialErrorCount := countReconcileErrors(ctx, envTest.Client, testNs, LLMInferenceServiceName)
+				drainEvents := func(reason string) []string {
+					var matched []string
+					for {
+						select {
+						case ev := <-eventRecorder.Events:
+							if strings.Contains(ev, reason) {
+								matched = append(matched, ev)
+							}
+						default:
+							return matched
+						}
+					}
+				}
+
+				drainEvents("ReconcileError")
 
 				// Delete the HTTPRoute first to simulate kserve stop cleanup.
 				httpRouteName := constants.GetHTTPRouteName(LLMInferenceServiceName)
@@ -243,9 +255,9 @@ var _ = Describe("LLMInferenceService Controller", func() {
 				// The controller should not produce ReconcileError events for the
 				// stopped service (the bug's symptom was continuous warning events
 				// because AuthPolicy reconciliation tried to look up the deleted HTTPRoute).
-				Consistently(func() bool {
-					return countReconcileErrors(ctx, envTest.Client, testNs, LLMInferenceServiceName) > initialErrorCount
-				}).WithTimeout(2 * time.Second).WithPolling(100 * time.Millisecond).WithContext(ctx).Should(BeFalse())
+				Consistently(func() []string {
+					return drainEvents("ReconcileError")
+				}).WithTimeout(2 * time.Second).WithPolling(100 * time.Millisecond).WithContext(ctx).Should(BeEmpty())
 			})
 		})
 	})
@@ -467,28 +479,6 @@ func createCrossNamespaceGateway(ctx context.Context, name, namespace string) {
 		}),
 	)
 	Expect(envTest.Client.Create(ctx, gw)).Should(Succeed())
-}
-
-// countReconcileErrors returns the number of ReconcileError events for the
-// given LLMInferenceService, including aggregated event counts.
-func countReconcileErrors(ctx context.Context, c client.Client, namespace, name string) int32 {
-	eventList := &corev1.EventList{}
-	if err := c.List(ctx, eventList, client.InNamespace(namespace)); err != nil {
-		return 0
-	}
-	var total int32
-	for _, ev := range eventList.Items {
-		if ev.Reason == "ReconcileError" &&
-			ev.InvolvedObject.Name == name &&
-			ev.InvolvedObject.Kind == "LLMInferenceService" {
-			if ev.Count > 0 {
-				total += ev.Count
-			} else {
-				total++
-			}
-		}
-	}
-	return total
 }
 
 // verifyResourcePersistentlyAbsent checks that a resource remains absent (Consistently + IsNotFound).
