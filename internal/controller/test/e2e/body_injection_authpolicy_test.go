@@ -26,6 +26,16 @@ func chatBody(model string) []byte {
 	return []byte(fmt.Sprintf(`{"messages":[{"role":"user","content":"hi"}],"model":%q}`, model))
 }
 
+// chatBodyNestedDecoy builds a chat body whose message object carries a decoy
+// nested "model" key, with the authoritative model as the TOP-LEVEL "model"
+// field. json_to_metadata does a top-level lookup, so the nested value must be
+// ignored. topLevel is placed last to also confirm end-of-object parsing.
+func chatBodyNestedDecoy(nested, topLevel string) []byte {
+	return []byte(fmt.Sprintf(
+		`{"messages":[{"role":"user","content":"hi","model":%q}],"model":%q}`,
+		nested, topLevel))
+}
+
 // chatBodyModelAtEnd builds a chat body of roughly fillerBytes size with the
 // `model` field placed at the very END of the JSON object. This proves the
 // filter buffers the whole body before extracting the model (rather than reading
@@ -64,6 +74,45 @@ func TestBodyModelInjectionDenied(t *testing.T) {
 	resp, _ := authEnv.gatewayPost(t, "/v1/chat/completions", f.noAccessToken, body, nil)
 	if resp.StatusCode != http.StatusForbidden {
 		t.Fatalf("expected 403 (body model injected, no model RBAC), got %d", resp.StatusCode)
+	}
+}
+
+// TestNestedModelDecoyIgnoredTopLevelWins POSTs a body whose nested (in-message)
+// model points at a model the caller CANNOT access, while the authoritative
+// top-level model is one the caller CAN access. A substring/naive scanner would
+// find the nested decoy first; json_to_metadata's top-level parse selects the
+// real model -> model-user is authorized -> 200. This is the config's nested-safe
+// property (metadata-filter profile) exercised end-to-end.
+func TestNestedModelDecoyIgnoredTopLevelWins(t *testing.T) {
+	t.Parallel()
+	f := setupPublisherFixture(t)
+
+	body := chatBodyNestedDecoy(
+		"publishers/other-tenant/models/secret-model",         // nested decoy (no RBAC)
+		fmt.Sprintf("publishers/%s/models/echo-server", f.ns), // authoritative top-level
+	)
+	resp, _ := authEnv.gatewayPost(t, "/v1/chat/completions", f.modelUserToken, body, nil)
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("expected 200 (top-level model parsed, nested decoy ignored), got %d", resp.StatusCode)
+	}
+}
+
+// TestNestedModelDecoyCannotEscalate is the escalation-closed direction: the
+// nested decoy points at a model the caller CAN access, but the authoritative
+// top-level model is one the caller CANNOT. If the filter honored the nested
+// value the caller would be wrongly authorized; because only the top-level model
+// is parsed (and both routing and auth use it), the caller is denied -> 403.
+func TestNestedModelDecoyCannotEscalate(t *testing.T) {
+	t.Parallel()
+	f := setupPublisherFixture(t)
+
+	body := chatBodyNestedDecoy(
+		fmt.Sprintf("publishers/%s/models/echo-server", f.ns), // nested: caller HAS access
+		"publishers/other-tenant/models/secret-model",         // top-level: caller lacks access
+	)
+	resp, _ := authEnv.gatewayPost(t, "/v1/chat/completions", f.modelUserToken, body, nil)
+	if resp.StatusCode != http.StatusForbidden {
+		t.Fatalf("expected 403 (top-level model governs; nested decoy cannot grant access), got %d", resp.StatusCode)
 	}
 }
 

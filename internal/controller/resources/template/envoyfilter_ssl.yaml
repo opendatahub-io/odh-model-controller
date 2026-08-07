@@ -155,11 +155,17 @@ spec:
                   -- the gateway if large multimodal/long-prompt requests are expected.
                   request_handle:body()
 
-                  -- Retrieve the extracted model value from dynamic metadata
+                  -- Retrieve the extracted model value from dynamic metadata.
+                  -- Guard on the string type: json_to_metadata preserves the JSON
+                  -- value type, so a non-string "model" (e.g. {"model":123} or
+                  -- {"model":{...}}) arrives as a Lua number/table. Passing that to
+                  -- headers():replace would error (500). Treat any non-string as
+                  -- unknown-model so a malformed/adversarial body fails safe rather
+                  -- than crashing the request.
                   local meta = request_handle:streamInfo():dynamicMetadata():get("envoy.lb")
                   local model_name = "unknown-model"
 
-                  if meta and meta["extracted_model"] then
+                  if meta and type(meta["extracted_model"]) == "string" then
                     model_name = meta["extracted_model"]
                   end
 
