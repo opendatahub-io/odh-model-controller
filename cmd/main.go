@@ -154,7 +154,7 @@ func main() {
 	signalCtx, cancel := context.WithCancel(log.IntoContext(ctrl.SetupSignalHandler(), setupLog))
 	defer cancel()
 
-	if tlsResult.ProfileFetched && !xksMode {
+	if tlsResult.APIAvailable && !xksMode {
 		watcher := &pkgtls.ProfileWatcher{
 			Client:             mgr.GetClient(),
 			InitialProfileSpec: tlsResult.ProfileSpec,
