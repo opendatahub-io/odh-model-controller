@@ -26,7 +26,7 @@ import (
 
 	kservev1alpha1 "github.com/kserve/kserve/pkg/apis/serving/v1alpha1"
 	kservev1beta1 "github.com/kserve/kserve/pkg/apis/serving/v1beta1"
-	authorinov1beta2 "github.com/kuadrant/authorino/api/v1beta2"
+	authorinov1beta3 "github.com/kuadrant/authorino/api/v1beta3"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	routev1 "github.com/openshift/api/route/v1"
@@ -211,7 +211,7 @@ var _ = AfterEach(func() {
 		Expect(cli.DeleteAllOf(context.TODO(), &k8srbacv1.Role{}, inNamespace)).ToNot(HaveOccurred())
 		Expect(cli.DeleteAllOf(context.TODO(), &k8srbacv1.RoleBinding{}, inNamespace)).ToNot(HaveOccurred())
 		Expect(cli.DeleteAllOf(context.TODO(), &corev1.Secret{}, inNamespace)).ToNot(HaveOccurred())
-		Expect(cli.DeleteAllOf(context.TODO(), &authorinov1beta2.AuthConfig{}, inNamespace)).ToNot(HaveOccurred())
+		Expect(cli.DeleteAllOf(context.TODO(), &authorinov1beta3.AuthConfig{}, inNamespace)).ToNot(HaveOccurred())
 		Expect(cli.DeleteAllOf(context.TODO(), &corev1.ConfigMap{}, inNamespace)).ToNot(HaveOccurred())
 		Expect(cli.DeleteAllOf(context.TODO(), &corev1.Service{}, inNamespace)).ToNot(HaveOccurred())
 		Expect(cli.DeleteAllOf(context.TODO(), &istioclientv1beta1.Gateway{}, istioNamespace)).ToNot(HaveOccurred())

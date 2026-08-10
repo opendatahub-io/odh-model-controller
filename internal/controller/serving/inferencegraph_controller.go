@@ -22,7 +22,7 @@ import (
 
 	"github.com/go-logr/logr"
 	servingv1alpha1 "github.com/kserve/kserve/pkg/apis/serving/v1alpha1"
-	authorinov1beta2 "github.com/kuadrant/authorino/api/v1beta2"
+	authorinov1beta3 "github.com/kuadrant/authorino/api/v1beta3"
 	v1 "k8s.io/api/core/v1"
 	apierrs "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -129,7 +129,7 @@ func (r *InferenceGraphReconciler) reconcileAuthConfig(ctx context.Context, logg
 	return nil
 }
 
-func (r *InferenceGraphReconciler) createDesiredAuthConfig(ctx context.Context, ig *servingv1alpha1.InferenceGraph) (*authorinov1beta2.AuthConfig, error) {
+func (r *InferenceGraphReconciler) createDesiredAuthConfig(ctx context.Context, ig *servingv1alpha1.InferenceGraph) (*authorinov1beta3.AuthConfig, error) {
 	authType := r.detector.Detect(ctx, ig.GetAnnotations())
 	template, err := r.templateLoader.Load(ctx, authType, ig)
 	if err != nil {
@@ -152,9 +152,9 @@ func (r *InferenceGraphReconciler) createDesiredAuthConfig(ctx context.Context, 
 	return &template, nil
 }
 
-func (r *InferenceGraphReconciler) getExistingAuthConfig(ctx context.Context, ig *servingv1alpha1.InferenceGraph) (*authorinov1beta2.AuthConfig, error) {
+func (r *InferenceGraphReconciler) getExistingAuthConfig(ctx context.Context, ig *servingv1alpha1.InferenceGraph) (*authorinov1beta3.AuthConfig, error) {
 	typeName := types.NamespacedName{Namespace: ig.GetNamespace(), Name: ig.GetName()}
-	existing := authorinov1beta2.AuthConfig{}
+	existing := authorinov1beta3.AuthConfig{}
 	err := r.Client.Get(ctx, typeName, &existing)
 	if err != nil {
 		if apierrs.IsNotFound(err) {
@@ -177,18 +177,18 @@ func (r *InferenceGraphReconciler) SetupWithManager(mgr ctrl.Manager, isServerle
 	// dynamic add authconfig to watchlist based on serving mode + if authconfig crd is available
 	authConfigCrdAvailable, authCrdErr := utils.IsCrdAvailable(
 		mgr.GetConfig(),
-		authorinov1beta2.GroupVersion.String(),
+		authorinov1beta3.GroupVersion.String(),
 		"AuthConfig")
 	if authCrdErr != nil {
-		return fmt.Errorf("failed to check if  AuthConfig CRD in the cluster: %w", authCrdErr)
+		return fmt.Errorf("failed to check if AuthConfig CRD in the cluster: %w", authCrdErr)
 	}
 	if authConfigCrdAvailable {
-		builder.Owns(&authorinov1beta2.AuthConfig{})
+		builder.Owns(&authorinov1beta3.AuthConfig{})
 	}
 	return builder.Complete(r)
 }
 
-func (r *InferenceGraphReconciler) processAuthConfigDelta(ctx context.Context, logger logr.Logger, desiredState *authorinov1beta2.AuthConfig, existingState *authorinov1beta2.AuthConfig) error {
+func (r *InferenceGraphReconciler) processAuthConfigDelta(ctx context.Context, logger logr.Logger, desiredState *authorinov1beta3.AuthConfig, existingState *authorinov1beta3.AuthConfig) error {
 	logger.WithValues("auth_config_name", desiredState.GetName())
 	comparator := comparators.GetAuthConfigComparator()
 	delta := r.deltaProcessor.ComputeDelta(comparator, desiredState, existingState)

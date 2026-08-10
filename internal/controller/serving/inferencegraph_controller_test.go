@@ -20,7 +20,7 @@ import (
 	"context"
 
 	kservev1alpha1 "github.com/kserve/kserve/pkg/apis/serving/v1alpha1"
-	"github.com/kuadrant/authorino/api/v1beta2"
+	"github.com/kuadrant/authorino/api/v1beta3"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	"github.com/onsi/gomega/gcustom"
@@ -112,7 +112,7 @@ var _ = Describe("InferenceGraph Controller", func() {
 			defer func() { _ = k8sClient.Delete(ctx, inferenceGraph) }()
 
 			Consistently(func(g Gomega) {
-				authConfig := &v1beta2.AuthConfig{}
+				authConfig := &v1beta3.AuthConfig{}
 				key := types.NamespacedName{Name: inferenceGraph.Name + "-ig", Namespace: inferenceGraph.Namespace}
 				g.Eventually(func() error { return k8sClient.Get(ctx, key, authConfig) }).Should(Succeed())
 
@@ -130,7 +130,7 @@ var _ = Describe("InferenceGraph Controller", func() {
 			defer func() { _ = k8sClient.Delete(ctx, &inferenceGraph) }()
 
 			Consistently(func(g Gomega) {
-				authConfig := &v1beta2.AuthConfig{}
+				authConfig := &v1beta3.AuthConfig{}
 				key := types.NamespacedName{Name: inferenceGraph.Name + "-ig", Namespace: inferenceGraph.Namespace}
 				g.Eventually(func() error { return k8sClient.Get(ctx, key, authConfig) }).Should(Succeed())
 
@@ -148,7 +148,7 @@ var _ = Describe("InferenceGraph Controller", func() {
 			defer func() { _ = k8sClient.Delete(ctx, &inferenceGraph) }()
 
 			Consistently(func(g Gomega) {
-				authConfig := &v1beta2.AuthConfig{}
+				authConfig := &v1beta3.AuthConfig{}
 				key := types.NamespacedName{Name: inferenceGraph.Name + "-ig", Namespace: inferenceGraph.Namespace}
 				g.Eventually(func() error { return k8sClient.Get(ctx, key, authConfig) }).Should(Succeed())
 
@@ -166,7 +166,7 @@ var _ = Describe("InferenceGraph Controller", func() {
 			defer func() { _ = k8sClient.Delete(ctx, &inferenceGraph) }()
 
 			Consistently(func() error {
-				authConfig := &v1beta2.AuthConfig{}
+				authConfig := &v1beta3.AuthConfig{}
 				key := types.NamespacedName{Name: inferenceGraph.Name + "-ig", Namespace: inferenceGraph.Namespace}
 				return k8sClient.Get(ctx, key, authConfig)
 			}).WithPolling(interval).WithTimeout(timeout).Should(WithTransform(k8sErrors.IsNotFound, BeTrue()))
@@ -182,7 +182,7 @@ var _ = Describe("InferenceGraph Controller", func() {
 			Expect(deleteAuthorizationPolicy(KServeAuthorizationPolicy)).To(Succeed())
 
 			Consistently(func() error {
-				authConfig := &v1beta2.AuthConfig{}
+				authConfig := &v1beta3.AuthConfig{}
 				key := types.NamespacedName{Name: inferenceGraph.Name + "-ig", Namespace: inferenceGraph.Namespace}
 				return k8sClient.Get(ctx, key, authConfig)
 			}).WithPolling(interval).WithTimeout(timeout).Should(WithTransform(k8sErrors.IsNotFound, BeTrue()))

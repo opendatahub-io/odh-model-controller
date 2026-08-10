@@ -18,14 +18,14 @@ package comparators
 import (
 	"reflect"
 
-	authorinov1beta2 "github.com/kuadrant/authorino/api/v1beta2"
+	authorinov1beta3 "github.com/kuadrant/authorino/api/v1beta3"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
 func GetAuthConfigComparator() ResourceComparator {
 	return func(deployed client.Object, requested client.Object) bool {
-		deployedAC := deployed.(*authorinov1beta2.AuthConfig)
-		requestedAC := requested.(*authorinov1beta2.AuthConfig)
+		deployedAC := deployed.(*authorinov1beta3.AuthConfig)
+		requestedAC := requested.(*authorinov1beta3.AuthConfig)
 		return reflect.DeepEqual(deployedAC.Spec, requestedAC.Spec) &&
 			reflect.DeepEqual(deployedAC.Labels, requestedAC.Labels)
 	}

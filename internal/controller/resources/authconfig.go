@@ -27,7 +27,7 @@ import (
 
 	"github.com/kserve/kserve/pkg/apis/serving/v1alpha1"
 	kservev1beta1 "github.com/kserve/kserve/pkg/apis/serving/v1beta1"
-	authorinov1beta2 "github.com/kuadrant/authorino/api/v1beta2"
+	authorinov1beta3 "github.com/kuadrant/authorino/api/v1beta3"
 	v1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -46,7 +46,7 @@ type InferenceEndpointsHostExtractor interface {
 }
 
 type AuthConfigTemplateLoader interface {
-	Load(ctx context.Context, authType constants.AuthType, protectedResource client.Object) (authorinov1beta2.AuthConfig, error)
+	Load(ctx context.Context, authType constants.AuthType, protectedResource client.Object) (authorinov1beta3.AuthConfig, error)
 }
 
 type AuthTypeDetector interface {
@@ -54,10 +54,10 @@ type AuthTypeDetector interface {
 }
 
 type AuthConfigStore interface {
-	Get(ctx context.Context, key types.NamespacedName) (*authorinov1beta2.AuthConfig, error)
+	Get(ctx context.Context, key types.NamespacedName) (*authorinov1beta3.AuthConfig, error)
 	Remove(ctx context.Context, key types.NamespacedName) error
-	Create(ctx context.Context, authConfig *authorinov1beta2.AuthConfig) error
-	Update(ctx context.Context, authConfig *authorinov1beta2.AuthConfig) error
+	Create(ctx context.Context, authConfig *authorinov1beta3.AuthConfig) error
+	Update(ctx context.Context, authConfig *authorinov1beta3.AuthConfig) error
 }
 
 //go:embed template/authconfig_anonymous.yaml
@@ -76,8 +76,8 @@ func NewStaticTemplateLoader() AuthConfigTemplateLoader {
 	return &staticTemplateLoader{}
 }
 
-func (s *staticTemplateLoader) Load(_ context.Context, authType constants.AuthType, protectedResource client.Object) (authorinov1beta2.AuthConfig, error) {
-	authConfig := authorinov1beta2.AuthConfig{}
+func (s *staticTemplateLoader) Load(_ context.Context, authType constants.AuthType, protectedResource client.Object) (authorinov1beta3.AuthConfig, error) {
+	authConfig := authorinov1beta3.AuthConfig{}
 
 	authKey, authVal, err := getAuthorinoLabel()
 	if err != nil {
@@ -136,7 +136,7 @@ func NewConfigMapTemplateLoader(client client.Client, fallback AuthConfigTemplat
 	}
 }
 
-func (c *configMapTemplateLoader) Load(ctx context.Context, authType constants.AuthType, protectedResource client.Object) (authorinov1beta2.AuthConfig, error) {
+func (c *configMapTemplateLoader) Load(ctx context.Context, authType constants.AuthType, protectedResource client.Object) (authorinov1beta3.AuthConfig, error) {
 	// TODO: check "authconfig-template" CM in key.Namespace to see if there is a "spec" to use, construct a AuthConfig object
 	// https://issues.redhat.com/browse/RHOAIENG-847
 
@@ -154,10 +154,10 @@ func NewClientAuthConfigStore(client client.Client) AuthConfigStore {
 	}
 }
 
-func (c *clientAuthConfigStore) Get(ctx context.Context, key types.NamespacedName) (*authorinov1beta2.AuthConfig, error) {
-	authConfig := &authorinov1beta2.AuthConfig{
+func (c *clientAuthConfigStore) Get(ctx context.Context, key types.NamespacedName) (*authorinov1beta3.AuthConfig, error) {
+	authConfig := &authorinov1beta3.AuthConfig{
 		TypeMeta: v1.TypeMeta{
-			APIVersion: "authorino.kuadrant.io/v1beta2",
+			APIVersion: "authorino.kuadrant.io/v1beta3",
 			Kind:       "AuthConfig",
 		},
 	}
@@ -170,7 +170,7 @@ func (c *clientAuthConfigStore) Get(ctx context.Context, key types.NamespacedNam
 }
 
 func (c *clientAuthConfigStore) Remove(ctx context.Context, key types.NamespacedName) error {
-	authConfig := authorinov1beta2.AuthConfig{}
+	authConfig := authorinov1beta3.AuthConfig{}
 	authConfig.Name = key.Name
 	authConfig.Namespace = key.Namespace
 	if err := c.client.Delete(ctx, &authConfig); err != nil {
@@ -179,14 +179,14 @@ func (c *clientAuthConfigStore) Remove(ctx context.Context, key types.Namespaced
 	return nil
 }
 
-func (c *clientAuthConfigStore) Create(ctx context.Context, authConfig *authorinov1beta2.AuthConfig) error {
+func (c *clientAuthConfigStore) Create(ctx context.Context, authConfig *authorinov1beta3.AuthConfig) error {
 	if err := c.client.Create(ctx, authConfig); err != nil {
 		return fmt.Errorf("could not CREATE authconfig %s/%s. cause %w", authConfig.Namespace, authConfig.Name, err)
 	}
 	return nil
 }
 
-func (c *clientAuthConfigStore) Update(ctx context.Context, authConfig *authorinov1beta2.AuthConfig) error {
+func (c *clientAuthConfigStore) Update(ctx context.Context, authConfig *authorinov1beta3.AuthConfig) error {
 	if err := c.client.Update(ctx, authConfig); err != nil {
 		return fmt.Errorf("could not UPDATE authconfig %s/%s. cause %w", authConfig.Namespace, authConfig.Name, err)
 	}

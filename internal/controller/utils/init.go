@@ -4,7 +4,7 @@ import (
 	kedaapi "github.com/kedacore/keda/v2/apis/keda/v1alpha1"
 	kservev1alpha1 "github.com/kserve/kserve/pkg/apis/serving/v1alpha1"
 	kservev1beta1 "github.com/kserve/kserve/pkg/apis/serving/v1beta1"
-	authorinov1beta2 "github.com/kuadrant/authorino/api/v1beta2"
+	authorinov1beta3 "github.com/kuadrant/authorino/api/v1beta3"
 	kuadrantv1 "github.com/kuadrant/kuadrant-operator/api/v1"
 	routev1 "github.com/openshift/api/route/v1"
 	templatev1 "github.com/openshift/api/template/v1"
@@ -39,7 +39,7 @@ func RegisterSchemes(s *runtime.Scheme) {
 	utilruntime.Must(telemetryv1alpha1.AddToScheme(s))
 	utilruntime.Must(maistrav1.SchemeBuilder.AddToScheme(s))
 	utilruntime.Must(knservingv1.AddToScheme(s))
-	utilruntime.Must(authorinov1beta2.SchemeBuilder.AddToScheme(s))
+	utilruntime.Must(authorinov1beta3.SchemeBuilder.AddToScheme(s))
 	utilruntime.Must(kuadrantv1.AddToScheme(s))
 	utilruntime.Must(istioclientv1beta1.SchemeBuilder.AddToScheme(s))
 	utilruntime.Must(nimv1.SchemeBuilder.AddToScheme(s))
