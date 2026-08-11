@@ -345,6 +345,14 @@ func TestResolve_Unauthorized_UsesHardenedDefaults(t *testing.T) {
 	if result.ProfileFetched {
 		t.Error("expected ProfileFetched = false on Unauthorized")
 	}
+	if len(result.TLSOpts) == 0 {
+		t.Error("expected TLSOpts with Intermediate defaults")
+	}
+	c := &tls.Config{}
+	result.TLSOpts[0](c)
+	if c.MinVersion != tls.VersionTLS12 {
+		t.Errorf("expected TLS 1.2 fallback, got %d", c.MinVersion)
+	}
 }
 
 func TestProfileWatcher_DetectsChange(t *testing.T) {
