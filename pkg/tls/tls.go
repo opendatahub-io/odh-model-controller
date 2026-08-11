@@ -75,9 +75,9 @@ type Result struct {
 
 // Resolve reads the cluster TLS profile from apiservers.config.openshift.io/cluster
 // and returns TLS option functions for controller-runtime.
-// On non-OpenShift clusters or when the profile cannot be read, it returns
-// hardened Intermediate defaults. Returns an error only on unexpected failures
-// that should prevent startup (fail-closed).
+// On non-OpenShift clusters, missing RBAC (Forbidden/Unauthorized), or when the
+// profile cannot be read, it returns hardened Intermediate defaults. Returns an
+// error only on unexpected failures that should prevent startup (fail-closed).
 func Resolve(ctx context.Context, cfg *rest.Config) (Result, error) {
 	scheme := runtime.NewScheme()
 	if err := configv1.Install(scheme); err != nil {
@@ -105,6 +105,11 @@ func resolve(ctx context.Context, k8sClient client.Reader) (Result, error) {
 			log.Info("TLS profile not available, using hardened defaults (non-OpenShift cluster)")
 		case apierrors.IsNotFound(err):
 			log.Info("APIServer resource not found, using hardened defaults")
+		case apierrors.IsForbidden(err), apierrors.IsUnauthorized(err):
+			// Missing get/list/watch on apiservers.config.openshift.io (RBAC lag vs
+			// controller image) must not CrashLoop the manager. Fall back without
+			// ProfileFetched so the watcher is not registered until RBAC is present.
+			log.Info("APIServer TLS profile forbidden; using hardened defaults (check ClusterRole for config.openshift.io/apiservers)", "error", err)
 		case apierrors.IsServiceUnavailable(err),
 			apierrors.IsTimeout(err),
 			apierrors.IsServerTimeout(err),

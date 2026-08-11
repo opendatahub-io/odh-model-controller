@@ -310,15 +310,40 @@ func TestResolve_TransientError_SetsProfileFetched(t *testing.T) {
 	}
 }
 
-func TestResolve_FatalError_Returns(t *testing.T) {
+func TestResolve_Forbidden_UsesHardenedDefaults(t *testing.T) {
 	gr := schema.GroupResource{Group: "config.openshift.io", Resource: "apiservers"}
 	fakeClient := &transientErrorClient{
 		err: apierrors.NewForbidden(gr, "cluster", nil),
 	}
 
-	_, err := resolve(context.Background(), fakeClient)
-	if err == nil {
-		t.Fatal("expected error on Forbidden, got nil")
+	result, err := resolve(context.Background(), fakeClient)
+	if err != nil {
+		t.Fatalf("resolve() error = %v, expected graceful fallback on Forbidden", err)
+	}
+	if result.ProfileFetched {
+		t.Error("expected ProfileFetched = false on Forbidden so TLS watcher is not registered")
+	}
+	if len(result.TLSOpts) == 0 {
+		t.Error("expected TLSOpts with Intermediate defaults")
+	}
+	c := &tls.Config{}
+	result.TLSOpts[0](c)
+	if c.MinVersion != tls.VersionTLS12 {
+		t.Errorf("expected TLS 1.2 fallback, got %d", c.MinVersion)
+	}
+}
+
+func TestResolve_Unauthorized_UsesHardenedDefaults(t *testing.T) {
+	fakeClient := &transientErrorClient{
+		err: apierrors.NewUnauthorized("not authenticated"),
+	}
+
+	result, err := resolve(context.Background(), fakeClient)
+	if err != nil {
+		t.Fatalf("resolve() error = %v, expected graceful fallback on Unauthorized", err)
+	}
+	if result.ProfileFetched {
+		t.Error("expected ProfileFetched = false on Unauthorized")
 	}
 }
 
