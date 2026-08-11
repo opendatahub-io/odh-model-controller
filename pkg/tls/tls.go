@@ -109,7 +109,9 @@ func resolve(ctx context.Context, k8sClient client.Reader) (Result, error) {
 			// Missing get/list/watch on apiservers.config.openshift.io (RBAC lag vs
 			// controller image) must not CrashLoop the manager. Fall back without
 			// ProfileFetched so the watcher is not registered until RBAC is present.
-			log.Info("APIServer TLS profile forbidden; using hardened defaults (check ClusterRole for config.openshift.io/apiservers)", "error", err)
+			log.Info("APIServer TLS profile forbidden; using hardened defaults",
+				"hint", "ensure ClusterRole grants get/list/watch on config.openshift.io/apiservers",
+				"error", err)
 		case apierrors.IsServiceUnavailable(err),
 			apierrors.IsTimeout(err),
 			apierrors.IsServerTimeout(err),
