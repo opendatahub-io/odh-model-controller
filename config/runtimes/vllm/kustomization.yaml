@@ -15,3 +15,6 @@ resources:
   - csr-kserve-vllm-gaudi-v1.yaml
   - csr-kserve-vllm-cpu-v1.yaml
   - csr-kserve-vllm-cpu-x86-v1.yaml
+  - csr-kserve-vllm-spyre-x86-v1.yaml
+  - csr-kserve-vllm-spyre-s390x-v1.yaml
+  - csr-kserve-vllm-spyre-ppc64le-v1.yaml
