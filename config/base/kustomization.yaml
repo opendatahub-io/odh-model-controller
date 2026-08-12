@@ -120,6 +120,11 @@ replacements:
           name: vllm-rocm-runtime-template
         fieldPaths:
           - objects.0.spec.containers.0.image
+      - select:
+          kind: ClusterServingRuntime
+          name: csr-kserve-vllm-rocm-v1
+        fieldPaths:
+          - spec.containers.0.image
   - source:
       kind: ConfigMap
       version: v1
@@ -131,6 +136,11 @@ replacements:
           name: vllm-gaudi-runtime-template
         fieldPaths:
           - objects.0.spec.containers.0.image
+      - select:
+          kind: ClusterServingRuntime
+          name: csr-kserve-vllm-gaudi-v1
+        fieldPaths:
+          - spec.containers.0.image
   - source:
       kind: ConfigMap
       version: v1
@@ -142,6 +152,11 @@ replacements:
           name: vllm-cpu-runtime-template
         fieldPaths:
           - objects.0.spec.containers.0.image
+      - select:
+          kind: ClusterServingRuntime
+          name: csr-kserve-vllm-cpu-v1
+        fieldPaths:
+          - spec.containers.0.image
   - source:
       kind: ConfigMap
       version: v1
@@ -153,6 +168,11 @@ replacements:
           name: vllm-cpu-x86-runtime-template
         fieldPaths:
           - objects.0.spec.containers.0.image
+      - select:
+          kind: ClusterServingRuntime
+          name: csr-kserve-vllm-cpu-x86-v1
+        fieldPaths:
+          - spec.containers.0.image
   - source:
       kind: ConfigMap
       version: v1
