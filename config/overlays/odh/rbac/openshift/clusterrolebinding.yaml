@@ -9,4 +9,4 @@ roleRef:
 subjects:
 - kind: ServiceAccount
   name: odh-model-controller
-  namespace: opendatahub
+  namespace: system
