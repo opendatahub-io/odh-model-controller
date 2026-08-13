@@ -204,3 +204,7 @@ func GetGatewayPodMonitorName(gatewayName string) string {
 func GetHTTPRouteName(llmisvcName string) string {
 	return kmeta.ChildName(llmisvcName, HTTPRouteNameSuffix)
 }
+
+func GetLLMISvcPodMonitorName(llmisvcName string) string {
+	return kmeta.ChildName(llmisvcName, "-vllm-metrics")
+}

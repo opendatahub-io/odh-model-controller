@@ -44,13 +44,6 @@ rules:
   - config.openshift.io
   resources:
   - apiservers
-  verbs:
-  - get
-  - list
-  - watch
-- apiGroups:
-  - config.openshift.io
-  resources:
   - authentications
   verbs:
   - get
