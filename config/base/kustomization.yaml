@@ -184,6 +184,11 @@ replacements:
           name: vllm-spyre-x86-runtime-template
         fieldPaths:
           - objects.0.spec.containers.0.image
+      - select:
+          kind: ClusterServingRuntime
+          name: csr-kserve-vllm-spyre-x86-v1
+        fieldPaths:
+          - spec.containers.0.image
   - source:
       kind: ConfigMap
       version: v1
@@ -195,6 +200,11 @@ replacements:
           name: vllm-spyre-s390x-runtime-template
         fieldPaths:
           - objects.0.spec.containers.0.image
+      - select:
+          kind: ClusterServingRuntime
+          name: csr-kserve-vllm-spyre-s390x-v1
+        fieldPaths:
+          - spec.containers.0.image
   - source:
       kind: ConfigMap
       version: v1
@@ -206,6 +216,11 @@ replacements:
           name: vllm-spyre-ppc64le-runtime-template
         fieldPaths:
           - objects.0.spec.containers.0.image
+      - select:
+          kind: ClusterServingRuntime
+          name: csr-kserve-vllm-spyre-ppc64le-v1
+        fieldPaths:
+          - spec.containers.0.image
   - source:
       kind: ConfigMap
       version: v1
