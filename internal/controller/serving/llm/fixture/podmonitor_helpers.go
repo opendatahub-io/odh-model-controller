@@ -45,3 +45,33 @@ func VerifyGatewayPodMonitorOwnerRef(ctx context.Context, c client.Client, gatew
 		g.Expect(ownerRefs[0].APIVersion).To(gomega.Equal("gateway.networking.k8s.io/v1"))
 	}).WithContext(ctx).Should(gomega.Succeed())
 }
+
+// LLMInferenceService PodMonitor helpers
+
+func VerifyLLMISvcPodMonitorExists(ctx context.Context, c client.Client, namespace, llmisvcName string) {
+	VerifyResourceExists(ctx, c, namespace, constants.GetLLMISvcPodMonitorName(llmisvcName), &monitoringv1.PodMonitor{})
+}
+
+func VerifyLLMISvcPodMonitorNotExist(ctx context.Context, c client.Client, namespace, llmisvcName string) {
+	VerifyResourceNotExist(ctx, c, namespace, constants.GetLLMISvcPodMonitorName(llmisvcName), &monitoringv1.PodMonitor{})
+}
+
+func VerifyLLMISvcPodMonitorOwnerRef(ctx context.Context, c client.Client, namespace, llmisvcName string) {
+	gomega.Eventually(func(g gomega.Gomega) {
+		podMonitor, err := GetResourceByName(ctx, c, namespace, constants.GetLLMISvcPodMonitorName(llmisvcName), &monitoringv1.PodMonitor{})
+		g.Expect(err).NotTo(gomega.HaveOccurred())
+		ownerRefs := podMonitor.GetOwnerReferences()
+		g.Expect(ownerRefs).To(gomega.HaveLen(1))
+		g.Expect(ownerRefs[0].Name).To(gomega.Equal(llmisvcName))
+		g.Expect(ownerRefs[0].Kind).To(gomega.Equal("LLMInferenceService"))
+	}).WithContext(ctx).Should(gomega.Succeed())
+}
+
+func VerifyLLMISvcPodMonitorLabels(ctx context.Context, c client.Client, namespace, llmisvcName string) {
+	gomega.Eventually(func(g gomega.Gomega) {
+		podMonitor, err := GetResourceByName(ctx, c, namespace, constants.GetLLMISvcPodMonitorName(llmisvcName), &monitoringv1.PodMonitor{})
+		g.Expect(err).NotTo(gomega.HaveOccurred())
+		g.Expect(podMonitor.Labels).To(gomega.HaveKeyWithValue(constants.RhoaiObservabilityLabel, "true"))
+		g.Expect(podMonitor.Labels).To(gomega.HaveKeyWithValue("app.kubernetes.io/managed-by", "odh-model-controller"))
+	}).WithContext(ctx).Should(gomega.Succeed())
+}
