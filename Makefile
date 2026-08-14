@@ -206,7 +206,7 @@ e2e-kserve-overlay: kustomize ## Create a kustomize overlay injecting the contro
 	@sed -i 's|^odh-model-serving-api=.*|odh-model-serving-api=$(SERVER_IMG)|' "$(E2E_OVERLAY_DIR)/params.env"
 	@cd "$(E2E_OVERLAY_DIR)" && \
 		$(KUSTOMIZE) init && \
-		$(KUSTOMIZE) edit add resource ../../config/base && \
+		$(KUSTOMIZE) edit add resource ../../config/overlays/odh && \
 		$(KUSTOMIZE) edit add configmap odh-model-controller-parameters \
 			--behavior=merge \
 			--from-env-file=params.env && \
