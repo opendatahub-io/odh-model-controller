@@ -23,6 +23,7 @@ import (
 
 	"github.com/go-logr/logr"
 	kservev1alpha2 "github.com/kserve/kserve/pkg/apis/serving/v1alpha2"
+	kserveconstants "github.com/kserve/kserve/pkg/constants"
 	monitoringv1 "github.com/prometheus-operator/prometheus-operator/pkg/apis/monitoring/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/meta"
@@ -37,6 +38,7 @@ import (
 	"github.com/opendatahub-io/odh-model-controller/internal/controller/constants"
 	"github.com/opendatahub-io/odh-model-controller/internal/controller/processors"
 	parentreconcilers "github.com/opendatahub-io/odh-model-controller/internal/controller/serving/reconcilers"
+	"github.com/opendatahub-io/odh-model-controller/internal/controller/utils"
 )
 
 var _ parentreconcilers.LLMSubResourceReconciler = (*KservePodMonitorReconciler)(nil)
@@ -67,6 +69,11 @@ func (r *KservePodMonitorReconciler) Reconcile(ctx context.Context, log logr.Log
 			return nil
 		}
 		return fmt.Errorf("failed to get existing PodMonitor: %w", err)
+	}
+
+	if existing != nil && !utils.IsManagedByOpenDataHub(existing) {
+		log.V(1).Info("Skipping PodMonitor reconciliation - not managed by odh-model-controller", "name", desired.Name)
+		return nil
 	}
 
 	delta := r.deltaProcessor.ComputeDelta(comparators.GetPodMonitorComparator(), desired, existing)
@@ -111,6 +118,11 @@ func (r *KservePodMonitorReconciler) Delete(ctx context.Context, log logr.Logger
 		return fmt.Errorf("failed to get PodMonitor for deletion: %w", err)
 	}
 
+	if !utils.IsManagedByOpenDataHub(existing) {
+		log.V(1).Info("Skipping PodMonitor deletion - not managed by odh-model-controller", "name", name)
+		return nil
+	}
+
 	if err := r.client.Delete(ctx, existing); err != nil && !apierrors.IsNotFound(err) {
 		return fmt.Errorf("failed to delete PodMonitor: %w", err)
 	}
@@ -137,11 +149,12 @@ func (r *KservePodMonitorReconciler) getExisting(ctx context.Context, llmisvc *k
 }
 
 // DesiredPodMonitor builds a PodMonitor targeting the vLLM metrics endpoint (port 8000, /metrics)
-// for a given LLMInferenceService. The pod selector uses a label that KServe applies to all pods
-// belonging to an LLMInferenceService; topology-specific selectors are handled by sibling stories.
+// for a given LLMInferenceService. The pod selector targets single-node Deployment pods using
+// the standard KServe workload labels.
 func DesiredPodMonitor(llmisvc *kservev1alpha2.LLMInferenceService) *monitoringv1.PodMonitor {
 	vllmPort := "http"
 	scrapeInterval := monitoringv1.Duration(constants.IntervalValue)
+	selector := SingleNodePodSelector(llmisvc.Name)
 
 	return &monitoringv1.PodMonitor{
 		ObjectMeta: metav1.ObjectMeta{
@@ -155,11 +168,7 @@ func DesiredPodMonitor(llmisvc *kservev1alpha2.LLMInferenceService) *monitoringv
 			},
 		},
 		Spec: monitoringv1.PodMonitorSpec{
-			Selector: metav1.LabelSelector{
-				MatchLabels: map[string]string{
-					"serving.kserve.io/llminferenceservice": llmisvc.Name,
-				},
-			},
+			Selector: selector,
 			PodMetricsEndpoints: []monitoringv1.PodMetricsEndpoint{
 				{
 					Port:     &vllmPort,
@@ -184,6 +193,20 @@ func DesiredPodMonitor(llmisvc *kservev1alpha2.LLMInferenceService) *monitoringv
 					},
 				},
 			},
+		},
+	}
+}
+
+// SingleNodePodSelector returns a label selector that targets vLLM pods created by a standard
+// single-node Deployment for the given LLMInferenceService. It selects pods with the
+// "llminferenceservice-workload" component label, which excludes multi-node leader/worker pods
+// and disaggregated prefill pods.
+func SingleNodePodSelector(llmisvcName string) metav1.LabelSelector {
+	return metav1.LabelSelector{
+		MatchLabels: map[string]string{
+			kserveconstants.KubernetesAppNameLabelKey:   llmisvcName,
+			kserveconstants.KubernetesPartOfLabelKey:    kserveconstants.LLMInferenceServicePartOfValue,
+			kserveconstants.KubernetesComponentLabelKey: kserveconstants.LLMComponentWorkload,
 		},
 	}
 }
