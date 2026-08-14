@@ -126,7 +126,6 @@ require (
 	github.com/kuadrant/policy-machinery v0.7.1-0.20251119154946-1ca17a075dd2 // indirect
 	github.com/kylelemons/godebug v1.1.0 // indirect
 	github.com/leodido/go-urn v1.4.0 // indirect
-	github.com/llm-d/llm-d-workload-variant-autoscaler v0.7.0 // indirect
 	github.com/martinlindhe/base36 v1.1.1 // indirect
 	github.com/moby/spdystream v0.5.0 // indirect
 	github.com/modern-go/concurrent v0.0.0-20180306012644-bacd9c7ef1dd // indirect
@@ -197,7 +196,7 @@ require (
 replace sigs.k8s.io/controller-runtime => sigs.k8s.io/controller-runtime v0.19.7
 
 // Use ODH release branch instead
-replace github.com/kserve/kserve => github.com/opendatahub-io/kserve v0.0.0-20260718005951-68819da1e251
+replace github.com/kserve/kserve => github.com/opendatahub-io/kserve v0.0.0-20260729134149-12c805695fa0
 
 // CVE-2025-68156: Update expr-lang/expr to v1.17.7
 replace github.com/expr-lang/expr => github.com/expr-lang/expr v1.17.7
