@@ -23,7 +23,9 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/intstr"
+	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 	"sigs.k8s.io/controller-runtime/pkg/log"
 
@@ -402,6 +404,7 @@ func createISVCWithAnnotations(labels, annotations map[string]string) *kservev1b
 		ObjectMeta: metav1.ObjectMeta{
 			Name:        "test",
 			Namespace:   "ns",
+			UID:         types.UID("test-uid"),
 			Labels:      labels,
 			Annotations: annotations,
 		},
@@ -418,6 +421,13 @@ func createService(name string, labels map[string]string, ports []corev1.Service
 			Name:      name,
 			Namespace: "ns",
 			Labels:    labels,
+			OwnerReferences: []metav1.OwnerReference{{
+				APIVersion: "serving.kserve.io/v1beta1",
+				Kind:       "InferenceService",
+				Name:       "test",
+				UID:        types.UID("test-uid"),
+				Controller: ptr.To(true),
+			}},
 		},
 		Spec: corev1.ServiceSpec{
 			Ports: ports,

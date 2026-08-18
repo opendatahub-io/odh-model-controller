@@ -240,20 +240,23 @@ var _ = Describe("InferenceService Controller", func() {
 				inferenceService := createInferenceService(testNs, KserveOvmsInferenceServiceName, KserveInferenceServicePath1)
 				inferenceService.Labels = map[string]string{}
 				inferenceService.Labels[constants.KserveNetworkVisibility] = constants.LabelEnableKserveRawRoute
-				// The service is manually created before the isvc otherwise the unit test risks running into a race condition
-				// where the reconcile loop finishes before the service is created, leading to no route being created.
-				isvcService := getDefaultService(inferenceService.Namespace)
-				if err := k8sClient.Create(ctx, isvcService); err != nil && !k8sErrors.IsAlreadyExists(err) {
-					Expect(err).NotTo(HaveOccurred())
-				}
-				service := &corev1.Service{}
-				Eventually(func() error {
-					key := types.NamespacedName{Name: isvcService.Name, Namespace: isvcService.Namespace}
-					return k8sClient.Get(ctx, key, service)
-				}, timeout, interval).Should(Succeed())
-
 				_ = createServingRuntime(testNs, KserveServingRuntimePath1)
 				if err := k8sClient.Create(ctx, inferenceService); err != nil && !k8sErrors.IsAlreadyExists(err) {
+					Expect(err).NotTo(HaveOccurred())
+				}
+				createdISVC := &kservev1beta1.InferenceService{}
+				Eventually(func() error {
+					return k8sClient.Get(ctx, types.NamespacedName{Name: inferenceService.Name, Namespace: inferenceService.Namespace}, createdISVC)
+				}, timeout, interval).Should(Succeed())
+				isvcService := getDefaultService(inferenceService.Namespace)
+				isvcService.OwnerReferences = []metav1.OwnerReference{{
+					APIVersion: "serving.kserve.io/v1beta1",
+					Kind:       "InferenceService",
+					Name:       createdISVC.Name,
+					UID:        createdISVC.UID,
+					Controller: ptr.To(true),
+				}}
+				if err := k8sClient.Create(ctx, isvcService); err != nil && !k8sErrors.IsAlreadyExists(err) {
 					Expect(err).NotTo(HaveOccurred())
 				}
 
@@ -268,19 +271,23 @@ var _ = Describe("InferenceService Controller", func() {
 				inferenceService := createInferenceService(testNs, KserveOvmsInferenceServiceName, KserveInferenceServicePath2)
 				inferenceService.Labels = map[string]string{}
 				inferenceService.Labels[constants.KserveNetworkVisibility] = constants.LabelEnableKserveRawRoute
-				// The service is manually created before the isvc otherwise the unit test risks running into a race condition
-				// where the reconcile loop finishes before the service is created, leading to no route being created.
-				isvcService := getDefaultService(inferenceService.Namespace)
-				if err := k8sClient.Create(ctx, isvcService); err != nil && !k8sErrors.IsAlreadyExists(err) {
-					Expect(err).NotTo(HaveOccurred())
-				}
-				service := &corev1.Service{}
-				Eventually(func() error {
-					key := types.NamespacedName{Name: isvcService.Name, Namespace: isvcService.Namespace}
-					return k8sClient.Get(ctx, key, service)
-				}, timeout, interval).Should(Succeed())
 				_ = createServingRuntime(testNs, KserveServingRuntimePath1)
 				if err := k8sClient.Create(ctx, inferenceService); err != nil && !k8sErrors.IsAlreadyExists(err) {
+					Expect(err).NotTo(HaveOccurred())
+				}
+				createdISVC := &kservev1beta1.InferenceService{}
+				Eventually(func() error {
+					return k8sClient.Get(ctx, types.NamespacedName{Name: inferenceService.Name, Namespace: inferenceService.Namespace}, createdISVC)
+				}, timeout, interval).Should(Succeed())
+				isvcService := getDefaultService(inferenceService.Namespace)
+				isvcService.OwnerReferences = []metav1.OwnerReference{{
+					APIVersion: "serving.kserve.io/v1beta1",
+					Kind:       "InferenceService",
+					Name:       createdISVC.Name,
+					UID:        createdISVC.UID,
+					Controller: ptr.To(true),
+				}}
+				if err := k8sClient.Create(ctx, isvcService); err != nil && !k8sErrors.IsAlreadyExists(err) {
 					Expect(err).NotTo(HaveOccurred())
 				}
 
@@ -307,19 +314,23 @@ var _ = Describe("InferenceService Controller", func() {
 				inferenceService := createInferenceService(testNs, KserveOvmsInferenceServiceName, KserveInferenceServicePath3)
 				inferenceService.Labels = map[string]string{}
 				inferenceService.Labels[constants.KserveNetworkVisibility] = constants.LabelEnableKserveRawRoute
-				// The service is manually created before the isvc otherwise the unit test risks running into a race condition
-				// where the reconcile loop finishes before the service is created, leading to no route being created.
-				isvcService := getDefaultService(inferenceService.Namespace)
-				if err := k8sClient.Create(ctx, isvcService); err != nil && !k8sErrors.IsAlreadyExists(err) {
-					Expect(err).NotTo(HaveOccurred())
-				}
-				service := &corev1.Service{}
-				Eventually(func() error {
-					key := types.NamespacedName{Name: isvcService.Name, Namespace: isvcService.Namespace}
-					return k8sClient.Get(ctx, key, service)
-				}, timeout, interval).Should(Succeed())
 				_ = createServingRuntime(testNs, KserveServingRuntimePath1)
 				if err := k8sClient.Create(ctx, inferenceService); err != nil && !k8sErrors.IsAlreadyExists(err) {
+					Expect(err).NotTo(HaveOccurred())
+				}
+				createdISVC := &kservev1beta1.InferenceService{}
+				Eventually(func() error {
+					return k8sClient.Get(ctx, types.NamespacedName{Name: inferenceService.Name, Namespace: inferenceService.Namespace}, createdISVC)
+				}, timeout, interval).Should(Succeed())
+				isvcService := getDefaultService(inferenceService.Namespace)
+				isvcService.OwnerReferences = []metav1.OwnerReference{{
+					APIVersion: "serving.kserve.io/v1beta1",
+					Kind:       "InferenceService",
+					Name:       createdISVC.Name,
+					UID:        createdISVC.UID,
+					Controller: ptr.To(true),
+				}}
+				if err := k8sClient.Create(ctx, isvcService); err != nil && !k8sErrors.IsAlreadyExists(err) {
 					Expect(err).NotTo(HaveOccurred())
 				}
 
@@ -910,7 +921,6 @@ func getDefaultService(isvcNamespace string) *corev1.Service {
 				"app":                                "isvc." + KserveOvmsInferenceServiceName + "-predictor",
 				"component":                          "predictor",
 				"serving.kserve.io/inferenceservice": KserveOvmsInferenceServiceName,
-				"opendatahub.io/managed":             "true",
 			},
 		},
 		Spec: corev1.ServiceSpec{
