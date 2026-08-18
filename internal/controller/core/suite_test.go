@@ -142,6 +142,21 @@ var _ = BeforeSuite(func() {
 						"opendatahub.io/managed": "true",
 					}),
 				},
+				&corev1.ConfigMap{}: {
+					Label: labels.SelectorFromSet(labels.Set{
+						"opendatahub.io/managed": "true",
+					}),
+				},
+				&corev1.Service{}: {
+					Label: labels.SelectorFromSet(labels.Set{
+						"opendatahub.io/managed": "true",
+					}),
+				},
+				&corev1.Namespace{}: {
+					Label: labels.SelectorFromSet(labels.Set{
+						"opendatahub.io/managed": "true",
+					}),
+				},
 			},
 		},
 		Metrics: metricsserver.Options{BindAddress: "0"},

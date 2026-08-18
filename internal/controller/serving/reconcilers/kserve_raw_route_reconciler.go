@@ -121,6 +121,9 @@ func (r *KserveRawRouteReconciler) createDesiredResource(ctx context.Context, lo
 	predictorName := isvc.Name + "-predictor"
 	for i := range serviceList.Items {
 		svc := &serviceList.Items[i]
+		if !metav1.IsControlledBy(svc, isvc) {
+			continue
+		}
 		if val, ok := svc.Labels["component"]; ok && val == "transformer" {
 			transformerService = svc
 			continue
@@ -328,12 +331,12 @@ func (r *KserveRawRouteReconciler) applyCanaryTrafficSplits(ctx context.Context,
 	for _, canary := range isvc.Spec.Canary {
 		canaryServiceName := fmt.Sprintf("%s-%s-predictor", isvc.Name, canary.Predictor.Name)
 
-		// Verify the canary Service exists before registering it as an alternateBackend.
-		// Port resolution is not needed here — route.Spec.Port (resolved to a numeric value
-		// above) is applied uniformly by the OpenShift Router across all backends.
 		svc := &corev1.Service{}
 		if err := r.apiReader.Get(ctx, types.NamespacedName{Name: canaryServiceName, Namespace: isvc.Namespace}, svc); err != nil {
 			return fmt.Errorf("canary service %q not found: %w", canaryServiceName, err)
+		}
+		if !metav1.IsControlledBy(svc, isvc) {
+			return fmt.Errorf("canary service %q is not owned by InferenceService %q", canaryServiceName, isvc.Name)
 		}
 
 		weight := canary.TrafficPercent

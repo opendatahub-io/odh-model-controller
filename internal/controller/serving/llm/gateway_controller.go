@@ -493,11 +493,12 @@ func (r *GatewayReconciler) isGatewayReferencedByLLMService(ctx context.Context,
 		return false, fmt.Errorf("failed to list LLMInferenceServices: %w", err)
 	}
 
+	nsLabelsCache := make(map[string]map[string]string)
 	for i := range llmSvcList.Items {
 		if kserveutils.GetForceStopRuntime(&llmSvcList.Items[i]) {
 			continue
 		}
-		for _, ref := range r.getEffectiveGatewayRefs(ctx, gateway, &llmSvcList.Items[i]) {
+		for _, ref := range r.getEffectiveGatewayRefsWithCache(ctx, gateway, &llmSvcList.Items[i], nsLabelsCache) {
 			ns := string(ref.Namespace)
 			if ns == "" {
 				ns = llmSvcList.Items[i].Namespace
@@ -510,12 +511,22 @@ func (r *GatewayReconciler) isGatewayReferencedByLLMService(ctx context.Context,
 	return false, nil
 }
 
+// getEffectiveGatewayRefsWithCache is like getEffectiveGatewayRefs but deduplicates
+// Namespace reads across multiple calls using nsLabelsCache.
+func (r *GatewayReconciler) getEffectiveGatewayRefsWithCache(ctx context.Context, gateway *gatewayapiv1.Gateway, llmSvc *kservev1alpha2.LLMInferenceService, nsLabelsCache map[string]map[string]string) []kservev1alpha2.GatewayObjectReference {
+	nsLabels := r.fetchNamespaceLabelsWithCache(ctx, llmSvc.Namespace, nsLabelsCache)
+	return r.getEffectiveGatewayRefsInner(ctx, gateway, llmSvc, nsLabels)
+}
+
 // getEffectiveGatewayRefs returns the effective gateway references for an LLMInferenceService.
 // The service's own gateway refs take precedence over those inherited from BaseRef configs,
 // matching the "last one wins" merge semantics used by kserve's MergeSpecs.
 func (r *GatewayReconciler) getEffectiveGatewayRefs(ctx context.Context, gateway *gatewayapiv1.Gateway, llmSvc *kservev1alpha2.LLMInferenceService) []kservev1alpha2.GatewayObjectReference {
 	nsLabels := r.fetchNamespaceLabels(ctx, llmSvc.Namespace)
+	return r.getEffectiveGatewayRefsInner(ctx, gateway, llmSvc, nsLabels)
+}
 
+func (r *GatewayReconciler) getEffectiveGatewayRefsInner(ctx context.Context, gateway *gatewayapiv1.Gateway, llmSvc *kservev1alpha2.LLMInferenceService, nsLabels map[string]string) []kservev1alpha2.GatewayObjectReference {
 	// Service's own refs take precedence (replace config refs)
 	if refs := getGatewayRefs(ctx, gateway, llmSvc, nsLabels); len(refs) > 0 {
 		return refs
@@ -538,6 +549,17 @@ func (r *GatewayReconciler) getEffectiveGatewayRefs(ctx context.Context, gateway
 	}
 
 	return filterAllowedRefs(ctx, gateway, refs, llmSvc.Namespace, nsLabels)
+}
+
+// fetchNamespaceLabelsWithCache retrieves the labels for the given namespace,
+// caching results in nsLabelsCache to avoid redundant API-server reads.
+func (r *GatewayReconciler) fetchNamespaceLabelsWithCache(ctx context.Context, namespace string, nsLabelsCache map[string]map[string]string) map[string]string {
+	if cached, ok := nsLabelsCache[namespace]; ok {
+		return cached
+	}
+	labels := r.fetchNamespaceLabels(ctx, namespace)
+	nsLabelsCache[namespace] = labels
+	return labels
 }
 
 // fetchNamespaceLabels retrieves the labels for the given namespace.

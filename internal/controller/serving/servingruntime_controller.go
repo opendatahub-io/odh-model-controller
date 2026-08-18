@@ -149,12 +149,6 @@ func (r *ServingRuntimeReconciler) monitoringThisNameSpace(ns string, monitoring
 func (r *ServingRuntimeReconciler) reconcileRoleBinding(ctx context.Context, req ctrl.Request, monitoringNs string) error {
 	logger := log.FromContext(ctx)
 
-	ns := &corev1.Namespace{}
-	err := r.APIReader.Get(ctx, types.NamespacedName{Name: req.Namespace}, ns)
-	if err != nil {
-		return err
-	}
-
 	monitoringNS := r.monitoringThisNameSpace(req.Namespace, monitoringNs)
 
 	if !monitoringNS {
@@ -242,14 +236,6 @@ func (r *ServingRuntimeReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 
 	controllerNamespace = os.Getenv("POD_NAMESPACE")
 	monitoringNs := os.Getenv("MONITORING_NAMESPACE")
-	ns := &corev1.Namespace{}
-	namespacedName := types.NamespacedName{
-		Name: req.Namespace,
-	}
-	err := r.APIReader.Get(ctx, namespacedName, ns)
-	if err != nil {
-		return ctrl.Result{}, err
-	}
 
 	if monitoringNs == "" {
 		logger.Info("No monitoring namespace detected, skipping monitoring reconciliation.")

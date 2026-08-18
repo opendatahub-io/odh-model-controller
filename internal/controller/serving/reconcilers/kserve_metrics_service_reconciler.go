@@ -25,6 +25,7 @@ import (
 	odhconstants "github.com/opendatahub-io/odh-model-controller/internal/controller/constants"
 	"github.com/opendatahub-io/odh-model-controller/internal/controller/utils"
 	v1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/intstr"
@@ -33,7 +34,6 @@ import (
 
 	"github.com/opendatahub-io/odh-model-controller/internal/controller/comparators"
 	"github.com/opendatahub-io/odh-model-controller/internal/controller/processors"
-	"github.com/opendatahub-io/odh-model-controller/internal/controller/resources"
 )
 
 var _ SubResourceReconciler = (*KserveRawMetricsServiceReconciler)(nil)
@@ -41,14 +41,14 @@ var _ SubResourceReconciler = (*KserveRawMetricsServiceReconciler)(nil)
 type KserveRawMetricsServiceReconciler struct {
 	NoResourceRemoval
 	client         client.Client
-	serviceHandler resources.ServiceHandler
+	apiReader      client.Reader
 	deltaProcessor processors.DeltaProcessor
 }
 
-func NewKServeRawMetricsServiceReconciler(client client.Client) *KserveRawMetricsServiceReconciler {
+func NewKServeRawMetricsServiceReconciler(client client.Client, apiReader client.Reader) *KserveRawMetricsServiceReconciler {
 	return &KserveRawMetricsServiceReconciler{
 		client:         client,
-		serviceHandler: resources.NewServiceHandler(client),
+		apiReader:      apiReader,
 		deltaProcessor: processors.NewDeltaProcessor(),
 	}
 }
@@ -124,7 +124,18 @@ func (r *KserveRawMetricsServiceReconciler) createDesiredResource(ctx context.Co
 }
 
 func (r *KserveRawMetricsServiceReconciler) getExistingResource(ctx context.Context, log logr.Logger, isvc *kservev1beta1.InferenceService) (*v1.Service, error) {
-	return r.serviceHandler.FetchService(ctx, log, types.NamespacedName{Name: getMetricsServiceName(isvc), Namespace: isvc.Namespace})
+	// Uses apiReader (uncached) because legacy metrics Services may lack the
+	// opendatahub.io/managed label and be invisible in the label-filtered cache.
+	svc := &v1.Service{}
+	key := types.NamespacedName{Name: getMetricsServiceName(isvc), Namespace: isvc.Namespace}
+	if err := r.apiReader.Get(ctx, key, svc); err != nil {
+		if errors.IsNotFound(err) {
+			log.V(1).Info("Metrics Service not found.")
+			return nil, nil
+		}
+		return nil, err
+	}
+	return svc, nil
 }
 
 func (r *KserveRawMetricsServiceReconciler) processDelta(ctx context.Context, log logr.Logger, desiredService *v1.Service, existingService *v1.Service) (err error) {
