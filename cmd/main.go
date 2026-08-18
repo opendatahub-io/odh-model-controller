@@ -250,11 +250,6 @@ func createManager(cfg *rest.Config, metricsAddr, probeAddr string,
 						"component": "predictor",
 					}),
 				},
-				&corev1.ConfigMap{}: {
-					Label: labels.SelectorFromSet(labels.Set{
-						"opendatahub.io/managed": "true",
-					}),
-				},
 				&corev1.Service{}: {
 					Label: labels.SelectorFromSet(labels.Set{
 						"opendatahub.io/managed": "true",

@@ -134,11 +134,6 @@ var _ = BeforeSuite(func() {
 						"opendatahub.io/managed": "true",
 					}),
 				},
-				&corev1.ConfigMap{}: {
-					Label: k8sLabels.SelectorFromSet(k8sLabels.Set{
-						"opendatahub.io/managed": "true",
-					}),
-				},
 				&corev1.Service{}: {
 					Label: k8sLabels.SelectorFromSet(k8sLabels.Set{
 						"opendatahub.io/managed": "true",
