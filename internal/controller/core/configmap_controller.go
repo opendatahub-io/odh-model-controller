@@ -51,7 +51,8 @@ var caBundleConfigmaps = constants.CABundleConfigMaps()
 // ConfigMapReconciler was formerly known as KServeCustomCACertReconciler.
 type ConfigMapReconciler struct {
 	client.Client
-	Scheme *runtime.Scheme
+	Scheme    *runtime.Scheme
+	APIReader client.Reader
 }
 
 // +kubebuilder:rbac:groups=core,resources=configmaps,verbs=get;list;watch;create;update;patch;delete
@@ -67,7 +68,7 @@ func (r *ConfigMapReconciler) reconcileConfigMap(configmap *corev1.ConfigMap, ct
 		if caBundleConfigmapName == configmap.Name {
 			cabundleConfigmap = configmap
 		} else {
-			err := r.Get(ctx, types.NamespacedName{Name: caBundleConfigmapName, Namespace: configmap.Namespace}, cabundleConfigmap)
+			err := r.APIReader.Get(ctx, types.NamespacedName{Name: caBundleConfigmapName, Namespace: configmap.Namespace}, cabundleConfigmap)
 			if err != nil {
 				if apierrs.IsNotFound(err) {
 					continue

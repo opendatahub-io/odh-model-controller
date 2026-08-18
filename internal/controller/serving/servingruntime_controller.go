@@ -55,7 +55,8 @@ var controllerNamespace string
 // known as MonitoringReconciler.
 type ServingRuntimeReconciler struct {
 	client.Client
-	Scheme *runtime.Scheme
+	Scheme    *runtime.Scheme
+	APIReader client.Reader
 }
 
 // +kubebuilder:rbac:groups=serving.kserve.io,resources=servingruntimes,verbs=get;list;watch;create;update
@@ -149,7 +150,7 @@ func (r *ServingRuntimeReconciler) reconcileRoleBinding(ctx context.Context, req
 	logger := log.FromContext(ctx)
 
 	ns := &corev1.Namespace{}
-	err := r.Client.Get(ctx, types.NamespacedName{Name: req.Namespace}, ns)
+	err := r.APIReader.Get(ctx, types.NamespacedName{Name: req.Namespace}, ns)
 	if err != nil {
 		return err
 	}
@@ -245,7 +246,7 @@ func (r *ServingRuntimeReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 	namespacedName := types.NamespacedName{
 		Name: req.Namespace,
 	}
-	err := r.Client.Get(ctx, namespacedName, ns)
+	err := r.APIReader.Get(ctx, namespacedName, ns)
 	if err != nil {
 		return ctrl.Result{}, err
 	}

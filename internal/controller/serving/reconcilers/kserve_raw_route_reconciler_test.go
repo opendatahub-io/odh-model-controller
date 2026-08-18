@@ -204,7 +204,7 @@ var _ = Describe("KserveRawRouteReconciler", func() {
 					WithObjects(isvc).
 					Build()
 
-				reconciler := NewKserveRawRouteReconciler(client)
+				reconciler := NewKserveRawRouteReconciler(client, client)
 				route, err := reconciler.createDesiredResource(ctx, log.Log, isvc)
 
 				Expect(err).NotTo(HaveOccurred())
@@ -241,7 +241,7 @@ var _ = Describe("KserveRawRouteReconciler", func() {
 					WithObjects(isvc, transformerSvc, predictorSvc).
 					Build()
 
-				reconciler := NewKserveRawRouteReconciler(client)
+				reconciler := NewKserveRawRouteReconciler(client, client)
 				route, err := reconciler.createDesiredResource(ctx, log.Log, isvc)
 
 				Expect(err).NotTo(HaveOccurred())
@@ -290,7 +290,7 @@ var _ = Describe("KserveRawRouteReconciler", func() {
 					WithObjects(isvc, transformerSvc, predictorSvc).
 					Build()
 
-				reconciler := NewKserveRawRouteReconciler(client)
+				reconciler := NewKserveRawRouteReconciler(client, client)
 				route, err := reconciler.createDesiredResource(ctx, log.Log, isvc)
 
 				Expect(err).NotTo(HaveOccurred())
@@ -330,7 +330,7 @@ var _ = Describe("KserveRawRouteReconciler", func() {
 					WithObjects(isvc, canonicalPredictor, otherPredictor).
 					Build()
 
-				reconciler := NewKserveRawRouteReconciler(client)
+				reconciler := NewKserveRawRouteReconciler(client, client)
 				route, err := reconciler.createDesiredResource(ctx, log.Log, isvc)
 
 				Expect(err).NotTo(HaveOccurred())
@@ -352,7 +352,7 @@ var _ = Describe("KserveRawRouteReconciler", func() {
 					WithObjects(isvc).
 					Build()
 
-				reconciler := NewKserveRawRouteReconciler(client)
+				reconciler := NewKserveRawRouteReconciler(client, client)
 				route, err := reconciler.createDesiredResource(ctx, log.Log, isvc)
 
 				Expect(err).To(HaveOccurred())
@@ -382,7 +382,7 @@ var _ = Describe("KserveRawRouteReconciler", func() {
 					WithObjects(isvc, fallbackPredictor).
 					Build()
 
-				reconciler := NewKserveRawRouteReconciler(client)
+				reconciler := NewKserveRawRouteReconciler(client, client)
 				route, err := reconciler.createDesiredResource(ctx, log.Log, isvc)
 
 				Expect(err).NotTo(HaveOccurred())

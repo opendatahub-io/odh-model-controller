@@ -294,10 +294,10 @@ func GetAuthAudience(ctx context.Context, client client.Client, defaultAudience 
 	return []string{defaultAudience}
 }
 
-func GetInferenceServiceConfigMap(ctx context.Context, cli client.Client) (*corev1.ConfigMap, error) {
+func GetInferenceServiceConfigMap(ctx context.Context, reader client.Reader) (*corev1.ConfigMap, error) {
 	controllerNs := os.Getenv("POD_NAMESPACE")
 	inferenceServiceConfigMap := &corev1.ConfigMap{}
-	err := cli.Get(ctx, client.ObjectKey{
+	err := reader.Get(ctx, client.ObjectKey{
 		Namespace: controllerNs,
 		Name:      KserveConfigMapName,
 	}, inferenceServiceConfigMap)
@@ -307,8 +307,8 @@ func GetInferenceServiceConfigMap(ctx context.Context, cli client.Client) (*core
 	return inferenceServiceConfigMap, nil
 }
 
-func GetDefaultGatewayRef(ctx context.Context, cli client.Client) (namespace, name string, err error) {
-	configMap, err := GetInferenceServiceConfigMap(ctx, cli)
+func GetDefaultGatewayRef(ctx context.Context, reader client.Reader) (namespace, name string, err error) {
+	configMap, err := GetInferenceServiceConfigMap(ctx, reader)
 	if err != nil {
 		return "", "", err
 	}
@@ -333,8 +333,8 @@ func GetDefaultGatewayRef(ctx context.Context, cli client.Client) (namespace, na
 // The value is lowercased to match Authorino's header key normalization and
 // validated as an HTTP token (RFC 7230) to prevent CEL injection via the
 // template.
-func GetModelRoutingHeader(ctx context.Context, cli client.Client) string {
-	configMap, err := GetInferenceServiceConfigMap(ctx, cli)
+func GetModelRoutingHeader(ctx context.Context, reader client.Reader) string {
+	configMap, err := GetInferenceServiceConfigMap(ctx, reader)
 	if err != nil {
 		log.FromContext(ctx).V(1).Info("inferenceservice-config unavailable, using default model routing header", "error", err)
 		return constants.DefaultModelRoutingHeader

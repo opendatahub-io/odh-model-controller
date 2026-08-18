@@ -66,7 +66,7 @@ func NewInferenceServiceReconciler(setupLog logr.Logger, client client.Client, s
 		clientReader:            clientReader,
 		ModelRegistryEnabled:    modelRegistryReconcileEnabled,
 		modelRegistrySkipTls:    modelRegistrySkipTls,
-		kserveRawISVCReconciler: reconcilers.NewKServeRawInferenceServiceReconciler(client),
+		kserveRawISVCReconciler: reconcilers.NewKServeRawInferenceServiceReconciler(client, clientReader),
 		bearerToken:             bearerToken,
 	}
 

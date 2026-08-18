@@ -250,6 +250,21 @@ func createManager(cfg *rest.Config, metricsAddr, probeAddr string,
 						"component": "predictor",
 					}),
 				},
+				&corev1.ConfigMap{}: {
+					Label: labels.SelectorFromSet(labels.Set{
+						"opendatahub.io/managed": "true",
+					}),
+				},
+				&corev1.Service{}: {
+					Label: labels.SelectorFromSet(labels.Set{
+						"opendatahub.io/managed": "true",
+					}),
+				},
+				&corev1.Namespace{}: {
+					Label: labels.SelectorFromSet(labels.Set{
+						"opendatahub.io/managed": "true",
+					}),
+				},
 			},
 		},
 	})
@@ -372,8 +387,9 @@ func setupSecretReconciler(mgr ctrl.Manager) error {
 
 func setupConfigMapReconciler(mgr ctrl.Manager) error {
 	return (&corecontroller.ConfigMapReconciler{
-		Client: mgr.GetClient(),
-		Scheme: mgr.GetScheme(),
+		Client:    mgr.GetClient(),
+		Scheme:    mgr.GetScheme(),
+		APIReader: mgr.GetAPIReader(),
 	}).SetupWithManager(mgr)
 }
 
@@ -386,8 +402,9 @@ func setupPodReconciler(mgr ctrl.Manager) error {
 
 func setupServingRuntimeReconciler(mgr ctrl.Manager) error {
 	return (&servingcontroller.ServingRuntimeReconciler{
-		Client: mgr.GetClient(),
-		Scheme: mgr.GetScheme(),
+		Client:    mgr.GetClient(),
+		Scheme:    mgr.GetScheme(),
+		APIReader: mgr.GetAPIReader(),
 	}).SetupWithManager(mgr)
 }
 
@@ -404,6 +421,7 @@ func setupGatewayReconciler(mgr ctrl.Manager) error {
 		mgr.GetClient(),
 		mgr.GetScheme(),
 		mgr.GetEventRecorderFor("GatewayAuthBootstrap"),
+		mgr.GetAPIReader(),
 	).SetupWithManager(mgr, setupLog)
 }
 

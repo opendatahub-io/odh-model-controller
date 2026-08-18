@@ -31,11 +31,11 @@ type KserveRawInferenceServiceReconciler struct {
 	subResourceReconcilers []SubResourceReconciler
 }
 
-func NewKServeRawInferenceServiceReconciler(client client.Client) *KserveRawInferenceServiceReconciler {
+func NewKServeRawInferenceServiceReconciler(client client.Client, apiReader client.Reader) *KserveRawInferenceServiceReconciler {
 
 	subResourceReconciler := []SubResourceReconciler{
 		NewKserveRawClusterRoleBindingReconciler(client),
-		NewKserveRawRouteReconciler(client),
+		NewKserveRawRouteReconciler(client, apiReader),
 		NewKServeRawMetricsServiceReconciler(client),
 		NewKServeRawMetricsServiceMonitorReconciler(client),
 		NewKserveMetricsDashboardReconciler(client),

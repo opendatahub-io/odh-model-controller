@@ -42,13 +42,15 @@ var _ SubResourceReconciler = (*KserveRawRouteReconciler)(nil)
 
 type KserveRawRouteReconciler struct {
 	client         client.Client
+	apiReader      client.Reader
 	routeHandler   resources.RouteHandler
 	deltaProcessor processors.DeltaProcessor
 }
 
-func NewKserveRawRouteReconciler(client client.Client) *KserveRawRouteReconciler {
+func NewKserveRawRouteReconciler(client client.Client, apiReader client.Reader) *KserveRawRouteReconciler {
 	return &KserveRawRouteReconciler{
 		client:         client,
+		apiReader:      apiReader,
 		routeHandler:   resources.NewRouteHandler(client),
 		deltaProcessor: processors.NewDeltaProcessor(),
 	}
@@ -102,10 +104,12 @@ func (r *KserveRawRouteReconciler) createDesiredResource(ctx context.Context, lo
 		return nil, nil
 	}
 
-	// Fetch the service with the label "serving.kserve.io/inferenceservice=isvc.Name" in the isvc namespace
+	// Fetch the service with the label "serving.kserve.io/inferenceservice=isvc.Name" in the isvc namespace.
+	// Uses apiReader (direct API call) because KServe-created Services lack the opendatahub.io/managed
+	// label and are excluded from the filtered cache.
 	serviceList := &corev1.ServiceList{}
 	labelSelector := client.MatchingLabels{constants.KserveGroupAnnotation: isvc.Name}
-	err = r.client.List(ctx, serviceList, client.InNamespace(isvc.Namespace), labelSelector)
+	err = r.apiReader.List(ctx, serviceList, client.InNamespace(isvc.Namespace), labelSelector)
 	if err != nil {
 		return nil, fmt.Errorf("failed to list services for InferenceService %q: %w", isvc.Name, err)
 	}
@@ -328,7 +332,7 @@ func (r *KserveRawRouteReconciler) applyCanaryTrafficSplits(ctx context.Context,
 		// Port resolution is not needed here — route.Spec.Port (resolved to a numeric value
 		// above) is applied uniformly by the OpenShift Router across all backends.
 		svc := &corev1.Service{}
-		if err := r.client.Get(ctx, types.NamespacedName{Name: canaryServiceName, Namespace: isvc.Namespace}, svc); err != nil {
+		if err := r.apiReader.Get(ctx, types.NamespacedName{Name: canaryServiceName, Namespace: isvc.Namespace}, svc); err != nil {
 			return fmt.Errorf("canary service %q not found: %w", canaryServiceName, err)
 		}
 

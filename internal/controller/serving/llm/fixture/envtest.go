@@ -60,6 +60,7 @@ func SetupTestEnv() (*pkgtest.Client, *record.FakeRecorder) {
 			mgr.GetClient(),
 			mgr.GetScheme(),
 			fakeRecorder,
+			mgr.GetAPIReader(),
 		).SetupWithManager(mgr, setupLog)
 	}
 

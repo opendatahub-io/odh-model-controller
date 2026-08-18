@@ -64,6 +64,7 @@ type GatewayReconciler struct {
 	client.Client
 	Recorder          record.EventRecorder
 	Scheme            *runtime.Scheme
+	APIReader         client.Reader
 	envoyFilterLoader resources.EnvoyFilterTemplateLoader
 	envoyFilterStore  resources.EnvoyFilterStore
 	authPolicyLoader  resources.AuthPolicyTemplateLoader
@@ -71,11 +72,12 @@ type GatewayReconciler struct {
 	deltaProcessor    processors.DeltaProcessor
 }
 
-func NewGatewayReconciler(client client.Client, scheme *runtime.Scheme, recorder record.EventRecorder) *GatewayReconciler {
+func NewGatewayReconciler(client client.Client, scheme *runtime.Scheme, recorder record.EventRecorder, apiReader client.Reader) *GatewayReconciler {
 	return &GatewayReconciler{
 		Client:            client,
 		Recorder:          recorder,
 		Scheme:            scheme,
+		APIReader:         apiReader,
 		envoyFilterLoader: resources.NewKServeEnvoyFilterTemplateLoader(client),
 		envoyFilterStore:  resources.NewClientEnvoyFilterStore(client),
 		authPolicyLoader:  resources.NewKServeAuthPolicyTemplateLoader(client),
@@ -237,7 +239,7 @@ func (r *GatewayReconciler) reconcileAuthPolicy(ctx context.Context, logger logr
 		Name:               gateway.Name,
 		Namespace:          gateway.Namespace,
 		AuthType:           constants.UserDefined,
-		ModelRoutingHeader: utils.GetModelRoutingHeader(ctx, r.Client),
+		ModelRoutingHeader: utils.GetModelRoutingHeader(ctx, r.APIReader),
 	},
 		resources.WithLabels(map[string]string{"app.kubernetes.io/name": "llminferenceservice-auth"}),
 		resources.WithAudiences(audiences),
@@ -477,7 +479,7 @@ func (r *GatewayReconciler) desiredGatewayPodMonitor(gateway *gatewayapiv1.Gatew
 // LLMInferenceService (directly or via BaseRef configs). This prevents creating
 // EnvoyFilter/AuthPolicy on gateways unrelated to LLM inference.
 func (r *GatewayReconciler) isGatewayReferencedByLLMService(ctx context.Context, gateway *gatewayapiv1.Gateway) (bool, error) {
-	defaultNs, defaultName, err := utils.GetDefaultGatewayRef(ctx, r.Client)
+	defaultNs, defaultName, err := utils.GetDefaultGatewayRef(ctx, r.APIReader)
 	if err != nil {
 		defaultNs = constants.DefaultGatewayNamespace
 		defaultName = constants.DefaultGatewayName
@@ -542,7 +544,7 @@ func (r *GatewayReconciler) getEffectiveGatewayRefs(ctx context.Context, gateway
 // Returns nil if the namespace cannot be fetched.
 func (r *GatewayReconciler) fetchNamespaceLabels(ctx context.Context, namespace string) map[string]string {
 	ns := &corev1.Namespace{}
-	if err := r.Client.Get(ctx, client.ObjectKey{Name: namespace}, ns); err != nil {
+	if err := r.APIReader.Get(ctx, client.ObjectKey{Name: namespace}, ns); err != nil {
 		log.FromContext(ctx).V(1).Info("Failed to fetch namespace labels, Selector-based allowedRoutes will be denied", "namespace", namespace, "error", err)
 		return nil
 	}
@@ -658,7 +660,7 @@ func (r *GatewayReconciler) enqueueGatewaysFromLLMInferenceService() handler.Eve
 
 		// Enqueue the default gateway if no effective refs
 		if len(requests) == 0 {
-			defaultNs, defaultName, err := utils.GetDefaultGatewayRef(ctx, r.Client)
+			defaultNs, defaultName, err := utils.GetDefaultGatewayRef(ctx, r.APIReader)
 			if err != nil {
 				defaultNs = constants.DefaultGatewayNamespace
 				defaultName = constants.DefaultGatewayName

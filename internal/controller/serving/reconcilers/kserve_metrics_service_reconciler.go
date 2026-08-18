@@ -98,6 +98,7 @@ func (r *KserveRawMetricsServiceReconciler) createDesiredResource(ctx context.Co
 			Labels: map[string]string{
 				"name":                               getMetricsServiceName(isvc),
 				odhconstants.RhoaiObservabilityLabel: "true",
+				odhconstants.ODHManaged:              "true",
 			},
 		},
 		Spec: v1.ServiceSpec{
