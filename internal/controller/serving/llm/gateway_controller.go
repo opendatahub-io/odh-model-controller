@@ -1072,10 +1072,10 @@ func (r *GatewayReconciler) SetupWithManager(mgr ctrl.Manager, setupLog logr.Log
 					if podNS := os.Getenv("POD_NAMESPACE"); podNS != "" && e.ObjectNew.GetNamespace() != podNS {
 						return false
 					}
-					// ConfigMaps have no spec/status split so metadata.generation
-					// is never incremented. Return true to reconcile on any update
-					// to this ConfigMap; the name/namespace guards above are
-					// sufficient to keep the trigger narrow.
+					// The shared informer strips ConfigMap .Data before caching, so
+					// comparing old/new ingress values always sees nil and never
+					// triggers. Reconcile on any update; name/namespace guards
+					// above keep this narrow.
 					return true
 				},
 				DeleteFunc: func(_ event.DeleteEvent) bool {
