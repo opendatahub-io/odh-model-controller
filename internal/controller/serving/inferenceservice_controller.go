@@ -247,9 +247,6 @@ func (r *InferenceServiceReconciler) SetupWithManager(mgr ctrl.Manager, setupLog
 			})).
 		Watches(&corev1.Secret{},
 			handler.EnqueueRequestsFromMapFunc(func(ctx context.Context, o client.Object) []reconcile.Request {
-				if utils.IsRayTLSSecret(o.GetName()) {
-					return []reconcile.Request{}
-				}
 				logger := log.FromContext(ctx)
 				logger.Info("Reconcile event triggered by Secret: " + o.GetName())
 				isvc := &kservev1beta1.InferenceService{}
@@ -265,7 +262,8 @@ func (r *InferenceServiceReconciler) SetupWithManager(mgr ctrl.Manager, setupLog
 				return []reconcile.Request{
 					{NamespacedName: types.NamespacedName{Name: o.GetName(), Namespace: o.GetNamespace()}},
 				}
-			}))
+			}),
+			ctrlbuilder.WithPredicates(utils.InferenceServiceSecretWatchPredicate()))
 
 	isKedaTriggerAuthenticationAvailable, err := utils.IsCrdAvailable(mgr.GetConfig(), kedaapi.GroupVersion.String(), "TriggerAuthentication")
 	if err != nil {

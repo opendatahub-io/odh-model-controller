@@ -148,7 +148,7 @@ Use the template in `.github/PULL_REQUEST_TEMPLATE.md`. Every PR must:
 
 For detailed architecture, controller patterns, and design rationale, see [architecture.md](architecture.md).
 
-- **Informer cache scoping.** Secrets are label-filtered (`opendatahub.io/managed=true`) and Pods are label-filtered (`component=predictor`). ConfigMaps are watched cluster-wide but cached metadata-only (`.data`/`.binaryData`/annotations stripped); `client.Get`/`List` on ConfigMaps bypass the cache via `DisableFor` so payload reads go to the API server. Use `APIReader` for other uncached resource types.
+- **Informer cache scoping.** Secrets are label-filtered (`opendatahub.io/managed=true`) and cached metadata-only (`.data`/annotations stripped); `client.Get`/`List` on Secrets bypass the cache via `DisableFor`. Pods are label-filtered (`component=predictor`). ConfigMaps are watched cluster-wide but cached metadata-only; ConfigMap reads also use `DisableFor`. Use `APIReader` for other uncached resource types.
 - **Optional CRDs.** The controller runs on clusters where KEDA, Kuadrant, Istio, and Gateway API may not be installed. Always check `utils.IsCrdAvailable()` before setting up watches for these types.
 - **`spec` vs `status` writes.** Never write both in a single API call. Guard status writes with deep-equal checks to avoid infinite reconcile loops.
 

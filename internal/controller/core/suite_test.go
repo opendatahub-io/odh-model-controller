@@ -128,6 +128,7 @@ var _ = BeforeSuite(func() {
 			Cache: &client.CacheOptions{
 				DisableFor: []client.Object{
 					&corev1.ConfigMap{},
+					&corev1.Secret{},
 				},
 			},
 		},
@@ -141,6 +142,7 @@ var _ = BeforeSuite(func() {
 					Label: labels.SelectorFromSet(labels.Set{
 						"opendatahub.io/managed": "true",
 					}),
+					Transform: informercache.StripSecretData,
 				},
 			},
 		},

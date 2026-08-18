@@ -52,6 +52,41 @@ func TestStripConfigMapData(t *testing.T) {
 		}
 	})
 
+	t.Run("strips secret data payloads and annotations", func(t *testing.T) {
+		secret := &corev1.Secret{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      "test-secret",
+				Namespace: "test-ns",
+				Annotations: map[string]string{
+					"example.com/large": "payload",
+				},
+				ManagedFields: []metav1.ManagedFieldsEntry{{Manager: "kubectl"}},
+			},
+			Data: map[string][]byte{
+				"key": []byte("value"),
+			},
+			StringData: map[string]string{
+				"plain": "text",
+			},
+		}
+
+		out, err := StripSecretData(secret)
+		if err != nil {
+			t.Fatalf("StripSecretData() error = %v", err)
+		}
+
+		stripped, ok := out.(*corev1.Secret)
+		if !ok {
+			t.Fatalf("StripSecretData() returned %T, want *corev1.Secret", out)
+		}
+		if stripped.Data != nil || stripped.StringData != nil || stripped.Annotations != nil {
+			t.Fatal("expected secret payloads and annotations to be nil")
+		}
+		if stripped.GetManagedFields() != nil {
+			t.Fatal("expected ManagedFields to be nil")
+		}
+	})
+
 	t.Run("passes through non-ConfigMap objects", func(t *testing.T) {
 		secret := &corev1.Secret{ObjectMeta: metav1.ObjectMeta{Name: "s"}}
 		out, err := StripConfigMapData(secret)

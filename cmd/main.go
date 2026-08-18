@@ -225,8 +225,11 @@ func createManager(cfg *rest.Config, metricsAddr, probeAddr string,
 			Cache: &client.CacheOptions{
 				// ConfigMap client reads bypass the cache since the informer
 				// stores metadata-only objects (no .data/.binaryData).
+				// Secret reads bypass the cache for the same reason once
+				// StripSecretData is applied to the label-filtered Secret cache.
 				DisableFor: []client.Object{
 					&corev1.ConfigMap{},
+					&corev1.Secret{},
 				},
 			},
 		},
@@ -244,6 +247,7 @@ func createManager(cfg *rest.Config, metricsAddr, probeAddr string,
 					Label: labels.SelectorFromSet(labels.Set{
 						"opendatahub.io/managed": "true",
 					}),
+					Transform: informercache.StripSecretData,
 				},
 				&corev1.Pod{}: {
 					Label: labels.SelectorFromSet(labels.Set{

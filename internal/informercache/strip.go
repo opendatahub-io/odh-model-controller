@@ -14,3 +14,16 @@ func StripConfigMapData(i interface{}) (interface{}, error) {
 	}
 	return i, nil
 }
+
+// StripSecretData removes data payloads from cached Secrets to reduce memory
+// consumption for ODH-managed secrets. Watch events still trigger reconciliation;
+// payload reads go via direct API calls (DisableFor).
+func StripSecretData(i interface{}) (interface{}, error) {
+	if s, ok := i.(*corev1.Secret); ok {
+		s.Data = nil
+		s.StringData = nil
+		s.Annotations = nil
+		s.SetManagedFields(nil)
+	}
+	return i, nil
+}

@@ -690,3 +690,45 @@ var _ = Describe("GetModelRoutingHeader", func() {
 		Expect(GetModelRoutingHeader(ctx, cli)).To(Equal(constants.DefaultModelRoutingHeader))
 	})
 })
+
+var _ = Describe("ShouldEnqueueInferenceServiceForSecret", func() {
+	It("should accept ODH-managed secrets", func() {
+		secret := &corev1.Secret{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      "my-isvc",
+				Namespace: "test-ns",
+				Labels: map[string]string{
+					constants.ODHManaged: "true",
+				},
+			},
+		}
+		Expect(ShouldEnqueueInferenceServiceForSecret(secret)).To(BeTrue())
+	})
+
+	It("should reject secrets without managed label", func() {
+		secret := &corev1.Secret{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      "my-isvc",
+				Namespace: "test-ns",
+			},
+		}
+		Expect(ShouldEnqueueInferenceServiceForSecret(secret)).To(BeFalse())
+	})
+
+	It("should reject Ray TLS secrets even when managed", func() {
+		secret := &corev1.Secret{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      constants.RayTLSSecretName,
+				Namespace: "test-ns",
+				Labels: map[string]string{
+					constants.ODHManaged: "true",
+				},
+			},
+		}
+		Expect(ShouldEnqueueInferenceServiceForSecret(secret)).To(BeFalse())
+	})
+
+	It("should reject nil objects", func() {
+		Expect(ShouldEnqueueInferenceServiceForSecret(nil)).To(BeFalse())
+	})
+})
