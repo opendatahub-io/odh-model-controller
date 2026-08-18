@@ -178,7 +178,7 @@ func (r *ServingRuntimeReconciler) reconcileRoleBinding(ctx context.Context, req
 	listOptions := client.ListOptions{
 		Namespace: req.Namespace,
 	}
-	err = r.List(ctx, servingRuntimes, &listOptions)
+	err := r.List(ctx, servingRuntimes, &listOptions)
 	noServingRuntimes := len(servingRuntimes.Items) == 0
 	if err != nil {
 		if apierrs.IsNotFound(err) {
@@ -241,7 +241,7 @@ func (r *ServingRuntimeReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 		logger.Info("No monitoring namespace detected, skipping monitoring reconciliation.")
 	} else {
 		logger.Info("Monitoring Controller reconciling.")
-		err = r.reconcileRoleBinding(ctx, req, monitoringNs)
+		err := r.reconcileRoleBinding(ctx, req, monitoringNs)
 		if err != nil {
 			return ctrl.Result{}, err
 		}
@@ -254,7 +254,7 @@ func (r *ServingRuntimeReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 	}
 	multiNodeSRExistInNS := existMultiNodeServingRuntimeInNs(servingRuntimeList)
 	logger.Info("Multi Node reconciling.")
-	if err = r.reconcileMultiNodeSR(ctx, logger, req.Name, multiNodeSRExistInNS, req.Namespace); err != nil {
+	if err := r.reconcileMultiNodeSR(ctx, logger, req.Name, multiNodeSRExistInNS, req.Namespace); err != nil {
 		return ctrl.Result{}, err
 	}
 	logger.Info("Multi Node reconciled successfully.")

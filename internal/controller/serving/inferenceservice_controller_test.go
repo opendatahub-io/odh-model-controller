@@ -910,6 +910,7 @@ func getDefaultService(isvcNamespace string) *corev1.Service {
 				"app":                                "isvc." + KserveOvmsInferenceServiceName + "-predictor",
 				"component":                          "predictor",
 				"serving.kserve.io/inferenceservice": KserveOvmsInferenceServiceName,
+				"opendatahub.io/managed":             "true",
 			},
 		},
 		Spec: corev1.ServiceSpec{

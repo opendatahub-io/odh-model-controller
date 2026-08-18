@@ -56,6 +56,9 @@ func (n *NamespaceHolder) Create(ctx context.Context, cli client.Client) *corev1
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      testNs,
 			Namespace: testNs,
+			Labels: map[string]string{
+				"opendatahub.io/managed": "true",
+			},
 		},
 	}
 	Expect(cli.Create(ctx, testNamespace)).Should(Succeed())

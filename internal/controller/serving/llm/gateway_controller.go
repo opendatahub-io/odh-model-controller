@@ -498,7 +498,12 @@ func (r *GatewayReconciler) isGatewayReferencedByLLMService(ctx context.Context,
 		if kserveutils.GetForceStopRuntime(&llmSvcList.Items[i]) {
 			continue
 		}
-		for _, ref := range r.getEffectiveGatewayRefsWithCache(ctx, gateway, &llmSvcList.Items[i], nsLabelsCache) {
+		refs, err := r.getEffectiveGatewayRefsWithCache(ctx, gateway, &llmSvcList.Items[i], nsLabelsCache)
+		if err != nil {
+			return false, fmt.Errorf("failed to resolve gateway refs for LLMInferenceService %s/%s: %w",
+				llmSvcList.Items[i].Namespace, llmSvcList.Items[i].Name, err)
+		}
+		for _, ref := range refs {
 			ns := string(ref.Namespace)
 			if ns == "" {
 				ns = llmSvcList.Items[i].Namespace
@@ -513,16 +518,23 @@ func (r *GatewayReconciler) isGatewayReferencedByLLMService(ctx context.Context,
 
 // getEffectiveGatewayRefsWithCache is like getEffectiveGatewayRefs but deduplicates
 // Namespace reads across multiple calls using nsLabelsCache.
-func (r *GatewayReconciler) getEffectiveGatewayRefsWithCache(ctx context.Context, gateway *gatewayapiv1.Gateway, llmSvc *kservev1alpha2.LLMInferenceService, nsLabelsCache map[string]map[string]string) []kservev1alpha2.GatewayObjectReference {
-	nsLabels := r.fetchNamespaceLabelsWithCache(ctx, llmSvc.Namespace, nsLabelsCache)
-	return r.getEffectiveGatewayRefsInner(ctx, gateway, llmSvc, nsLabels)
+func (r *GatewayReconciler) getEffectiveGatewayRefsWithCache(ctx context.Context, gateway *gatewayapiv1.Gateway, llmSvc *kservev1alpha2.LLMInferenceService, nsLabelsCache map[string]map[string]string) ([]kservev1alpha2.GatewayObjectReference, error) {
+	nsLabels, err := r.fetchNamespaceLabelsWithCache(ctx, llmSvc.Namespace, nsLabelsCache)
+	if err != nil {
+		return nil, err
+	}
+	return r.getEffectiveGatewayRefsInner(ctx, gateway, llmSvc, nsLabels), nil
 }
 
 // getEffectiveGatewayRefs returns the effective gateway references for an LLMInferenceService.
 // The service's own gateway refs take precedence over those inherited from BaseRef configs,
 // matching the "last one wins" merge semantics used by kserve's MergeSpecs.
 func (r *GatewayReconciler) getEffectiveGatewayRefs(ctx context.Context, gateway *gatewayapiv1.Gateway, llmSvc *kservev1alpha2.LLMInferenceService) []kservev1alpha2.GatewayObjectReference {
-	nsLabels := r.fetchNamespaceLabels(ctx, llmSvc.Namespace)
+	nsLabels, err := r.fetchNamespaceLabels(ctx, llmSvc.Namespace)
+	if err != nil {
+		log.FromContext(ctx).V(1).Info("Namespace label fetch failed; selector-based allowedRoutes will be skipped", "namespace", llmSvc.Namespace, "error", err)
+		return nil
+	}
 	return r.getEffectiveGatewayRefsInner(ctx, gateway, llmSvc, nsLabels)
 }
 
@@ -553,24 +565,27 @@ func (r *GatewayReconciler) getEffectiveGatewayRefsInner(ctx context.Context, ga
 
 // fetchNamespaceLabelsWithCache retrieves the labels for the given namespace,
 // caching results in nsLabelsCache to avoid redundant API-server reads.
-func (r *GatewayReconciler) fetchNamespaceLabelsWithCache(ctx context.Context, namespace string, nsLabelsCache map[string]map[string]string) map[string]string {
+// Only successful reads are cached; failed reads return an error so the caller
+// can requeue rather than acting on incomplete data.
+func (r *GatewayReconciler) fetchNamespaceLabelsWithCache(ctx context.Context, namespace string, nsLabelsCache map[string]map[string]string) (map[string]string, error) {
 	if cached, ok := nsLabelsCache[namespace]; ok {
-		return cached
+		return cached, nil
 	}
-	labels := r.fetchNamespaceLabels(ctx, namespace)
+	labels, err := r.fetchNamespaceLabels(ctx, namespace)
+	if err != nil {
+		return nil, err
+	}
 	nsLabelsCache[namespace] = labels
-	return labels
+	return labels, nil
 }
 
 // fetchNamespaceLabels retrieves the labels for the given namespace.
-// Returns nil if the namespace cannot be fetched.
-func (r *GatewayReconciler) fetchNamespaceLabels(ctx context.Context, namespace string) map[string]string {
+func (r *GatewayReconciler) fetchNamespaceLabels(ctx context.Context, namespace string) (map[string]string, error) {
 	ns := &corev1.Namespace{}
 	if err := r.APIReader.Get(ctx, client.ObjectKey{Name: namespace}, ns); err != nil {
-		log.FromContext(ctx).V(1).Info("Failed to fetch namespace labels, Selector-based allowedRoutes will be denied", "namespace", namespace, "error", err)
-		return nil
+		return nil, fmt.Errorf("failed to fetch namespace %q labels: %w", namespace, err)
 	}
-	return ns.Labels
+	return ns.Labels, nil
 }
 
 func filterAllowedRefs(ctx context.Context, gateway *gatewayapiv1.Gateway, refs []kservev1alpha2.GatewayObjectReference, targetNS string, nsLabels map[string]string) []kservev1alpha2.GatewayObjectReference {
