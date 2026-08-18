@@ -38,6 +38,18 @@ var _ = Describe("Auth Posture Enforcement", func() {
 	BeforeEach(func(ctx SpecContext) {
 		testNamespace := testutils.Namespaces.Create(ctx, envTest.Client)
 		testNs = testNamespace.Name
+
+		// Drain any leftover events from previous tests to prevent cross-test contamination.
+		// The FakeRecorder's Events channel is shared across all tests in the suite, so
+		// events from prior reconciliation cycles can leak into subsequent test assertions.
+	drainLoop:
+		for {
+			select {
+			case <-eventRecorder.Events:
+			default:
+				break drainLoop
+			}
+		}
 	})
 
 	AfterEach(func(ctx SpecContext) {
