@@ -148,13 +148,13 @@ func (r *KservePodMonitorReconciler) getExisting(ctx context.Context, llmisvc *k
 	return existing, nil
 }
 
-// DesiredPodMonitor builds a PodMonitor targeting the vLLM metrics endpoint (port 8000, /metrics)
-// for a given LLMInferenceService. The pod selector targets single-node Deployment pods using
-// the standard KServe workload labels.
+// DesiredPodMonitor builds a PodMonitor targeting the vLLM metrics endpoint (named port "http", /metrics)
+// for a given LLMInferenceService. The pod selector covers single-node Deployment pods and
+// multi-node LeaderWorkerSet pods (leader + workers) using a combined label selector.
 func DesiredPodMonitor(llmisvc *kservev1alpha2.LLMInferenceService) *monitoringv1.PodMonitor {
 	vllmPort := "http"
 	scrapeInterval := monitoringv1.Duration(constants.IntervalValue)
-	selector := SingleNodePodSelector(llmisvc.Name)
+	selector := CombinedPodSelector(llmisvc.Name)
 
 	return &monitoringv1.PodMonitor{
 		ObjectMeta: metav1.ObjectMeta{
@@ -207,6 +207,52 @@ func SingleNodePodSelector(llmisvcName string) metav1.LabelSelector {
 			kserveconstants.KubernetesAppNameLabelKey:   llmisvcName,
 			kserveconstants.KubernetesPartOfLabelKey:    kserveconstants.LLMInferenceServicePartOfValue,
 			kserveconstants.KubernetesComponentLabelKey: kserveconstants.LLMComponentWorkload,
+		},
+	}
+}
+
+// MultiNodeLWSPodSelector returns a label selector that targets all pods (leader + workers)
+// belonging to a LeaderWorkerSet-based multi-node vLLM deployment for the given
+// LLMInferenceService. It uses a MatchExpressions In operator on the component label to
+// select both leader and worker pods while excluding single-node and disaggregated prefill pods.
+func MultiNodeLWSPodSelector(llmisvcName string) metav1.LabelSelector {
+	return metav1.LabelSelector{
+		MatchLabels: map[string]string{
+			kserveconstants.KubernetesAppNameLabelKey: llmisvcName,
+			kserveconstants.KubernetesPartOfLabelKey:  kserveconstants.LLMInferenceServicePartOfValue,
+		},
+		MatchExpressions: []metav1.LabelSelectorRequirement{
+			{
+				Key:      kserveconstants.KubernetesComponentLabelKey,
+				Operator: metav1.LabelSelectorOpIn,
+				Values: []string{
+					kserveconstants.LLMComponentWorkloadLeader,
+					kserveconstants.LLMComponentWorkloadWorker,
+				},
+			},
+		},
+	}
+}
+
+// CombinedPodSelector returns a label selector that targets vLLM pods across both single-node
+// Deployment and multi-node LeaderWorkerSet topologies. It selects pods with component labels
+// matching workload, workload-leader, or workload-worker while excluding disaggregated prefill pods.
+func CombinedPodSelector(llmisvcName string) metav1.LabelSelector {
+	return metav1.LabelSelector{
+		MatchLabels: map[string]string{
+			kserveconstants.KubernetesAppNameLabelKey: llmisvcName,
+			kserveconstants.KubernetesPartOfLabelKey:  kserveconstants.LLMInferenceServicePartOfValue,
+		},
+		MatchExpressions: []metav1.LabelSelectorRequirement{
+			{
+				Key:      kserveconstants.KubernetesComponentLabelKey,
+				Operator: metav1.LabelSelectorOpIn,
+				Values: []string{
+					kserveconstants.LLMComponentWorkload,
+					kserveconstants.LLMComponentWorkloadLeader,
+					kserveconstants.LLMComponentWorkloadWorker,
+				},
+			},
 		},
 	}
 }

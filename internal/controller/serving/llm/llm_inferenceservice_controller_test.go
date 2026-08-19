@@ -30,6 +30,7 @@ import (
 	monitoringv1 "github.com/prometheus-operator/prometheus-operator/pkg/apis/monitoring/v1"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/errors"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	gatewayapiv1 "sigs.k8s.io/gateway-api/apis/v1"
@@ -505,6 +506,32 @@ var _ = Describe("LLMInferenceService PodMonitor", func() {
 			Expect(envTest.Client.Create(ctx, llmisvc)).Should(Succeed())
 
 			fixture.VerifyLLMISvcPodMonitorNotExist(ctx, envTest.Client, testNs, LLMInferenceServiceName)
+		})
+
+		It("should create PodMonitor with combined selector covering single-node and multi-node topologies", func(ctx SpecContext) {
+			fixture.CreateBasicLLMInferenceService(ctx, envTest.Client, testNs, LLMInferenceServiceName, nil)
+
+			Eventually(func(g Gomega) {
+				pm, err := fixture.GetResourceByName(ctx, envTest.Client, testNs,
+					constants.GetLLMISvcPodMonitorName(LLMInferenceServiceName),
+					&monitoringv1.PodMonitor{})
+				g.Expect(err).NotTo(HaveOccurred())
+
+				g.Expect(pm.Spec.Selector.MatchLabels).To(HaveKeyWithValue(
+					kserveconstants.KubernetesAppNameLabelKey, LLMInferenceServiceName))
+				g.Expect(pm.Spec.Selector.MatchLabels).To(HaveKeyWithValue(
+					kserveconstants.KubernetesPartOfLabelKey, kserveconstants.LLMInferenceServicePartOfValue))
+
+				g.Expect(pm.Spec.Selector.MatchExpressions).To(HaveLen(1))
+				expr := pm.Spec.Selector.MatchExpressions[0]
+				g.Expect(expr.Key).To(Equal(kserveconstants.KubernetesComponentLabelKey))
+				g.Expect(expr.Operator).To(Equal(metav1.LabelSelectorOpIn))
+				g.Expect(expr.Values).To(ContainElements(
+					kserveconstants.LLMComponentWorkload,
+					kserveconstants.LLMComponentWorkloadLeader,
+					kserveconstants.LLMComponentWorkloadWorker,
+				))
+			}).WithContext(ctx).Should(Succeed())
 		})
 
 		It("should restore PodMonitor spec when modified externally", func(ctx SpecContext) {

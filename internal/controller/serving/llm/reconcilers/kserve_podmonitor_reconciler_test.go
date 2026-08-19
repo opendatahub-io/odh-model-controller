@@ -82,7 +82,7 @@ func TestDesiredPodMonitor(t *testing.T) {
 			},
 		},
 		{
-			name: "PodMonitor selector targets single-node workload pods",
+			name: "PodMonitor selector targets single-node and multi-node workload pods",
 			llmisvc: &kservev1alpha2.LLMInferenceService{
 				ObjectMeta: metav1.ObjectMeta{
 					Name:      "my-model",
@@ -94,7 +94,16 @@ func TestDesiredPodMonitor(t *testing.T) {
 				require.NotNil(t, pm.Spec.Selector.MatchLabels)
 				assert.Equal(t, "my-model", pm.Spec.Selector.MatchLabels[kserveconstants.KubernetesAppNameLabelKey])
 				assert.Equal(t, kserveconstants.LLMInferenceServicePartOfValue, pm.Spec.Selector.MatchLabels[kserveconstants.KubernetesPartOfLabelKey])
-				assert.Equal(t, kserveconstants.LLMComponentWorkload, pm.Spec.Selector.MatchLabels[kserveconstants.KubernetesComponentLabelKey])
+
+				require.Len(t, pm.Spec.Selector.MatchExpressions, 1)
+				expr := pm.Spec.Selector.MatchExpressions[0]
+				assert.Equal(t, kserveconstants.KubernetesComponentLabelKey, expr.Key)
+				assert.Equal(t, metav1.LabelSelectorOpIn, expr.Operator)
+				assert.ElementsMatch(t, []string{
+					kserveconstants.LLMComponentWorkload,
+					kserveconstants.LLMComponentWorkloadLeader,
+					kserveconstants.LLMComponentWorkloadWorker,
+				}, expr.Values)
 			},
 		},
 		{
@@ -235,6 +244,212 @@ func TestSingleNodePodSelector(t *testing.T) {
 				kserveconstants.KubernetesComponentLabelKey: kserveconstants.LLMComponentWorkload,
 				kserveconstants.KServeComponentLabelKey:     kserveconstants.KServeComponentWorkload,
 				kserveconstants.LLMDRoleLabelKey:            kserveconstants.LLMDRoleBoth,
+			},
+			matches: false,
+		},
+		{
+			name: "does not match unrelated pod",
+			podLabels: map[string]string{
+				"app": "nginx",
+			},
+			matches: false,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			assert.Equal(t, tc.matches, selectorObj.Matches(labels.Set(tc.podLabels)))
+		})
+	}
+}
+
+func TestMultiNodeLWSPodSelector(t *testing.T) {
+	t.Parallel()
+
+	const llmisvcName = "my-model"
+	selector := reconcilers.MultiNodeLWSPodSelector(llmisvcName)
+
+	selectorObj, err := metav1.LabelSelectorAsSelector(&selector)
+	require.NoError(t, err)
+
+	tests := []struct {
+		name      string
+		podLabels map[string]string
+		matches   bool
+	}{
+		{
+			name: "matches multi-node leader pod (role=decode)",
+			podLabels: map[string]string{
+				kserveconstants.KubernetesAppNameLabelKey:   llmisvcName,
+				kserveconstants.KubernetesPartOfLabelKey:    kserveconstants.LLMInferenceServicePartOfValue,
+				kserveconstants.KubernetesComponentLabelKey: kserveconstants.LLMComponentWorkloadLeader,
+				kserveconstants.KServeComponentLabelKey:     kserveconstants.KServeComponentWorkload,
+				kserveconstants.LLMDRoleLabelKey:            kserveconstants.LLMDRoleDecode,
+			},
+			matches: true,
+		},
+		{
+			name: "matches multi-node leader pod (role=both)",
+			podLabels: map[string]string{
+				kserveconstants.KubernetesAppNameLabelKey:   llmisvcName,
+				kserveconstants.KubernetesPartOfLabelKey:    kserveconstants.LLMInferenceServicePartOfValue,
+				kserveconstants.KubernetesComponentLabelKey: kserveconstants.LLMComponentWorkloadLeader,
+				kserveconstants.KServeComponentLabelKey:     kserveconstants.KServeComponentWorkload,
+				kserveconstants.LLMDRoleLabelKey:            kserveconstants.LLMDRoleBoth,
+			},
+			matches: true,
+		},
+		{
+			name: "matches multi-node worker pod",
+			podLabels: map[string]string{
+				kserveconstants.KubernetesAppNameLabelKey:   llmisvcName,
+				kserveconstants.KubernetesPartOfLabelKey:    kserveconstants.LLMInferenceServicePartOfValue,
+				kserveconstants.KubernetesComponentLabelKey: kserveconstants.LLMComponentWorkloadWorker,
+			},
+			matches: true,
+		},
+		{
+			name: "does not match single-node workload pod",
+			podLabels: map[string]string{
+				kserveconstants.KubernetesAppNameLabelKey:   llmisvcName,
+				kserveconstants.KubernetesPartOfLabelKey:    kserveconstants.LLMInferenceServicePartOfValue,
+				kserveconstants.KubernetesComponentLabelKey: kserveconstants.LLMComponentWorkload,
+				kserveconstants.KServeComponentLabelKey:     kserveconstants.KServeComponentWorkload,
+				kserveconstants.LLMDRoleLabelKey:            kserveconstants.LLMDRoleBoth,
+			},
+			matches: false,
+		},
+		{
+			name: "does not match disaggregated prefill leader pod",
+			podLabels: map[string]string{
+				kserveconstants.KubernetesAppNameLabelKey:   llmisvcName,
+				kserveconstants.KubernetesPartOfLabelKey:    kserveconstants.LLMInferenceServicePartOfValue,
+				kserveconstants.KubernetesComponentLabelKey: kserveconstants.LLMComponentWorkloadLeaderPrefill,
+				kserveconstants.KServeComponentLabelKey:     kserveconstants.KServeComponentWorkload,
+				kserveconstants.LLMDRoleLabelKey:            kserveconstants.LLMDRolePrefill,
+			},
+			matches: false,
+		},
+		{
+			name: "does not match disaggregated prefill worker pod",
+			podLabels: map[string]string{
+				kserveconstants.KubernetesAppNameLabelKey:   llmisvcName,
+				kserveconstants.KubernetesPartOfLabelKey:    kserveconstants.LLMInferenceServicePartOfValue,
+				kserveconstants.KubernetesComponentLabelKey: kserveconstants.LLMComponentWorkloadWorkerPrefill,
+				kserveconstants.KServeComponentLabelKey:     kserveconstants.KServeComponentWorkload,
+				kserveconstants.LLMDRoleLabelKey:            kserveconstants.LLMDRolePrefill,
+			},
+			matches: false,
+		},
+		{
+			name: "does not match pod from different LLMInferenceService",
+			podLabels: map[string]string{
+				kserveconstants.KubernetesAppNameLabelKey:   "other-model",
+				kserveconstants.KubernetesPartOfLabelKey:    kserveconstants.LLMInferenceServicePartOfValue,
+				kserveconstants.KubernetesComponentLabelKey: kserveconstants.LLMComponentWorkloadLeader,
+				kserveconstants.KServeComponentLabelKey:     kserveconstants.KServeComponentWorkload,
+				kserveconstants.LLMDRoleLabelKey:            kserveconstants.LLMDRoleDecode,
+			},
+			matches: false,
+		},
+		{
+			name: "does not match unrelated pod",
+			podLabels: map[string]string{
+				"app": "nginx",
+			},
+			matches: false,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			assert.Equal(t, tc.matches, selectorObj.Matches(labels.Set(tc.podLabels)))
+		})
+	}
+}
+
+func TestCombinedPodSelector(t *testing.T) {
+	t.Parallel()
+
+	const llmisvcName = "my-model"
+	selector := reconcilers.CombinedPodSelector(llmisvcName)
+
+	selectorObj, err := metav1.LabelSelectorAsSelector(&selector)
+	require.NoError(t, err)
+
+	tests := []struct {
+		name      string
+		podLabels map[string]string
+		matches   bool
+	}{
+		{
+			name: "matches single-node workload pod",
+			podLabels: map[string]string{
+				kserveconstants.KubernetesAppNameLabelKey:   llmisvcName,
+				kserveconstants.KubernetesPartOfLabelKey:    kserveconstants.LLMInferenceServicePartOfValue,
+				kserveconstants.KubernetesComponentLabelKey: kserveconstants.LLMComponentWorkload,
+				kserveconstants.KServeComponentLabelKey:     kserveconstants.KServeComponentWorkload,
+				kserveconstants.LLMDRoleLabelKey:            kserveconstants.LLMDRoleBoth,
+			},
+			matches: true,
+		},
+		{
+			name: "matches multi-node leader pod",
+			podLabels: map[string]string{
+				kserveconstants.KubernetesAppNameLabelKey:   llmisvcName,
+				kserveconstants.KubernetesPartOfLabelKey:    kserveconstants.LLMInferenceServicePartOfValue,
+				kserveconstants.KubernetesComponentLabelKey: kserveconstants.LLMComponentWorkloadLeader,
+				kserveconstants.KServeComponentLabelKey:     kserveconstants.KServeComponentWorkload,
+				kserveconstants.LLMDRoleLabelKey:            kserveconstants.LLMDRoleDecode,
+			},
+			matches: true,
+		},
+		{
+			name: "matches multi-node worker pod",
+			podLabels: map[string]string{
+				kserveconstants.KubernetesAppNameLabelKey:   llmisvcName,
+				kserveconstants.KubernetesPartOfLabelKey:    kserveconstants.LLMInferenceServicePartOfValue,
+				kserveconstants.KubernetesComponentLabelKey: kserveconstants.LLMComponentWorkloadWorker,
+			},
+			matches: true,
+		},
+		{
+			name: "does not match disaggregated prefill pod",
+			podLabels: map[string]string{
+				kserveconstants.KubernetesAppNameLabelKey:   llmisvcName,
+				kserveconstants.KubernetesPartOfLabelKey:    kserveconstants.LLMInferenceServicePartOfValue,
+				kserveconstants.KubernetesComponentLabelKey: kserveconstants.LLMComponentWorkloadPrefill,
+				kserveconstants.KServeComponentLabelKey:     kserveconstants.KServeComponentWorkload,
+				kserveconstants.LLMDRoleLabelKey:            kserveconstants.LLMDRolePrefill,
+			},
+			matches: false,
+		},
+		{
+			name: "does not match prefill leader pod",
+			podLabels: map[string]string{
+				kserveconstants.KubernetesAppNameLabelKey:   llmisvcName,
+				kserveconstants.KubernetesPartOfLabelKey:    kserveconstants.LLMInferenceServicePartOfValue,
+				kserveconstants.KubernetesComponentLabelKey: kserveconstants.LLMComponentWorkloadLeaderPrefill,
+			},
+			matches: false,
+		},
+		{
+			name: "does not match prefill worker pod",
+			podLabels: map[string]string{
+				kserveconstants.KubernetesAppNameLabelKey:   llmisvcName,
+				kserveconstants.KubernetesPartOfLabelKey:    kserveconstants.LLMInferenceServicePartOfValue,
+				kserveconstants.KubernetesComponentLabelKey: kserveconstants.LLMComponentWorkloadWorkerPrefill,
+			},
+			matches: false,
+		},
+		{
+			name: "does not match pod from different LLMInferenceService",
+			podLabels: map[string]string{
+				kserveconstants.KubernetesAppNameLabelKey:   "other-model",
+				kserveconstants.KubernetesPartOfLabelKey:    kserveconstants.LLMInferenceServicePartOfValue,
+				kserveconstants.KubernetesComponentLabelKey: kserveconstants.LLMComponentWorkload,
 			},
 			matches: false,
 		},
