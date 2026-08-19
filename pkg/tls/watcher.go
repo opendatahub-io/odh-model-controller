@@ -28,6 +28,8 @@ type ProfileWatcher struct {
 	lastProfile configv1.TLSProfileSpec
 }
 
+// +kubebuilder:rbac:groups=config.openshift.io,resources=apiservers,verbs=get;list;watch
+
 func (w *ProfileWatcher) Reconcile(ctx context.Context, req reconcile.Request) (reconcile.Result, error) {
 	if req.Name != apiServerName {
 		return reconcile.Result{}, nil

@@ -41,6 +41,14 @@ rules:
   - create
   - patch
 - apiGroups:
+  - config.openshift.io
+  resources:
+  - apiservers
+  verbs:
+  - get
+  - list
+  - watch
+- apiGroups:
   - datasciencecluster.opendatahub.io
   resources:
   - datascienceclusters
