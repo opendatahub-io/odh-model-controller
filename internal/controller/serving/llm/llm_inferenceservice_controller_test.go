@@ -450,8 +450,7 @@ var _ = Describe("BaseRefs and Spec Merging", func() {
 var _ = Describe("LLMInferenceService PodMonitor", func() {
 	var testNs string
 
-	BeforeEach(func() {
-		ctx := context.Background()
+	BeforeEach(func(ctx SpecContext) {
 		testNamespace := testutils.Namespaces.Create(ctx, envTest.Client)
 		testNs = testNamespace.Name
 	})
@@ -506,6 +505,70 @@ var _ = Describe("LLMInferenceService PodMonitor", func() {
 			Expect(envTest.Client.Create(ctx, llmisvc)).Should(Succeed())
 
 			fixture.VerifyLLMISvcPodMonitorNotExist(ctx, envTest.Client, testNs, LLMInferenceServiceName)
+		})
+
+		It("should not create PodMonitor when scrape label is false", func(ctx SpecContext) {
+			llmisvc := fixture.LLMInferenceService(LLMInferenceServiceName,
+				fixture.InNamespace[*kservev1alpha2.LLMInferenceService](testNs),
+				fixture.WithLabel(constants.RhoaiObservabilityLabel, "false"),
+			)
+			Expect(envTest.Client.Create(ctx, llmisvc)).Should(Succeed())
+
+			fixture.VerifyLLMISvcPodMonitorNotExist(ctx, envTest.Client, testNs, LLMInferenceServiceName)
+		})
+
+		It("should delete PodMonitor when scrape label is set to false", func(ctx SpecContext) {
+			fixture.CreateBasicLLMInferenceService(ctx, envTest.Client, testNs, LLMInferenceServiceName, nil)
+
+			fixture.VerifyLLMISvcPodMonitorExists(ctx, envTest.Client, testNs, LLMInferenceServiceName)
+
+			llmisvc := &kservev1alpha2.LLMInferenceService{}
+			Expect(envTest.Client.Get(ctx, types.NamespacedName{
+				Name: LLMInferenceServiceName, Namespace: testNs,
+			}, llmisvc)).Should(Succeed())
+
+			if llmisvc.Labels == nil {
+				llmisvc.Labels = make(map[string]string)
+			}
+			llmisvc.Labels[constants.RhoaiObservabilityLabel] = "false"
+			Expect(envTest.Client.Update(ctx, llmisvc)).Should(Succeed())
+
+			Eventually(func() error {
+				return fixture.CheckResourceNotFound(ctx, envTest.Client, testNs,
+					constants.GetLLMISvcPodMonitorName(LLMInferenceServiceName),
+					&monitoringv1.PodMonitor{})
+			}).WithContext(ctx).Should(Succeed())
+		})
+
+		It("should recreate PodMonitor when scrape label is removed after being set to false", func(ctx SpecContext) {
+			fixture.CreateBasicLLMInferenceService(ctx, envTest.Client, testNs, LLMInferenceServiceName, nil)
+
+			fixture.VerifyLLMISvcPodMonitorExists(ctx, envTest.Client, testNs, LLMInferenceServiceName)
+
+			llmisvc := &kservev1alpha2.LLMInferenceService{}
+			Expect(envTest.Client.Get(ctx, types.NamespacedName{
+				Name: LLMInferenceServiceName, Namespace: testNs,
+			}, llmisvc)).Should(Succeed())
+
+			if llmisvc.Labels == nil {
+				llmisvc.Labels = make(map[string]string)
+			}
+			llmisvc.Labels[constants.RhoaiObservabilityLabel] = "false"
+			Expect(envTest.Client.Update(ctx, llmisvc)).Should(Succeed())
+
+			Eventually(func() error {
+				return fixture.CheckResourceNotFound(ctx, envTest.Client, testNs,
+					constants.GetLLMISvcPodMonitorName(LLMInferenceServiceName),
+					&monitoringv1.PodMonitor{})
+			}).WithContext(ctx).Should(Succeed())
+
+			Expect(envTest.Client.Get(ctx, types.NamespacedName{
+				Name: LLMInferenceServiceName, Namespace: testNs,
+			}, llmisvc)).Should(Succeed())
+			delete(llmisvc.Labels, constants.RhoaiObservabilityLabel)
+			Expect(envTest.Client.Update(ctx, llmisvc)).Should(Succeed())
+
+			fixture.VerifyLLMISvcPodMonitorExists(ctx, envTest.Client, testNs, LLMInferenceServiceName)
 		})
 
 		It("should create PodMonitor with combined selector covering single-node and multi-node topologies", func(ctx SpecContext) {

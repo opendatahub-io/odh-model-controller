@@ -60,6 +60,11 @@ func NewKservePodMonitorReconciler(client client.Client, scheme *runtime.Scheme)
 func (r *KservePodMonitorReconciler) Reconcile(ctx context.Context, log logr.Logger, llmisvc *kservev1alpha2.LLMInferenceService) error {
 	log.V(1).Info("Reconciling PodMonitor for LLMInferenceService")
 
+	if scrape := llmisvc.GetLabels()[constants.RhoaiObservabilityLabel]; scrape == "false" {
+		log.V(1).Info("PodMonitor scraping disabled via label, cleaning up if exists", "name", llmisvc.Name)
+		return r.Delete(ctx, log, llmisvc)
+	}
+
 	desired := DesiredPodMonitor(llmisvc)
 
 	existing, err := r.getExisting(ctx, llmisvc)

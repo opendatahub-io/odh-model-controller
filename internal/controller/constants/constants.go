@@ -207,5 +207,5 @@ func GetHTTPRouteName(llmisvcName string) string {
 }
 
 func GetLLMISvcPodMonitorName(llmisvcName string) string {
-	return kmeta.ChildName(llmisvcName, "-vllm-metrics")
+	return kmeta.ChildName(llmisvcName, "-llm-metrics")
 }
