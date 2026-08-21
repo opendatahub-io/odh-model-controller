@@ -60,7 +60,7 @@ func NewEnvTest(options ...Option) *Config {
 		igwapi.Install,
 		istioclientv1alpha3.AddToScheme,
 		monitoringv1.AddToScheme,
-		// KEDA is registered so LLMKedaReconciler's TriggerAuthentication calls resolve to a proper
+		// KEDA is registered so LLMKEDAReconciler's TriggerAuthentication calls resolve to a proper
 		// meta.IsNoMatchError (handled as a no-op) rather than a scheme-registration error, on envtest
 		// setups that don't install the KEDA CRD (see keda.sh_triggerauthentications.yaml under test/crds).
 		kedaapi.AddToScheme,

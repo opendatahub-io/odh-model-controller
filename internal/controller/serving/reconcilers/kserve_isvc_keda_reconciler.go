@@ -64,10 +64,10 @@ var _ SubResourceReconciler = (*KserveKEDAReconciler)(nil)
 //   - Creates resources if InferenceService uses KEDA Prometheus external metric.
 //   - Adds each InferenceService in a given namespace as non-controlling owner to shared namespaced resources.
 //   - Removes InferenceService owner reference if KEDA Prometheus autoscaling is unused or InferenceService deleted.
-//   - Cleans up KEDA resources from namespace if no InferenceServices (or LLMInferenceServices, see LLMKedaReconciler)
+//   - Cleans up KEDA resources from namespace if no InferenceServices (or LLMInferenceServices, see LLMKEDAReconciler)
 //     use KEDA Prometheus autoscaling.
 //
-// The underlying resources are shared with LLMKedaReconciler: an InferenceService and an LLMInferenceService in the
+// The underlying resources are shared with LLMKEDAReconciler: an InferenceService and an LLMInferenceService in the
 // same namespace that both use Prometheus-based KEDA autoscaling co-own the same ServiceAccount/Secret/Role/
 // RoleBinding/TriggerAuthentication set, via kedaPrometheusAuthResources.
 type KserveKEDAReconciler struct {
@@ -109,7 +109,7 @@ func (k *KserveKEDAReconciler) Delete(ctx context.Context, log logr.Logger, isvc
 func (k *KserveKEDAReconciler) Cleanup(ctx context.Context, log logr.Logger, isvcNs string) error {
 	log = log.WithName("KserveKEDAReconciler")
 	log.V(2).Info("KserveKEDAReconciler.Cleanup called.", "namespace", isvcNs)
-	// NOTE: resources are shared with LLMInferenceService (see LLMKedaReconciler), so even though this is called
+	// NOTE: resources are shared with LLMInferenceService (see LLMKEDAReconciler), so even though this is called
 	// when no InferenceService remains in the namespace, we must still check for LLMInferenceServices before
 	// deleting anything.
 	return k.auth.cleanupNamespaceIfUnused(ctx, log, isvcNs)
@@ -117,7 +117,7 @@ func (k *KserveKEDAReconciler) Cleanup(ctx context.Context, log logr.Logger, isv
 
 // kedaPrometheusAuthResources owns the CRUD lifecycle of the per-namespace KEDA Prometheus authentication
 // resources (ServiceAccount, Secret, Role, RoleBinding, TriggerAuthentication). It is intentionally agnostic of
-// InferenceService vs. LLMInferenceService: callers (KserveKEDAReconciler, LLMKedaReconciler) pass in the
+// InferenceService vs. LLMInferenceService: callers (KserveKEDAReconciler, LLMKEDAReconciler) pass in the
 // namespace, a non-controlling OwnerReference for the object driving reconciliation, and that object's
 // annotations. This lets both CRDs safely co-own and share the exact same set of resources in a namespace.
 type kedaPrometheusAuthResources struct {

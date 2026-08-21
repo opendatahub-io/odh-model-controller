@@ -71,7 +71,7 @@ func makeKedaTestISVC(namespace, name string, enableKedaMetrics bool) *kservev1b
 
 // makeKedaTestLLMISVC builds a minimal LLMInferenceService. When enablePrometheusTrigger is true, the main
 // workload is configured with a direct/standalone KEDA scaling spec carrying a single Prometheus-type trigger,
-// which is what LLMKedaReconciler looks for. When includePrefillPrometheusTrigger is also true, the disaggregated
+// which is what LLMKEDAReconciler looks for. When includePrefillPrometheusTrigger is also true, the disaggregated
 // prefill workload additionally carries its own Prometheus-type trigger.
 func makeKedaTestLLMISVC(namespace, name string, enablePrometheusTrigger bool, includePrefillPrometheusTrigger bool) *kservev1alpha2.LLMInferenceService {
 	modelURL, err := apis.ParseURL("hf://test-org/test-model")

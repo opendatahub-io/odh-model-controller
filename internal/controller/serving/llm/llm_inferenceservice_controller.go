@@ -64,7 +64,7 @@ func NewLLMInferenceServiceReconciler(client client.Client, scheme *runtime.Sche
 		reconcilers.NewKserveAuthPolicyReconciler(client, scheme),
 		reconcilers.NewKserveAuthPostureReconciler(client, recorder),
 		reconcilers.NewKservePodMonitorReconciler(client, scheme),
-		parentreconcilers.NewLLMKedaReconciler(client),
+		parentreconcilers.NewLLMKEDAReconciler(client),
 	}
 
 	return &LLMInferenceServiceReconciler{

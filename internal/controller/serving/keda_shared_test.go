@@ -34,19 +34,19 @@ import (
 
 // These specs cover the KEDA Prometheus authentication resources (ServiceAccount, Secret, Role, RoleBinding,
 // TriggerAuthentication) shared between InferenceService (via KserveKEDAReconciler) and LLMInferenceService
-// (via LLMKedaReconciler). Both reconcilers are exercised directly against the shared, uncached k8sClient,
+// (via LLMKEDAReconciler). Both reconcilers are exercised directly against the shared, uncached k8sClient,
 // mirroring the "KServe KEDA Reconciler" specs in inferenceservice_controller_test.go.
 var _ = Describe("KEDA Prometheus auth resources shared across InferenceService and LLMInferenceService", func() {
 	var (
 		testNs         string
 		kedaReconciler *reconcilers.KserveKEDAReconciler
-		llmReconciler  *reconcilers.LLMKedaReconciler
+		llmReconciler  *reconcilers.LLMKEDAReconciler
 	)
 
 	BeforeEach(func() {
 		testNs = testutils.Namespaces.Create(ctx, k8sClient).Name
 		kedaReconciler = reconcilers.NewKServeKEDAReconciler(k8sClient)
-		llmReconciler = reconcilers.NewLLMKedaReconciler(k8sClient)
+		llmReconciler = reconcilers.NewLLMKEDAReconciler(k8sClient)
 	})
 
 	Context("when only an LLMInferenceService uses a direct KEDA Prometheus trigger", func() {
@@ -160,7 +160,7 @@ var _ = Describe("KEDA Prometheus auth resources shared across InferenceService 
 			Expect(getAllKedaTestResources(ctx, k8sClient, testNs)).To(BeEmpty())
 		})
 
-		It("does not delete the resources via LLMKedaReconciler.Cleanup while the InferenceService still needs them", func() {
+		It("does not delete the resources via LLMKEDAReconciler.Cleanup while the InferenceService still needs them", func() {
 			// Simulates the top-level LLM controller calling Cleanup() once no LLMInferenceService remains in the
 			// namespace, even though an InferenceService in that same namespace still requires the shared resources.
 			Expect(llmReconciler.Cleanup(ctx, GinkgoLogr, testNs)).To(Succeed())

@@ -27,9 +27,9 @@ import (
 // LLMInferenceService's standalone/direct KEDA scaling (spec.scaling.keda.triggers[].type).
 const prometheusKEDATriggerType = "prometheus"
 
-var _ LLMSubResourceReconciler = (*LLMKedaReconciler)(nil)
+var _ LLMSubResourceReconciler = (*LLMKEDAReconciler)(nil)
 
-// LLMKedaReconciler allows LLMInferenceServices to autoscale on user-defined Prometheus KEDA triggers
+// LLMKEDAReconciler allows LLMInferenceServices to autoscale on user-defined Prometheus KEDA triggers
 // (spec.scaling.keda), with secure OpenShift Monitoring access, mirroring KserveKEDAReconciler for
 // InferenceService.
 //
@@ -42,18 +42,18 @@ var _ LLMSubResourceReconciler = (*LLMKedaReconciler)(nil)
 // Scope: only the standalone/direct KEDA scaling path (spec.scaling.keda / spec.prefill.scaling.keda). The
 // WVA-actuator KEDA path (spec.scaling.wva.keda) is configured separately via inferenceservice-config and a
 // cluster-scoped ClusterTriggerAuthentication managed outside odh-model-controller.
-type LLMKedaReconciler struct {
+type LLMKEDAReconciler struct {
 	auth *kedaPrometheusAuthResources
 }
 
-func NewLLMKedaReconciler(client client.Client) *LLMKedaReconciler {
-	return &LLMKedaReconciler{
+func NewLLMKEDAReconciler(client client.Client) *LLMKEDAReconciler {
+	return &LLMKEDAReconciler{
 		auth: &kedaPrometheusAuthResources{client: client},
 	}
 }
 
-func (k *LLMKedaReconciler) Reconcile(ctx context.Context, log logr.Logger, llmisvc *kservev1alpha2.LLMInferenceService) error {
-	log = log.WithName("LLMKedaReconciler")
+func (k *LLMKEDAReconciler) Reconcile(ctx context.Context, log logr.Logger, llmisvc *kservev1alpha2.LLMInferenceService) error {
+	log = log.WithName("LLMKEDAReconciler")
 	log.V(2).Info("Reconciling LLMInferenceService", "LLMInferenceService", llmisvc)
 
 	if !hasPrometheusKEDATrigger(llmisvc, log) {
@@ -69,16 +69,16 @@ func (k *LLMKedaReconciler) Reconcile(ctx context.Context, log logr.Logger, llmi
 	return nil
 }
 
-func (k *LLMKedaReconciler) Delete(ctx context.Context, log logr.Logger, llmisvc *kservev1alpha2.LLMInferenceService) error {
-	log = log.WithName("LLMKedaReconciler")
-	log.V(2).Info("LLMKedaReconciler.Delete called")
+func (k *LLMKEDAReconciler) Delete(ctx context.Context, log logr.Logger, llmisvc *kservev1alpha2.LLMInferenceService) error {
+	log = log.WithName("LLMKEDAReconciler")
+	log.V(2).Info("LLMKEDAReconciler.Delete called")
 
 	return k.auth.removeOwnerReferenceIfPresent(ctx, log, llmisvc.Namespace, AsLLMIsvcOwnerRef(llmisvc))
 }
 
-func (k *LLMKedaReconciler) Cleanup(ctx context.Context, log logr.Logger, llmIsvcNs string) error {
-	log = log.WithName("LLMKedaReconciler")
-	log.V(2).Info("LLMKedaReconciler.Cleanup called.", "namespace", llmIsvcNs)
+func (k *LLMKEDAReconciler) Cleanup(ctx context.Context, log logr.Logger, llmIsvcNs string) error {
+	log = log.WithName("LLMKEDAReconciler")
+	log.V(2).Info("LLMKEDAReconciler.Cleanup called.", "namespace", llmIsvcNs)
 	// NOTE: resources are shared with InferenceService (see KserveKEDAReconciler), so even though this is called
 	// when no LLMInferenceService remains in the namespace, we must still check for InferenceServices before
 	// deleting anything.
