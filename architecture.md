@@ -10,7 +10,7 @@ ODH Model Controller is a **companion controller** to [KServe](https://github.co
 - **NVIDIA NIM integration** — Manages NIM Account lifecycle (API key validation, model catalog sync, pull secrets, ServingRuntime templates)
 - **Multi-node Ray TLS** — Generates and distributes CA certificates for Ray head/worker TLS in multi-node serving
 - **Model Registry sync** — Bidirectional sync between InferenceServices and Model Registry metadata
-- **KEDA autoscaling** — Reconciles TriggerAuthentication resources for KEDA-based autoscaling
+- **KEDA autoscaling** — Reconciles a shared, per-namespace KEDA Prometheus authentication context (ServiceAccount, Secret, Role, RoleBinding, TriggerAuthentication) for both InferenceService and LLMInferenceService Prometheus-based autoscaling
 - **LLMInferenceService auth** — Creates Kuadrant AuthPolicies and Istio EnvoyFilters for MaaS (Model-as-a-Service) gateway authentication
 - **Gateway API bootstrap** — Reconciles EnvoyFilter and AuthPolicy resources on Gateways independent of model lifecycle
 - **Webhook enforcement** — Validates InferenceService naming constraints, protects system namespaces, injects Ray TLS init containers
@@ -88,7 +88,7 @@ A standalone REST API server for querying gateway and endpoint information. It i
    - **Metrics dashboard reconciler** — creates ConfigMaps with Grafana dashboard JSON
    - **ClusterRoleBinding reconciler** — grants auth-delegator for secure metrics
    - **ServiceAccount reconciler** — ensures service accounts with proper image pull secrets
-   - **KEDA reconciler** — creates TriggerAuthentication for KEDA autoscaling
+   - **KEDA reconciler** (`KserveKEDAReconciler`) — creates the per-namespace KEDA Prometheus auth context (ServiceAccount, Secret, Role, RoleBinding, TriggerAuthentication) when an InferenceService uses a Prometheus external autoscaling metric. These resources are shared with LLMInferenceService (see below): both CRDs co-own the same objects, and cleanup only happens once neither type needs them anymore.
 3. Optionally runs Model Registry reconciliation (controlled by `MODELREGISTRY_STATE=managed`)
 4. Cleans up shared namespace resources when the last ISVC is deleted
 
@@ -113,9 +113,35 @@ Placeholder controller that watches InferenceGraph resources. Currently a no-op 
 
 **Responsibilities:**
 1. Resolves BaseRef configs (LLMInferenceServiceConfig) and merges specs using KServe's `MergeSpecs`
-2. Runs sub-reconcilers — currently the **AuthPolicy reconciler** which creates Kuadrant AuthPolicies per-service
+2. Runs sub-reconcilers:
+   - **AuthPolicy reconciler** — creates Kuadrant AuthPolicies per-service
+   - **KEDA reconciler** (`LLMKedaReconciler`) — creates/removes this LLMInferenceService's owner reference on the same per-namespace KEDA Prometheus auth context used by InferenceService (see `KserveKEDAReconciler` above), when `spec.scaling.keda` (or `spec.prefill.scaling.keda`) declares a `type: prometheus` trigger. Operators reference the resulting TriggerAuthentication by name (`inference-prometheus-auth`) in their own trigger's `authenticationRef` to authenticate against Thanos/Prometheus on OpenShift. Out of scope: the WVA-actuator KEDA path (`spec.scaling.wva.keda`), which uses a separately-configured, cluster-scoped `ClusterTriggerAuthentication`.
 3. Cleans up namespace-scoped resources when the last LLMInferenceService is deleted
 4. Triggers global re-reconciliation when Kuadrant or Authorino instances are created/deleted
+
+**Example — direct KEDA Prometheus autoscaling on OpenShift:** the operator declares their own trigger and references the auth context `LLMKedaReconciler` provisions by name:
+
+```yaml
+apiVersion: serving.kserve.io/v1alpha2
+kind: LLMInferenceService
+metadata:
+  name: my-llm
+spec:
+  scaling:
+    minReplicas: 1
+    maxReplicas: 5
+    keda:
+      triggers:
+        - type: prometheus
+          metadata:
+            serverAddress: https://thanos-querier.openshift-monitoring.svc.cluster.local:9092
+            namespace: my-namespace
+            query: sum(rate(vllm_request_success_total{namespace="my-namespace"}[1m]))
+            threshold: "10"
+            authModes: bearer
+          authenticationRef:
+            name: inference-prometheus-auth
+```
 
 ### Gateway Controller (`internal/controller/serving/llm/`)
 
