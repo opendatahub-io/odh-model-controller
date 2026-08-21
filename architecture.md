@@ -18,40 +18,40 @@ ODH Model Controller is a **companion controller** to [KServe](https://github.co
 ## System Context
 
 ```
-┌──────────────────────────────────────────────────────────────────────┐
-│                        OpenShift / Kubernetes Cluster                │
-│                                                                      │
-│  ┌─────────────┐    watches     ┌──────────────────────────────┐    │
-│  │   KServe     │──────────────►│  InferenceService (ISVC)      │    │
-│  │  Controller  │    reconciles │  ServingRuntime (SR)           │    │
-│  └─────────────┘               │  InferenceGraph (IG)           │    │
-│                                 │  LLMInferenceService (LLMISVC)│    │
-│  ┌─────────────┐    watches     │  LLMInferenceServiceConfig    │    │
-│  │  ODH Model  │──────────────►│                                │    │
-│  │  Controller  │    augments   └──────────────────────────────┘    │
-│  │             │                                                     │
-│  │             │    creates/manages                                   │
-│  │             │──────────────► Routes, NetworkPolicies,             │
-│  │             │                ServiceMonitors, PodMonitors,        │
-│  │             │                Secrets, ConfigMaps, RoleBindings,   │
-│  │             │                ClusterRoleBindings, ServiceAccounts,│
-│  │             │                EnvoyFilters, AuthPolicies,          │
-│  │             │                TriggerAuthentications, Templates    │
-│  └─────────────┘                                                     │
-│                                                                      │
-│  ┌─────────────┐                                                     │
-│  │ model-      │    REST API for gateway/endpoint discovery          │
-│  │ serving-api │    (standalone deployment, separate binary)         │
-│  └─────────────┘                                                     │
-│                                                                      │
-│  External Dependencies (optional, detected at startup via CRD check):│
-│  • Kuadrant / Authorino - auth policies                              │
-│  • Istio - EnvoyFilters                                              │
-│  • KEDA - autoscaler TriggerAuthentications                          │
-│  • Gateway API - Gateway, HTTPRoute                                  │
-│  • Prometheus Operator - ServiceMonitor, PodMonitor                  │
-│  • cert-manager - (upstream KServe dependency)                       │
-└──────────────────────────────────────────────────────────────────────┘
++----------------------------------------------------------------------+
+|                        OpenShift / Kubernetes Cluster                |
+|                                                                      |
+|  +-------------+    watches     +------------------------------+    |
+|  |   KServe     |-------------->|  InferenceService (ISVC)      |    |
+|  |  Controller  |    reconciles |  ServingRuntime (SR)           |    |
+|  +-------------+               |  InferenceGraph (IG)           |    |
+|                                 |  LLMInferenceService (LLMISVC)|    |
+|  +-------------+    watches     |  LLMInferenceServiceConfig    |    |
+|  |  ODH Model  |-------------->|                                |    |
+|  |  Controller  |    augments   +------------------------------+    |
+|  |             |                                                     |
+|  |             |    creates/manages                                   |
+|  |             |--------------> Routes, NetworkPolicies,             |
+|  |             |                ServiceMonitors, PodMonitors,        |
+|  |             |                Secrets, ConfigMaps, RoleBindings,   |
+|  |             |                ClusterRoleBindings, ServiceAccounts,|
+|  |             |                EnvoyFilters, AuthPolicies,          |
+|  |             |                TriggerAuthentications, Templates    |
+|  +-------------+                                                     |
+|                                                                      |
+|  +-------------+                                                     |
+|  | model-      |    REST API for gateway/endpoint discovery          |
+|  | serving-api |    (standalone deployment, separate binary)         |
+|  +-------------+                                                     |
+|                                                                      |
+|  External Dependencies (optional, detected at startup via CRD check):|
+|  * Kuadrant / Authorino - auth policies                              |
+|  * Istio - EnvoyFilters                                              |
+|  * KEDA - autoscaler TriggerAuthentications                          |
+|  * Gateway API - Gateway, HTTPRoute                                  |
+|  * Prometheus Operator - ServiceMonitor, PodMonitor                  |
+|  * cert-manager - (upstream KServe dependency)                       |
++----------------------------------------------------------------------+
 ```
 
 ## Two Binaries
