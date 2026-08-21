@@ -188,3 +188,15 @@ spec:
             plain:
               expression: "auth.identity.user.groups.join(',')"
             priority: 0
+          x-user-id:
+            when:
+              - predicate: "request.path.startsWith('/v1/')"
+            plain:
+              expression: auth.identity.user.username
+            priority: 0
+          x-tenant-id:
+            when:
+              - predicate: "request.path.startsWith('/v1/')"
+            plain:
+              expression: "auth.identity.user.username.startsWith('system:serviceaccount:') ? auth.identity.user.username.split(':')[2] : 'default'"
+            priority: 0
