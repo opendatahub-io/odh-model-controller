@@ -44,6 +44,7 @@ import (
 const (
 	LLMInferenceServiceName = "test-llmisvc"
 	GatewayClassName        = "openshift-default"
+	boolFalseStr            = "false"
 )
 
 var _ = Describe("LLMInferenceService Controller", func() {
@@ -106,7 +107,7 @@ var _ = Describe("LLMInferenceService Controller", func() {
 				fixture.CreateHTTPRouteForLLMService(ctx, envTest.Client, testNs, LLMInferenceServiceName)
 				fixture.VerifyHTTPRouteAuthPolicyNotExist(ctx, envTest.Client, testNs, LLMInferenceServiceName)
 
-				llmisvc.Annotations[constants.EnableAuthODHAnnotation] = "false"
+				llmisvc.Annotations[constants.EnableAuthODHAnnotation] = boolFalseStr
 				Expect(envTest.Client.Update(ctx, llmisvc)).Should(Succeed())
 
 				fixture.VerifyHTTPRouteAuthPolicyOwnerRef(ctx, envTest.Client, testNs, LLMInferenceServiceName)
@@ -510,7 +511,7 @@ var _ = Describe("LLMInferenceService PodMonitor", func() {
 		It("should not create PodMonitor when scrape label is false", func(ctx SpecContext) {
 			llmisvc := fixture.LLMInferenceService(LLMInferenceServiceName,
 				fixture.InNamespace[*kservev1alpha2.LLMInferenceService](testNs),
-				fixture.WithLabel(constants.RhoaiObservabilityLabel, "false"),
+				fixture.WithLabel(constants.RhoaiObservabilityLabel, boolFalseStr),
 			)
 			Expect(envTest.Client.Create(ctx, llmisvc)).Should(Succeed())
 
@@ -530,7 +531,7 @@ var _ = Describe("LLMInferenceService PodMonitor", func() {
 			if llmisvc.Labels == nil {
 				llmisvc.Labels = make(map[string]string)
 			}
-			llmisvc.Labels[constants.RhoaiObservabilityLabel] = "false"
+			llmisvc.Labels[constants.RhoaiObservabilityLabel] = boolFalseStr
 			Expect(envTest.Client.Update(ctx, llmisvc)).Should(Succeed())
 
 			Eventually(func() error {
@@ -553,7 +554,7 @@ var _ = Describe("LLMInferenceService PodMonitor", func() {
 			if llmisvc.Labels == nil {
 				llmisvc.Labels = make(map[string]string)
 			}
-			llmisvc.Labels[constants.RhoaiObservabilityLabel] = "false"
+			llmisvc.Labels[constants.RhoaiObservabilityLabel] = boolFalseStr
 			Expect(envTest.Client.Update(ctx, llmisvc)).Should(Succeed())
 
 			Eventually(func() error {
