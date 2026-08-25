@@ -103,6 +103,9 @@ func TestDesiredPodMonitor(t *testing.T) {
 					kserveconstants.LLMComponentWorkload,
 					kserveconstants.LLMComponentWorkloadLeader,
 					kserveconstants.LLMComponentWorkloadWorker,
+					kserveconstants.LLMComponentWorkloadPrefill,
+					kserveconstants.LLMComponentWorkloadLeaderPrefill,
+					kserveconstants.LLMComponentWorkloadWorkerPrefill,
 				}, expr.Values)
 			},
 		},
@@ -141,7 +144,7 @@ func TestDesiredPodMonitor(t *testing.T) {
 				t.Helper()
 				require.Len(t, pm.Spec.PodMetricsEndpoints, 1)
 				relabelConfigs := pm.Spec.PodMetricsEndpoints[0].RelabelConfigs
-				require.Len(t, relabelConfigs, 3)
+				require.Len(t, relabelConfigs, 4)
 
 				assert.Equal(t, []monitoringv1.LabelName{"__meta_kubernetes_namespace"}, relabelConfigs[0].SourceLabels)
 				assert.Equal(t, "namespace", relabelConfigs[0].TargetLabel)
@@ -154,6 +157,10 @@ func TestDesiredPodMonitor(t *testing.T) {
 				assert.Equal(t, "llm_inference_service", relabelConfigs[2].TargetLabel)
 				require.NotNil(t, relabelConfigs[2].Replacement)
 				assert.Equal(t, "my-svc", *relabelConfigs[2].Replacement)
+
+				assert.Equal(t, []monitoringv1.LabelName{"__meta_kubernetes_pod_label_llm_d_ai_role"}, relabelConfigs[3].SourceLabels)
+				assert.Equal(t, "vllm_engine_role", relabelConfigs[3].TargetLabel)
+				assert.Equal(t, "replace", relabelConfigs[3].Action)
 			},
 		},
 	}
@@ -416,7 +423,7 @@ func TestCombinedPodSelector(t *testing.T) {
 			matches: true,
 		},
 		{
-			name: "does not match disaggregated prefill pod",
+			name: "matches disaggregated prefill pod (role=prefill)",
 			podLabels: map[string]string{
 				kserveconstants.KubernetesAppNameLabelKey:   llmisvcName,
 				kserveconstants.KubernetesPartOfLabelKey:    kserveconstants.LLMInferenceServicePartOfValue,
@@ -424,25 +431,25 @@ func TestCombinedPodSelector(t *testing.T) {
 				kserveconstants.KServeComponentLabelKey:     kserveconstants.KServeComponentWorkload,
 				kserveconstants.LLMDRoleLabelKey:            kserveconstants.LLMDRolePrefill,
 			},
-			matches: false,
+			matches: true,
 		},
 		{
-			name: "does not match prefill leader pod",
+			name: "matches prefill leader pod",
 			podLabels: map[string]string{
 				kserveconstants.KubernetesAppNameLabelKey:   llmisvcName,
 				kserveconstants.KubernetesPartOfLabelKey:    kserveconstants.LLMInferenceServicePartOfValue,
 				kserveconstants.KubernetesComponentLabelKey: kserveconstants.LLMComponentWorkloadLeaderPrefill,
 			},
-			matches: false,
+			matches: true,
 		},
 		{
-			name: "does not match prefill worker pod",
+			name: "matches prefill worker pod",
 			podLabels: map[string]string{
 				kserveconstants.KubernetesAppNameLabelKey:   llmisvcName,
 				kserveconstants.KubernetesPartOfLabelKey:    kserveconstants.LLMInferenceServicePartOfValue,
 				kserveconstants.KubernetesComponentLabelKey: kserveconstants.LLMComponentWorkloadWorkerPrefill,
 			},
-			matches: false,
+			matches: true,
 		},
 		{
 			name: "does not match pod from different LLMInferenceService",
@@ -450,6 +457,15 @@ func TestCombinedPodSelector(t *testing.T) {
 				kserveconstants.KubernetesAppNameLabelKey:   "other-model",
 				kserveconstants.KubernetesPartOfLabelKey:    kserveconstants.LLMInferenceServicePartOfValue,
 				kserveconstants.KubernetesComponentLabelKey: kserveconstants.LLMComponentWorkload,
+			},
+			matches: false,
+		},
+		{
+			name: "does not match pod from different LLMInferenceService (prefill)",
+			podLabels: map[string]string{
+				kserveconstants.KubernetesAppNameLabelKey:   "other-model",
+				kserveconstants.KubernetesPartOfLabelKey:    kserveconstants.LLMInferenceServicePartOfValue,
+				kserveconstants.KubernetesComponentLabelKey: kserveconstants.LLMComponentWorkloadPrefill,
 			},
 			matches: false,
 		},

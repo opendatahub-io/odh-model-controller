@@ -195,6 +195,11 @@ func DesiredPodMonitor(llmisvc *kservev1alpha2.LLMInferenceService) *monitoringv
 							Replacement: ptr.To(llmisvc.Name),
 							TargetLabel: "llm_inference_service",
 						},
+						{
+							SourceLabels: []monitoringv1.LabelName{"__meta_kubernetes_pod_label_llm_d_ai_role"},
+							Action:       "replace",
+							TargetLabel:  "vllm_engine_role",
+						},
 					},
 				},
 			},
@@ -239,9 +244,11 @@ func MultiNodeLWSPodSelector(llmisvcName string) metav1.LabelSelector {
 	}
 }
 
-// CombinedPodSelector returns a label selector that targets vLLM pods across both single-node
-// Deployment and multi-node LeaderWorkerSet topologies. It selects pods with component labels
-// matching workload, workload-leader, or workload-worker while excluding disaggregated prefill pods.
+// CombinedPodSelector returns a label selector that targets vLLM pods across single-node
+// Deployment, multi-node LeaderWorkerSet, and disaggregated prefill/decode topologies. It
+// selects pods with component labels matching workload, workload-leader, workload-worker,
+// workload-prefill, workload-leader-prefill, or workload-worker-prefill, including disaggregated
+// prefill pods so both prefill and decode engines are scraped for a given LLMInferenceService.
 func CombinedPodSelector(llmisvcName string) metav1.LabelSelector {
 	return metav1.LabelSelector{
 		MatchLabels: map[string]string{
@@ -256,6 +263,9 @@ func CombinedPodSelector(llmisvcName string) metav1.LabelSelector {
 					kserveconstants.LLMComponentWorkload,
 					kserveconstants.LLMComponentWorkloadLeader,
 					kserveconstants.LLMComponentWorkloadWorker,
+					kserveconstants.LLMComponentWorkloadPrefill,
+					kserveconstants.LLMComponentWorkloadLeaderPrefill,
+					kserveconstants.LLMComponentWorkloadWorkerPrefill,
 				},
 			},
 		},
