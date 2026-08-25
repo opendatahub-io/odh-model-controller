@@ -74,8 +74,9 @@ spec:
           key:
             expression: >-
               auth.identity.resolvedUser
-              + '/' + request.path.split('/')[2]
-              + '/' + request.path.split('/models/')[1].split('/v1/')[0]
+              + '\x00' + auth.identity.resolvedGroups.join(',')
+              + '\x00' + request.path.split('/')[2]
+              + '\x00' + request.path.split('/models/')[1].split('/v1/')[0]
           ttl: 60
         priority: 1
       model-access-path-delegate:
@@ -106,8 +107,9 @@ spec:
           key:
             expression: >-
               auth.identity.user.username
-              + '/' + request.path.split('/')[2]
-              + '/' + request.path.split('/models/')[1].split('/v1/')[0]
+              + '\x00' + auth.identity.user.groups.join(',')
+              + '\x00' + request.path.split('/')[2]
+              + '\x00' + request.path.split('/models/')[1].split('/v1/')[0]
           ttl: 60
         priority: 1
       # Deny requests where a valid model routing header is present on a path
@@ -156,8 +158,9 @@ spec:
           key:
             expression: >-
               auth.identity.resolvedUser
-              + '/' + request.path.split('/')[1]
-              + '/' + request.path.split('/')[2]
+              + '\x00' + auth.identity.resolvedGroups.join(',')
+              + '\x00' + request.path.split('/')[1]
+              + '\x00' + request.path.split('/')[2]
           ttl: 60
         priority: 1
       inference-access-delegate:
@@ -187,8 +190,9 @@ spec:
           key:
             expression: >-
               auth.identity.user.username
-              + '/' + request.path.split('/')[1]
-              + '/' + request.path.split('/')[2]
+              + '\x00' + auth.identity.user.groups.join(',')
+              + '\x00' + request.path.split('/')[1]
+              + '\x00' + request.path.split('/')[2]
           ttl: 60
         priority: 1
     response:
