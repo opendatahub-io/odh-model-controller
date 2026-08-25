@@ -53,6 +53,7 @@ import (
 	servingcontroller "github.com/opendatahub-io/odh-model-controller/internal/controller/serving"
 	llmcontroller "github.com/opendatahub-io/odh-model-controller/internal/controller/serving/llm"
 	"github.com/opendatahub-io/odh-model-controller/internal/controller/utils"
+	"github.com/opendatahub-io/odh-model-controller/internal/informercache"
 	"github.com/opendatahub-io/odh-model-controller/internal/platform"
 
 	webhookcorev1 "github.com/opendatahub-io/odh-model-controller/internal/webhook/core/v1"
@@ -222,10 +223,24 @@ func createManager(cfg *rest.Config, metricsAddr, probeAddr string,
 		// after the manager stops then its usage might be unsafe.
 		// LeaderElectionReleaseOnCancel: true,
 		Client: client.Options{
-			Cache: &client.CacheOptions{},
+			Cache: &client.CacheOptions{
+				// ConfigMap client reads bypass the cache since the informer
+				// stores metadata-only objects (no .data/.binaryData).
+				DisableFor: []client.Object{
+					&corev1.ConfigMap{},
+				},
+			},
 		},
 		Cache: cache.Options{
+			DefaultTransform: cache.TransformStripManagedFields(),
 			ByObject: map[client.Object]cache.ByObject{
+				// Strip ConfigMap data from the informer cache to prevent OOM
+				// from cluster-wide caching while still delivering watch events
+				// for external ConfigMaps (CA bundles, etc.). Payload reads use
+				// direct API calls via DisableFor above.
+				&corev1.ConfigMap{}: {
+					Transform: informercache.StripConfigMapData,
+				},
 				&corev1.Secret{}: {
 					Label: labels.SelectorFromSet(labels.Set{
 						"opendatahub.io/managed": "true",
