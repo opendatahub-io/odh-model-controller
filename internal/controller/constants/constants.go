@@ -107,6 +107,7 @@ const (
 	OvmsRuntimeName         = "ovms"
 	TgisRuntimeName         = "tgis"
 	VllmRuntimeName         = "vllm"
+	VllmOmniRuntimeName     = "vllm-omni"
 	MLServerRuntimeName     = "mlserver"
 	AutogluonRuntimeName    = "autogluon"
 )
@@ -203,4 +204,8 @@ func GetGatewayPodMonitorName(gatewayName string) string {
 
 func GetHTTPRouteName(llmisvcName string) string {
 	return kmeta.ChildName(llmisvcName, HTTPRouteNameSuffix)
+}
+
+func GetLLMISvcPodMonitorName(llmisvcName string) string {
+	return kmeta.ChildName(llmisvcName, "-llm-metrics")
 }

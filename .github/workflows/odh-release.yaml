@@ -4,6 +4,7 @@
 #   1. Validates inputs and checks for existing tags.
 #   2. Discovers config/**/params.env and .tekton/*-push.yaml files.
 #   3. If params.env files exist: bumps image tags matching a repo-specific regex.
+#   3b. For kserve: updates ODH manifest refs in kserve-module/hack/get_kserve_manifests.sh.
 #   4. If .tekton/ push pipelines exist: rewrites on-cel-expression to
 #      on-target-branch/on-event for the release tag, and updates output-image tags.
 #      This triggers Konflux builds from the tag push (Fix 2).
@@ -255,6 +256,57 @@ jobs:
           print(f"\n✓ {prefix_label}{'Would update' if dry_run else 'Updated'} {total_replacements} image tag(s) across {len(updated_files)} file(s)")
         shell: python
 
+      - name: Update get_kserve_manifests.sh (kserve only)
+        if: ${{ needs.validate-and-check.outputs.repo_name == 'kserve' }}
+        env:
+          DRY_RUN: ${{ github.event.inputs.dry_run }}
+          TAG_NAME: ${{ github.event.inputs.tag_name }}
+        run: |
+          import os
+          import re
+          import sys
+
+          dry_run = os.environ.get('DRY_RUN', 'false') == 'true'
+          tag_name = os.environ["TAG_NAME"]
+          manifest_script = "kserve-module/hack/get_kserve_manifests.sh"
+          prefix_label = "[DRY RUN] " if dry_run else ""
+
+          if not os.path.isfile(manifest_script):
+            print(f"::error::{manifest_script} not found")
+            sys.exit(1)
+
+          print(f"{prefix_label}Updating ODH manifest refs in {manifest_script} with tag: {tag_name}\n")
+
+          with open(manifest_script, 'r') as f:
+            content = f.read()
+
+          manifest_line_pattern = re.compile(
+            r'(\["(?:kserve|modelcontroller|wva)"\]="opendatahub-io:(?:kserve|odh-model-controller|workload-variant-autoscaler):)'
+            r'([^:@"]+(?:@[a-f0-9]{7,40})?)'
+            r'(:config")'
+          )
+
+          matches = manifest_line_pattern.findall(content)
+          if not matches:
+            print(f"::error::No ODH_COMPONENT_MANIFESTS entries found in {manifest_script}")
+            sys.exit(1)
+
+          updated_content, count = manifest_line_pattern.subn(rf"\1{tag_name}\3", content)
+          if count == 0:
+            print("  - No changes needed")
+            raise SystemExit(0)
+
+          print(f"  ✓ {'Would update' if dry_run else 'Updated'} {count} manifest ref(s)")
+          for _, old_ref, _ in matches:
+            print(f"    - {old_ref} → {tag_name}")
+
+          if not dry_run:
+            with open(manifest_script, 'w') as f:
+              f.write(updated_content)
+
+          print(f"\n✓ {prefix_label}{'Would update' if dry_run else 'Updated'} {manifest_script}")
+        shell: python
+
       - name: Rewrite .tekton/ push pipelines for tag-push triggering
         if: ${{ needs.validate-and-check.outputs.has_tekton == 'true' }}
         env:
@@ -423,6 +475,7 @@ jobs:
           TAG_NAME: ${{ github.event.inputs.tag_name }}
         run: |
           git add config/**/params.env 2>/dev/null || true
+          git add kserve-module/hack/get_kserve_manifests.sh 2>/dev/null || true
           git add .tekton/ 2>/dev/null || true
           git add go.mod go.sum 2>/dev/null || true
           
