@@ -70,6 +70,13 @@ spec:
                 + request.path.split('/models/')[1].split('/v1/')[0]
             verb:
               value: post
+        cache:
+          key:
+            expression: >-
+              auth.identity.resolvedUser
+              + '/' + request.path.split('/')[2]
+              + '/' + request.path.split('/models/')[1].split('/v1/')[0]
+          ttl: 60
         priority: 1
       model-access-path-delegate:
         when:
@@ -95,6 +102,13 @@ spec:
                 + request.path.split('/models/')[1].split('/v1/')[0]
             verb:
               value: post-delegate
+        cache:
+          key:
+            expression: >-
+              auth.identity.user.username
+              + '/' + request.path.split('/')[2]
+              + '/' + request.path.split('/models/')[1].split('/v1/')[0]
+          ttl: 60
         priority: 1
       # Deny requests where a valid model routing header is present on a path
       # that isn't a publisher path or a batch API path. Without BBR's resolvedPath
@@ -138,6 +152,13 @@ spec:
               expression: request.path.split("/")[2]
             verb:
               value: get
+        cache:
+          key:
+            expression: >-
+              auth.identity.resolvedUser
+              + '/' + request.path.split('/')[1]
+              + '/' + request.path.split('/')[2]
+          ttl: 60
         priority: 1
       inference-access-delegate:
         when:
@@ -162,6 +183,13 @@ spec:
               expression: request.path.split("/")[2]
             verb:
               value: post-delegate
+        cache:
+          key:
+            expression: >-
+              auth.identity.user.username
+              + '/' + request.path.split('/')[1]
+              + '/' + request.path.split('/')[2]
+          ttl: 60
         priority: 1
     response:
       success:

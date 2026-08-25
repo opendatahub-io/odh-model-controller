@@ -20,7 +20,7 @@ spec:
         value:
           name: kuadrant-auth-service
           type: STRICT_DNS
-          connect_timeout: 1s
+          connect_timeout: 5s
           lb_policy: ROUND_ROBIN
           http2_protocol_options: {}
           load_assignment:
