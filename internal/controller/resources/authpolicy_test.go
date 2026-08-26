@@ -334,6 +334,21 @@ var _ = Describe("AuthPolicyTemplateLoader", func() {
 			Expect(kubernetesUserAuth.Overrides).To(HaveKey("resolvedGroups"))
 		})
 
+		It("should guard resolvedGroups against empty x-maas-groups header value", func(ctx SpecContext) {
+			authPolicy, err := loader.Load(ctx, resources.AuthPolicyTarget{
+				Kind:      "Gateway",
+				Name:      "openshift-ai-inference",
+				Namespace: "openshift-ingress",
+				AuthType:  constants.UserDefined,
+			})
+
+			Expect(err).ToNot(HaveOccurred())
+			kubernetesUserAuth := authPolicy.Spec.AuthScheme.Authentication["kubernetes-user"]
+			resolvedGroups := kubernetesUserAuth.Overrides["resolvedGroups"]
+			expr := string(resolvedGroups.Expression)
+			Expect(expr).To(ContainSubstring("!= ''"), "resolvedGroups must reject empty x-maas-groups header to avoid split producing ['']")
+		})
+
 		It("should substitute custom model routing header in deny rule", func(ctx SpecContext) {
 			authPolicy, err := loader.Load(ctx, resources.AuthPolicyTarget{
 				Kind:               "Gateway",

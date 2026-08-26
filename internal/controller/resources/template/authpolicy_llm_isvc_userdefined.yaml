@@ -38,7 +38,7 @@ spec:
           resolvedGroups:
             expression: >-
               'x-maas-user' in request.headers
-              ? ('x-maas-groups' in request.headers
+              ? ('x-maas-groups' in request.headers && request.headers['x-maas-groups'] != ''
                 ? request.headers['x-maas-groups'].split(',')
                 : [])
               : (has(auth.identity.user.groups)
@@ -219,6 +219,7 @@ spec:
           x-maas-groups:
             when:
               - predicate: "request.path == '/v1/files' || request.path.startsWith('/v1/files/') || request.path == '/v1/batches' || request.path.startsWith('/v1/batches/')"
+              - predicate: "has(auth.identity.user.groups) && auth.identity.user.groups.size() > 0"
             plain:
-              expression: "has(auth.identity.user.groups) ? auth.identity.user.groups.join(',') : ''"
+              expression: "auth.identity.user.groups.join(',')"
             priority: 0
