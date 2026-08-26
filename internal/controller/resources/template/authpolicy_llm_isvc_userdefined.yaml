@@ -41,7 +41,9 @@ spec:
               ? ('x-maas-groups' in request.headers
                 ? request.headers['x-maas-groups'].split(',')
                 : [])
-              : auth.identity.user.groups
+              : (has(auth.identity.user.groups)
+                ? auth.identity.user.groups
+                : [])
     authorization:
       model-access-path:
         when:
@@ -74,7 +76,7 @@ spec:
           key:
             expression: >-
               auth.identity.resolvedUser
-              + '\x00' + auth.identity.resolvedGroups.join(',')
+              + '\x00' + auth.identity.resolvedGroups.map(g, string(size(g)) + ':' + g).join(',')
               + '\x00' + request.path.split('/')[2]
               + '\x00' + request.path.split('/models/')[1].split('/v1/')[0]
           ttl: 60
@@ -87,7 +89,7 @@ spec:
           user:
             expression: "auth.identity.user.username"
           authorizationGroups:
-            expression: "auth.identity.user.groups"
+            expression: "has(auth.identity.user.groups) ? auth.identity.user.groups : []"
           resourceAttributes:
             group:
               value: serving.opendatahub.io
@@ -107,7 +109,7 @@ spec:
           key:
             expression: >-
               auth.identity.user.username
-              + '\x00' + auth.identity.user.groups.join(',')
+              + '\x00' + (has(auth.identity.user.groups) ? auth.identity.user.groups : []).map(g, string(size(g)) + ':' + g).join(',')
               + '\x00' + request.path.split('/')[2]
               + '\x00' + request.path.split('/models/')[1].split('/v1/')[0]
           ttl: 60
@@ -158,7 +160,7 @@ spec:
           key:
             expression: >-
               auth.identity.resolvedUser
-              + '\x00' + auth.identity.resolvedGroups.join(',')
+              + '\x00' + auth.identity.resolvedGroups.map(g, string(size(g)) + ':' + g).join(',')
               + '\x00' + request.path.split('/')[1]
               + '\x00' + request.path.split('/')[2]
           ttl: 60
@@ -174,7 +176,7 @@ spec:
           user:
             expression: "auth.identity.user.username"
           authorizationGroups:
-            expression: "auth.identity.user.groups"
+            expression: "has(auth.identity.user.groups) ? auth.identity.user.groups : []"
           resourceAttributes:
             group:
               value: serving.kserve.io
@@ -190,7 +192,7 @@ spec:
           key:
             expression: >-
               auth.identity.user.username
-              + '\x00' + auth.identity.user.groups.join(',')
+              + '\x00' + (has(auth.identity.user.groups) ? auth.identity.user.groups : []).map(g, string(size(g)) + ':' + g).join(',')
               + '\x00' + request.path.split('/')[1]
               + '\x00' + request.path.split('/')[2]
           ttl: 60
@@ -218,5 +220,5 @@ spec:
             when:
               - predicate: "request.path == '/v1/files' || request.path.startsWith('/v1/files/') || request.path == '/v1/batches' || request.path.startsWith('/v1/batches/')"
             plain:
-              expression: "auth.identity.user.groups.join(',')"
+              expression: "has(auth.identity.user.groups) ? auth.identity.user.groups.join(',') : ''"
             priority: 0
