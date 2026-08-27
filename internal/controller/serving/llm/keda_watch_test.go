@@ -1,6 +1,8 @@
 package llm_test
 
 import (
+	"context"
+
 	kedaapi "github.com/kedacore/keda/v2/apis/keda/v1alpha1"
 	kservev1alpha2 "github.com/kserve/kserve/pkg/apis/serving/v1alpha2"
 	. "github.com/onsi/ginkgo/v2"
