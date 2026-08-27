@@ -82,7 +82,7 @@ func TestDesiredPodMonitor(t *testing.T) {
 			},
 		},
 		{
-			name: "PodMonitor selector targets single-node and multi-node workload pods",
+			name: "PodMonitor selector targets single-node, multi-node, and disaggregated workload pods",
 			llmisvc: &kservev1alpha2.LLMInferenceService{
 				ObjectMeta: metav1.ObjectMeta{
 					Name:      "my-model",
@@ -133,7 +133,7 @@ func TestDesiredPodMonitor(t *testing.T) {
 			},
 		},
 		{
-			name: "relabeling injects namespace, pod, and service labels",
+			name: "relabeling injects namespace, pod, service, and engine role labels",
 			llmisvc: &kservev1alpha2.LLMInferenceService{
 				ObjectMeta: metav1.ObjectMeta{
 					Name:      "my-svc",
@@ -144,7 +144,7 @@ func TestDesiredPodMonitor(t *testing.T) {
 				t.Helper()
 				require.Len(t, pm.Spec.PodMetricsEndpoints, 1)
 				relabelConfigs := pm.Spec.PodMetricsEndpoints[0].RelabelConfigs
-				require.Len(t, relabelConfigs, 4)
+				require.Len(t, relabelConfigs, 6)
 
 				assert.Equal(t, []monitoringv1.LabelName{"__meta_kubernetes_namespace"}, relabelConfigs[0].SourceLabels)
 				assert.Equal(t, "namespace", relabelConfigs[0].TargetLabel)
@@ -161,6 +161,26 @@ func TestDesiredPodMonitor(t *testing.T) {
 				assert.Equal(t, []monitoringv1.LabelName{"__meta_kubernetes_pod_label_llm_d_ai_role"}, relabelConfigs[3].SourceLabels)
 				assert.Equal(t, "vllm_engine_role", relabelConfigs[3].TargetLabel)
 				assert.Equal(t, "replace", relabelConfigs[3].Action)
+
+				assert.Equal(t, []monitoringv1.LabelName{
+					"__meta_kubernetes_pod_label_llm_d_ai_role",
+					"__meta_kubernetes_pod_label_app_kubernetes_io_component",
+				}, relabelConfigs[4].SourceLabels)
+				assert.Equal(t, "^;"+kserveconstants.LLMComponentWorkloadWorker+"$", relabelConfigs[4].Regex)
+				assert.Equal(t, "vllm_engine_role", relabelConfigs[4].TargetLabel)
+				require.NotNil(t, relabelConfigs[4].Replacement)
+				assert.Equal(t, kserveconstants.LLMDRoleDecode, *relabelConfigs[4].Replacement)
+				assert.Equal(t, "replace", relabelConfigs[4].Action)
+
+				assert.Equal(t, []monitoringv1.LabelName{
+					"__meta_kubernetes_pod_label_llm_d_ai_role",
+					"__meta_kubernetes_pod_label_app_kubernetes_io_component",
+				}, relabelConfigs[5].SourceLabels)
+				assert.Equal(t, "^;"+kserveconstants.LLMComponentWorkloadWorkerPrefill+"$", relabelConfigs[5].Regex)
+				assert.Equal(t, "vllm_engine_role", relabelConfigs[5].TargetLabel)
+				require.NotNil(t, relabelConfigs[5].Replacement)
+				assert.Equal(t, kserveconstants.LLMDRolePrefill, *relabelConfigs[5].Replacement)
+				assert.Equal(t, "replace", relabelConfigs[5].Action)
 			},
 		},
 	}

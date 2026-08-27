@@ -154,8 +154,8 @@ func (r *KservePodMonitorReconciler) getExisting(ctx context.Context, llmisvc *k
 }
 
 // DesiredPodMonitor builds a PodMonitor targeting the vLLM metrics endpoint (named port "http", /metrics)
-// for a given LLMInferenceService. The pod selector covers single-node Deployment pods and
-// multi-node LeaderWorkerSet pods (leader + workers) using a combined label selector.
+// for a given LLMInferenceService. The pod selector covers single-node Deployment, multi-node
+// LeaderWorkerSet, and disaggregated prefill/decode pods using a combined label selector.
 func DesiredPodMonitor(llmisvc *kservev1alpha2.LLMInferenceService) *monitoringv1.PodMonitor {
 	vllmPort := "http"
 	scrapeInterval := monitoringv1.Duration(constants.IntervalValue)
@@ -199,6 +199,27 @@ func DesiredPodMonitor(llmisvc *kservev1alpha2.LLMInferenceService) *monitoringv
 							SourceLabels: []monitoringv1.LabelName{"__meta_kubernetes_pod_label_llm_d_ai_role"},
 							Action:       "replace",
 							TargetLabel:  "vllm_engine_role",
+						},
+						// LWS workers with an explicit leader template lack llm-d.ai/role.
+						{
+							SourceLabels: []monitoringv1.LabelName{
+								"__meta_kubernetes_pod_label_llm_d_ai_role",
+								"__meta_kubernetes_pod_label_app_kubernetes_io_component",
+							},
+							Regex:       "^;" + kserveconstants.LLMComponentWorkloadWorker + "$",
+							Action:      "replace",
+							Replacement: ptr.To(kserveconstants.LLMDRoleDecode),
+							TargetLabel: "vllm_engine_role",
+						},
+						{
+							SourceLabels: []monitoringv1.LabelName{
+								"__meta_kubernetes_pod_label_llm_d_ai_role",
+								"__meta_kubernetes_pod_label_app_kubernetes_io_component",
+							},
+							Regex:       "^;" + kserveconstants.LLMComponentWorkloadWorkerPrefill + "$",
+							Action:      "replace",
+							Replacement: ptr.To(kserveconstants.LLMDRolePrefill),
+							TargetLabel: "vllm_engine_role",
 						},
 					},
 				},

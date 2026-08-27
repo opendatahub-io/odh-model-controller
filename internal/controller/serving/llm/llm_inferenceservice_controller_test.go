@@ -572,7 +572,7 @@ var _ = Describe("LLMInferenceService PodMonitor", func() {
 			fixture.VerifyLLMISvcPodMonitorExists(ctx, envTest.Client, testNs, LLMInferenceServiceName)
 		})
 
-		It("should create PodMonitor with combined selector covering single-node and multi-node topologies", func(ctx SpecContext) {
+		It("should create PodMonitor with combined selector covering single-node, multi-node, and disaggregated topologies", func(ctx SpecContext) {
 			fixture.CreateBasicLLMInferenceService(ctx, envTest.Client, testNs, LLMInferenceServiceName, nil)
 
 			Eventually(func(g Gomega) {
@@ -590,10 +590,14 @@ var _ = Describe("LLMInferenceService PodMonitor", func() {
 				expr := pm.Spec.Selector.MatchExpressions[0]
 				g.Expect(expr.Key).To(Equal(kserveconstants.KubernetesComponentLabelKey))
 				g.Expect(expr.Operator).To(Equal(metav1.LabelSelectorOpIn))
+				g.Expect(expr.Values).To(HaveLen(6))
 				g.Expect(expr.Values).To(ContainElements(
 					kserveconstants.LLMComponentWorkload,
 					kserveconstants.LLMComponentWorkloadLeader,
 					kserveconstants.LLMComponentWorkloadWorker,
+					kserveconstants.LLMComponentWorkloadPrefill,
+					kserveconstants.LLMComponentWorkloadLeaderPrefill,
+					kserveconstants.LLMComponentWorkloadWorkerPrefill,
 				))
 			}).WithContext(ctx).Should(Succeed())
 		})
