@@ -43,7 +43,7 @@ var _ = Describe("KEDA Prometheus auth resources shared across InferenceService 
 		llmReconciler  *reconcilers.LLMKEDAReconciler
 	)
 
-	BeforeEach(func() {
+	BeforeEach(func(ctx SpecContext) {
 		testNs = testutils.Namespaces.Create(ctx, k8sClient).Name
 		kedaReconciler = reconcilers.NewKServeKEDAReconciler(k8sClient)
 		llmReconciler = reconcilers.NewLLMKEDAReconciler(k8sClient)
@@ -52,7 +52,7 @@ var _ = Describe("KEDA Prometheus auth resources shared across InferenceService 
 	Context("when only an LLMInferenceService uses a direct KEDA Prometheus trigger", func() {
 		var llmisvc *kservev1alpha2.LLMInferenceService
 
-		BeforeEach(func() {
+		BeforeEach(func(ctx SpecContext) {
 			llmisvc = makeKedaTestLLMISVC(testNs, names.SimpleNameGenerator.GenerateName("keda-llmisvc"), true, false)
 			Expect(k8sClient.Create(ctx, llmisvc)).Should(Succeed())
 			Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(llmisvc), llmisvc)).Should(Succeed())
@@ -100,7 +100,7 @@ var _ = Describe("KEDA Prometheus auth resources shared across InferenceService 
 		var isvc *kservev1beta1.InferenceService
 		var llmisvc *kservev1alpha2.LLMInferenceService
 
-		BeforeEach(func() {
+		BeforeEach(func(ctx SpecContext) {
 			isvc = makeKedaTestISVC(testNs, names.SimpleNameGenerator.GenerateName("keda-isvc"), true)
 			Expect(k8sClient.Create(ctx, isvc)).Should(Succeed())
 			Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(isvc), isvc)).Should(Succeed())
@@ -186,7 +186,7 @@ var _ = Describe("KEDA Prometheus auth resources shared across InferenceService 
 	Context("when an LLMInferenceService has only a non-Prometheus KEDA trigger", func() {
 		var llmisvc *kservev1alpha2.LLMInferenceService
 
-		BeforeEach(func() {
+		BeforeEach(func(ctx SpecContext) {
 			llmisvc = makeKedaTestLLMISVC(testNs, names.SimpleNameGenerator.GenerateName("keda-llmisvc-cpu"), false, false)
 			llmisvc.Spec.WorkloadSpec.Scaling = &kservev1alpha2.ScalingSpec{
 				MaxReplicas: 3,

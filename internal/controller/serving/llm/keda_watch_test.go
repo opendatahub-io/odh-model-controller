@@ -1,8 +1,6 @@
 package llm_test
 
 import (
-	"context"
-
 	kedaapi "github.com/kedacore/keda/v2/apis/keda/v1alpha1"
 	kservev1alpha2 "github.com/kserve/kserve/pkg/apis/serving/v1alpha2"
 	. "github.com/onsi/ginkgo/v2"
@@ -26,8 +24,7 @@ import (
 var _ = Describe("LLMInferenceService KEDA Prometheus auth resource watches", func() {
 	var testNs string
 
-	BeforeEach(func() {
-		ctx := context.Background()
+	BeforeEach(func(ctx SpecContext) {
 		testNs = testutils.Namespaces.Create(ctx, envTest.Client).Name
 	})
 
