@@ -8,7 +8,20 @@ spec:
     matchLabels:
       control-plane: odh-model-controller
   ingress:
-    - ports:
+    # Allow webhook calls from any in-cluster pod.
+    # The source cannot be narrowed to a specific namespace because
+    # the Kubernetes API-server reaches admission webhooks through
+    # different paths depending on the platform:
+    #   - Standard OpenShift: direct host-network call (bypasses
+    #     NetworkPolicy entirely, so this rule is not even evaluated).
+    #   - ROKS / HyperShift: Konnectivity agent pods proxy the call;
+    #     these pods may reside in kube-system, openshift-konnectivity,
+    #     or another platform-managed namespace.
+    # Using an empty namespaceSelector covers all in-cluster sources
+    # while still blocking traffic that originates outside the cluster.
+    - from:
+        - namespaceSelector: {}
+      ports:
         - protocol: TCP
           port: 9443
   policyTypes:
