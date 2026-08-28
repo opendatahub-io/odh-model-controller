@@ -110,7 +110,7 @@ func TestDesiredPodMonitor(t *testing.T) {
 			},
 		},
 		{
-			name: "PodMetricsEndpoint targets vLLM port with 1m interval",
+			name: "PodMetricsEndpoint targets vLLM HTTPS port with 1m interval",
 			llmisvc: &kservev1alpha2.LLMInferenceService{
 				ObjectMeta: metav1.ObjectMeta{
 					Name:      "svc",
@@ -122,12 +122,17 @@ func TestDesiredPodMonitor(t *testing.T) {
 				require.Len(t, pm.Spec.PodMetricsEndpoints, 1)
 				ep := pm.Spec.PodMetricsEndpoints[0]
 
-				require.NotNil(t, ep.Port)
-				assert.Equal(t, "http", *ep.Port)
+				assert.Nil(t, ep.Port)
+				require.NotNil(t, ep.PortNumber)
+				assert.Equal(t, int32(8000), *ep.PortNumber)
 				assert.Equal(t, "/metrics", ep.Path)
 
 				require.NotNil(t, ep.Scheme)
-				assert.Equal(t, monitoringv1.Scheme("http"), *ep.Scheme)
+				assert.Equal(t, monitoringv1.Scheme("https"), *ep.Scheme)
+
+				require.NotNil(t, ep.TLSConfig)
+				require.NotNil(t, ep.TLSConfig.InsecureSkipVerify)
+				assert.True(t, *ep.TLSConfig.InsecureSkipVerify)
 
 				assert.Equal(t, monitoringv1.Duration("1m"), ep.Interval)
 			},

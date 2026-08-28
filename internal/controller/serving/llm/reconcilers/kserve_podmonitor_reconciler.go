@@ -153,11 +153,11 @@ func (r *KservePodMonitorReconciler) getExisting(ctx context.Context, llmisvc *k
 	return existing, nil
 }
 
-// DesiredPodMonitor builds a PodMonitor targeting the vLLM metrics endpoint (named port "http", /metrics)
+// DesiredPodMonitor builds a PodMonitor targeting the vLLM metrics endpoint (port 8000, /metrics over HTTPS)
 // for a given LLMInferenceService. The pod selector covers single-node Deployment, multi-node
 // LeaderWorkerSet, and disaggregated prefill/decode pods using a combined label selector.
 func DesiredPodMonitor(llmisvc *kservev1alpha2.LLMInferenceService) *monitoringv1.PodMonitor {
-	vllmPort := "http"
+	vllmPort := int32(8000)
 	scrapeInterval := monitoringv1.Duration(constants.IntervalValue)
 	selector := CombinedPodSelector(llmisvc.Name)
 
@@ -176,10 +176,17 @@ func DesiredPodMonitor(llmisvc *kservev1alpha2.LLMInferenceService) *monitoringv
 			Selector: selector,
 			PodMetricsEndpoints: []monitoringv1.PodMetricsEndpoint{
 				{
-					Port:     &vllmPort,
-					Path:     "/metrics",
-					Scheme:   ptr.To(monitoringv1.Scheme("http")),
-					Interval: scrapeInterval,
+					PortNumber: &vllmPort,
+					Path:       "/metrics",
+					Scheme:     ptr.To(monitoringv1.Scheme("https")),
+					Interval:   scrapeInterval,
+					HTTPConfigWithProxy: monitoringv1.HTTPConfigWithProxy{
+						HTTPConfig: monitoringv1.HTTPConfig{
+							TLSConfig: &monitoringv1.SafeTLSConfig{
+								InsecureSkipVerify: ptr.To(true),
+							},
+						},
+					},
 					RelabelConfigs: []monitoringv1.RelabelConfig{
 						{
 							SourceLabels: []monitoringv1.LabelName{"__meta_kubernetes_namespace"},
