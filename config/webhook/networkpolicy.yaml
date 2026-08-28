@@ -8,6 +8,8 @@ spec:
     matchLabels:
       control-plane: odh-model-controller
   ingress:
-    - {}
+    - ports:
+        - protocol: TCP
+          port: 9443
   policyTypes:
     - Ingress
