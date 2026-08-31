@@ -19,6 +19,7 @@ package testing
 import (
 	"path/filepath"
 
+	kedaapi "github.com/kedacore/keda/v2/apis/keda/v1alpha1"
 	authorinooperatorv1beta1 "github.com/kuadrant/authorino-operator/api/v1beta1"
 	kuadrantv1 "github.com/kuadrant/kuadrant-operator/api/v1"
 	kuadrantv1beta1 "github.com/kuadrant/kuadrant-operator/api/v1beta1"
@@ -59,6 +60,10 @@ func NewEnvTest(options ...Option) *Config {
 		igwapi.Install,
 		istioclientv1alpha3.AddToScheme,
 		monitoringv1.AddToScheme,
+		// KEDA is registered so LLMKEDAReconciler's TriggerAuthentication calls resolve to a proper
+		// meta.IsNoMatchError (handled as a no-op) rather than a scheme-registration error, on envtest
+		// setups that don't install the KEDA CRD (see keda.sh_triggerauthentications.yaml under test/crds).
+		kedaapi.AddToScheme,
 	)
 
 	return Configure(append(options, testCRDs, schemes)...)

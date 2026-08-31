@@ -23,14 +23,15 @@ import (
 
 	"github.com/go-logr/logr"
 	"github.com/hashicorp/go-multierror"
+	kedaapi "github.com/kedacore/keda/v2/apis/keda/v1alpha1"
 	kservev1alpha2 "github.com/kserve/kserve/pkg/apis/serving/v1alpha2"
 	kservellmisvc "github.com/kserve/kserve/pkg/controller/v1alpha2/llmisvc"
 	kserveutils "github.com/kserve/kserve/pkg/utils"
 	authorinooperatorv1beta1 "github.com/kuadrant/authorino-operator/api/v1beta1"
 	kuadrantv1 "github.com/kuadrant/kuadrant-operator/api/v1"
 	kuadrantv1beta1 "github.com/kuadrant/kuadrant-operator/api/v1beta1"
-	monitoringv1 "github.com/prometheus-operator/prometheus-operator/pkg/apis/monitoring/v1"
 	corev1 "k8s.io/api/core/v1"
+	rbacv1 "k8s.io/api/rbac/v1"
 	apierrs "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
@@ -61,7 +62,7 @@ func NewLLMInferenceServiceReconciler(client client.Client, scheme *runtime.Sche
 	subResourceReconcilers := []parentreconcilers.LLMSubResourceReconciler{
 		reconcilers.NewKserveAuthPolicyReconciler(client, scheme),
 		reconcilers.NewKserveAuthPostureReconciler(client, recorder),
-		reconcilers.NewKservePodMonitorReconciler(client, scheme),
+		parentreconcilers.NewLLMKEDAReconciler(client),
 	}
 
 	return &LLMInferenceServiceReconciler{
@@ -137,7 +138,6 @@ func (r *LLMInferenceServiceReconciler) Reconcile(ctx context.Context, req ctrl.
 	return ctrl.Result{}, nil
 }
 
-// +kubebuilder:rbac:groups=monitoring.coreos.com,resources=podmonitors,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups=serving.kserve.io,resources=llminferenceservices,verbs=get;list;watch;update;patch;post
 // +kubebuilder:rbac:groups=serving.kserve.io,resources=llminferenceservices/status,verbs=get;update;patch
 // +kubebuilder:rbac:groups=serving.kserve.io,resources=llminferenceservices/finalizers,verbs=update;patch
@@ -152,10 +152,16 @@ func (r *LLMInferenceServiceReconciler) Reconcile(ctx context.Context, req ctrl.
 // +kubebuilder:rbac:groups=kuadrant.io,resources=kuadrants,verbs=get;list;watch
 // +kubebuilder:rbac:groups=operator.authorino.kuadrant.io,resources=authorinos,verbs=get;list;watch
 // +kubebuilder:rbac:groups="",resources=configmaps,verbs=get;list;watch
+// +kubebuilder:rbac:groups="",resources=serviceaccounts;secrets,verbs=get;list;watch;create;update;delete;patch
+// +kubebuilder:rbac:groups=keda.sh,resources=triggerauthentications,verbs=get;list;watch;create;update;patch;watch;delete
 
 func (r *LLMInferenceServiceReconciler) SetupWithManager(mgr ctrl.Manager, setupLog logr.Logger) error {
 	b := ctrl.NewControllerManagedBy(mgr).
 		For(&kservev1alpha2.LLMInferenceService{}).
+		Owns(&corev1.ServiceAccount{}, ctrlbuilder.MatchEveryOwner, ctrlbuilder.WithPredicates(parentreconcilers.KedaLabelPredicate)).
+		Owns(&corev1.Secret{}, ctrlbuilder.MatchEveryOwner, ctrlbuilder.WithPredicates(parentreconcilers.KedaLabelPredicate)).
+		Owns(&rbacv1.Role{}, ctrlbuilder.MatchEveryOwner, ctrlbuilder.WithPredicates(parentreconcilers.KedaLabelPredicate)).
+		Owns(&rbacv1.RoleBinding{}, ctrlbuilder.MatchEveryOwner, ctrlbuilder.WithPredicates(parentreconcilers.KedaLabelPredicate)).
 		Named("llminferenceservice")
 
 	setupLog.Info("Setting up LLMInferenceService controller")
@@ -178,15 +184,6 @@ func (r *LLMInferenceServiceReconciler) SetupWithManager(mgr ctrl.Manager, setup
 			}))
 	}
 
-	if ok, err := utils.IsCrdAvailable(mgr.GetConfig(), monitoringv1.SchemeGroupVersion.String(), "PodMonitor"); err != nil {
-		setupLog.Error(err, "Failed to check CRD availability for PodMonitor")
-	} else if ok {
-		managedPredicate := predicate.NewPredicateFuncs(func(obj client.Object) bool {
-			return utils.IsManagedByOpenDataHub(obj)
-		})
-		b = b.Owns(&monitoringv1.PodMonitor{}, ctrlbuilder.WithPredicates(managedPredicate))
-	}
-
 	if ok, err := utils.IsCrdAvailable(mgr.GetConfig(), kuadrantv1beta1.GroupVersion.String(), "Kuadrant"); err != nil {
 		setupLog.Error(err, "Failed to check CRD availability for Kuadrant")
 	} else if ok {
@@ -197,6 +194,15 @@ func (r *LLMInferenceServiceReconciler) SetupWithManager(mgr ctrl.Manager, setup
 		setupLog.Error(err, "Failed to check CRD availability for Authorino")
 	} else if ok {
 		b = b.Watches(&authorinooperatorv1beta1.Authorino{}, r.globalResync(setupLog))
+	}
+
+	if ok, err := utils.IsCrdAvailable(mgr.GetConfig(), kedaapi.GroupVersion.String(), "TriggerAuthentication"); err != nil {
+		setupLog.V(1).Error(err, "could not determine if TriggerAuthentication CRD is available")
+	} else if ok {
+		b = b.Owns(&kedaapi.TriggerAuthentication{},
+			ctrlbuilder.MatchEveryOwner,
+			ctrlbuilder.WithPredicates(parentreconcilers.KedaLabelPredicate),
+		)
 	}
 
 	return b.Complete(r)
