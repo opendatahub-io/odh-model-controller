@@ -30,7 +30,6 @@ import (
 	authorinooperatorv1beta1 "github.com/kuadrant/authorino-operator/api/v1beta1"
 	kuadrantv1 "github.com/kuadrant/kuadrant-operator/api/v1"
 	kuadrantv1beta1 "github.com/kuadrant/kuadrant-operator/api/v1beta1"
-	monitoringv1 "github.com/prometheus-operator/prometheus-operator/pkg/apis/monitoring/v1"
 	corev1 "k8s.io/api/core/v1"
 	rbacv1 "k8s.io/api/rbac/v1"
 	apierrs "k8s.io/apimachinery/pkg/api/errors"
@@ -63,7 +62,6 @@ func NewLLMInferenceServiceReconciler(client client.Client, scheme *runtime.Sche
 	subResourceReconcilers := []parentreconcilers.LLMSubResourceReconciler{
 		reconcilers.NewKserveAuthPolicyReconciler(client, scheme),
 		reconcilers.NewKserveAuthPostureReconciler(client, recorder),
-		reconcilers.NewKservePodMonitorReconciler(client, scheme),
 		parentreconcilers.NewLLMKEDAReconciler(client),
 	}
 
@@ -140,7 +138,6 @@ func (r *LLMInferenceServiceReconciler) Reconcile(ctx context.Context, req ctrl.
 	return ctrl.Result{}, nil
 }
 
-// +kubebuilder:rbac:groups=monitoring.coreos.com,resources=podmonitors,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups=serving.kserve.io,resources=llminferenceservices,verbs=get;list;watch;update;patch;post
 // +kubebuilder:rbac:groups=serving.kserve.io,resources=llminferenceservices/status,verbs=get;update;patch
 // +kubebuilder:rbac:groups=serving.kserve.io,resources=llminferenceservices/finalizers,verbs=update;patch
@@ -185,15 +182,6 @@ func (r *LLMInferenceServiceReconciler) SetupWithManager(mgr ctrl.Manager, setup
 					return utils.IsManagedByOpenDataHub(e.Object)
 				},
 			}))
-	}
-
-	if ok, err := utils.IsCrdAvailable(mgr.GetConfig(), monitoringv1.SchemeGroupVersion.String(), "PodMonitor"); err != nil {
-		setupLog.Error(err, "Failed to check CRD availability for PodMonitor")
-	} else if ok {
-		managedPredicate := predicate.NewPredicateFuncs(func(obj client.Object) bool {
-			return utils.IsManagedByOpenDataHub(obj)
-		})
-		b = b.Owns(&monitoringv1.PodMonitor{}, ctrlbuilder.WithPredicates(managedPredicate))
 	}
 
 	if ok, err := utils.IsCrdAvailable(mgr.GetConfig(), kuadrantv1beta1.GroupVersion.String(), "Kuadrant"); err != nil {
