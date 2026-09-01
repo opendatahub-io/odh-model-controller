@@ -18,7 +18,7 @@ require (
 	github.com/kubeflow/hub/pkg/openapi v0.3.9
 	github.com/onsi/ginkgo/v2 v2.28.1
 	github.com/onsi/gomega v1.39.1
-	github.com/openshift/api v0.0.0-20260306002634-d3bbdada155c
+	github.com/openshift/api v0.0.0-20260317095243-5c75e62da3e7
 	github.com/openshift/client-go v0.0.0-20260306160707-3935d929fc7d
 	github.com/pkg/errors v0.9.1
 	github.com/prometheus-operator/prometheus-operator/pkg/apis/monitoring v0.89.0
@@ -213,7 +213,7 @@ require (
 replace sigs.k8s.io/controller-runtime => sigs.k8s.io/controller-runtime v0.19.7
 
 // Use ODH release branch instead
-replace github.com/kserve/kserve => github.com/opendatahub-io/kserve v0.0.0-20260820173307-bff0e73b9612
+replace github.com/kserve/kserve => github.com/opendatahub-io/kserve v0.0.0-20260901172314-90840ecbdf18
 
 // CVE-2025-68156: Update expr-lang/expr to v1.17.7
 replace github.com/expr-lang/expr => github.com/expr-lang/expr v1.17.7
