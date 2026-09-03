@@ -175,7 +175,7 @@ func (r *GatewayReconciler) reconcileEnvoyFilter(ctx context.Context, logger log
 		return fmt.Errorf("failed to get existing EnvoyFilter: %w", err)
 	}
 
-	desired, err := r.envoyFilterLoader.Load(ctx, gateway.Namespace, gateway.Name)
+	desired, err := r.envoyFilterLoader.Load(ctx, gateway.Namespace, gateway.Name, utils.GetRequestBodyBufferLimit(gateway))
 	if err != nil {
 		return fmt.Errorf("failed to load EnvoyFilter template: %w", err)
 	}

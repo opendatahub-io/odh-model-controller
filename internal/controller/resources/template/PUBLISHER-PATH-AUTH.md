@@ -1,7 +1,7 @@
 # Publisher-Path Authorization Rules
 
 Extend `authpolicy_llm_isvc_userdefined.yaml` to handle publisher-path routing
-with model-level SAR authorization and cross-tenant deny.
+and model-based-routing with model-level SAR authorization.
 
 ## Problem
 
@@ -11,40 +11,114 @@ and `[2]`. This works for per-participant paths (`/<ns>/<name>/...`) but doesn't
 (`/publishers/<ns>/models/<name>/...`), which need model-level authorization against
 `serving.opendatahub.io/models`.
 
-Additionally, the kserve HTTPRoute template's `v1-catch-all-model-routing` rule matches
-on the model routing header alone (no path constraint). A per-participant path with a
-valid model header would be routed by the header (tenant-B) but authorized by the path
-(tenant-A) - a cross-tenant authorization bypass.
+Additionally, the kserve HTTPRoute template's `v1-model-routing` and
+`v1-catch-all-model-routing` rules dispatch requests by the model routing header
+(`publishers/<ns>/models/<name>`) rather than the path - e.g. `/v1/chat/completions`
+plus a header routes to that model's backend. Such requests must be authorized against
+the model identity carried in the header, or a caller could reach a model they are not
+authorized for (cross-tenant bypass).
 
-## Authorization rules (5 total)
+## Authorization rules (6 total)
 
-Two new model-access rules, one deny rule, two existing rules updated.
+Two publisher-path rules, two model-header rules, two per-participant rules.
 
 | Rule | Fires when | Resource | Verb | Priority |
 |---|---|---|---|---|
-| `deny-misrouted-model-header` | not publisher, not batch, valid model header | (always deny) | - | 0 |
 | `model-access-path` | path ~ `^/publishers/[^/]+/models/` | `serving.opendatahub.io/models` | `post` | 1 |
 | `model-access-path-delegate` | same + `x-maas-user` | `serving.opendatahub.io/models/delegate` | `post-delegate` | 1 |
-| `inference-access` | depth >= 2, not `/v1/`, not publisher | `serving.kserve.io/llminferenceservices` | `get` | 1 |
+| `model-access-header` | model-API path, not publisher, not batch, valid model header | `serving.opendatahub.io/models` | `post` | 1 |
+| `model-access-header-delegate` | same + `x-maas-user` | `serving.opendatahub.io/models/delegate` | `post-delegate` | 1 |
+| `inference-access` | depth >= 2, not model-API root, not publisher | `serving.kserve.io/llminferenceservices` | `get` | 1 |
 | `inference-access-delegate` | same + `x-maas-user` | `serving.kserve.io/llminferenceservices/delegate` | `post-delegate` | 1 |
 
 A `patternRef` (`has-ns-and-name`: regex `^/[^/]+/[^/]+`) guards against CEL
 index-out-of-bounds on short paths like `/health`.
 
-## Cross-tenant deny
+## Named patterns
 
-The `deny-misrouted-model-header` rule fires when:
-1. Path is not a publisher path
+The positive regexes reused across rules are single-sourced as named `patterns`
+and referenced with `patternRef`:
+
+| Pattern | Selector | Regex | Meaning |
+|---|---|---|---|
+| `has-ns-and-name` | path | `^/[^/]+/[^/]+` | at least 2 path segments |
+| `is-short-path` | path | `^/[^/]*/?$` | fewer than 2 segments (root / single endpoint) |
+| `is-publisher-path` | path | `^/publishers/[^/]+/models/` | publisher path |
+| `is-model-api-root` | path | `^/(v1\|inference/v1)/` | model-API root at position 0 |
+| `is-batch-path` | path | `^/v1/(files\|batches)($\|/)` | OpenAI batch bypass |
+| `valid-model-header` | model header | `^publishers/[^/]+/models/.+$` | header carries a model id |
+| `has-maas-user` | `x-maas-user` header | `.+` | delegation marker present (non-empty) |
+
+**API constraint.** Kuadrant named patterns are an `allOf` of
+`selector`/`operator`/`value` - positive `matches` only, no CEL, no OR, no
+negation - and a `patternRef` in a `when` block cannot be negated. Consequently:
+
+- Positive reused checks are patterns referenced by `patternRef`.
+- The model-header path scope (an OR of "model-API root" and "short path") is
+  expressed as `any: [patternRef is-model-api-root, patternRef is-short-path]`.
+- Negations remain CEL `predicate`s, but each reuses the **same** regex value as
+  its pattern (e.g. `!request.path.matches('^/publishers/[^/]+/models/')` mirrors
+  `is-publisher-path`), so every regex is defined once.
+
+`has-maas-user` uses `matches ".+"` (present and non-empty) rather than the CEL
+`'x-maas-user' in request.headers` (present, possibly empty). The batch processor
+always forwards a non-empty user, so this is parity in practice and marginally
+stricter.
+
+## Model-based-routing authorization
+
+The `model-access-header` rule fires when:
+1. Path is not a publisher path (those are covered by `model-access-path`)
 2. Path is not a batch path (`/v1/files`, `/v1/batches`)
-3. A valid model routing header is present (`^publishers/[^/]+/models/.+$`)
+3. Path is a **model-API path**, not a per-participant path (see below)
+4. A valid model routing header is present (`^publishers/[^/]+/models/.+$`)
 
-This covers both per-participant paths (`/<ns>/<name>/...`) AND `/v1/` inference
-endpoints (`/v1/chat/completions`, `/v1/completions`, etc.) when the model routing
-header is present. Uses Authorino's `patternMatching` with `predicate: "false"` -
-immediate local 403, no API server round-trip. Priority 0 ensures it fires before
-SAR rules.
+**Model-API vs per-participant.** A model-routed request reaches a model backend by
+header, on a model-API path. A per-participant request reaches a specific instance by
+path (`/<ns>/<name>/...`). Gateway API path-prefix precedence beats header-only
+routing, so on a per-participant path the header is inert - the request routes by path -
+and `inference-access` (get on the LLMInferenceService) is the correct authorization.
+The header rule must therefore *not* fire on per-participant paths, or it would AND a
+model SAR on top of instance access and deny legitimate instance callers.
 
-## Why inference-access excludes all /v1/ paths (not just batch)
+The discriminator (predicate 3) is:
+
+```
+request.path.startsWith('/v1/')
+  || request.path.startsWith('/inference/v1/')
+  || !request.path.matches('^/[^/]+/[^/]+')
+```
+
+- `/v1/...` and `/inference/v1/...` are model-API roots (the full vLLM/OpenAI surface:
+  `/v1/chat/completions`, `/v1/completions`, `/v1/responses`, `/v1/messages`,
+  `/inference/v1/generate`, ...).
+- `!matches('^/[^/]+/[^/]+')` catches single-segment endpoints that also carry a model
+  (`/tokenize`, `/detokenize`) and short paths (`/health`).
+- Everything else with >=2 segments (`/<ns>/<name>/...`) is per-participant and falls to
+  `inference-access`.
+
+**Positional matching is a security boundary.** The model-API roots are matched
+anchored at position 0 (`^/(v1|inference/v1)/`), not anywhere in the path. On a
+per-participant or ops path - `/<ns>/<name>/v1/chat/completions`,
+`/<ns>/<name>/scale_elastic_ep`, `/<ns>/<name>/tokenize` - the API portion (if any)
+is a *suffix*, so `is-model-api-root` does not match and `model-access-header` does
+not fire. A caller with access to *some* model therefore cannot set the header on
+another tenant's `/<ns>/<name>/scale_elastic_ep` to have their model SAR stand in
+for the instance `get` SAR: the header is inert, `inference-access` runs the instance
+SAR, and a non-instance caller is denied. Direct root-level endpoints
+(`/tokenize`, `/detokenize`) are single-segment (`is-short-path`), so with a valid
+header they *do* route by header and are authorized by `model-access-header`.
+
+When it fires, the rule authorizes against the SAME `publishers/<ns>/models/<name>`
+identity the HTTPRoute routes on - namespace and model name are read from the header,
+not the path - so authorization and routing cannot diverge. A caller without model RBAC
+on the header's model gets 403; a caller with it is served.
+
+The gateway EnvoyFilter (`envoyfilter_ssl.yaml`) populates this header by extracting
+the `model` field from the JSON request body (`json_to_metadata` + `lua`), so clients
+send the model in the body and the header is derived server-side.
+
+## Why inference-access excludes model-API roots (not just batch)
 
 The original template used a batch-only exclusion on `inference-access`, which meant
 every `/v1/` path got a SAR check with garbage namespace/name extraction (ns=`v1`,
@@ -58,9 +132,12 @@ name=`chat` for `/v1/chat/completions`). This had two problems:
 2. **Broke non-inference services** - any service sharing the gateway with `/v1/`
    paths got SAR checks against `serving.kserve.io/llminferenceservices`.
 
-The `/v1/` exclusion on `inference-access` avoids both issues. The
-`deny-misrouted-model-header` rule handles the model routing header case explicitly,
-scoped to inference traffic by the header format check rather than by path.
+`inference-access` therefore excludes the model-API roots `/v1/` **and**
+`/inference/v1/`. The `/inference/v1/` exclusion matters for `/inference/v1/generate`:
+it has 2+ segments and does not start with `/v1/`, so without the extra clause it would
+be mis-read as a per-participant path (ns=`inference`, name=`v1`). Model-routed traffic
+on these paths is authorized by `model-access-header` (scoped by header format), not by
+path extraction.
 
 ## Model name extraction
 
@@ -77,14 +154,15 @@ HTTPRoute template, which uses `/v1/` as the API path delimiter after the model 
 | Path | Header | Rule | Effect |
 |---|---|---|---|
 | `/publishers/<ns>/models/<m>/v1/...` | any | model-access-path | Model SAR |
-| `/<ns>/<name>/...` | none | inference-access | Instance SAR |
-| `/<ns>/<name>/...` | valid model header | deny-misrouted | 403 (cross-tenant) |
-| `/v1/chat/completions` | valid model header | deny-misrouted | 403 (no BBR yet) |
-| `/v1/chat/completions` | none | (no rule) | Authn-only (no route without header) |
+| `/<ns>/<name>/...` | none | inference-access | Instance SAR (get) |
+| `/<ns>/<name>/...` | valid model header | inference-access | Instance SAR (header inert; routes by path) |
+| `/v1/chat/completions` | valid model header | model-access-header | Model SAR (header identity) |
+| `/inference/v1/generate` | valid model header | model-access-header | Model SAR (header identity) |
+| `/tokenize`, `/detokenize` | valid model header | model-access-header | Model SAR (single-segment, model in body) |
+| `/v1/chat/completions` | none / invalid header | (no rule) | Authn-only (no header route match) |
 | `/v1/files/...`, `/v1/batches/...` | any | (no rule) | Authn-only (batch bypass) |
-| `/v1/models` | any | (no rule) | Authn-only (discovery) |
-| `/health` | none | (no rule) | Authn-only (depth guard) |
-| `/health` | valid model header | deny-misrouted | 403 |
+| `/v1/models` | any | (no rule) | Authn-only (no model in body -> header invalid) |
+| `/health`, `/metrics`, `/version`, `/ping` | none | (no rule) | Authn-only (depth guard / no model) |
 
 ## Model routing header
 
@@ -93,9 +171,24 @@ The header name (`x-gateway-model-name` by default) is configurable via
 lowercased (Authorino normalizes header keys) and validated as an HTTP token to prevent
 CEL injection. The GatewayReconciler watches the ConfigMap's `ingress` key for changes.
 
-Currently used only by the `deny-misrouted-model-header` rule. BBR support (normalizing
-`/v1/` + header into publisher format via `resolvedPath` override) is a planned follow-up
-that will allow `model-access-path` to authorize BBR traffic instead of denying it.
+Used by the `model-access-header` / `model-access-header-delegate` rules, which read the
+routing namespace and model name from this header so authorization matches routing. The
+gateway EnvoyFilter (`envoyfilter_ssl.yaml`) populates it by extracting the `model` field
+from the JSON request body (`json_to_metadata` + `lua`); requests without a model in the
+body get `unknown-model`, which fails the publisher-format check and stays authn-only.
+
+**Filter ordering and authority.** The extractor and Lua injector are inserted
+**before the Kuadrant auth WASM plugin** (Istio names it
+`extensions.istio.io/wasmplugin/<gateway-namespace>.kuadrant-<gateway-name>`), not before
+the router - the auth filter runs at the header phase and must see the derived header.
+Because `json_to_metadata` writes its metadata during the request **data** phase while the
+Lua and auth filters run at the **header** phase, the Lua calls `request_handle:body()` to
+buffer the full body first, forcing the data through `json_to_metadata` (upstream in the
+chain) before it reads `extracted_model`. The Lua uses `headers():replace(...)` (not
+`add`): the body-derived value is authoritative and overwrites any client-supplied
+`X-Gateway-Model-Name`, so a caller cannot spoof the routing/authorization identity and a
+legitimate client that happens to send the header is not denied by a doubled (comma-joined)
+value.
 
 ## Anti-spoofing (delegation)
 
@@ -107,14 +200,51 @@ like the batch processor SA can forward requests on behalf of others.
 
 ## Known limitations
 
-- **Namespace `v1`**: if namespace `v1` exists with real LLMInferenceServices, per-participant
-  paths like `/v1/<name>/...` skip instance SAR (authn-only due to `/v1/` exclusion on
-  inference-access). Mitigated by
-  a ValidatingAdmissionPolicy
-  blocking reserved namespace names (`v1`, `v2`, `publishers`).
+- **Reserved namespaces `v1` / `inference`**: if namespace `v1` (or an `inference`
+  namespace whose participant is named `v1`) exists with real LLMInferenceServices,
+  per-participant paths like `/v1/<name>/...` or `/inference/v1/...` skip instance SAR
+  (authn-only, because those prefixes are excluded from inference-access as model-API
+  roots). Mitigated by a ValidatingAdmissionPolicy blocking reserved namespace names
+  (`v1`, `v2`, `publishers`).
 - **`/v1/` without BBR**: `/v1/` inference endpoints without the model routing header are
   authn-only. Safe because no HTTPRoute matches those paths without the header (gateway
   returns 404). The BBR follow-up will add `resolvedPath` normalization to authorize them.
+- **Request-body buffering (large payloads)**: the gateway EnvoyFilter's Lua calls
+  `request_handle:body()`, which buffers the entire request body before the request is
+  forwarded and before auth runs. This is request-only - streamed *responses*
+  (`stream: true` / SSE) are unaffected, since the filter defines no `envoy_on_response`
+  and `json_to_metadata` has only `request_rules`. Normal inference clients POST a complete
+  JSON body, so the latency cost is negligible; but a body larger than the listener's
+  `per_connection_buffer_limit_bytes` is rejected with 413. Envoy's own default (1 MiB) is
+  small for multimodal inference, so the EnvoyFilter raises it to 32 MiB by default (a
+  `LISTENER` MERGE patch). Operators tune it per gateway with the annotation
+  `inference.opendatahub.io/request-body-buffer-limit-bytes` (a positive integer number of
+  bytes; invalid values fall back to the 32 MiB default).
+- **Duplicate top-level `model` keys (parser parity)**: a body with two top-level
+  `model` fields (`{"model":"a","model":"b"}`) is undefined by RFC 8259. The gateway
+  (`json_to_metadata`) and the backend must resolve the duplicate the same way, or the
+  gateway could authorize/route one identity while the backend serves the other - a
+  bypass risk when co-located adapters (LoRA) or multiple served-model-names share one
+  backend, since routing lands on the shared pod and the backend re-reads the body.
+  Measured on the current stack, both resolve **last-wins** (Envoy `json_to_metadata`
+  and vLLM's JSON parsing via stdlib `json` / `orjson`), so the derived identity matches
+  what the backend serves and there is no divergence. This parity is observed, not
+  contractual: a future Envoy parser change or a non-vLLM / different-JSON-lib backend
+  resolving first-wins would reintroduce the risk. The robust fix (reject a repeated
+  depth-1 `model`) is not expressible in `json_to_metadata`; it would require the
+  streaming-wasm extractor (see the body-based-routing spike) or a validating step.
+- **Nested `model` decoys**: a decoy `model` nested inside another object
+  (`{"messages":[{"model":"b"}],"model":"a"}`) is ignored - `json_to_metadata` does a
+  top-level lookup, so only the depth-1 `model` is extracted. Covered by the
+  `TestNestedModelDecoy*` e2e tests (both directions: top-level wins, nested cannot
+  escalate). The Lua also guards on the string type of the extracted value, so a
+  non-string `model` (`{"model":123}`, `{"model":{...}}`) fails safe to `unknown-model`.
+- **Future multi-segment model roots**: `is-model-api-root` enumerates the known roots
+  (`/v1/`, `/inference/v1/`). A *new* multi-segment model root that does not start with one
+  of these would be ns-shaped (>=2 segments) and fall to `inference-access` with garbage
+  ns/name extraction - the same class as the `ns=v1` collision above. Mitigate by adding the
+  new root to the `is-model-api-root` pattern (and the mirrored CEL negation in
+  `inference-access`), and/or by extending the reserved-namespace ValidatingAdmissionPolicy.
 
 ## Batch processing and dual RBAC domains
 
