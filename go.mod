@@ -8,7 +8,7 @@ require (
 	github.com/google/uuid v1.6.0
 	github.com/hashicorp/errwrap v1.1.0
 	github.com/hashicorp/go-multierror v1.1.1
-	github.com/kedacore/keda/v2 v2.20.0
+	github.com/kedacore/keda/v2 v2.18.3
 	github.com/kserve/kserve v0.17.0-rc1
 	github.com/kuadrant/authorino v0.20.0
 	github.com/kuadrant/kuadrant-operator v1.2.0
