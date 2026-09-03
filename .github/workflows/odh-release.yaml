@@ -104,13 +104,13 @@ jobs:
           tag_name = os.environ["TAG_NAME"]
           repository = os.environ["REPOSITORY"]
           
-          # Expected format: odh-vX.Y or odh-vX.Y.Z with optional -EAn suffix
-          tag_pattern = r'^odh-v\d+\.\d+(\.\d+)?(-EA\d)?$'
+          # Expected format: odh-vX.Y or odh-vX.Y.Z with optional -ea1/-ea2 suffix
+          tag_pattern = r'^odh-v\d+\.\d+(\.\d+)?(-ea[12])?$'
           
           errors = []
           
           if not re.match(tag_pattern, tag_name):
-            errors.append(f"Tag '{tag_name}' does not match expected format 'odh-vX.Y' or 'odh-vX.Y.Z'")
+            errors.append(f"Tag '{tag_name}' does not match expected format 'odh-vX.Y', 'odh-vX.Y.Z', or either format with an '-ea1'/'-ea2' suffix")
           
           if errors:
             for error in errors:
@@ -214,12 +214,12 @@ jobs:
             # odh-model-serving-api is published under the odh-model-controller image repo
             # (e.g. quay.io/opendatahub/odh-model-controller:odh-model-serving-api-fast)
             image_pattern = re.compile(
-              r'([\w.-]+(?:\.[\w.-]+)*/[\w.-]+/(?:odh-model-controller|odh-model-serving-api|mlserver(?:-cuda)?)):((?:odh-model-serving-api-)?)(odh-incubating|fast|odh-stable|v[\d.]+-latest|release-v[\d.]+|odh-v[\d.]+(?:-EA\d)?)'
+              r'([\w.-]+(?:\.[\w.-]+)*/[\w.-]+/(?:odh-model-controller|odh-model-serving-api|mlserver(?:-cuda)?)):((?:odh-model-serving-api-)?)(odh-incubating|fast|odh-stable|v[\d.]+-latest|release-v[\d.]+|odh-v[\d.]+(?:-ea[12])?)'
             )
           else:
             # For kserve and others: update all matching images except llm-d-* images
             image_pattern = re.compile(
-              r'([\w.-]+(?:\.[\w.-]+)*/[\w.-]+/(?!llm-d-)[\w.-]+):()(odh-incubating|fast|odh-stable|v[\d.]+-latest|release-v[\d.]+|odh-v[\d.]+(?:-EA\d)?)'
+              r'([\w.-]+(?:\.[\w.-]+)*/[\w.-]+/(?!llm-d-)[\w.-]+):()(odh-incubating|fast|odh-stable|v[\d.]+-latest|release-v[\d.]+|odh-v[\d.]+(?:-ea[12])?)'
             )
           
           updated_files = []
@@ -335,7 +335,7 @@ jobs:
           )
 
           image_tag_pattern = re.compile(
-            r'([\w.-]+(?:\.[\w.-]+)*(?:/[\w.-]+)+):(odh-incubating|fast|odh-stable|v[\d.]+-latest|release-v[\d.]+|odh-v[\d.]+(?:-EA\d)?)'
+            r'([\w.-]+(?:\.[\w.-]+)*(?:/[\w.-]+)+):(odh-incubating|fast|odh-stable|v[\d.]+-latest|release-v[\d.]+|odh-v[\d.]+(?:-ea[12])?)'
           )
 
           updated_files = []
