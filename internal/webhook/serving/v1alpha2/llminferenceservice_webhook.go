@@ -172,9 +172,11 @@ func (d *LLMInferenceServiceCustomDefaulter) applyLLMISVCDefaults(
 			log.Error(err, "failed to inject connection")
 			return err
 		}
+		connectionapi.SetInjectedConnectionType(obj, newConn.Type)
 
 	case connectionapi.ConnectionActionRemove:
 		performLLMISVCCleanup(modelURI, template, oldConn)
+		connectionapi.RemoveInjectedConnectionType(obj)
 
 	case connectionapi.ConnectionActionReplace:
 		log.V(1).Info("connection changed, performing replacement",
@@ -189,6 +191,7 @@ func (d *LLMInferenceServiceCustomDefaulter) applyLLMISVCDefaults(
 			log.Error(err, "failed to inject new connection")
 			return err
 		}
+		connectionapi.SetInjectedConnectionType(obj, newConn.Type)
 
 	case connectionapi.ConnectionActionNone:
 		// no-op
@@ -534,8 +537,8 @@ func (d *LLMInferenceServiceCustomDefaulter) emitContainerValidationEvent(
 // performLLMISVCCleanup removes previously injected connection credentials using field pointers,
 // making it compatible with both v1alpha1 and v1alpha2.
 //
-// Phase 1: type-specific cleanup of serviceAccountName and imagePullSecrets.
-// Phase 2: zeros spec.model.uri if it was previously set.
+// Dispatches cleanup based on the old connection type. Unknown type triggers full cleanup across
+// all possible injected fields.
 //
 // Parameters:
 //   - modelURI: pointer to the spec.model.uri field
@@ -546,11 +549,13 @@ func performLLMISVCCleanup(
 	template **corev1.PodSpec,
 	oldConn connectionapi.ConnectionInfo,
 ) {
-	// Phase 1: type-specific cleanup of typed fields.
 	switch oldConn.Type {
 	case connectionapi.ConnectionTypeProtocolS3.String(), connectionapi.ConnectionTypeRefS3.String():
 		if *template != nil {
 			connectionapi.RemoveServiceAccountName(&(*template).ServiceAccountName, oldConn.SecretName+"-sa")
+		}
+		if modelURI.String() != "" {
+			*modelURI = apis.URL{}
 		}
 
 	case connectionapi.ConnectionTypeProtocolOCI.String(), connectionapi.ConnectionTypeRefOCI.String():
@@ -563,10 +568,12 @@ func performLLMISVCCleanup(
 		}
 
 	case connectionapi.ConnectionTypeProtocolURI.String(), connectionapi.ConnectionTypeRefURI.String():
-		// URI type only uses spec.model.uri, handled in Phase 2.
+		if modelURI.String() != "" {
+			*modelURI = apis.URL{}
+		}
 
 	case "":
-		// Unknown type: perform full cleanup of all possible injected typed fields.
+		// Unknown type: perform full cleanup of all possible injected fields.
 		if *template != nil {
 			connectionapi.RemoveServiceAccountName(&(*template).ServiceAccountName, oldConn.SecretName+"-sa")
 			if oldConn.SecretName != "" {
@@ -575,10 +582,8 @@ func performLLMISVCCleanup(
 				(*template).ImagePullSecrets = nil
 			}
 		}
-	}
-
-	// Phase 2: zero spec.model.uri if it was previously set.
-	if modelURI.String() != "" {
-		*modelURI = apis.URL{}
+		if modelURI.String() != "" {
+			*modelURI = apis.URL{}
+		}
 	}
 }
