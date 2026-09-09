@@ -300,7 +300,6 @@ func performISVCInjection(
 		connectionapi.InjectOCIImagePullSecrets(&isvc.Spec.Predictor.ImagePullSecrets, connInfo.SecretName)
 		log.V(1).Info("injected OCI imagePullSecrets", "connection", connInfo.SecretName)
 		// TODO: inject spec.predictor.model.uri for OCI
-		return nil
 
 	case connectionapi.ConnectionTypeProtocolURI.String(), connectionapi.ConnectionTypeRefURI.String():
 		uriValue, err := connectionapi.GetURIValue(secret)
@@ -312,7 +311,6 @@ func performISVCInjection(
 		}
 		isvc.Spec.Predictor.Model.StorageURI = &uriValue
 		log.V(1).Info("injected URI storageUri", "connection", connInfo.SecretName)
-		return nil
 
 	case connectionapi.ConnectionTypeProtocolS3.String(), connectionapi.ConnectionTypeRefS3.String():
 		connectionapi.InjectServiceAccountName(&isvc.Spec.Predictor.ServiceAccountName, connInfo.SecretName+"-sa")
@@ -352,12 +350,14 @@ func performISVCInjection(
 		}
 
 		log.V(1).Info("injected S3 storage key and path", "connection", connInfo.SecretName)
-		return nil
 
 	default:
 		log.V(1).Info("unknown connection type, skipping injection", "connectionType", connInfo.Type)
 		return nil
 	}
+
+	connectionapi.SetInjectedConnectionType(isvc, connInfo.Type)
+	return nil
 }
 
 // +kubebuilder:rbac:groups=infrastructure.opendatahub.io,resources=hardwareprofiles,verbs=get;list;watch
@@ -565,5 +565,6 @@ func performISVCCleanup(
 		connectionapi.RemoveServiceAccountName(&isvc.Spec.Predictor.ServiceAccountName, oldConn.SecretName+"-sa")
 	}
 
+	connectionapi.RemoveInjectedConnectionType(isvc)
 	return nil
 }
