@@ -70,7 +70,7 @@ var tlsVersionMap = map[configv1.TLSProtocolVersion]uint16{
 type Result struct {
 	TLSOpts        []func(*tls.Config)
 	ProfileSpec    configv1.TLSProfileSpec
-	ProfileFetched bool
+	APIAvailable bool
 }
 
 // Resolve reads the cluster TLS profile from apiservers.config.openshift.io/cluster
@@ -111,7 +111,7 @@ func resolve(ctx context.Context, k8sClient client.Reader) (Result, error) {
 			apierrors.IsTooManyRequests(err),
 			errors.Is(err, context.DeadlineExceeded):
 			log.Info("Transient error reading APIServer TLS profile, using hardened defaults", "error", err)
-			result.ProfileFetched = true
+			result.APIAvailable = true
 		default:
 			return result, fmt.Errorf("failed to read APIServer TLS profile: %w", err)
 		}
@@ -120,7 +120,7 @@ func resolve(ctx context.Context, k8sClient client.Reader) (Result, error) {
 		return result, nil
 	}
 
-	result.ProfileFetched = true
+	result.APIAvailable = true
 	result.ProfileSpec = *resolveProfileSpec(apiServer.Spec.TLSSecurityProfile)
 
 	minVersion, ciphers := parseProfile(apiServer.Spec.TLSSecurityProfile)

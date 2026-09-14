@@ -267,8 +267,8 @@ func TestResolve_Success(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Resolve() error = %v", err)
 	}
-	if !result.ProfileFetched {
-		t.Error("expected ProfileFetched = true")
+	if !result.APIAvailable {
+		t.Error("expected APIAvailable = true")
 	}
 	if result.ProfileSpec.MinTLSVersion != configv1.TLSProfiles[configv1.TLSProfileModernType].MinTLSVersion {
 		t.Errorf("expected Modern profile spec, got %+v", result.ProfileSpec)
@@ -283,8 +283,8 @@ func TestResolve_NotFound(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Resolve() error = %v, expected graceful fallback", err)
 	}
-	if result.ProfileFetched {
-		t.Error("expected ProfileFetched = false on NotFound")
+	if result.APIAvailable {
+		t.Error("expected APIAvailable = false on NotFound")
 	}
 	if len(result.TLSOpts) == 0 {
 		t.Error("expected TLSOpts with Intermediate defaults")
@@ -296,7 +296,7 @@ func TestResolve_NotFound(t *testing.T) {
 	}
 }
 
-func TestResolve_TransientError_SetsProfileFetched(t *testing.T) {
+func TestResolve_TransientError_SetsAPIAvailable(t *testing.T) {
 	fakeClient := &transientErrorClient{
 		err: apierrors.NewServiceUnavailable("api down"),
 	}
@@ -305,8 +305,8 @@ func TestResolve_TransientError_SetsProfileFetched(t *testing.T) {
 	if err != nil {
 		t.Fatalf("resolve() error = %v, expected graceful fallback", err)
 	}
-	if !result.ProfileFetched {
-		t.Error("expected ProfileFetched = true on transient error (for watcher self-healing)")
+	if !result.APIAvailable {
+		t.Error("expected APIAvailable = true on transient error (for watcher self-healing)")
 	}
 }
 
