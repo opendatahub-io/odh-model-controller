@@ -217,6 +217,55 @@ var _ = Describe("KserveMetricsDashboardReconciler", func() {
 			})
 		})
 
+		When("vLLM-Omni CUDA Runtime is used", func() {
+			It("should create ConfigMap with supported=true and vLLM-Omni metrics", func(ctx SpecContext) {
+				servingRuntime := createServingRuntime("vllm-omni-cuda-runtime", map[string]string{
+					constants.KServeRuntimeAnnotation: constants.VllmOmniRuntimeName,
+				})
+
+				isvc := &kservev1beta1.InferenceService{
+					ObjectMeta: metav1.ObjectMeta{
+						Name:      "vllm-omni-cuda-model",
+						Namespace: "test-namespace",
+					},
+					Spec: kservev1beta1.InferenceServiceSpec{
+						Predictor: kservev1beta1.PredictorSpec{
+							Model: &kservev1beta1.ModelSpec{
+								ModelFormat: kservev1beta1.ModelFormat{Name: "huggingface"},
+								Runtime:     ptr.To("vllm-omni-cuda-runtime"),
+							},
+						},
+					},
+				}
+
+				client := fake.NewClientBuilder().
+					WithScheme(scheme).
+					WithObjects(isvc, servingRuntime).
+					Build()
+				reconciler := NewKserveMetricsDashboardReconciler(client)
+
+				err := reconciler.Reconcile(ctx, log.Log, isvc)
+				Expect(err).NotTo(HaveOccurred())
+
+				configMap := &corev1.ConfigMap{}
+				err = client.Get(ctx, k8stypes.NamespacedName{
+					Name:      isvc.Name + constants.KserveMetricsConfigMapNameSuffix,
+					Namespace: isvc.Namespace,
+				}, configMap)
+				Expect(err).NotTo(HaveOccurred())
+
+				fromGetMetrics, _ := getMetricsData(servingRuntime)
+				finaldata := utils.SubstituteVariablesInQueries(constants.VllmOmniMetricsData, isvc.Namespace, isvc.Name)
+
+				Expect(configMap.Data["supported"]).To(Equal("true"))
+				Expect(configMap.Data["metrics"]).To(Equal(finaldata))
+				Expect(fromGetMetrics).To(Equal(constants.VllmOmniMetricsData))
+				Expect(configMap.Data["metrics"]).To(ContainSubstring("vllm:omni_"))
+				Expect(configMap.Data["metrics"]).To(ContainSubstring("vllm-omni-cuda-model"))
+				Expect(configMap.Data["metrics"]).To(ContainSubstring("test-namespace"))
+			})
+		})
+
 		When("TGIS Runtime is used", func() {
 			It("should create ConfigMap with supported=true and TGIS metrics", func(ctx SpecContext) {
 				// Create TGIS ServingRuntime
@@ -321,12 +370,13 @@ var _ = Describe("KserveMetricsDashboardReconciler", func() {
 
 		When("all runtime metrics templates are validated", func() {
 			runtimeData := map[string]string{
-				"Caikit":   constants.CaikitMetricsData,
-				"OVMS":     constants.OvmsMetricsData,
-				"TGIS":     constants.TgisMetricsData,
-				"vLLM":     constants.VllmMetricsData,
-				"NIM":      constants.NIMMetricsData,
-				"MLServer": constants.MLServerMetricsData,
+				"Caikit":    constants.CaikitMetricsData,
+				"OVMS":      constants.OvmsMetricsData,
+				"TGIS":      constants.TgisMetricsData,
+				"vLLM":      constants.VllmMetricsData,
+				"vLLM-Omni": constants.VllmOmniMetricsData,
+				"NIM":       constants.NIMMetricsData,
+				"MLServer":  constants.MLServerMetricsData,
 			}
 
 			for name, data := range runtimeData {

@@ -9,10 +9,12 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/utils/ptr"
 
+	kservev1alpha2 "github.com/kserve/kserve/pkg/apis/serving/v1alpha2"
 	kservev1beta1 "github.com/kserve/kserve/pkg/apis/serving/v1beta1"
 	"github.com/opendatahub-io/odh-model-controller/internal/controller/serving/reconcilers"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"knative.dev/pkg/apis"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
@@ -65,6 +67,64 @@ func makeKedaTestISVC(namespace, name string, enableKedaMetrics bool) *kservev1b
 		isvc.Spec.Predictor.AutoScaling = nil
 	}
 	return isvc
+}
+
+// makeKedaTestLLMISVC builds a minimal LLMInferenceService. When enablePrometheusTrigger is true, the main
+// workload is configured with a direct/standalone KEDA scaling spec carrying a single Prometheus-type trigger,
+// which is what LLMKEDAReconciler looks for. When includePrefillPrometheusTrigger is also true, the disaggregated
+// prefill workload additionally carries its own Prometheus-type trigger.
+func makeKedaTestLLMISVC(namespace, name string, enablePrometheusTrigger bool, includePrefillPrometheusTrigger bool) *kservev1alpha2.LLMInferenceService {
+	modelURL, err := apis.ParseURL("hf://test-org/test-model")
+	Expect(err).NotTo(HaveOccurred())
+
+	llmisvc := &kservev1alpha2.LLMInferenceService{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      name,
+			Namespace: namespace,
+		},
+		Spec: kservev1alpha2.LLMInferenceServiceSpec{
+			Model: kservev1alpha2.LLMModelSpec{
+				URI: *modelURL,
+			},
+		},
+	}
+
+	prometheusTrigger := func() kedaapi.ScaleTriggers {
+		return kedaapi.ScaleTriggers{
+			Type: "prometheus",
+			Metadata: map[string]string{
+				"serverAddress": "https://thanos-querier.openshift-monitoring.svc.cluster.local:9092",
+				"query":         `sum(rate(http_requests_total{namespace="` + namespace + `"}[1m]))`,
+				"threshold":     "10",
+				"authModes":     "bearer",
+			},
+			AuthenticationRef: &kedaapi.AuthenticationRef{
+				Name: reconcilers.KEDAPrometheusAuthTriggerAuthName,
+			},
+		}
+	}
+
+	if enablePrometheusTrigger {
+		llmisvc.Spec.WorkloadSpec.Scaling = &kservev1alpha2.ScalingSpec{
+			MaxReplicas: 3,
+			KEDA: &kservev1alpha2.DirectKEDAScalingSpec{
+				Triggers: []kedaapi.ScaleTriggers{prometheusTrigger()},
+			},
+		}
+	}
+
+	if includePrefillPrometheusTrigger {
+		llmisvc.Spec.Prefill = &kservev1alpha2.WorkloadSpec{
+			Scaling: &kservev1alpha2.ScalingSpec{
+				MaxReplicas: 3,
+				KEDA: &kservev1alpha2.DirectKEDAScalingSpec{
+					Triggers: []kedaapi.ScaleTriggers{prometheusTrigger()},
+				},
+			},
+		}
+	}
+
+	return llmisvc
 }
 
 // getAllKedaTestResources fetches all KEDA resources by their known names.

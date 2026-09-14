@@ -10,3 +10,11 @@ resources:
   - vllm-cpu-template.yaml
   - vllm-cpu-x86-template.yaml
   - vllm-multinode-template.yaml
+  - csr-kserve-vllm-cuda.yaml
+  - csr-kserve-vllm-rocm.yaml
+  - csr-kserve-vllm-gaudi.yaml
+  - csr-kserve-vllm-cpu.yaml
+  - csr-kserve-vllm-cpu-x86.yaml
+  - csr-kserve-vllm-spyre-x86.yaml
+  - csr-kserve-vllm-spyre-s390x.yaml
+  - csr-kserve-vllm-spyre-ppc64le.yaml

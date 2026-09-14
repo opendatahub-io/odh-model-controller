@@ -42,6 +42,7 @@ import (
 const (
 	LLMInferenceServiceName = "test-llmisvc"
 	GatewayClassName        = "openshift-default"
+	boolFalseStr            = "false"
 )
 
 var _ = Describe("LLMInferenceService Controller", func() {
@@ -104,7 +105,7 @@ var _ = Describe("LLMInferenceService Controller", func() {
 				fixture.CreateHTTPRouteForLLMService(ctx, envTest.Client, testNs, LLMInferenceServiceName)
 				fixture.VerifyHTTPRouteAuthPolicyNotExist(ctx, envTest.Client, testNs, LLMInferenceServiceName)
 
-				llmisvc.Annotations[constants.EnableAuthODHAnnotation] = "false"
+				llmisvc.Annotations[constants.EnableAuthODHAnnotation] = boolFalseStr
 				Expect(envTest.Client.Update(ctx, llmisvc)).Should(Succeed())
 
 				fixture.VerifyHTTPRouteAuthPolicyOwnerRef(ctx, envTest.Client, testNs, LLMInferenceServiceName)
