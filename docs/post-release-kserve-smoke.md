@@ -16,9 +16,10 @@ Implementation is in [opendatahub-io/kserve](https://github.com/opendatahub-io/k
 
 Orchestration is **not** in this repository. Use Konflux integration testing:
 
-- Pipeline: [odh-konflux-central/integration-tests/kserve/post-release-smoke-pipeline.yaml](https://github.com/opendatahub-io/odh-konflux-central/blob/main/integration-tests/kserve/post-release-smoke-pipeline.yaml)
-- PipelineRun: [pipelineruns/kserve/kserve-post-release-smoke.yaml](https://github.com/opendatahub-io/odh-konflux-central/blob/main/pipelineruns/kserve/kserve-post-release-smoke.yaml)
-- Docs: [integration-tests/kserve/post-release-smoke.md](https://github.com/opendatahub-io/odh-konflux-central/blob/main/integration-tests/kserve/post-release-smoke.md)
+- Pipeline PR: [odh-konflux-central#655](https://github.com/opendatahub-io/odh-konflux-central/pull/655)
+- Pipeline: `integration-tests/kserve/post-release-smoke-pipeline.yaml`
+- PipelineRun: `pipelineruns/kserve/kserve-post-release-smoke.yaml`
+- Docs: `integration-tests/kserve/post-release-smoke.md`
 
 The pipeline provisions an ephemeral OpenShift (Hypershift) cluster, checks out kserve
 at the release tag, and runs:
