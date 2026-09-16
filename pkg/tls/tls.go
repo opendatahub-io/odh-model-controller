@@ -68,8 +68,8 @@ var tlsVersionMap = map[configv1.TLSProtocolVersion]uint16{
 
 // Result holds the resolved TLS configuration.
 type Result struct {
-	TLSOpts        []func(*tls.Config)
-	ProfileSpec    configv1.TLSProfileSpec
+	TLSOpts      []func(*tls.Config)
+	ProfileSpec  configv1.TLSProfileSpec
 	APIAvailable bool
 }
 
