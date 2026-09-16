@@ -29,8 +29,13 @@ make e2e-setup-kserve-module PLATFORM=ocp E2E_IMG=quay.io/opendatahub/odh-kserve
 make e2e-kserve-module-post-release
 ```
 
-Trigger via Konflux (`/post-release-smoke` on kserve, or manual PipelineRun with
-`release_tag` param). GitHub-hosted Actions cannot provision OpenShift and are not
-used for this smoke.
+Trigger via Konflux comment on a kserve PR (tag required each release):
+
+```
+/post-release-smoke odh-v3.6
+```
+
+Or a manual PipelineRun with `release_tag` set. GitHub-hosted Actions cannot
+provision OpenShift and are not used for this smoke.
 
 JIRA: [RHOAIENG-85268](https://issues.redhat.com/browse/RHOAIENG-85268)
