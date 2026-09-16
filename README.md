@@ -105,6 +105,15 @@ Users can just run kubectl apply -f <URL for YAML BUNDLE> to install the project
 kubectl apply -f https://raw.githubusercontent.com/<org>/odh-model-controller/<tag or branch>/dist/install.yaml
 ```
 
+## Release
+
+Component tags (kserve, odh-model-controller, and others) are cut from this repo via
+**Actions → [ODH Release Workflow](https://github.com/opendatahub-io/odh-model-controller/actions/workflows/odh-release.yaml)**.
+
+After cutting a kserve release tag, run the post-release OpenShift smoke manually —
+see **[docs/post-release-kserve-smoke.md](docs/post-release-kserve-smoke.md)** for when
+and how (Konflux trigger, not automatic on tag push).
+
 ## Contributing
 
 // TODO(user): Add detailed information on how you would like others to contribute to this project
