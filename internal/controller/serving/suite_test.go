@@ -47,6 +47,7 @@ import (
 	// +kubebuilder:scaffold:imports
 
 	"github.com/opendatahub-io/odh-model-controller/internal/controller/utils"
+	"github.com/opendatahub-io/odh-model-controller/internal/informercache"
 	testutils "github.com/opendatahub-io/odh-model-controller/test/utils"
 )
 
@@ -116,10 +117,18 @@ var _ = BeforeSuite(func() {
 	mgr, err := ctrl.NewManager(cfg, ctrl.Options{
 		Scheme: scheme.Scheme,
 		Client: client.Options{
-			Cache: &client.CacheOptions{},
+			Cache: &client.CacheOptions{
+				DisableFor: []client.Object{
+					&corev1.ConfigMap{},
+				},
+			},
 		},
 		Cache: cache.Options{
+			DefaultTransform: cache.TransformStripManagedFields(),
 			ByObject: map[client.Object]cache.ByObject{
+				&corev1.ConfigMap{}: {
+					Transform: informercache.StripConfigMapData,
+				},
 				&corev1.Secret{}: {
 					Label: k8sLabels.SelectorFromSet(k8sLabels.Set{
 						"opendatahub.io/managed": "true",

@@ -1,9 +1,11 @@
 apiVersion: serving.kserve.io/v1alpha1
 kind: ClusterServingRuntime
 metadata:
-  name: csr-kserve-vllm-spyre-s390x-v1
+  name: csr-kserve-vllm-spyre-s390x
   labels:
     opendatahub.io/managed: "true"
+    opendatahub.io/dashboard: "true"
+    opendatahub.io/ootb: "true"
   annotations:
     opendatahub.io/version: "1.0.0"
     opendatahub.io/template-display-name: "vLLM"
