@@ -8,8 +8,6 @@ OpenShift-only validation after an ODH Model Serving release cut:
 Tests live in [opendatahub-io/kserve](https://github.com/opendatahub-io/kserve)
 (`post_release` pytest marker). Konflux runs them on a fresh ephemeral cluster.
 
-JIRA: [RHOAIENG-85268](https://issues.redhat.com/browse/RHOAIENG-85268)
-
 ## When to run
 
 This smoke is **on-demand only**. It does **not** run automatically when you cut a
