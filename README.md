@@ -110,9 +110,11 @@ kubectl apply -f https://raw.githubusercontent.com/<org>/odh-model-controller/<t
 Component tags (kserve, odh-model-controller, and others) are cut from this repo via
 **Actions → [ODH Release Workflow](https://github.com/opendatahub-io/odh-model-controller/actions/workflows/odh-release.yaml)**.
 
-After cutting a kserve release tag, run the post-release OpenShift smoke manually —
-see **[docs/post-release-kserve-smoke.md](docs/post-release-kserve-smoke.md)** for when
-and how (Konflux trigger, not automatic on tag push).
+After cutting a kserve release tag and publishing the operator image on Quay, push the
+tag on **opendatahub-io/kserve** — OpenShift CI runs post-release smoke automatically.
+See **[docs/post-release-kserve-smoke.md](docs/post-release-kserve-smoke.md)** (OMC Running,
+KServeReady, one LLMISVC Ready).
+(no GitHub PR required).
 
 ## Contributing
 

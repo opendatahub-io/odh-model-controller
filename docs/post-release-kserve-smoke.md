@@ -2,17 +2,16 @@
 
 OpenShift-only validation after an ODH Model Serving release cut:
 
-- `odh-model-controller` Running, `KServeReady=True`
+- `odh-model-controller` Running (no restarts), `KServeReady=True`
 - One `LLMInferenceService` reaches `Ready=True`
 
 Tests live in [opendatahub-io/kserve](https://github.com/opendatahub-io/kserve)
-(`post_release` pytest marker). Konflux runs them on a fresh ephemeral cluster.
+(`post_release` pytest marker, `make e2e-kserve-module-post-release`).
 
 ## When to run
 
-This smoke is **on-demand only**. It does **not** run automatically when you cut a
-release, merge a PR, or push a tag. Someone must trigger it explicitly after each
-ODH kserve release.
+This smoke runs **when you push an ODH release tag** to kserve (see below). It does
+**not** run on PR merges or branch pushes.
 
 Use this repo's **[ODH Release Workflow](https://github.com/opendatahub-io/odh-model-controller/actions/workflows/odh-release.yaml)**
 (Actions → *ODH Release Workflow*) to cut component tags. For post-release smoke,
@@ -20,86 +19,62 @@ the relevant sequence is:
 
 1. **Cut the kserve tag** — run the workflow with `repository: kserve` and
    `tag_name: odh-vX.Y` (or `-ea1`/`-ea2` suffix if applicable).
-2. **Wait for the operator image** — tag push triggers Konflux builds; confirm
+2. **Wait for the operator image** — confirm
    `quay.io/opendatahub/odh-kserve-module-operator:<tag>` exists on Quay.
-3. **Run post-release smoke** (this doc) with that same `<tag>`.
+3. **Push the tag** (if not already pushed) — OpenShift CI postsubmit runs automatically.
 4. **Cut odh-model-controller** (and other components) — the release workflow
    requires the kserve tag to exist before bumping `go.mod` in this repo.
 
 Run the smoke **after step 2** and **before treating the kserve release as validated**
-for RHOAI downstream sync. Re-run after a tag rebuild if the operator image changed.
+for RHOAI downstream sync. Re-run from Prow if the operator image was rebuilt without
+creating a new tag.
 
-Do **not** expect this to gate the GitHub release workflow itself — it is a separate
-manual Konflux check.
+## How to run (OpenShift CI)
 
-## How to run
+Orchestration is an OpenShift CI **tag postsubmit** on `opendatahub-io/kserve`:
 
-Orchestration lives in
-[odh-konflux-central](https://github.com/opendatahub-io/odh-konflux-central)
-(`integration-tests/kserve/post-release-smoke-pipeline.yaml`). Pick one trigger:
-
-### Option A — PAC comment (usual)
-
-Comment on any open PR in **opendatahub-io/kserve** (the PR content does not matter;
-the pipeline checks out the **release tag**, not the PR branch):
-
-```
-/post-release-smoke odh-v3.6
-```
-
-Replace `odh-v3.6` with the tag you just cut. The tag is required — there is no
-default. Comment author must meet PAC policy for the kserve repo (owner, collaborator,
-or listed in `OWNERS`).
-
-Watch the run: [Konflux UI — open-data-hub-tenant](https://konflux-ui.apps.stone-prd-rh01.pg1f.p1.openshiftapps.com/ns/open-data-hub-tenant)
-(PipelineRun name prefix `kserve-post-release-smoke`).
-
-### Option B — Manual PipelineRun
-
-In Konflux UI (same namespace), create a PipelineRun from
-`pipelineruns/kserve/kserve-post-release-smoke.yaml` and set:
-
-| Param | Value |
-|-------|-------|
-| `release_tag` | `odh-v3.6` (the tag under test) |
-| `trigger_comment` | leave empty |
-| `operator_image` | leave empty unless overriding the Quay ref |
-
-Use this when no suitable kserve PR is open or when debugging the pipeline.
-
-### What the pipeline does
-
-1. Provisions an ephemeral OpenShift cluster (EaaS / Hypershift).
-2. Clones `opendatahub-io/kserve` at `refs/tags/<release_tag>`.
-3. Runs:
+- **Job:** `branch-ci-opendatahub-io-kserve-master-e2e-kserve-module-post-release`
+- **Context:** `ci/prow/e2e-kserve-module-post-release`
+- **Trigger:** push git tag matching `odh-vX.Y` (e.g. `odh-v3.6`)
 
 ```bash
-make e2e-setup-kserve-module \
-  PLATFORM=ocp \
-  E2E_IMG=quay.io/opendatahub/odh-kserve-module-operator:<release_tag>
-make e2e-kserve-module-post-release
+# After operator image is on Quay:
+git tag odh-v3.6 <commit>
+git push origin odh-v3.6
 ```
 
-On failure, Konflux logs include OMC, KServe, and LLMISVC state.
+The job provisions an ephemeral Hypershift cluster, checks out **the tag** (not PR
+code), installs the published operator image, and runs `hack/ci/post-release-smoke.sh`.
+
+**Watch runs:** [OpenShift CI — opendatahub-io/kserve](https://prow.ci.openshift.org/?repo=opendatahub-io%2Fkserve)
+
+**Re-run without a new tag:** Prow UI → find the postsubmit for that tag → Re-run.
+
+### What the job validates
+
+1. Fresh OpenShift install via kserve-module operator `…/odh-kserve-module-operator:<tag>`.
+2. `odh-model-controller` Running, `KServeReady=True`.
+3. One `LLMInferenceService` reaches `Ready=True`.
+
+On failure, Prow artifacts include OMC logs, KServe CR, and LLMISVC state.
 
 ## Local dry run (optional)
 
-To debug tests without Konflux, on CRC or any OpenShift cluster with kubeconfig:
+To debug tests without OpenShift CI, on CRC or any OpenShift cluster with kubeconfig:
 
 ```bash
 git clone https://github.com/opendatahub-io/kserve.git && cd kserve
 git checkout odh-v3.6   # release tag under test
 
-make e2e-setup-kserve-module \
-  PLATFORM=ocp \
-  E2E_IMG=quay.io/opendatahub/odh-kserve-module-operator:odh-v3.6
-make e2e-kserve-module-post-release
+export RELEASE_TAG=odh-v3.6
+bash hack/ci/post-release-smoke.sh
 ```
 
-This does not validate Konflux cluster provisioning.
+This does not validate Hypershift cluster provisioning.
 
 ## Further reading
 
-- kserve tests: `kserve-module/tests/e2e/test_release_validation.py`, `make e2e-kserve-module-post-release`
-- Konflux runbook: [integration-tests/kserve/post-release-smoke.md](https://github.com/opendatahub-io/odh-konflux-central/blob/main/integration-tests/kserve/post-release-smoke.md)
+- kserve tests: `kserve-module/tests/e2e/test_release_validation.py`
+- kserve runbook: [docs/dev/post-release-smoke-openshift-ci.md](https://github.com/opendatahub-io/kserve/blob/master/docs/dev/post-release-smoke-openshift-ci.md)
 - kserve E2E docs: [kserve-module/docs/tests/test.km-e2e.md](https://github.com/opendatahub-io/kserve/blob/master/kserve-module/docs/tests/test.km-e2e.md)
+- OpenShift CI config: [openshift/release `opendatahub-io-kserve-master.yaml`](https://github.com/openshift/release/blob/master/ci-operator/config/opendatahub-io/kserve/opendatahub-io-kserve-master.yaml)
