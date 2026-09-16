@@ -114,7 +114,6 @@ After cutting a kserve release tag and publishing the operator image on Quay, pu
 tag on **opendatahub-io/kserve** — OpenShift CI runs post-release smoke automatically.
 See **[docs/post-release-kserve-smoke.md](docs/post-release-kserve-smoke.md)** (OMC Running,
 KServeReady, one LLMISVC Ready).
-(no GitHub PR required).
 
 ## Contributing
 
