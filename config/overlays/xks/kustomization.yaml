@@ -134,6 +134,13 @@ patches:
   patch: |-
     - op: remove
       path: /metadata/annotations/service.beta.openshift.io~1serving-cert-secret-name
+- target:
+    kind: Service
+    name: model-serving-api
+    namespace: opendatahub
+  patch: |-
+    - op: remove
+      path: /metadata/annotations/service.beta.openshift.io~1serving-cert-secret-name
 # Swap OpenShift service-CA injection for cert-manager (KServe odh-xks pattern).
 - target:
     group: admissionregistration.k8s.io
