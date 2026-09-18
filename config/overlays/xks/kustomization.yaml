@@ -76,11 +76,6 @@ configurations:
 - params.yaml
 
 patches:
-- path: patches/delete-model-serving-api-deployment.yaml
-- path: patches/delete-model-serving-api-service.yaml
-- path: patches/delete-model-serving-api-serviceaccount.yaml
-- path: patches/delete-model-serving-api-clusterrole.yaml
-- path: patches/delete-model-serving-api-clusterrolebinding.yaml
 - path: patches/delete-prometheus-metrics-service.yaml
 - path: patches/delete-prometheus-clusterrole.yaml
 - path: patches/delete-nim-crd.yaml
