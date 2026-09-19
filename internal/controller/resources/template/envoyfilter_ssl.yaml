@@ -10,7 +10,35 @@ metadata:
     "app.kubernetes.io/managed-by": "odh-model-controller"
 spec:
   priority: -1
+  targetRefs:
+    - group: gateway.networking.k8s.io
+      kind: {{.TargetKind}}
+      name: {{.TargetName}}
   configPatches:
+    # -------------------------------------------------------------------------
+    # PATCH 0: Raise the per-connection buffer limit on the gateway listener.
+    #
+    # PATCH 2/3 force the full request body to be buffered (json_to_metadata reads
+    # it, and the Lua calls request_handle:body()) so the model-routing header can
+    # be derived. That buffering is bounded by per_connection_buffer_limit_bytes;
+    # Envoy's default (1 MiB) is small for multimodal / long-prompt inference, and a
+    # body over the limit is rejected with 413. The value is operator-tunable via the
+    # Gateway annotation inference.opendatahub.io/request-body-buffer-limit-bytes.
+    #
+    # This is request-only: streamed responses (stream:true / SSE) are unaffected -
+    # the filter defines no response-path rules.
+    # -------------------------------------------------------------------------
+    - applyTo: LISTENER
+      match:
+        context: GATEWAY
+      patch:
+        operation: MERGE
+        value:
+          per_connection_buffer_limit_bytes: {{ .RequestBodyBufferLimitBytes }}
+
+    # -------------------------------------------------------------------------
+    # PATCH 1: Cluster configuration for Authorino (external authorization)
+    # -------------------------------------------------------------------------
     - applyTo: CLUSTER
       match:
         cluster:
@@ -40,7 +68,117 @@ spec:
                 validation_context:
                   trusted_ca:
                     filename: /var/run/secrets/kubernetes.io/serviceaccount/service-ca.crt
-  targetRefs:
-  - group: gateway.networking.k8s.io
-    kind: {{.TargetKind}}
-    name: {{.TargetName}}
+
+    # -------------------------------------------------------------------------
+    # PATCH 2: Extract the "model" property from the JSON request body into
+    # dynamic metadata (envoy.lb / extracted_model).
+    #
+    # Inserted BEFORE the Kuadrant auth WASM plugin (not the router): the auth
+    # filter runs at the headers phase and must see the X-Gateway-Model-Name
+    # header that PATCH 3 derives from this metadata, so both the extractor and
+    # the Lua injector have to precede it in the filter chain. Istio names that
+    # HTTP filter with the full string
+    # "extensions.istio.io/wasmplugin/<gateway-namespace>.kuadrant-<gateway-name>";
+    # matching the router or the short name here silently no-ops the injection.
+    # -------------------------------------------------------------------------
+    - applyTo: HTTP_FILTER
+      match:
+        context: GATEWAY
+        listener:
+          filterChain:
+            filter:
+              name: "envoy.filters.network.http_connection_manager"
+              subFilter:
+                name: "extensions.istio.io/wasmplugin/{{ .Namespace }}.kuadrant-{{ .TargetName }}"
+      patch:
+        operation: INSERT_BEFORE
+        value:
+          name: envoy.filters.http.json_to_metadata
+          typed_config:
+            "@type": type.googleapis.com/envoy.extensions.filters.http.json_to_metadata.v3.JsonToMetadata
+            request_rules:
+              rules:
+                - selectors:
+                    - key: model
+                  on_present:
+                    metadata_namespace: envoy.lb
+                    key: extracted_model
+                  on_missing:
+                    metadata_namespace: envoy.lb
+                    key: extracted_model
+                    value: "unknown-model"
+                  on_error:
+                    metadata_namespace: envoy.lb
+                    key: extracted_model
+                    value: "unknown-model"
+
+    # -------------------------------------------------------------------------
+    # PATCH 3: Lua script to copy the extracted model metadata into a request
+    # header (X-Gateway-Model-Name) for downstream and external auth filters.
+    #
+    # Inserted BEFORE the Kuadrant auth WASM plugin, immediately after PATCH 2
+    # (Envoy applies patches sequentially, so the last INSERT_BEFORE the WASM
+    # filter lands closest to it). Chain order: ... json_to_metadata -> lua ->
+    # kuadrant-auth -> ... -> router.
+    # -------------------------------------------------------------------------
+    - applyTo: HTTP_FILTER
+      match:
+        context: GATEWAY
+        listener:
+          filterChain:
+            filter:
+              name: "envoy.filters.network.http_connection_manager"
+              subFilter:
+                name: "extensions.istio.io/wasmplugin/{{ .Namespace }}.kuadrant-{{ .TargetName }}"
+      patch:
+        operation: INSERT_BEFORE
+        value:
+          name: envoy.filters.http.lua
+          typed_config:
+            "@type": type.googleapis.com/envoy.extensions.filters.http.lua.v3.Lua
+            default_source_code:
+              inline_string: |
+                function envoy_on_request(request_handle)
+                  -- json_to_metadata (PATCH 2) populates dynamic metadata during the
+                  -- request DATA phase, but this Lua and the downstream auth filter
+                  -- run at the HEADERS phase - before the body is read. Call body()
+                  -- to buffer the full request body first: it drives the data through
+                  -- json_to_metadata (upstream in the chain) so extracted_model is set
+                  -- before we read it and before the auth filter sees the header.
+                  --
+                  -- Streaming: this filter is request-only (no envoy_on_response /
+                  -- response_rules), so streamed responses (stream:true / SSE) are
+                  -- unaffected. Buffering here applies only to the request body - LLM
+                  -- clients POST a complete JSON body, so added latency is negligible,
+                  -- but a body larger than the listener's per_connection_buffer_limit_bytes
+                  -- (Envoy default 1 MiB) will be rejected with 413. Raise that limit on
+                  -- the gateway if large multimodal/long-prompt requests are expected.
+                  request_handle:body()
+
+                  -- Retrieve the extracted model value from dynamic metadata.
+                  -- Guard on the string type: json_to_metadata preserves the JSON
+                  -- value type, so a non-string "model" (e.g. {"model":123} or
+                  -- {"model":{...}}) arrives as a Lua number/table. Passing that to
+                  -- headers():replace would error (500). Treat any non-string as
+                  -- unknown-model so a malformed/adversarial body fails safe rather
+                  -- than crashing the request.
+                  local meta = request_handle:streamInfo():dynamicMetadata():get("envoy.lb")
+                  local model_name = "unknown-model"
+
+                  if meta and type(meta["extracted_model"]) == "string" then
+                    model_name = meta["extracted_model"]
+                  end
+
+                  -- Set the request header for the auth filter and downstream backends.
+                  -- Use replace (not add): the body-derived value is authoritative and
+                  -- must overwrite any client-supplied X-Gateway-Model-Name, both so a
+                  -- caller cannot spoof/pollute the routing+authorization identity and so
+                  -- a legitimate client that sends the header is not denied by a doubled
+                  -- (comma-joined) value.
+                  request_handle:headers():replace("X-Gateway-Model-Name", model_name)
+
+                  -- The route was already selected during decodeHeaders, before this
+                  -- filter ran. Since the HTTPRoute matches on X-Gateway-Model-Name,
+                  -- clear the cached route so it is re-evaluated with the new header.
+                  request_handle:clearRouteCache()
+                end

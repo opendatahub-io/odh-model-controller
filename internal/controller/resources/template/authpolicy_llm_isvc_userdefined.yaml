@@ -8,17 +8,48 @@ spec:
     group: gateway.networking.k8s.io
     kind: {{.TargetKind}}
     name: {{.TargetName}}
+  # Named patterns single-source the positive regexes reused across rules.
+  # API constraint: patterns are allOf of selector/operator/value (positive
+  # `matches` only - no CEL, no OR, no negation), and a patternRef in `when`
+  # cannot be negated. So negations stay as CEL predicates that reuse the SAME
+  # regex value as the corresponding pattern, and the model-header path scope
+  # (an OR) is expressed as `any: [patternRef, patternRef]`.
   patterns:
     has-ns-and-name:
       allOf:
         - selector: context.request.http.path
           operator: matches
           value: "^/[^/]+/[^/]+"
+    is-short-path:
+      allOf:
+        - selector: context.request.http.path
+          operator: matches
+          value: "^/[^/]*/?$"
     is-publisher-path:
       allOf:
         - selector: context.request.http.path
           operator: matches
           value: "^/publishers/[^/]+/models/"
+    is-model-api-root:
+      allOf:
+        - selector: context.request.http.path
+          operator: matches
+          value: "^/(v1|inference/v1)/"
+    is-batch-path:
+      allOf:
+        - selector: context.request.http.path
+          operator: matches
+          value: "^/v1/(files|batches)($|/)"
+    valid-model-header:
+      allOf:
+        - selector: "context.request.http.headers.{{.ModelRoutingHeader}}"
+          operator: matches
+          value: "^publishers/[^/]+/models/.+$"
+    has-maas-user:
+      allOf:
+        - selector: context.request.http.headers.x-maas-user
+          operator: matches
+          value: ".+"
   rules:
     authentication:
       kubernetes-user:
@@ -74,7 +105,7 @@ spec:
       model-access-path-delegate:
         when:
           - patternRef: is-publisher-path
-          - predicate: "'x-maas-user' in request.headers"
+          - patternRef: has-maas-user
         kubernetesSubjectAccessReview:
           user:
             expression: "auth.identity.user.username"
@@ -96,30 +127,90 @@ spec:
             verb:
               value: post-delegate
         priority: 1
-      # Deny requests where a valid model routing header is present on a path
-      # that isn't a publisher path or a batch API path. Without BBR's resolvedPath
-      # normalization, /v1/ paths can't be authorized via model-access-path, and
-      # per-participant paths would be authorized by path (tenant-A) but routed by
-      # header (tenant-B). patternMatching with predicate "false" is an immediate
-      # local deny - no API server call.
-      deny-misrouted-model-header:
+      # Model-based routing: the kserve HTTPRoute (v1-model-routing and
+      # v1-catch-all-model-routing) dispatches requests carrying a valid model
+      # routing header (publishers/<ns>/models/<name>) by header - not by path -
+      # to the target InferencePool / workload Service. This applies on paths
+      # that are neither publisher paths (authorized by model-access-path) nor
+      # batch API paths. Authorize against the SAME value used for routing: the
+      # namespace and model name are taken from the header, so authorization and
+      # routing cannot diverge across tenants.
+      model-access-header:
         when:
+          # ¬is-publisher-path (covered by model-access-path); regex mirrors that pattern.
+          - predicate: >-
+              !request.path.matches('^/publishers/[^/]+/models/')
+          # ¬is-batch-path (batch paths are authn-only); regex mirrors that pattern.
+          - predicate: >-
+              !request.path.matches('^/v1/(files|batches)($|/)')
+          # Not a per-participant path (/<ns>/<name>/...). Those route by path
+          # (path-prefix beats header-only in Gateway API precedence), so the
+          # header is inert and inference-access authorizes them via get on the
+          # LLMInferenceService. Header routing applies to model-API roots
+          # (is-model-api-root: /v1/ chat/completions, completions, responses,
+          # messages, ...; /inference/v1/ generate) and single-segment / catch-all
+          # paths (is-short-path: /tokenize, /detokenize, /health, ...).
+          - any:
+              - patternRef: is-model-api-root
+              - patternRef: is-short-path
+          - patternRef: valid-model-header
+        kubernetesSubjectAccessReview:
+          user:
+            expression: "auth.identity.resolvedUser"
+          authorizationGroups:
+            expression: "auth.identity.resolvedGroups"
+          resourceAttributes:
+            group:
+              value: serving.opendatahub.io
+            resource:
+              value: models
+            # Header value is already publishers/<ns>/models/<name>, matching the
+            # resource name that model-access-path reconstructs from the path.
+            namespace:
+              expression: "request.headers['{{.ModelRoutingHeader}}'].split('/')[1]"
+            name:
+              expression: "request.headers['{{.ModelRoutingHeader}}']"
+            verb:
+              value: post
+        priority: 1
+      model-access-header-delegate:
+        when:
+          # Same scope as model-access-header (see comments there) + delegation marker.
           - predicate: >-
               !request.path.matches('^/publishers/[^/]+/models/')
           - predicate: >-
-              !(request.path == '/v1/files' || request.path.startsWith('/v1/files/')
-              || request.path == '/v1/batches' || request.path.startsWith('/v1/batches/'))
-          - predicate: >-
-              '{{.ModelRoutingHeader}}' in request.headers
-              && request.headers['{{.ModelRoutingHeader}}'].matches('^publishers/[^/]+/models/.+$')
-        patternMatching:
-          patterns:
-            - predicate: "false"
-        priority: 0
+              !request.path.matches('^/v1/(files|batches)($|/)')
+          - any:
+              - patternRef: is-model-api-root
+              - patternRef: is-short-path
+          - patternRef: valid-model-header
+          - patternRef: has-maas-user
+        kubernetesSubjectAccessReview:
+          user:
+            expression: "auth.identity.user.username"
+          authorizationGroups:
+            expression: "auth.identity.user.groups"
+          resourceAttributes:
+            group:
+              value: serving.opendatahub.io
+            resource:
+              value: models/delegate
+            namespace:
+              expression: "request.headers['{{.ModelRoutingHeader}}'].split('/')[1]"
+            name:
+              expression: "request.headers['{{.ModelRoutingHeader}}']"
+            verb:
+              value: post-delegate
+        priority: 1
       inference-access:
         when:
           - patternRef: has-ns-and-name
-          - predicate: "!request.path.startsWith('/v1/')"
+          # ¬is-model-api-root: exclude model-API roots so their 2nd/3rd segments
+          # (e.g. /inference/v1/generate -> ns=inference/name=v1) are not mistaken
+          # for a per-participant <ns>/<name>. Regex mirrors the is-model-api-root pattern.
+          - predicate: >-
+              !request.path.matches('^/(v1|inference/v1)/')
+          # ¬is-publisher-path; regex mirrors that pattern.
           - predicate: >-
               !request.path.matches('^/publishers/[^/]+/models/')
         kubernetesSubjectAccessReview:
@@ -142,10 +233,12 @@ spec:
       inference-access-delegate:
         when:
           - patternRef: has-ns-and-name
-          - predicate: "!request.path.startsWith('/v1/')"
+          # See inference-access: exclude model-API roots from per-participant matching.
+          - predicate: >-
+              !request.path.matches('^/(v1|inference/v1)/')
           - predicate: >-
               !request.path.matches('^/publishers/[^/]+/models/')
-          - predicate: "'x-maas-user' in request.headers"
+          - patternRef: has-maas-user
         kubernetesSubjectAccessReview:
           user:
             expression: "auth.identity.user.username"
@@ -178,13 +271,13 @@ spec:
             priority: 0
           x-maas-user:
             when:
-              - predicate: "request.path == '/v1/files' || request.path.startsWith('/v1/files/') || request.path == '/v1/batches' || request.path.startsWith('/v1/batches/')"
+              - patternRef: is-batch-path
             plain:
               expression: auth.identity.user.username
             priority: 0
           x-maas-groups:
             when:
-              - predicate: "request.path == '/v1/files' || request.path.startsWith('/v1/files/') || request.path == '/v1/batches' || request.path.startsWith('/v1/batches/')"
+              - patternRef: is-batch-path
             plain:
               expression: "auth.identity.user.groups.join(',')"
             priority: 0
