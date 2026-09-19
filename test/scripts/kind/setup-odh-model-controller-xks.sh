@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Smoke test: deploy OMC xKS overlay on Kind and verify webhook-only mode.
+# Smoke test: deploy OMC xKS overlay on Kind and verify controller/webhook and API readiness.
 # Webhook TLS follows the KServe odh-xks pattern (cert-manager Certificate + inject-ca-from).
 set -euo pipefail
 
@@ -70,6 +70,14 @@ log "Waiting for webhook Certificate to be Ready"
 kubectl wait --for=condition=Ready \
   certificate/odh-model-controller-webhook \
   -n "${NAMESPACE}" --timeout=120s
+
+log "Waiting for model-serving-api Certificate to be Ready"
+kubectl wait --for=condition=Ready \
+  certificate/model-serving-api \
+  -n "${NAMESPACE}" --timeout=120s
+
+log "Waiting for model-serving-api deployment"
+kubectl -n "${NAMESPACE}" rollout status deployment/model-serving-api --timeout=180s
 
 log "Waiting for cert-manager to inject webhook CA bundle"
 deadline=$((SECONDS + 120))
