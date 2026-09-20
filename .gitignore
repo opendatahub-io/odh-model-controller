@@ -31,3 +31,4 @@ go.work
 # Other
 .envrc
 .devspace
+.gopath-loader/

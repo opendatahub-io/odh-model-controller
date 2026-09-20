@@ -1,14 +1,17 @@
 apiVersion: serving.kserve.io/v1alpha1
 kind: ClusterServingRuntime
 metadata:
-  name: csr-kserve-vllm-cpu-x86-v1
+  name: csr-kserve-vllm-rocm
   labels:
     opendatahub.io/managed: "true"
+    opendatahub.io/dashboard: "true"
+    opendatahub.io/ootb: "true"
   annotations:
     opendatahub.io/version: "1.0.0"
     opendatahub.io/template-display-name: "vLLM"
     opendatahub.io/runtime-version: "v0.21.0"
-    openshift.io/display-name: vLLM CPU (x86) ServingRuntime for KServe
+    opendatahub.io/recommended-accelerators: '["amd.com/gpu"]'
+    openshift.io/display-name: vLLM AMD GPU ServingRuntime for KServe
 spec:
   annotations:
     opendatahub.io/kserve-runtime: "vllm"
@@ -20,7 +23,7 @@ spec:
       name: vLLM
   containers:
     - name: kserve-container
-      image: $(vllm-cpu-x86-image)
+      image: $(vllm-rocm-image)
       command:
         - python
         - -m

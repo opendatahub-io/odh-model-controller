@@ -4,54 +4,54 @@
 
 ODH Model Controller is a **companion controller** to [KServe](https://github.com/kserve/kserve) within the [Open Data Hub](https://opendatahub.io/) (ODH) and Red Hat OpenShift AI platforms. KServe provides the core model serving primitives (InferenceService, ServingRuntime, InferenceGraph, LLMInferenceService). ODH Model Controller layers on platform-specific capabilities that don't belong in upstream KServe:
 
-- **OpenShift route management** — Creates and manages OpenShift Routes for model endpoints
-- **Certificate trust aggregation** — Watches platform CA bundle ConfigMaps and aggregates them into KServe's trust bundle
-- **Monitoring integration** — Creates ServiceMonitors, PodMonitors, metrics dashboards, and Prometheus RoleBindings
-- **NVIDIA NIM integration** — Manages NIM Account lifecycle (API key validation, model catalog sync, pull secrets, ServingRuntime templates)
-- **Multi-node Ray TLS** — Generates and distributes CA certificates for Ray head/worker TLS in multi-node serving
-- **Model Registry sync** — Bidirectional sync between InferenceServices and Model Registry metadata
-- **KEDA autoscaling** — Reconciles TriggerAuthentication resources for KEDA-based autoscaling
-- **LLMInferenceService auth** — Creates Kuadrant AuthPolicies and Istio EnvoyFilters for MaaS (Model-as-a-Service) gateway authentication
-- **Gateway API bootstrap** — Reconciles EnvoyFilter and AuthPolicy resources on Gateways independent of model lifecycle
-- **Webhook enforcement** — Validates InferenceService naming constraints, protects system namespaces, injects Ray TLS init containers
+- **OpenShift route management** - Creates and manages OpenShift Routes for model endpoints
+- **Certificate trust aggregation** - Watches platform CA bundle ConfigMaps and aggregates them into KServe's trust bundle
+- **Monitoring integration** - Creates ServiceMonitors, PodMonitors, metrics dashboards, and Prometheus RoleBindings
+- **NVIDIA NIM integration** - Manages NIM Account lifecycle (API key validation, model catalog sync, pull secrets, ServingRuntime templates)
+- **Multi-node Ray TLS** - Generates and distributes CA certificates for Ray head/worker TLS in multi-node serving
+- **Model Registry sync** - Bidirectional sync between InferenceServices and Model Registry metadata
+- **KEDA autoscaling** - Reconciles a shared, per-namespace KEDA Prometheus authentication context (ServiceAccount, Secret, Role, RoleBinding, TriggerAuthentication) for both InferenceService and LLMInferenceService Prometheus-based autoscaling
+- **LLMInferenceService auth** - Creates Kuadrant AuthPolicies and Istio EnvoyFilters for MaaS (Model-as-a-Service) gateway authentication
+- **Gateway API bootstrap** - Reconciles EnvoyFilter and AuthPolicy resources on Gateways independent of model lifecycle
+- **Webhook enforcement** - Validates InferenceService naming constraints, protects system namespaces, injects Ray TLS init containers
 
 ## System Context
 
 ```
-┌──────────────────────────────────────────────────────────────────────┐
-│                        OpenShift / Kubernetes Cluster                │
-│                                                                      │
-│  ┌─────────────┐    watches     ┌──────────────────────────────┐    │
-│  │   KServe     │──────────────►│  InferenceService (ISVC)      │    │
-│  │  Controller  │    reconciles │  ServingRuntime (SR)           │    │
-│  └─────────────┘               │  InferenceGraph (IG)           │    │
-│                                 │  LLMInferenceService (LLMISVC)│    │
-│  ┌─────────────┐    watches     │  LLMInferenceServiceConfig    │    │
-│  │  ODH Model  │──────────────►│                                │    │
-│  │  Controller  │    augments   └──────────────────────────────┘    │
-│  │             │                                                     │
-│  │             │    creates/manages                                   │
-│  │             │──────────────► Routes, NetworkPolicies,             │
-│  │             │                ServiceMonitors, PodMonitors,        │
-│  │             │                Secrets, ConfigMaps, RoleBindings,   │
-│  │             │                ClusterRoleBindings, ServiceAccounts,│
-│  │             │                EnvoyFilters, AuthPolicies,          │
-│  │             │                TriggerAuthentications, Templates    │
-│  └─────────────┘                                                     │
-│                                                                      │
-│  ┌─────────────┐                                                     │
-│  │ model-      │    REST API for gateway/endpoint discovery          │
-│  │ serving-api │    (standalone deployment, separate binary)         │
-│  └─────────────┘                                                     │
-│                                                                      │
-│  External Dependencies (optional, detected at startup via CRD check):│
-│  • Kuadrant / Authorino — auth policies                              │
-│  • Istio — EnvoyFilters                                              │
-│  • KEDA — autoscaler TriggerAuthentications                          │
-│  • Gateway API — Gateway, HTTPRoute                                  │
-│  • Prometheus Operator — ServiceMonitor, PodMonitor                  │
-│  • cert-manager — (upstream KServe dependency)                       │
-└──────────────────────────────────────────────────────────────────────┘
++----------------------------------------------------------------------+
+|                        OpenShift / Kubernetes Cluster                |
+|                                                                      |
+|  +-------------+    watches     +------------------------------+    |
+|  |   KServe     |-------------->|  InferenceService (ISVC)      |    |
+|  |  Controller  |    reconciles |  ServingRuntime (SR)           |    |
+|  +-------------+               |  InferenceGraph (IG)           |    |
+|                                 |  LLMInferenceService (LLMISVC)|    |
+|  +-------------+    watches     |  LLMInferenceServiceConfig    |    |
+|  |  ODH Model  |-------------->|                                |    |
+|  |  Controller  |    augments   +------------------------------+    |
+|  |             |                                                     |
+|  |             |    creates/manages                                   |
+|  |             |--------------> Routes, NetworkPolicies,             |
+|  |             |                ServiceMonitors, PodMonitors,        |
+|  |             |                Secrets, ConfigMaps, RoleBindings,   |
+|  |             |                ClusterRoleBindings, ServiceAccounts,|
+|  |             |                EnvoyFilters, AuthPolicies,          |
+|  |             |                TriggerAuthentications, Templates    |
+|  +-------------+                                                     |
+|                                                                      |
+|  +-------------+                                                     |
+|  | model-      |    REST API for gateway/endpoint discovery          |
+|  | serving-api |    (standalone deployment, separate binary)         |
+|  +-------------+                                                     |
+|                                                                      |
+|  External Dependencies (optional, detected at startup via CRD check):|
+|  * Kuadrant / Authorino - auth policies                              |
+|  * Istio - EnvoyFilters                                              |
+|  * KEDA - autoscaler TriggerAuthentications                          |
+|  * Gateway API - Gateway, HTTPRoute                                  |
+|  * Prometheus Operator - ServiceMonitor, PodMonitor                  |
+|  * cert-manager - (upstream KServe dependency)                       |
++----------------------------------------------------------------------+
 ```
 
 ## Two Binaries
@@ -82,13 +82,13 @@ A standalone REST API server for querying gateway and endpoint information. It i
 **Responsibilities:**
 1. Adds/removes an ODH finalizer for cross-namespace cleanup
 2. Delegates to `KserveRawInferenceServiceReconciler` which fans out to sub-reconcilers:
-   - **Route reconciler** — creates OpenShift Routes with TLS passthrough for model endpoints
-   - **Metrics service reconciler** — creates a Service for scraping runtime metrics
-   - **Metrics ServiceMonitor reconciler** — creates ServiceMonitor/PodMonitor for Prometheus
-   - **Metrics dashboard reconciler** — creates ConfigMaps with Grafana dashboard JSON
-   - **ClusterRoleBinding reconciler** — grants auth-delegator for secure metrics
-   - **ServiceAccount reconciler** — ensures service accounts with proper image pull secrets
-   - **KEDA reconciler** — creates TriggerAuthentication for KEDA autoscaling
+   - **Route reconciler** - creates OpenShift Routes with TLS passthrough for model endpoints
+   - **Metrics service reconciler** - creates a Service for scraping runtime metrics
+   - **Metrics ServiceMonitor reconciler** - creates ServiceMonitor/PodMonitor for Prometheus
+   - **Metrics dashboard reconciler** - creates ConfigMaps with Grafana dashboard JSON
+   - **ClusterRoleBinding reconciler** - grants auth-delegator for secure metrics
+   - **ServiceAccount reconciler** - ensures service accounts with proper image pull secrets
+   - **KEDA reconciler** (`KserveKEDAReconciler`) - creates the per-namespace KEDA Prometheus auth context (ServiceAccount, Secret, Role, RoleBinding, TriggerAuthentication) when an InferenceService uses a Prometheus external autoscaling metric. These resources are shared with LLMInferenceService (see below): both CRDs co-own the same objects, and cleanup only happens once neither type needs them anymore.
 3. Optionally runs Model Registry reconciliation (controlled by `MODELREGISTRY_STATE=managed`)
 4. Cleans up shared namespace resources when the last ISVC is deleted
 
@@ -97,15 +97,15 @@ A standalone REST API server for querying gateway and endpoint information. It i
 **Trigger:** ServingRuntime create/update/delete, plus watched Namespaces, RoleBindings, and Ray TLS Secrets.
 
 **Responsibilities:**
-1. **Monitoring RoleBindings** — creates/updates `prometheus-ns-access` RoleBindings in monitoring-configured namespaces
-2. **Multi-node Ray TLS** — when a ServingRuntime has `spec.workerSpec` (multi-node):
+1. **Monitoring RoleBindings** - creates/updates `prometheus-ns-access` RoleBindings in monitoring-configured namespaces
+2. **Multi-node Ray TLS** - when a ServingRuntime has `spec.workerSpec` (multi-node):
    - Creates a self-signed CA certificate in the controller namespace (`ray-ca-tls`)
    - Distributes the CA cert to user namespaces as `ray-tls` Secret
    - Syncs CA updates across all namespaces with multi-node runtimes
 
 ### InferenceGraph Controller (`internal/controller/serving/`)
 
-Placeholder controller that watches InferenceGraph resources. Currently a no-op stub — reconciliation logic has not been implemented yet.
+Placeholder controller that watches InferenceGraph resources. Currently a no-op stub - reconciliation logic has not been implemented yet.
 
 ### LLMInferenceService Controller (`internal/controller/serving/llm/`)
 
@@ -113,17 +113,43 @@ Placeholder controller that watches InferenceGraph resources. Currently a no-op 
 
 **Responsibilities:**
 1. Resolves BaseRef configs (LLMInferenceServiceConfig) and merges specs using KServe's `MergeSpecs`
-2. Runs sub-reconcilers — currently the **AuthPolicy reconciler** which creates Kuadrant AuthPolicies per-service
+2. Runs sub-reconcilers:
+   - **AuthPolicy reconciler** - creates Kuadrant AuthPolicies per-service
+   - **KEDA reconciler** (`LLMKedaReconciler`) - creates/removes this LLMInferenceService's owner reference on the same per-namespace KEDA Prometheus auth context used by InferenceService (see `KserveKEDAReconciler` above), when `spec.scaling.keda` (or `spec.prefill.scaling.keda`) declares a `type: prometheus` trigger. Operators reference the resulting TriggerAuthentication by name (`inference-prometheus-auth`) in their own trigger's `authenticationRef` to authenticate against Thanos/Prometheus on OpenShift. Out of scope: the WVA-actuator KEDA path (`spec.scaling.wva.keda`), which uses a separately-configured, cluster-scoped `ClusterTriggerAuthentication`.
 3. Cleans up namespace-scoped resources when the last LLMInferenceService is deleted
 4. Triggers global re-reconciliation when Kuadrant or Authorino instances are created/deleted
+
+**Example - direct KEDA Prometheus autoscaling on OpenShift:** the operator declares their own trigger and references the auth context `LLMKedaReconciler` provisions by name:
+
+```yaml
+apiVersion: serving.kserve.io/v1alpha2
+kind: LLMInferenceService
+metadata:
+  name: my-llm
+spec:
+  scaling:
+    minReplicas: 1
+    maxReplicas: 5
+    keda:
+      triggers:
+        - type: prometheus
+          metadata:
+            serverAddress: https://thanos-querier.openshift-monitoring.svc.cluster.local:9092
+            namespace: my-namespace
+            query: sum(rate(vllm_request_success_total{namespace="my-namespace"}[1m]))
+            threshold: "10"
+            authModes: bearer
+          authenticationRef:
+            name: inference-prometheus-auth
+```
 
 ### Gateway Controller (`internal/controller/serving/llm/`)
 
 **Trigger:** Gateway create/update (with specific predicate filtering), plus changes to LLMInferenceService, LLMInferenceServiceConfig, and Namespace labels.
 
 **Responsibilities:**
-1. **EnvoyFilter reconciliation** — creates Istio EnvoyFilters for Authorino TLS bootstrap on gateways referenced by LLMInferenceServices
-2. **AuthPolicy reconciliation** — creates gateway-level Kuadrant AuthPolicies with configurable CEL expressions for access control
+1. **EnvoyFilter reconciliation** - creates Istio EnvoyFilters for Authorino TLS bootstrap on gateways referenced by LLMInferenceServices
+2. **AuthPolicy reconciliation** - creates gateway-level Kuadrant AuthPolicies with configurable CEL expressions for access control
 3. Respects `opendatahub.io/managed` labels/annotations and `security.opendatahub.io/authorino-tls-bootstrap` annotation
 4. Uses delta processing (desired-vs-actual comparison) to minimize API writes
 5. Handles Gateway API allowedRoutes/namespace selectors to determine which namespaces can reference a gateway
@@ -155,10 +181,10 @@ Emits metrics about predictor pod lifecycle for observability dashboards.
 
 **Responsibilities:**
 Manages the lifecycle of NVIDIA NIM integration through a handler chain:
-1. **ValidationHandler** — validates the NGC API key against NVIDIA's API, respects refresh rates and force-validation annotation
-2. **ConfigMapHandler** — fetches/syncs the NIM model catalog into a ConfigMap (supports air-gapped mode with user-provided model lists)
-3. **TemplateHandler** — creates/updates an OpenShift Template for NIM ServingRuntimes
-4. **PullSecretHandler** — creates/updates image pull secrets for NGC container registry
+1. **ValidationHandler** - validates the NGC API key against NVIDIA's API, respects refresh rates and force-validation annotation
+2. **ConfigMapHandler** - fetches/syncs the NIM model catalog into a ConfigMap (supports air-gapped mode with user-provided model lists)
+3. **TemplateHandler** - creates/updates an OpenShift Template for NIM ServingRuntimes
+4. **PullSecretHandler** - creates/updates image pull secrets for NGC container registry
 
 The controller uses a finalizer (`runtimes.opendatahub.io/nim-cleanup-finalizer`) for cleanup. When `NIM_STATE=removed`, it runs a cleanup runner instead of the full controller.
 
@@ -201,7 +227,7 @@ ODH Model Controller depends on the **opendatahub-io/kserve** fork (not upstream
 
 - **API types**: Imports `kserve/pkg/apis/serving/v1beta1` (InferenceService), `v1alpha1` (ServingRuntime, InferenceGraph), and `v1alpha2` (LLMInferenceService, LLMInferenceServiceConfig)
 - **Spec merging**: Uses `kserve/pkg/controller/v1alpha2/llmisvc.MergeSpecs` for LLMInferenceService config inheritance
-- **Deployment mode**: Exclusively operates in RawDeployment mode — the controller checks for and manages raw Deployment/Service resources, not Knative Services
+- **Deployment mode**: Exclusively operates in RawDeployment mode - the controller checks for and manages raw Deployment/Service resources, not Knative Services
 - **Shared CRDs**: KServe CRD manifests are downloaded into `config/crd/external/` for envtest and kustomize overlays
 
 ## Runtime Templates
@@ -227,6 +253,6 @@ These are kustomized into the deployment manifests and are the basis for the NIM
 
 ## Deployment
 
-The controller is deployed via kustomize overlays in `config/`. The base overlay in `config/base/` references a `params.env` file containing container image references. The ODH operator (opendatahub-io/opendatahub-operator) manages the actual deployment — this repo provides the manifests and container images, not a standalone installer.
+The controller is deployed via kustomize overlays in `config/`. The base overlay in `config/base/` references a `params.env` file containing container image references. The ODH operator (opendatahub-io/opendatahub-operator) manages the actual deployment - this repo provides the manifests and container images, not a standalone installer.
 
 The model-serving-api is deployed separately via `config/server/`.
