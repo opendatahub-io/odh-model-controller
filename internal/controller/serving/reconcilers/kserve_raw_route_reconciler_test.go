@@ -253,7 +253,7 @@ var _ = Describe("KserveRawRouteReconciler", func() {
 		})
 
 		When("transformer service exists and auth is enabled", func() {
-			It("should use edge TLS termination and http port instead of reencrypt", func(ctx SpecContext) {
+			It("should use reencrypt TLS termination and https port for native TLS", func(ctx SpecContext) {
 				isvc := createISVCWithAnnotations(
 					map[string]string{
 						constants.KserveNetworkVisibility: constants.LabelEnableKserveRawRoute,
@@ -270,7 +270,7 @@ var _ = Describe("KserveRawRouteReconciler", func() {
 					},
 					[]corev1.ServicePort{
 						{Name: "http", Port: 80},
-						{Name: "https", Port: 443},
+						{Name: "https", Port: 8443},
 					},
 				)
 
@@ -281,7 +281,7 @@ var _ = Describe("KserveRawRouteReconciler", func() {
 					},
 					[]corev1.ServicePort{
 						{Name: "http", Port: 80},
-						{Name: "https", Port: 443},
+						{Name: "https", Port: 8443},
 					},
 				)
 
@@ -296,8 +296,8 @@ var _ = Describe("KserveRawRouteReconciler", func() {
 				Expect(err).NotTo(HaveOccurred())
 				Expect(route).NotTo(BeNil())
 				Expect(route.Spec.To.Name).To(Equal("test-transformer"))
-				Expect(route.Spec.Port.TargetPort.StrVal).To(Equal("http"))
-				Expect(route.Spec.TLS.Termination).To(Equal(routev1.TLSTerminationEdge))
+				Expect(route.Spec.Port.TargetPort.StrVal).To(Equal("https"))
+				Expect(route.Spec.TLS.Termination).To(Equal(routev1.TLSTerminationReencrypt))
 			})
 		})
 
