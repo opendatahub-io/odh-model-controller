@@ -86,7 +86,7 @@ var _ = Describe("NIM Account Controller", func() {
 
 		By("Verify successful result and re-queueing")
 		Expect(err).NotTo(HaveOccurred())
-		Expect(result.Requeue).To(BeTrue())
+		Expect(result.RequeueAfter).To(BeNumerically(">", 0))
 
 		By("Verify the finalizer was added to the Account")
 		uAccount := &v1.Account{}
@@ -209,7 +209,7 @@ var _ = Describe("NIM Account Controller", func() {
 
 		By("Verify successful result no re-queueing required")
 		Expect(err).NotTo(HaveOccurred())
-		Expect(result.Requeue).To(BeFalse())
+		Expect(result.RequeueAfter).To(BeZero())
 
 		By("Verify the Account health and status updates")
 		uAccount := &v1.Account{}
@@ -319,7 +319,7 @@ var _ = Describe("NIM Account Controller", func() {
 
 		By("Verify successful result no re-queueing required")
 		Expect(err).NotTo(HaveOccurred())
-		Expect(result.Requeue).To(BeFalse())
+		Expect(result.RequeueAfter).To(BeZero())
 
 		By("Verify the Account and the supporting resources were removed")
 		Eventually(func() error {

@@ -35,7 +35,7 @@ import (
 	apierrs "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
-	"k8s.io/client-go/tools/record"
+	"k8s.io/client-go/tools/events"
 	ctrl "sigs.k8s.io/controller-runtime"
 	ctrlbuilder "sigs.k8s.io/controller-runtime/pkg/builder"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -53,12 +53,12 @@ import (
 
 type LLMInferenceServiceReconciler struct {
 	client.Client
-	Recorder               record.EventRecorder
+	Recorder               events.EventRecorder
 	Scheme                 *runtime.Scheme
 	subResourceReconcilers []parentreconcilers.LLMSubResourceReconciler
 }
 
-func NewLLMInferenceServiceReconciler(client client.Client, scheme *runtime.Scheme, recorder record.EventRecorder) *LLMInferenceServiceReconciler {
+func NewLLMInferenceServiceReconciler(client client.Client, scheme *runtime.Scheme, recorder events.EventRecorder) *LLMInferenceServiceReconciler {
 	subResourceReconcilers := []parentreconcilers.LLMSubResourceReconciler{
 		reconcilers.NewKserveAuthPolicyReconciler(client, scheme),
 		reconcilers.NewKserveAuthPostureReconciler(client, recorder),
@@ -130,7 +130,7 @@ func (r *LLMInferenceServiceReconciler) Reconcile(ctx context.Context, req ctrl.
 
 	if err := r.reconcileSubResources(ctx, logger, llmisvc); err != nil {
 		logger.Error(err, "Failed to reconcile LLMInferenceService sub-resources")
-		r.Recorder.Eventf(llmisvc, corev1.EventTypeWarning, "ReconcileError", "Failed to reconcile LLMInferenceService: %v", err)
+		r.Recorder.Eventf(llmisvc, nil, corev1.EventTypeWarning, "ReconcileError", "Reconcile", "Failed to reconcile LLMInferenceService: %v", err)
 		return ctrl.Result{}, err
 	}
 

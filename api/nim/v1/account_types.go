@@ -70,7 +70,3 @@ type AccountList struct {
 	metav1.ListMeta `json:"metadata,omitempty"`
 	Items           []Account `json:"items"`
 }
-
-func init() {
-	SchemeBuilder.Register(&Account{}, &AccountList{})
-}
