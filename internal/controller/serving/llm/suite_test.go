@@ -21,7 +21,7 @@ import (
 
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
-	"k8s.io/client-go/tools/record"
+	"k8s.io/client-go/tools/events"
 
 	"github.com/opendatahub-io/odh-model-controller/internal/controller/serving/llm/fixture"
 	pkgtest "github.com/opendatahub-io/odh-model-controller/internal/controller/testing"
@@ -34,7 +34,7 @@ func TestLLMInferenceServiceController(t *testing.T) {
 
 var (
 	envTest       *pkgtest.Client
-	eventRecorder *record.FakeRecorder
+	eventRecorder *events.FakeRecorder
 )
 
 var _ = SynchronizedBeforeSuite(func() {
