@@ -26,13 +26,11 @@ import (
 	"k8s.io/apimachinery/pkg/api/errors"
 	k8serr "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
-	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/util/validation/field"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
-	"sigs.k8s.io/controller-runtime/pkg/webhook"
 	"sigs.k8s.io/controller-runtime/pkg/webhook/admission"
 
 	servingv1beta1 "github.com/kserve/kserve/pkg/apis/serving/v1beta1"
@@ -48,7 +46,7 @@ var inferenceservicelog = logf.Log.WithName("inferenceservice-resource")
 
 // SetupInferenceServiceWebhookWithManager registers the webhook for InferenceService in the manager.
 func SetupInferenceServiceWebhookWithManager(mgr ctrl.Manager) error {
-	return ctrl.NewWebhookManagedBy(mgr).For(&servingv1beta1.InferenceService{}).
+	return ctrl.NewWebhookManagedBy(mgr, &servingv1beta1.InferenceService{}).
 		WithValidator(&InferenceServiceCustomValidator{client: mgr.GetClient()}).
 		WithDefaulter(&InferenceServiceCustomDefaulter{
 			client:    mgr.GetClient(),
@@ -70,14 +68,10 @@ type InferenceServiceCustomValidator struct {
 	client client.Client
 }
 
-var _ webhook.CustomValidator = &InferenceServiceCustomValidator{}
+var _ admission.Validator[*servingv1beta1.InferenceService] = &InferenceServiceCustomValidator{}
 
 // ValidateCreate implements webhook.CustomValidator so a webhook will be registered for the type InferenceService.
-func (v *InferenceServiceCustomValidator) ValidateCreate(ctx context.Context, obj runtime.Object) (admission.Warnings, error) {
-	inferenceservice, ok := obj.(*servingv1beta1.InferenceService)
-	if !ok {
-		return nil, fmt.Errorf("expected a InferenceService object but got %T", obj)
-	}
+func (v *InferenceServiceCustomValidator) ValidateCreate(ctx context.Context, inferenceservice *servingv1beta1.InferenceService) (admission.Warnings, error) {
 	logger := inferenceservicelog.WithValues("namespace", inferenceservice.Namespace, "isvc", inferenceservice.GetName())
 	logger.Info("Validation for InferenceService upon creation")
 
@@ -113,11 +107,7 @@ func (v *InferenceServiceCustomValidator) ValidateCreate(ctx context.Context, ob
 }
 
 // ValidateUpdate implements webhook.CustomValidator so a webhook will be registered for the type InferenceService.
-func (v *InferenceServiceCustomValidator) ValidateUpdate(ctx context.Context, oldObj, newObj runtime.Object) (admission.Warnings, error) {
-	inferenceservice, ok := newObj.(*servingv1beta1.InferenceService)
-	if !ok {
-		return nil, fmt.Errorf("expected a InferenceService object for the newObj but got %T", newObj)
-	}
+func (v *InferenceServiceCustomValidator) ValidateUpdate(ctx context.Context, _, inferenceservice *servingv1beta1.InferenceService) (admission.Warnings, error) {
 	inferenceservicelog.Info("Validation for InferenceService upon update", "name", inferenceservice.GetName())
 
 	if err := validateCanaryCount(inferenceservice); err != nil {
@@ -128,16 +118,8 @@ func (v *InferenceServiceCustomValidator) ValidateUpdate(ctx context.Context, ol
 }
 
 // ValidateDelete implements webhook.CustomValidator so a webhook will be registered for the type InferenceService.
-func (v *InferenceServiceCustomValidator) ValidateDelete(ctx context.Context, obj runtime.Object) (admission.Warnings, error) {
-	// Unused. Code below is from scaffolding
-
-	inferenceservice, ok := obj.(*servingv1beta1.InferenceService)
-	if !ok {
-		return nil, fmt.Errorf("expected a InferenceService object but got %T", obj)
-	}
+func (v *InferenceServiceCustomValidator) ValidateDelete(ctx context.Context, inferenceservice *servingv1beta1.InferenceService) (admission.Warnings, error) {
 	inferenceservicelog.Info("Validation for InferenceService upon deletion", "name", inferenceservice.GetName())
-
-	// TODO(user): fill in your validation logic upon object deletion.
 
 	return nil, nil
 }
@@ -167,14 +149,10 @@ type InferenceServiceCustomDefaulter struct {
 	apiReader client.Reader
 }
 
-var _ webhook.CustomDefaulter = &InferenceServiceCustomDefaulter{}
+var _ admission.Defaulter[*servingv1beta1.InferenceService] = &InferenceServiceCustomDefaulter{}
 
 // Default implements webhook.CustomDefaulter so a webhook will be registered for the Kind InferenceService.
-func (d *InferenceServiceCustomDefaulter) Default(ctx context.Context, obj runtime.Object) error {
-	isvc, ok := obj.(*servingv1beta1.InferenceService)
-	if !ok {
-		return fmt.Errorf("expected an InferenceService object but got %T", obj)
-	}
+func (d *InferenceServiceCustomDefaulter) Default(ctx context.Context, isvc *servingv1beta1.InferenceService) error {
 	logger := inferenceservicelog.WithValues("name", isvc.GetName())
 	logger.Info("Defaulting for InferenceService", "name", isvc.GetName())
 
