@@ -22,8 +22,12 @@ the relevant sequence is:
    `tag_name: odh-vX.Y` (or `-ea1`/`-ea2` suffix if applicable).
 2. **Wait for the operator image** — confirm
    `quay.io/opendatahub/odh-kserve-module-operator:<tag>` exists on Quay.
-3. **Trigger smoke** — on any open [opendatahub-io/kserve](https://github.com/opendatahub-io/kserve)
-   PR, comment `/test e2e-kserve-module-post-release`.
+3. **Trigger smoke**
+   - Plain `odh-vX.Y`: on any open [opendatahub-io/kserve](https://github.com/opendatahub-io/kserve)
+     PR, comment `/test e2e-kserve-module-post-release`.
+   - Pre-release (`odh-vX.Y-eaN`, `-rc`, etc.): `/test` will not select that tag;
+     run `export RELEASE_TAG=<tag> && bash hack/ci/post-release-smoke.sh` locally
+     (same script and pytest flow as CI).
 4. **Cut odh-model-controller** (and other components) — the release workflow
    requires the kserve tag to exist before bumping `go.mod` in this repo.
 
@@ -44,10 +48,18 @@ Orchestration is an OpenShift CI **optional presubmit** on `opendatahub-io/kserv
 /test e2e-kserve-module-post-release
 ```
 
-The job provisions an ephemeral Hypershift cluster, checks out the **newest**
-plain `odh-vX.Y` tag, installs the published operator image, and runs
-`hack/ci/post-release-smoke.sh`. (`/test` cannot pass a tag; for a specific older
-tag, run locally with `export RELEASE_TAG=...`.)
+The job provisions an ephemeral Hypershift cluster, checks out the **newest
+plain** `odh-vX.Y` tag, installs the published operator image, and runs
+`hack/ci/post-release-smoke.sh`. (`/test` cannot pass a tag.)
+
+**Early-access / `-ea` / `-rc`:** if the image/tag under test is e.g.
+`odh-v3.6-ea1`, do **not** use `/test` for that tag — auto-resolve ignores
+suffixes. Run the same script locally:
+
+```bash
+export RELEASE_TAG=odh-v3.6-ea1
+bash hack/ci/post-release-smoke.sh
+```
 
 **Watch runs:** [OpenShift CI — opendatahub-io/kserve](https://prow.ci.openshift.org/?repo=opendatahub-io%2Fkserve)
 
