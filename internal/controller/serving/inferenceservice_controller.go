@@ -183,10 +183,6 @@ func (r *InferenceServiceReconciler) Reconcile(ctx context.Context, req ctrl.Req
 
 		mrResult, mrErr := mrReconciler.Reconcile(ctx, req)
 
-		if mrResult.Requeue {
-			reconcileResult.Requeue = true
-		}
-
 		if mrResult.RequeueAfter > 0 && (reconcileResult.RequeueAfter == 0 || mrResult.RequeueAfter < reconcileResult.RequeueAfter) {
 			reconcileResult.RequeueAfter = mrResult.RequeueAfter
 		}
