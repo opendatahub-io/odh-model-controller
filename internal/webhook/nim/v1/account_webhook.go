@@ -22,10 +22,8 @@ import (
 
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
-	"k8s.io/apimachinery/pkg/runtime"
 	ctrl "sigs.k8s.io/controller-runtime"
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
-	"sigs.k8s.io/controller-runtime/pkg/webhook"
 	"sigs.k8s.io/controller-runtime/pkg/webhook/admission"
 
 	nimv1 "github.com/opendatahub-io/odh-model-controller/api/nim/v1"
@@ -37,7 +35,7 @@ var accountlog = logf.Log.WithName("NIMAccountValidatingWebhook")
 
 // SetupAccountWebhookWithManager registers the webhook for Account in the manager.
 func SetupAccountWebhookWithManager(mgr ctrl.Manager) error {
-	return ctrl.NewWebhookManagedBy(mgr).For(&nimv1.Account{}).
+	return ctrl.NewWebhookManagedBy(mgr, &nimv1.Account{}).
 		WithValidator(&AccountCustomValidator{client: mgr.GetClient()}).
 		Complete()
 }
@@ -57,19 +55,14 @@ type AccountCustomValidator struct {
 	client client.Client
 }
 
-var _ webhook.CustomValidator = &AccountCustomValidator{}
+var _ admission.Validator[*nimv1.Account] = &AccountCustomValidator{}
 
 // ValidateCreate implements webhook.CustomValidator so a webhook will be registered for the type Account.
-func (v *AccountCustomValidator) ValidateCreate(ctx context.Context, obj runtime.Object) (warnings admission.Warnings, err error) {
-	account, ok := obj.(*nimv1.Account)
-	if !ok {
-		return nil, fmt.Errorf("expected a Account object but got %T", obj)
-	}
-
-	log := accountlog.WithValues("namespace", account.Namespace, "account", account.Name)
+func (v *AccountCustomValidator) ValidateCreate(ctx context.Context, obj *nimv1.Account) (warnings admission.Warnings, err error) {
+	log := accountlog.WithValues("namespace", obj.Namespace, "account", obj.Name)
 	log.Info("Validating NIM Account creation")
 
-	err = v.verifySingletonInNamespace(ctx, account)
+	err = v.verifySingletonInNamespace(ctx, obj)
 	if err != nil {
 		log.Error(err, "Rejecting NIM Account creation because checking singleton didn't pass")
 		return nil, err
@@ -79,13 +72,13 @@ func (v *AccountCustomValidator) ValidateCreate(ctx context.Context, obj runtime
 }
 
 // ValidateUpdate implements webhook.CustomValidator so a webhook will be registered for the type Account.
-func (v *AccountCustomValidator) ValidateUpdate(ctx context.Context, oldObj, newObj runtime.Object) (admission.Warnings, error) {
+func (v *AccountCustomValidator) ValidateUpdate(ctx context.Context, oldObj, newObj *nimv1.Account) (admission.Warnings, error) {
 	// For update, nothing needs to be validated
 	return nil, nil
 }
 
 // ValidateDelete implements webhook.CustomValidator so a webhook will be registered for the type Account.
-func (v *AccountCustomValidator) ValidateDelete(ctx context.Context, obj runtime.Object) (admission.Warnings, error) {
+func (v *AccountCustomValidator) ValidateDelete(ctx context.Context, obj *nimv1.Account) (admission.Warnings, error) {
 	// For deletion, nothing needs to be validated
 	return nil, nil
 }
