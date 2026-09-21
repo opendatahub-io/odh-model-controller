@@ -10,8 +10,9 @@ Tests live in [opendatahub-io/kserve](https://github.com/opendatahub-io/kserve)
 
 ## When to run
 
-This smoke runs **when you push an ODH release tag** to kserve (see below). It does
-**not** run on PR merges or branch pushes.
+After cutting an ODH release tag and publishing the operator image on Quay.
+The smoke does **not** run automatically on PR merges or tag pushes (OpenShift CI
+cannot host a tag-regex postsubmit under the generated master jobs today).
 
 Use this repo's **[ODH Release Workflow](https://github.com/opendatahub-io/odh-model-controller/actions/workflows/odh-release.yaml)**
 (Actions → *ODH Release Workflow*) to cut component tags. For post-release smoke,
@@ -21,38 +22,39 @@ the relevant sequence is:
    `tag_name: odh-vX.Y` (or `-ea1`/`-ea2` suffix if applicable).
 2. **Wait for the operator image** — confirm
    `quay.io/opendatahub/odh-kserve-module-operator:<tag>` exists on Quay.
-3. **Push the tag** (if not already pushed) — OpenShift CI postsubmit runs automatically.
+3. **Trigger smoke** — on any open [opendatahub-io/kserve](https://github.com/opendatahub-io/kserve)
+   PR, comment `/test e2e-kserve-module-post-release`.
 4. **Cut odh-model-controller** (and other components) — the release workflow
    requires the kserve tag to exist before bumping `go.mod` in this repo.
 
 Run the smoke **after step 2** and **before treating the kserve release as validated**
-for RHOAI downstream sync. Re-run from Prow if the operator image was rebuilt without
-creating a new tag.
+for RHOAI downstream sync. Re-run with the same `/test` comment (or Prow UI) if the
+operator image was rebuilt without creating a new tag.
 
 ## How to run (OpenShift CI)
 
-Orchestration is an OpenShift CI **tag postsubmit** on `opendatahub-io/kserve`:
+Orchestration is an OpenShift CI **optional presubmit** on `opendatahub-io/kserve`:
 
-- **Job:** `branch-ci-opendatahub-io-kserve-master-e2e-kserve-module-post-release`
+- **Job:** `pull-ci-opendatahub-io-kserve-master-e2e-kserve-module-post-release`
 - **Context:** `ci/prow/e2e-kserve-module-post-release`
-- **Trigger:** push git tag matching `odh-vX.Y` (e.g. `odh-v3.6`)
+- **Trigger:** `/test e2e-kserve-module-post-release` on a kserve PR
 
-```bash
-# After operator image is on Quay:
-git tag odh-v3.6 <commit>
-git push origin odh-v3.6
+```text
+# After operator image is on Quay and odh-vX.Y is pushed:
+/test e2e-kserve-module-post-release
 ```
 
-The job provisions an ephemeral Hypershift cluster, checks out **the tag** (not PR
-code), installs the published operator image, and runs `hack/ci/post-release-smoke.sh`.
+The job provisions an ephemeral Hypershift cluster, checks out the release tag
+(newest `odh-vX.Y` unless `RELEASE_TAG` is set), installs the published operator
+image, and runs `hack/ci/post-release-smoke.sh`.
 
 **Watch runs:** [OpenShift CI — opendatahub-io/kserve](https://prow.ci.openshift.org/?repo=opendatahub-io%2Fkserve)
 
-**Re-run without a new tag:** Prow UI → find the postsubmit for that tag → Re-run.
+**Re-run:** same `/test` comment, or Prow UI → Re-run.
 
 ### What the job validates
 
-1. Fresh OpenShift install via kserve-module operator `…/odh-kserve-module-operator:<tag>`.
+1. Fresh OpenShift install via kserve-module operator `.../odh-kserve-module-operator:<tag>`.
 2. `odh-model-controller` Running, `KServeReady=True`.
 3. One `LLMInferenceService` reaches `Ready=True`.
 
