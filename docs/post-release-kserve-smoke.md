@@ -44,9 +44,10 @@ Orchestration is an OpenShift CI **optional presubmit** on `opendatahub-io/kserv
 /test e2e-kserve-module-post-release
 ```
 
-The job provisions an ephemeral Hypershift cluster, checks out the release tag
-(newest `odh-vX.Y` unless `RELEASE_TAG` is set), installs the published operator
-image, and runs `hack/ci/post-release-smoke.sh`.
+The job provisions an ephemeral Hypershift cluster, checks out the **newest**
+plain `odh-vX.Y` tag, installs the published operator image, and runs
+`hack/ci/post-release-smoke.sh`. (`/test` cannot pass a tag; for a specific older
+tag, run locally with `export RELEASE_TAG=...`.)
 
 **Watch runs:** [OpenShift CI — opendatahub-io/kserve](https://prow.ci.openshift.org/?repo=opendatahub-io%2Fkserve)
 
