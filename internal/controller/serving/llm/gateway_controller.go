@@ -37,7 +37,7 @@ import (
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
-	"k8s.io/client-go/tools/record"
+	"k8s.io/client-go/tools/events"
 	"k8s.io/utils/ptr"
 	ctrl "sigs.k8s.io/controller-runtime"
 	ctrlbuilder "sigs.k8s.io/controller-runtime/pkg/builder"
@@ -62,7 +62,7 @@ import (
 // for Authorino is available even when no models are deployed.
 type GatewayReconciler struct {
 	client.Client
-	Recorder          record.EventRecorder
+	Recorder          events.EventRecorder
 	Scheme            *runtime.Scheme
 	envoyFilterLoader resources.EnvoyFilterTemplateLoader
 	envoyFilterStore  resources.EnvoyFilterStore
@@ -71,7 +71,7 @@ type GatewayReconciler struct {
 	deltaProcessor    processors.DeltaProcessor
 }
 
-func NewGatewayReconciler(client client.Client, scheme *runtime.Scheme, recorder record.EventRecorder) *GatewayReconciler {
+func NewGatewayReconciler(client client.Client, scheme *runtime.Scheme, recorder events.EventRecorder) *GatewayReconciler {
 	return &GatewayReconciler{
 		Client:            client,
 		Recorder:          recorder,
@@ -119,36 +119,36 @@ func (r *GatewayReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 
 	if shouldCreateEnvoyFilter {
 		if err := r.reconcileEnvoyFilter(ctx, logger, gateway); err != nil && !meta.IsNoMatchError(err) {
-			r.Recorder.Eventf(gateway, corev1.EventTypeWarning, "ReconcileError", "Failed to reconcile EnvoyFilter: %v", err)
+			r.Recorder.Eventf(gateway, nil, corev1.EventTypeWarning, "ReconcileError", "Reconcile", "Failed to reconcile EnvoyFilter: %v", err)
 			return ctrl.Result{}, err
 		}
 	} else {
 		if err := r.deleteEnvoyFilterIfManaged(ctx, logger, gateway); err != nil && !meta.IsNoMatchError(err) {
-			r.Recorder.Eventf(gateway, corev1.EventTypeWarning, "ReconcileError", "Failed to delete EnvoyFilter: %v", err)
+			r.Recorder.Eventf(gateway, nil, corev1.EventTypeWarning, "ReconcileError", "Reconcile", "Failed to delete EnvoyFilter: %v", err)
 			return ctrl.Result{}, err
 		}
 	}
 
 	if shouldCreateAuthPolicy {
 		if err := r.reconcileAuthPolicy(ctx, logger, gateway); err != nil && !meta.IsNoMatchError(err) {
-			r.Recorder.Eventf(gateway, corev1.EventTypeWarning, "ReconcileError", "Failed to reconcile AuthPolicy: %v", err)
+			r.Recorder.Eventf(gateway, nil, corev1.EventTypeWarning, "ReconcileError", "Reconcile", "Failed to reconcile AuthPolicy: %v", err)
 			return ctrl.Result{}, err
 		}
 	} else {
 		if err := r.deleteAuthPolicyIfManaged(ctx, logger, gateway); err != nil && !meta.IsNoMatchError(err) {
-			r.Recorder.Eventf(gateway, corev1.EventTypeWarning, "ReconcileError", "Failed to delete AuthPolicy: %v", err)
+			r.Recorder.Eventf(gateway, nil, corev1.EventTypeWarning, "ReconcileError", "Reconcile", "Failed to delete AuthPolicy: %v", err)
 			return ctrl.Result{}, err
 		}
 	}
 
 	if scrape := gateway.GetLabels()[constants.RhoaiObservabilityLabel]; referencedByLLMService && scrape != "false" {
 		if err := r.reconcileGatewayPodMonitor(ctx, logger, gateway); err != nil && !meta.IsNoMatchError(err) {
-			r.Recorder.Eventf(gateway, corev1.EventTypeWarning, "ReconcileError", "Failed to reconcile gateway PodMonitor: %v", err)
+			r.Recorder.Eventf(gateway, nil, corev1.EventTypeWarning, "ReconcileError", "Reconcile", "Failed to reconcile gateway PodMonitor: %v", err)
 			return ctrl.Result{}, err
 		}
 	} else {
 		if err := r.deleteGatewayPodMonitorIfManaged(ctx, logger, gateway); err != nil && !meta.IsNoMatchError(err) {
-			r.Recorder.Eventf(gateway, corev1.EventTypeWarning, "ReconcileError", "Failed to delete gateway PodMonitor: %v", err)
+			r.Recorder.Eventf(gateway, nil, corev1.EventTypeWarning, "ReconcileError", "Reconcile", "Failed to delete gateway PodMonitor: %v", err)
 			return ctrl.Result{}, err
 		}
 	}

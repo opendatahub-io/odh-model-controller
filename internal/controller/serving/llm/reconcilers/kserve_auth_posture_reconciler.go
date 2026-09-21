@@ -25,7 +25,7 @@ import (
 	"github.com/go-logr/logr"
 	kservev1alpha2 "github.com/kserve/kserve/pkg/apis/serving/v1alpha2"
 	corev1 "k8s.io/api/core/v1"
-	"k8s.io/client-go/tools/record"
+	"k8s.io/client-go/tools/events"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	"github.com/opendatahub-io/odh-model-controller/internal/controller/constants"
@@ -36,10 +36,10 @@ var _ parentreconcilers.LLMSubResourceReconciler = (*KserveAuthPostureReconciler
 
 type KserveAuthPostureReconciler struct {
 	client   client.Client
-	recorder record.EventRecorder
+	recorder events.EventRecorder
 }
 
-func NewKserveAuthPostureReconciler(client client.Client, recorder record.EventRecorder) *KserveAuthPostureReconciler {
+func NewKserveAuthPostureReconciler(client client.Client, recorder events.EventRecorder) *KserveAuthPostureReconciler {
 	return &KserveAuthPostureReconciler{
 		client:   client,
 		recorder: recorder,
@@ -89,7 +89,7 @@ func (r *KserveAuthPostureReconciler) Reconcile(ctx context.Context, log logr.Lo
 		group, formatNames(withAuth), formatNames(withoutAuth),
 	)
 	log.Info(msg)
-	r.recorder.Event(llmisvc, corev1.EventTypeWarning, "AuthPostureMismatch", msg)
+	r.recorder.Eventf(llmisvc, nil, corev1.EventTypeWarning, "AuthPostureMismatch", "Reconcile", msg)
 
 	return nil
 }

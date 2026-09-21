@@ -24,13 +24,11 @@ import (
 
 	servingv1alpha1 "github.com/kserve/kserve/pkg/apis/serving/v1alpha1"
 	"k8s.io/apimachinery/pkg/api/errors"
-	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/util/validation/field"
 	"knative.dev/pkg/network"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
-	"sigs.k8s.io/controller-runtime/pkg/webhook"
 	"sigs.k8s.io/controller-runtime/pkg/webhook/admission"
 )
 
@@ -40,7 +38,7 @@ var inferencegraphlog = logf.Log.WithName("inferencegraph-resource")
 
 // SetupInferenceGraphWebhookWithManager registers the webhook for InferenceGraph in the manager.
 func SetupInferenceGraphWebhookWithManager(mgr ctrl.Manager) error {
-	return ctrl.NewWebhookManagedBy(mgr).For(&servingv1alpha1.InferenceGraph{}).
+	return ctrl.NewWebhookManagedBy(mgr, &servingv1alpha1.InferenceGraph{}).
 		WithValidator(&InferenceGraphCustomValidator{}).
 		WithDefaulter(&InferenceGraphCustomDefaulter{client: mgr.GetClient()}).
 		Complete()
@@ -57,15 +55,10 @@ type InferenceGraphCustomDefaulter struct {
 	client client.Client
 }
 
-var _ webhook.CustomDefaulter = &InferenceGraphCustomDefaulter{}
+var _ admission.Defaulter[*servingv1alpha1.InferenceGraph] = &InferenceGraphCustomDefaulter{}
 
 // Default implements webhook.CustomDefaulter so a webhook will be registered for the Kind InferenceGraph.
-func (d *InferenceGraphCustomDefaulter) Default(ctx context.Context, obj runtime.Object) error {
-	inferencegraph, ok := obj.(*servingv1alpha1.InferenceGraph)
-
-	if !ok {
-		return fmt.Errorf("expected an InferenceGraph object but got %T", obj)
-	}
+func (d *InferenceGraphCustomDefaulter) Default(ctx context.Context, inferencegraph *servingv1alpha1.InferenceGraph) error {
 	logger := inferencegraphlog.WithValues("name", inferencegraph.GetName())
 	logger.Info("Defaulting for InferenceGraph")
 
@@ -83,30 +76,22 @@ func (d *InferenceGraphCustomDefaulter) Default(ctx context.Context, obj runtime
 // as this struct is used only for temporary operations and does not need to be deeply copied.
 type InferenceGraphCustomValidator struct{}
 
-var _ webhook.CustomValidator = &InferenceGraphCustomValidator{}
+var _ admission.Validator[*servingv1alpha1.InferenceGraph] = &InferenceGraphCustomValidator{}
 
 // ValidateCreate implements webhook.CustomValidator so a webhook will be registered for the type InferenceGraph.
-func (v *InferenceGraphCustomValidator) ValidateCreate(_ context.Context, obj runtime.Object) (admission.Warnings, error) {
-	inferencegraph, ok := obj.(*servingv1alpha1.InferenceGraph)
-	if !ok {
-		return nil, fmt.Errorf("expected a InferenceGraph object but got %T", obj)
-	}
+func (v *InferenceGraphCustomValidator) ValidateCreate(_ context.Context, inferencegraph *servingv1alpha1.InferenceGraph) (admission.Warnings, error) {
 	inferencegraphlog.Info("Validation for InferenceGraph upon creation", "name", inferencegraph.GetName())
 	return validateInferenceGraph(inferencegraph)
 }
 
 // ValidateUpdate implements webhook.CustomValidator so a webhook will be registered for the type InferenceGraph.
-func (v *InferenceGraphCustomValidator) ValidateUpdate(_ context.Context, _, newObj runtime.Object) (admission.Warnings, error) {
-	inferencegraph, ok := newObj.(*servingv1alpha1.InferenceGraph)
-	if !ok {
-		return nil, fmt.Errorf("expected a InferenceGraph object for the newObj but got %T", newObj)
-	}
-	inferencegraphlog.Info("Validation for InferenceGraph upon update", "name", inferencegraph.GetName())
-	return validateInferenceGraph(inferencegraph)
+func (v *InferenceGraphCustomValidator) ValidateUpdate(_ context.Context, _, newIG *servingv1alpha1.InferenceGraph) (admission.Warnings, error) {
+	inferencegraphlog.Info("Validation for InferenceGraph upon update", "name", newIG.GetName())
+	return validateInferenceGraph(newIG)
 }
 
 // ValidateDelete implements webhook.CustomValidator so a webhook will be registered for the type InferenceGraph.
-func (v *InferenceGraphCustomValidator) ValidateDelete(_ context.Context, _ runtime.Object) (admission.Warnings, error) {
+func (v *InferenceGraphCustomValidator) ValidateDelete(_ context.Context, _ *servingv1alpha1.InferenceGraph) (admission.Warnings, error) {
 	// ODH does not do any validations when an InferenceGraph is being deleted
 	return nil, nil
 }

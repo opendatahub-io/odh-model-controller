@@ -396,7 +396,7 @@ func setupLLMInferenceServiceReconciler(mgr ctrl.Manager) error {
 	return llmcontroller.NewLLMInferenceServiceReconciler(
 		mgr.GetClient(),
 		mgr.GetScheme(),
-		mgr.GetEventRecorderFor("OpenDataHubModelController"),
+		mgr.GetEventRecorder("OpenDataHubModelController"),
 	).SetupWithManager(mgr, setupLog)
 }
 
@@ -404,7 +404,7 @@ func setupGatewayReconciler(mgr ctrl.Manager) error {
 	return llmcontroller.NewGatewayReconciler(
 		mgr.GetClient(),
 		mgr.GetScheme(),
-		mgr.GetEventRecorderFor("GatewayAuthBootstrap"),
+		mgr.GetEventRecorder("GatewayAuthBootstrap"),
 	).SetupWithManager(mgr, setupLog)
 }
 

@@ -139,7 +139,7 @@ func (r *AccountReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 				return ctrl.Result{}, client.IgnoreNotFound(fErr)
 			}
 			logger.V(1).Info("added finalizer to account")
-			return ctrl.Result{Requeue: true}, nil
+			return ctrl.Result{RequeueAfter: 10 * time.Second}, nil
 		}
 	} else {
 		if controllerutil.ContainsFinalizer(account, constants.NimCleanupFinalizer) {
@@ -179,7 +179,7 @@ func (r *AccountReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 	if response := validationHandler.Handle(ctx, account); response.Error != nil {
 		return ctrl.Result{}, response.Error
 	} else if response.Requeue {
-		return ctrl.Result{Requeue: true}, nil
+		return ctrl.Result{RequeueAfter: 10 * time.Second}, nil
 	} else if !response.Continue {
 		return ctrl.Result{}, nil
 	}
@@ -189,7 +189,7 @@ func (r *AccountReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 	if response := configMapHandler.Handle(ctx, account); response.Error != nil {
 		return ctrl.Result{}, response.Error
 	} else if response.Requeue {
-		return ctrl.Result{Requeue: true}, nil
+		return ctrl.Result{RequeueAfter: 10 * time.Second}, nil
 	} else if !response.Continue {
 		return ctrl.Result{}, nil
 	}
@@ -199,7 +199,7 @@ func (r *AccountReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 	if response := templateHandler.Handle(ctx, account); response.Error != nil {
 		return ctrl.Result{}, response.Error
 	} else if response.Requeue {
-		return ctrl.Result{Requeue: true}, nil
+		return ctrl.Result{RequeueAfter: 10 * time.Second}, nil
 	} else if !response.Continue {
 		return ctrl.Result{}, nil
 	}
@@ -209,7 +209,7 @@ func (r *AccountReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 	if response := pullSecretHandler.Handle(ctx, account); response.Error != nil {
 		return ctrl.Result{}, response.Error
 	} else if response.Requeue {
-		return ctrl.Result{Requeue: true}, nil
+		return ctrl.Result{RequeueAfter: 10 * time.Second}, nil
 	} else if !response.Continue {
 		return ctrl.Result{}, nil
 	}
