@@ -109,6 +109,8 @@ func NewTLSConfig(getCertificate func(*tls.ClientHelloInfo) (*tls.Certificate, e
 			tls.TLS_ECDHE_ECDSA_WITH_AES_256_GCM_SHA384,
 		},
 		CurvePreferences: []tls.CurveID{
+			// OCP 5.0 compliance requires TLS 1.3 post-quantum key exchange
+			// through the OpenShift TLS security profile.
 			tls.X25519MLKEM768,
 			tls.CurveP256,
 			tls.CurveP384,
