@@ -3,6 +3,7 @@ package common
 import (
 	"context"
 	"crypto/tls"
+	"errors"
 	"testing"
 )
 
@@ -56,12 +57,8 @@ func TestTLSConfigNegotiatesMLKEMCurve(t *testing.T) {
 			serverErr <- err
 			return
 		}
-		defer func() {
-			if err := conn.Close(); err != nil {
-				t.Errorf("failed to close server connection: %v", err)
-			}
-		}()
-		serverErr <- conn.(*tls.Conn).Handshake()
+		hsErr := conn.(*tls.Conn).Handshake()
+		serverErr <- errors.Join(hsErr, conn.Close())
 	}()
 
 	clientConfig := &tls.Config{
