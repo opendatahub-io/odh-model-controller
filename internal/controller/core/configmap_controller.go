@@ -30,13 +30,16 @@ import (
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
 	ctrl "sigs.k8s.io/controller-runtime"
+	ctrlbuilder "sigs.k8s.io/controller-runtime/pkg/builder"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/event"
+	"sigs.k8s.io/controller-runtime/pkg/handler"
 	"sigs.k8s.io/controller-runtime/pkg/log"
 	"sigs.k8s.io/controller-runtime/pkg/predicate"
 
 	"github.com/opendatahub-io/odh-model-controller/internal/controller/constants"
 	"github.com/opendatahub-io/odh-model-controller/internal/controller/utils"
+	"github.com/opendatahub-io/odh-model-controller/internal/informercache"
 )
 
 const (
@@ -152,9 +155,21 @@ func (r *ConfigMapReconciler) Reconcile(ctx context.Context, req ctrl.Request) (
 
 // SetupWithManager sets up the controller with the Manager.
 func (r *ConfigMapReconciler) SetupWithManager(mgr ctrl.Manager) error {
-	// Create a builder that only watch OpenDataHub global certificate ConfigMap
+	externalSource, err := informercache.NewConfigMapNameSource(
+		mgr.GetConfig(),
+		[]types.NamespacedName{
+			{Name: odhGlobalCACertConfigMapName},
+			{Name: serviceCAConfigMapName},
+		},
+		&handler.EnqueueRequestForObject{},
+	)
+	if err != nil {
+		return err
+	}
+
 	return ctrl.NewControllerManagedBy(mgr).
-		For(&corev1.ConfigMap{}).
+		For(&corev1.ConfigMap{}, ctrlbuilder.OnlyMetadata).
+		WatchesRawSource(externalSource).
 		Named("core-configmap").
 		WithEventFilter(reconcileOpenDataHubGlobalCACertConfigMap()).
 		Complete(r)

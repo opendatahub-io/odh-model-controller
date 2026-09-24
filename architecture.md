@@ -61,12 +61,15 @@ The repository produces two independent binaries from a single Go module:
 ### Controller (`cmd/main.go`)
 
 The primary controller-runtime manager. It registers all controllers and webhooks, starts the manager, and runs the NIM account reconciler in a separate goroutine. The manager uses label-filtered caches:
+
 - **Secrets**: only `opendatahub.io/managed=true`
 - **Pods**: only `component=predictor`
+- **ConfigMaps**: only `opendatahub.io/managed=true`; external ConfigMaps use narrow metadata-only sources
 
 ### Model Serving API (`server/main.go`)
 
 A standalone REST API server for querying gateway and endpoint information. It is deployed as a separate pod with its own Deployment, Service, and container image. It provides:
+
 - Gateway discovery and status endpoints
 - Health and metrics endpoints
 - TLS with cert reloading
@@ -80,6 +83,7 @@ A standalone REST API server for querying gateway and endpoint information. It i
 **Trigger:** InferenceService create/update/delete, plus watched ServingRuntimes and Secrets.
 
 **Responsibilities:**
+
 1. Adds/removes an ODH finalizer for cross-namespace cleanup
 2. Delegates to `KserveRawInferenceServiceReconciler` which fans out to sub-reconcilers:
    - **Route reconciler** - creates OpenShift Routes with TLS passthrough for model endpoints
@@ -97,6 +101,7 @@ A standalone REST API server for querying gateway and endpoint information. It i
 **Trigger:** ServingRuntime create/update/delete, plus watched Namespaces, RoleBindings, and Ray TLS Secrets.
 
 **Responsibilities:**
+
 1. **Monitoring RoleBindings** - creates/updates `prometheus-ns-access` RoleBindings in monitoring-configured namespaces
 2. **Multi-node Ray TLS** - when a ServingRuntime has `spec.workerSpec` (multi-node):
    - Creates a self-signed CA certificate in the controller namespace (`ray-ca-tls`)
@@ -112,6 +117,7 @@ Placeholder controller that watches InferenceGraph resources. Currently a no-op 
 **Trigger:** LLMInferenceService create/update/delete, plus AuthPolicy changes on managed resources and global Kuadrant/Authorino availability changes.
 
 **Responsibilities:**
+
 1. Resolves BaseRef configs (LLMInferenceServiceConfig) and merges specs using KServe's `MergeSpecs`
 2. Runs sub-reconcilers:
    - **AuthPolicy reconciler** - creates Kuadrant AuthPolicies per-service
@@ -148,6 +154,7 @@ spec:
 **Trigger:** Gateway create/update (with specific predicate filtering), plus changes to LLMInferenceService, LLMInferenceServiceConfig, and Namespace labels.
 
 **Responsibilities:**
+
 1. **EnvoyFilter reconciliation** - creates Istio EnvoyFilters for Authorino TLS bootstrap on gateways referenced by LLMInferenceServices
 2. **AuthPolicy reconciliation** - creates gateway-level Kuadrant AuthPolicies with configurable CEL expressions for access control
 3. Respects `opendatahub.io/managed` labels/annotations and `security.opendatahub.io/authorino-tls-bootstrap` annotation
@@ -159,7 +166,7 @@ spec:
 **Trigger:** ConfigMap create/update/delete for specific CA bundle ConfigMaps.
 
 **Responsibilities:**
-Watches `odh-trusted-ca-bundle` and `openshift-service-ca.crt` ConfigMaps. Aggregates their certificate contents into the KServe CA bundle ConfigMap (`odh-kserve-custom-ca-bundle`) so that model servers trust both platform and custom CAs.
+Watches `odh-trusted-ca-bundle` and `openshift-service-ca.crt` through exact-name metadata-only sources. Aggregates their certificate contents into the KServe CA bundle ConfigMap (`odh-kserve-custom-ca-bundle`) so that model servers trust both platform and custom CAs.
 
 ### Secret Controller (`internal/controller/core/`)
 
@@ -177,10 +184,11 @@ Emits metrics about predictor pod lifecycle for observability dashboards.
 
 ### NIM Account Controller (`internal/controller/nim/`)
 
-**Trigger:** NIM Account create/update/delete, plus watched Secrets (API key) and ConfigMaps (model list) via field indexers.
+**Trigger:** NIM Account create/update/delete, plus watched Secrets (API key) and exact referenced ConfigMaps (model list).
 
 **Responsibilities:**
 Manages the lifecycle of NVIDIA NIM integration through a handler chain:
+
 1. **ValidationHandler** - validates the NGC API key against NVIDIA's API, respects refresh rates and force-validation annotation
 2. **ConfigMapHandler** - fetches/syncs the NIM model catalog into a ConfigMap (supports air-gapped mode with user-provided model lists)
 3. **TemplateHandler** - creates/updates an OpenShift Template for NIM ServingRuntimes
@@ -192,12 +200,12 @@ The controller uses a finalizer (`runtimes.opendatahub.io/nim-cleanup-finalizer`
 
 All webhooks are registered in `cmd/main.go` and can be disabled via `ENABLE_WEBHOOKS=false`.
 
-| Webhook | Type | Purpose |
-|---------|------|---------|
+| Webhook                        | Type                    | Purpose                                                                                     |
+| ------------------------------ | ----------------------- | ------------------------------------------------------------------------------------------- |
 | **InferenceService** (v1beta1) | Validating + Defaulting | Validates name length (max 53 chars), blocks creation in protected (application) namespaces |
-| **InferenceGraph** (v1alpha1) | Validating + Defaulting | Validates InferenceGraph resources, selects appropriate runtime |
-| **NIM Account** (nim/v1) | Validating | Validates NIM Account spec |
-| **Pod** (core/v1) | Mutating | Injects Ray TLS generator init containers and volume mounts into multi-node predictor pods |
+| **InferenceGraph** (v1alpha1)  | Validating + Defaulting | Validates InferenceGraph resources, selects appropriate runtime                             |
+| **NIM Account** (nim/v1)       | Validating              | Validates NIM Account spec                                                                  |
+| **Pod** (core/v1)              | Mutating                | Injects Ray TLS generator init containers and volume mounts into multi-node predictor pods  |
 
 ## Key Patterns
 
@@ -234,20 +242,20 @@ ODH Model Controller depends on the **opendatahub-io/kserve** fork (not upstream
 
 Pre-built ServingRuntime templates for supported model servers live in `config/runtimes/`:
 
-| Template | Model Server |
-|----------|-------------|
-| `vllm-cuda-template.yaml` | vLLM (NVIDIA GPU) |
-| `vllm-rocm-template.yaml` | vLLM (AMD ROCm) |
-| `vllm-cpu-template.yaml` | vLLM (CPU) |
-| `vllm-gaudi-template.yaml` | vLLM (Intel Gaudi) |
-| `vllm-spyre-*.yaml` | vLLM (IBM Spyre accelerator) |
-| `vllm-multinode-template.yaml` | vLLM multi-node (Ray) |
+| Template                       | Model Server                       |
+| ------------------------------ | ---------------------------------- |
+| `vllm-cuda-template.yaml`      | vLLM (NVIDIA GPU)                  |
+| `vllm-rocm-template.yaml`      | vLLM (AMD ROCm)                    |
+| `vllm-cpu-template.yaml`       | vLLM (CPU)                         |
+| `vllm-gaudi-template.yaml`     | vLLM (Intel Gaudi)                 |
+| `vllm-spyre-*.yaml`            | vLLM (IBM Spyre accelerator)       |
+| `vllm-multinode-template.yaml` | vLLM multi-node (Ray)              |
 | `vllm-omni-cuda-template.yaml` | vLLM-Omni (NVIDIA GPU, multimodal) |
-| `ovms-kserve-template.yaml` | OpenVINO Model Server |
-| `mlserver-template.yaml` | Seldon MLServer |
-| `mlserver-cuda-template.yaml` | Seldon MLServer (NVIDIA GPU) |
-| `autogluon-template.yaml` | AutoGluon (tabular & time-series) |
-| `hf-detector-template.yaml` | HuggingFace detector |
+| `ovms-kserve-template.yaml`    | OpenVINO Model Server              |
+| `mlserver-template.yaml`       | Seldon MLServer                    |
+| `mlserver-cuda-template.yaml`  | Seldon MLServer (NVIDIA GPU)       |
+| `autogluon-template.yaml`      | AutoGluon (tabular & time-series)  |
+| `hf-detector-template.yaml`    | HuggingFace detector               |
 
 These are kustomized into the deployment manifests and are the basis for the NIM Template handler's output.
 
