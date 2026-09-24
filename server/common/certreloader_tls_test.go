@@ -43,7 +43,11 @@ func TestTLSConfigNegotiatesMLKEMCurve(t *testing.T) {
 	if err != nil {
 		t.Fatalf("failed to start TLS listener: %v", err)
 	}
-	defer listener.Close()
+	defer func() {
+		if err := listener.Close(); err != nil {
+			t.Errorf("failed to close TLS listener: %v", err)
+		}
+	}()
 
 	serverErr := make(chan error, 1)
 	go func() {
@@ -52,7 +56,11 @@ func TestTLSConfigNegotiatesMLKEMCurve(t *testing.T) {
 			serverErr <- err
 			return
 		}
-		defer conn.Close()
+		defer func() {
+			if err := conn.Close(); err != nil {
+				t.Errorf("failed to close server connection: %v", err)
+			}
+		}()
 		serverErr <- conn.(*tls.Conn).Handshake()
 	}()
 
@@ -67,7 +75,11 @@ func TestTLSConfigNegotiatesMLKEMCurve(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ML-KEM TLS handshake failed: %v", err)
 	}
-	defer conn.Close()
+	defer func() {
+		if err := conn.Close(); err != nil {
+			t.Errorf("failed to close client connection: %v", err)
+		}
+	}()
 
 	if err := <-serverErr; err != nil {
 		t.Fatalf("server TLS handshake failed: %v", err)
