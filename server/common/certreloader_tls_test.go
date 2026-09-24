@@ -6,6 +6,8 @@ import (
 )
 
 func TestNewTLSConfigIncludesMLKEMCurve(t *testing.T) {
+	// Keep this as a configuration-level check: runtime-specific FIPS filtering
+	// is exercised by the live TLS handshake validation rather than this unit test.
 	config := NewTLSConfig(func(*tls.ClientHelloInfo) (*tls.Certificate, error) {
 		return nil, nil
 	})
