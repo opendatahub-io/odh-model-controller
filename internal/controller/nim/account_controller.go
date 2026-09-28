@@ -31,9 +31,12 @@ import (
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/kubernetes"
+	"k8s.io/client-go/util/workqueue"
 	ctrl "sigs.k8s.io/controller-runtime"
+	ctrlbuilder "sigs.k8s.io/controller-runtime/pkg/builder"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
+	"sigs.k8s.io/controller-runtime/pkg/event"
 	"sigs.k8s.io/controller-runtime/pkg/handler"
 	"sigs.k8s.io/controller-runtime/pkg/log"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
@@ -42,6 +45,7 @@ import (
 	"github.com/opendatahub-io/odh-model-controller/internal/controller/constants"
 	"github.com/opendatahub-io/odh-model-controller/internal/controller/nim/handlers"
 	"github.com/opendatahub-io/odh-model-controller/internal/controller/utils"
+	"github.com/opendatahub-io/odh-model-controller/internal/informercache"
 )
 
 // AccountReconciler reconciles an Account object
@@ -81,10 +85,51 @@ func (r *AccountReconciler) SetupWithManager(mgr ctrl.Manager) error {
 		return fmt.Errorf("failed to set modelList configmap cache index: %w", err)
 	}
 
+	modelListSource, err := informercache.NewConfigMapReferenceSource(
+		mgr.GetConfig(),
+		handler.EnqueueRequestsFromMapFunc(func(ctx context.Context, obj client.Object) []reconcile.Request {
+			accounts := &v1.AccountList{}
+			if err := mgr.GetClient().List(ctx, accounts, client.MatchingFields{modelListSpecPath: obj.GetName()}); err != nil {
+				log.FromContext(ctx).Error(err, "failed to fetch accounts from model-list configmap")
+				return nil
+			}
+
+			requests := make([]reconcile.Request, 0, len(accounts.Items))
+			for i := range accounts.Items {
+				account := &accounts.Items[i]
+				ref := modelListConfigMapKey(account)
+				if ref == nil || ref.Name != obj.GetName() || ref.Namespace != obj.GetNamespace() {
+					continue
+				}
+				requests = append(requests, reconcile.Request{NamespacedName: client.ObjectKeyFromObject(account)})
+			}
+			return requests
+		}),
+	)
+	if err != nil {
+		return err
+	}
+
 	return ctrl.NewControllerManagedBy(mgr).
 		Named("odh-nim-controller").
 		For(&v1.Account{}).
-		Owns(&corev1.ConfigMap{}).
+		Watches(&v1.Account{}, handler.Funcs{
+			CreateFunc: func(ctx context.Context, e event.CreateEvent, _ workqueue.TypedRateLimitingInterface[reconcile.Request]) {
+				trackModelListReference(ctx, modelListSource, e.Object)
+			},
+			UpdateFunc: func(ctx context.Context, e event.UpdateEvent, _ workqueue.TypedRateLimitingInterface[reconcile.Request]) {
+				trackModelListReference(ctx, modelListSource, e.ObjectNew)
+			},
+			DeleteFunc: func(ctx context.Context, e event.DeleteEvent, _ workqueue.TypedRateLimitingInterface[reconcile.Request]) {
+				if e.Object == nil {
+					return
+				}
+				if err := modelListSource.SetReference(client.ObjectKeyFromObject(e.Object), nil); err != nil {
+					log.FromContext(ctx).Error(err, "failed to remove model-list ConfigMap reference")
+				}
+			},
+		}).
+		Owns(&corev1.ConfigMap{}, ctrlbuilder.OnlyMetadata).
 		Owns(&corev1.Secret{}).
 		Owns(&templatev1.Template{}).
 		Watches(&corev1.Secret{}, handler.EnqueueRequestsFromMapFunc(
@@ -100,20 +145,35 @@ func (r *AccountReconciler) SetupWithManager(mgr ctrl.Manager) error {
 				}
 				return requests
 			})).
-		Watches(&corev1.ConfigMap{}, handler.EnqueueRequestsFromMapFunc(
-			func(ctx context.Context, obj client.Object) []reconcile.Request {
-				var requests []reconcile.Request
-				accounts := &v1.AccountList{}
-				if err := mgr.GetClient().List(ctx, accounts, client.MatchingFields{modelListSpecPath: obj.GetName()}); err != nil {
-					log.FromContext(ctx).Error(err, "failed to fetch accounts from configmap")
-					return requests
-				}
-				for _, item := range accounts.Items {
-					requests = append(requests, reconcile.Request{NamespacedName: client.ObjectKeyFromObject(&item)})
-				}
-				return requests
-			})).
+		WatchesRawSource(modelListSource).
 		Complete(r)
+}
+
+func modelListConfigMapKey(account *v1.Account) *types.NamespacedName {
+	if account.Spec.ModelListConfig == nil || account.Spec.ModelListConfig.Name == "" {
+		return nil
+	}
+
+	namespace := account.Spec.ModelListConfig.Namespace
+	if namespace == "" {
+		namespace = account.Namespace
+	}
+
+	return &types.NamespacedName{
+		Name:      account.Spec.ModelListConfig.Name,
+		Namespace: namespace,
+	}
+}
+
+func trackModelListReference(ctx context.Context, source *informercache.ConfigMapReferenceSource, obj client.Object) {
+	account, ok := obj.(*v1.Account)
+	if !ok {
+		return
+	}
+
+	if err := source.SetReference(client.ObjectKeyFromObject(account), modelListConfigMapKey(account)); err != nil {
+		log.FromContext(ctx).Error(err, "failed to update model-list ConfigMap source")
+	}
 }
 
 // Reconcile is part of the main kubernetes reconciliation loop which aims to

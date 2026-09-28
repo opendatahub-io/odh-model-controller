@@ -55,6 +55,7 @@ import (
 	"github.com/opendatahub-io/odh-model-controller/internal/controller/processors"
 	"github.com/opendatahub-io/odh-model-controller/internal/controller/resources"
 	"github.com/opendatahub-io/odh-model-controller/internal/controller/utils"
+	"github.com/opendatahub-io/odh-model-controller/internal/informercache"
 )
 
 // GatewayReconciler reconciles Gateway resources to create EnvoyFilter and AuthPolicy
@@ -999,6 +1000,17 @@ func (r *GatewayReconciler) SetupWithManager(mgr ctrl.Manager, setupLog logr.Log
 		return utils.IsManagedByOpenDataHub(obj)
 	})
 
+	podNamespace := os.Getenv("POD_NAMESPACE")
+	inferenceServiceConfigSource, err := informercache.NewConfigMapNameSource(
+		mgr.GetConfig(),
+		[]types.NamespacedName{{Name: constants.InferenceServiceConfigMapName, Namespace: podNamespace}},
+		r.enqueueGatewaysFromConfigMap(),
+		inferenceServiceConfigMapPredicate(),
+	)
+	if err != nil {
+		return err
+	}
+
 	builder := ctrl.NewControllerManagedBy(mgr).
 		For(&gatewayapiv1.Gateway{}, ctrlbuilder.WithPredicates(gatewayPredicate))
 
@@ -1059,29 +1071,23 @@ func (r *GatewayReconciler) SetupWithManager(mgr ctrl.Manager, setupLog logr.Log
 					return false
 				},
 			})).
-		Watches(&corev1.ConfigMap{},
-			r.enqueueGatewaysFromConfigMap(),
-			ctrlbuilder.WithPredicates(predicate.Funcs{
-				CreateFunc: func(_ event.CreateEvent) bool {
-					return false
-				},
-				UpdateFunc: func(e event.UpdateEvent) bool {
-					if e.ObjectNew.GetName() != constants.InferenceServiceConfigMapName {
-						return false
-					}
-					if podNS := os.Getenv("POD_NAMESPACE"); podNS != "" && e.ObjectNew.GetNamespace() != podNS {
-						return false
-					}
-					// ConfigMaps have no spec/status split so metadata.generation
-					// is never incremented. Return true to reconcile on any update
-					// to this ConfigMap; the name/namespace guards above are
-					// sufficient to keep the trigger narrow.
-					return true
-				},
-				DeleteFunc: func(_ event.DeleteEvent) bool {
-					return false
-				},
-			})).
+		WatchesRawSource(inferenceServiceConfigSource).
 		Named("gateway-auth-bootstrap").
 		Complete(r)
+}
+
+func inferenceServiceConfigMapPredicate() predicate.Predicate {
+	return predicate.Funcs{
+		CreateFunc: func(_ event.CreateEvent) bool {
+			return false
+		},
+		UpdateFunc: func(e event.UpdateEvent) bool {
+			// ConfigMaps have no spec/status split, so metadata.generation is
+			// never incremented. The source already filters by name and namespace.
+			return e.ObjectNew.GetName() == constants.InferenceServiceConfigMapName
+		},
+		DeleteFunc: func(_ event.DeleteEvent) bool {
+			return false
+		},
+	}
 }

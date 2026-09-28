@@ -48,6 +48,7 @@ import (
 
 	// +kubebuilder:scaffold:imports
 
+	"github.com/opendatahub-io/odh-model-controller/internal/controller/constants"
 	"github.com/opendatahub-io/odh-model-controller/internal/controller/utils"
 	"github.com/opendatahub-io/odh-model-controller/internal/informercache"
 	testutils "github.com/opendatahub-io/odh-model-controller/test/utils"
@@ -135,6 +136,9 @@ var _ = BeforeSuite(func() {
 			DefaultTransform: cache.TransformStripManagedFields(),
 			ByObject: map[client.Object]cache.ByObject{
 				&corev1.ConfigMap{}: {
+					Label: labels.SelectorFromSet(labels.Set{
+						constants.ODHManaged: "true",
+					}),
 					Transform: informercache.StripConfigMapData,
 				},
 				&corev1.Secret{}: {
