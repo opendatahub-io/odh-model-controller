@@ -4,7 +4,6 @@
 
 ODH Model Controller is a **companion controller** to [KServe](https://github.com/kserve/kserve) within the [Open Data Hub](https://opendatahub.io/) (ODH) and Red Hat OpenShift AI platforms. KServe provides the core model serving primitives (InferenceService, ServingRuntime, InferenceGraph, LLMInferenceService). ODH Model Controller layers on platform-specific capabilities that don't belong in upstream KServe:
 
-- **OpenShift route management** - Creates and manages OpenShift Routes for model endpoints
 - **Certificate trust aggregation** - Watches platform CA bundle ConfigMaps and aggregates them into KServe's trust bundle
 - **Monitoring integration** - Creates ServiceMonitors, PodMonitors, metrics dashboards, and Prometheus RoleBindings
 - **NVIDIA NIM integration** - Manages NIM Account lifecycle (API key validation, model catalog sync, pull secrets, ServingRuntime templates)
@@ -31,10 +30,10 @@ ODH Model Controller is a **companion controller** to [KServe](https://github.co
 |  |  Controller  |    augments   +------------------------------+    |
 |  |             |                                                     |
 |  |             |    creates/manages                                   |
-|  |             |--------------> Routes, NetworkPolicies,             |
+|  |             |--------------> NetworkPolicies,                     |
 |  |             |                ServiceMonitors, PodMonitors,        |
 |  |             |                Secrets, ConfigMaps, RoleBindings,   |
-|  |             |                ClusterRoleBindings, ServiceAccounts,|
+|  |             |                ServiceAccounts,                     |
 |  |             |                EnvoyFilters, AuthPolicies,          |
 |  |             |                TriggerAuthentications, Templates    |
 |  +-------------+                                                     |
@@ -83,11 +82,9 @@ A standalone REST API server for querying gateway and endpoint information. It i
 **Responsibilities:**
 1. Adds/removes an ODH finalizer for cross-namespace cleanup
 2. Delegates to `KserveRawInferenceServiceReconciler` which fans out to sub-reconcilers:
-   - **Route reconciler** - creates OpenShift Routes with TLS passthrough for model endpoints
    - **Metrics service reconciler** - creates a Service for scraping runtime metrics
    - **Metrics ServiceMonitor reconciler** - creates ServiceMonitor/PodMonitor for Prometheus
    - **Metrics dashboard reconciler** - creates ConfigMaps with Grafana dashboard JSON
-   - **ClusterRoleBinding reconciler** - grants auth-delegator for secure metrics
    - **ServiceAccount reconciler** - ensures service accounts with proper image pull secrets
    - **KEDA reconciler** (`KserveKEDAReconciler`) - creates the per-namespace KEDA Prometheus auth context (ServiceAccount, Secret, Role, RoleBinding, TriggerAuthentication) when an InferenceService uses a Prometheus external autoscaling metric. These resources are shared with LLMInferenceService (see below): both CRDs co-own the same objects, and cleanup only happens once neither type needs them anymore.
 3. Optionally runs Model Registry reconciliation (controlled by `MODELREGISTRY_STATE=managed`)
@@ -220,7 +217,7 @@ At controller setup time, `utils.IsCrdAvailable()` probes the API server for opt
 
 ### Resource Builders with Functional Options
 
-The `resources/` package provides builder functions for Kubernetes resources (AuthPolicy, EnvoyFilter, Route, NetworkPolicy, etc.) that accept functional options (`WithLabels`, `WithAudiences`, etc.) for customization. This keeps resource construction centralized and testable.
+The `resources/` package provides builder functions for Kubernetes resources (AuthPolicy, EnvoyFilter, NetworkPolicy, etc.) that accept functional options (`WithLabels`, `WithAudiences`, etc.) for customization. This keeps resource construction centralized and testable.
 
 ## Integration with KServe
 
@@ -229,6 +226,7 @@ ODH Model Controller depends on the **opendatahub-io/kserve** fork (not upstream
 - **API types**: Imports `kserve/pkg/apis/serving/v1beta1` (InferenceService), `v1alpha1` (ServingRuntime, InferenceGraph), and `v1alpha2` (LLMInferenceService, LLMInferenceServiceConfig)
 - **Spec merging**: Uses `kserve/pkg/controller/v1alpha2/llmisvc.MergeSpecs` for LLMInferenceService config inheritance
 - **Deployment mode**: Exclusively operates in RawDeployment mode - the controller checks for and manages raw Deployment/Service resources, not Knative Services
+- **Ownership split**: For raw InferenceServices, KServe creates the OpenShift Route (`networking.kserve.io/visibility=exposed`) and, when `security.opendatahub.io/enable-auth=true`, the `system:auth-delegator` ClusterRoleBinding; this controller does not create, update, or delete either
 - **Shared CRDs**: KServe CRD manifests are downloaded into `config/crd/external/` for envtest and kustomize overlays
 
 ## Runtime Templates
