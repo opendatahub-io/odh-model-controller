@@ -151,21 +151,24 @@ func TestNsPublishersPublisherRouteWrongNamespace(t *testing.T) {
 	}
 }
 
-// --- Cross-tenant deny ---
+// --- Per-participant path: header is inert (routing is by path) ---
 
-func TestPerParticipantPathWithHeaderDenied(t *testing.T) {
+func TestPerParticipantPathWithHeaderIgnored(t *testing.T) {
 	t.Parallel()
 	f := setupPublisherFixture(t)
 
-	// Per-participant path + valid model header = routing/authorization identity
-	// mismatch. deny-misrouted-model-header fires -> 403.
+	// Per-participant path (/<ns>/<name>/...) + valid model header. Gateway API
+	// path-prefix precedence beats header-only routing, so the request routes by
+	// path and the header is inert. The per-participant exclusion keeps
+	// model-access-header from firing; inference-access authorizes via instance
+	// SAR. instance-user has instance RBAC -> 200.
 	path := fmt.Sprintf("/%s/echo-server/v1/chat/completions", f.ns)
 	headers := map[string]string{
 		"x-gateway-model-name": fmt.Sprintf("publishers/%s/models/echo-server", f.ns),
 	}
 	resp, _ := authEnv.gatewayGet(t, path, f.instanceUserToken, headers)
-	if resp.StatusCode != http.StatusForbidden {
-		t.Fatalf("expected 403 (deny-misrouted blocks cross-tenant mismatch), got %d", resp.StatusCode)
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("expected 200 (per-participant path, header inert, instance RBAC authorizes), got %d", resp.StatusCode)
 	}
 }
 
@@ -223,15 +226,131 @@ func TestV1PathWithModelHeaderDenied(t *testing.T) {
 	t.Parallel()
 	f := setupPublisherFixture(t)
 
-	// /v1/chat/completions + valid model header: no resolvedPath (BBR not enabled),
-	// so model-access-path doesn't fire. deny-misrouted should block this to
-	// prevent authn-only access when a model routing header is present.
+	// /v1/chat/completions + valid model header: model-access-header fires and
+	// runs a model SAR against the header identity. no-access has no RBAC -> 403.
 	headers := map[string]string{
 		"x-gateway-model-name": fmt.Sprintf("publishers/%s/models/echo-server", f.ns),
 	}
 	resp, _ := authEnv.gatewayGet(t, "/v1/chat/completions", f.noAccessToken, headers)
 	if resp.StatusCode != http.StatusForbidden {
-		t.Fatalf("expected 403 (/v1/ + model header should be denied without BBR), got %d", resp.StatusCode)
+		t.Fatalf("expected 403 (/v1/ + model header, no model RBAC), got %d", resp.StatusCode)
+	}
+}
+
+func TestV1PathWithModelHeaderAuthorized(t *testing.T) {
+	t.Parallel()
+	f := setupPublisherFixture(t)
+
+	// /v1/chat/completions + valid model header, from a user WITH model RBAC.
+	// model-access-header authorizes against the header identity -> 200. This is
+	// the model-based-routing path enabled by the gateway EnvoyFilter injecting
+	// x-gateway-model-name from the request body.
+	headers := map[string]string{
+		"x-gateway-model-name": fmt.Sprintf("publishers/%s/models/echo-server", f.ns),
+	}
+	resp, _ := authEnv.gatewayGet(t, "/v1/chat/completions", f.modelUserToken, headers)
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("expected 200 (model-access-header authorizes valid model RBAC), got %d", resp.StatusCode)
+	}
+}
+
+// --- /inference/v1/ model-API root (not a per-participant path) ---
+
+func TestInferenceV1GenerateWithModelHeaderAuthorized(t *testing.T) {
+	t.Parallel()
+	f := setupPublisherFixture(t)
+
+	// /inference/v1/generate is a model-API path (vLLM), not a per-participant
+	// path. It has 2+ segments and does NOT start with /v1/, so the older
+	// predicates would mis-extract ns=inference/name=v1 for inference-access.
+	// The /inference/v1/ recognition routes it to model-access-header instead.
+	headers := map[string]string{
+		"x-gateway-model-name": fmt.Sprintf("publishers/%s/models/echo-server", f.ns),
+	}
+	resp, _ := authEnv.gatewayGet(t, "/inference/v1/generate", f.modelUserToken, headers)
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("expected 200 (model-access-header authorizes /inference/v1/generate), got %d", resp.StatusCode)
+	}
+}
+
+func TestInferenceV1GenerateWithModelHeaderDenied(t *testing.T) {
+	t.Parallel()
+	f := setupPublisherFixture(t)
+
+	// Same path with a valid header but no model RBAC -> 403. Confirms the path
+	// is authorized via model-access-header (model SAR), not fenced off as a
+	// per-participant path (which would run a garbage ns=inference/name=v1 SAR).
+	headers := map[string]string{
+		"x-gateway-model-name": fmt.Sprintf("publishers/%s/models/echo-server", f.ns),
+	}
+	resp, _ := authEnv.gatewayGet(t, "/inference/v1/generate", f.noAccessToken, headers)
+	if resp.StatusCode != http.StatusForbidden {
+		t.Fatalf("expected 403 (/inference/v1/generate + model header, no model RBAC), got %d", resp.StatusCode)
+	}
+}
+
+// --- Per-participant ops paths: adverse model header cannot escalate ---
+
+func TestParticipantOpsPathWithModelHeaderUsesInstanceAuth(t *testing.T) {
+	t.Parallel()
+	f := setupPublisherFixture(t)
+
+	// /<ns>/echo-server/scale_elastic_ep is a per-participant ops path (2+
+	// segments, no /v1/ or /inference/v1/ root at position 0). An adverse client
+	// sets a valid model header for a model it CAN access. Path-prefix routing
+	// wins, so the header is inert and model-access-header does NOT fire (the
+	// path is not a model-API root nor short). inference-access runs an instance
+	// get SAR; model-user lacks instance RBAC -> 403. Escalation is closed.
+	path := fmt.Sprintf("/%s/echo-server/scale_elastic_ep", f.ns)
+	headers := map[string]string{
+		"x-gateway-model-name": fmt.Sprintf("publishers/%s/models/echo-server", f.ns),
+	}
+	resp, _ := authEnv.gatewayGet(t, path, f.modelUserToken, headers)
+	if resp.StatusCode != http.StatusForbidden {
+		t.Fatalf("expected 403 (ops path, header inert, model RBAC does not grant instance access), got %d", resp.StatusCode)
+	}
+}
+
+func TestParticipantOpsPathInstanceUserAllowed(t *testing.T) {
+	t.Parallel()
+	f := setupPublisherFixture(t)
+
+	// Same ops path + adverse model header, but from a user WITH instance RBAC.
+	// inference-access authorizes via instance get SAR -> 200. Confirms the ops
+	// path is governed by instance auth, not the (inert) header.
+	path := fmt.Sprintf("/%s/echo-server/scale_elastic_ep", f.ns)
+	headers := map[string]string{
+		"x-gateway-model-name": fmt.Sprintf("publishers/%s/models/echo-server", f.ns),
+	}
+	resp, _ := authEnv.gatewayGet(t, path, f.instanceUserToken, headers)
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("expected 200 (ops path, instance RBAC authorizes), got %d", resp.StatusCode)
+	}
+}
+
+// --- Root-level single-segment endpoints (/tokenize) route by header ---
+
+func TestDirectTokenizeWithModelHeader(t *testing.T) {
+	t.Parallel()
+	f := setupPublisherFixture(t)
+
+	// /tokenize is a direct single-segment model endpoint (is-short-path). With a
+	// valid model header it routes by header, so model-access-header fires and
+	// runs a model SAR against the header identity.
+	headers := map[string]string{
+		"x-gateway-model-name": fmt.Sprintf("publishers/%s/models/echo-server", f.ns),
+	}
+
+	// model-user has model RBAC -> 200.
+	resp, _ := authEnv.gatewayGet(t, "/tokenize", f.modelUserToken, headers)
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("expected 200 (/tokenize + model header, model RBAC), got %d", resp.StatusCode)
+	}
+
+	// no-access has no model RBAC -> 403.
+	resp2, _ := authEnv.gatewayGet(t, "/tokenize", f.noAccessToken, headers)
+	if resp2.StatusCode != http.StatusForbidden {
+		t.Fatalf("expected 403 (/tokenize + model header, no model RBAC), got %d", resp2.StatusCode)
 	}
 }
 
@@ -257,8 +376,9 @@ func TestV1PathWithCrossTenantHeaderDenied(t *testing.T) {
 	f := setupPublisherFixture(t)
 
 	// /v1/chat/completions + valid model header pointing to a different tenant.
-	// The routing layer would use the header to route to the other tenant's
-	// backend, but no authorization rule checks the header on /v1/ paths.
+	// The routing layer uses the header to route to the other tenant's backend;
+	// model-access-header authorizes against that SAME header identity, so a user
+	// without RBAC on the other tenant's model is denied.
 	headers := map[string]string{
 		"x-gateway-model-name": "publishers/other-tenant/models/secret-model",
 	}
@@ -316,9 +436,10 @@ func TestV1NamespaceCollisionWithRBAC(t *testing.T) {
 	resp2, _ := authEnv.gatewayGet(t, "/v1/chat/completions", token, headers)
 	t.Logf("ns=v1 collision: /v1/chat/completions + cross-tenant header = %d", resp2.StatusCode)
 
-	// With header: deny-misrouted must block regardless of ns=v1 RBAC
+	// With header: model-access-header authorizes against the header identity
+	// (other-ns/secret-model), which the ns=v1 RBAC does not cover -> 403.
 	if resp2.StatusCode != http.StatusForbidden {
-		t.Fatalf("expected 403 (deny-misrouted must block cross-tenant even with ns=v1 RBAC), got %d", resp2.StatusCode)
+		t.Fatalf("expected 403 (model-access-header blocks cross-tenant even with ns=v1 RBAC), got %d", resp2.StatusCode)
 	}
 }
 
