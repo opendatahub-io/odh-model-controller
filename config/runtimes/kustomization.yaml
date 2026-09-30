@@ -10,8 +10,9 @@ resources:
   - mlserver-template.yaml
   - mlserver-cuda-template.yaml
   - vllm/
+  - vllm-omni/
   - hf-detector-template.yaml
   - autogluon-template.yaml
-  - csr-kserve-mlserver-v1.yaml
-  - csr-kserve-ovms-v1.yaml
-  - csr-kserve-vllm-v1.yaml
+  - csr-kserve-mlserver.yaml
+  - csr-kserve-mlserver-cuda.yaml
+  - csr-kserve-ovms.yaml

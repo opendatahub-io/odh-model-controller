@@ -228,6 +228,89 @@ const (
 		]
     }`
 
+	VllmOmniMetricsData = `{
+        "config": [
+			{
+				"title": "Requests per 5 minutes",
+				"type": "REQUEST_COUNT",
+				"queries": [
+					{
+						"title": "Number of successful incoming requests",
+						"query": "round(sum(increase(vllm:omni_requests_success_total{namespace='${NAMESPACE}',model_name='${MODEL_NAME}',finished_reason!~'error|abort'}[${REQUEST_RATE_INTERVAL}])))"
+					},
+					{
+						"title": "Number of failed incoming requests",
+						"query": "round(sum(increase(vllm:omni_requests_success_total{namespace='${NAMESPACE}',model_name='${MODEL_NAME}',finished_reason=~'error|abort'}[${REQUEST_RATE_INTERVAL}])))"
+					}
+				]
+			},
+			{
+				"title": "Average response time (ms)",
+				"type": "MEAN_LATENCY",
+				"queries": [
+					{
+						"title": "Average pipeline e2e latency",
+						"query": "histogram_quantile(0.5, sum(rate(vllm:omni_e2e_request_latency_s_bucket{namespace='${NAMESPACE}', model_name='${MODEL_NAME}'}[${RATE_INTERVAL}])) by (le))"
+					}
+				]
+			},
+			{
+				"title": "Time to first audio packet",
+				"type": "TIME_TO_FIRST_TOKEN",
+				"queries": [
+					{
+						"title": "Audio TTFP (p95)",
+						"query": "histogram_quantile(0.95, sum(rate(vllm:omni_audio_ttfp_s_bucket{namespace='${NAMESPACE}', model_name='${MODEL_NAME}'}[${RATE_INTERVAL}])) by (le))"
+					}
+				]
+			},
+			{
+				"title": "Current running and waiting requests",
+				"type": "CURRENT_REQUESTS",
+				"queries": [
+					{
+						"title": "Requests waiting",
+						"query": "vllm:omni_num_requests_waiting{namespace='${NAMESPACE}', model_name='${MODEL_NAME}'}"
+					},
+					{
+						"title": "Requests running",
+						"query": "vllm:omni_num_requests_running{namespace='${NAMESPACE}', model_name='${MODEL_NAME}'}"
+					}
+				]
+			},
+			{
+				"title": "GPU cache usage over time",
+				"type": "KV_CACHE",
+				"queries": [
+					{
+						"title": "KV cache usage per stage",
+						"query": "sum(vllm:gpu_cache_usage_perc{namespace='${NAMESPACE}', pod=~'${MODEL_NAME}-predictor-.*'}) by (stage)"
+					}
+				]
+			},
+			{
+				"title": "CPU utilization %",
+				"type": "CPU_USAGE",
+				"queries": [
+					{
+						"title": "CPU usage",
+						"query": "sum(pod:container_cpu_usage:sum{namespace='${NAMESPACE}', pod=~'${MODEL_NAME}-predictor-.*'})/sum(kube_pod_resource_limit{resource='cpu', pod=~'${MODEL_NAME}-predictor-.*', namespace='${NAMESPACE}'})"
+					}
+				]
+			},
+			{
+				"title": "Memory utilization %",
+				"type": "MEMORY_USAGE",
+				"queries": [
+					{
+						"title": "Memory usage",
+						"query": "sum(container_memory_working_set_bytes{namespace='${NAMESPACE}', pod=~'${MODEL_NAME}-predictor-.*'})/sum(kube_pod_resource_limit{resource='memory', pod=~'${MODEL_NAME}-predictor-.*', namespace='${NAMESPACE}'})"
+					}
+				]
+			}
+		]
+    }`
+
 	// NVIDIA NIM
 	NIMMetricsData = `{
         "config": [

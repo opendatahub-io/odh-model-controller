@@ -22,7 +22,7 @@ import (
 	servingv1alpha1 "github.com/kserve/kserve/pkg/apis/serving/v1alpha1"
 	apierrs "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/runtime"
-	"k8s.io/client-go/tools/record"
+	"k8s.io/client-go/tools/events"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/log"
@@ -34,7 +34,7 @@ import (
 type InferenceGraphReconciler struct {
 	client.Client
 	Scheme         *runtime.Scheme
-	Recorder       record.EventRecorder
+	Recorder       events.EventRecorder
 	deltaProcessor processors.DeltaProcessor
 }
 
@@ -46,7 +46,7 @@ func NewInferenceGraphReconciler(mgr ctrl.Manager) *InferenceGraphReconciler {
 	return &InferenceGraphReconciler{
 		Client:         mgr.GetClient(),
 		Scheme:         mgr.GetScheme(),
-		Recorder:       mgr.GetEventRecorderFor("serving-inferencegraph-controller"),
+		Recorder:       mgr.GetEventRecorder("serving-inferencegraph-controller"),
 		deltaProcessor: processors.NewDeltaProcessor(),
 	}
 }

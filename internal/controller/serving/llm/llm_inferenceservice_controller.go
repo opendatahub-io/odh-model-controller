@@ -23,6 +23,7 @@ import (
 
 	"github.com/go-logr/logr"
 	"github.com/hashicorp/go-multierror"
+	kedaapi "github.com/kedacore/keda/v2/apis/keda/v1alpha1"
 	kservev1alpha2 "github.com/kserve/kserve/pkg/apis/serving/v1alpha2"
 	kservellmisvc "github.com/kserve/kserve/pkg/controller/v1alpha2/llmisvc"
 	kserveutils "github.com/kserve/kserve/pkg/utils"
@@ -30,10 +31,11 @@ import (
 	kuadrantv1 "github.com/kuadrant/kuadrant-operator/api/v1"
 	kuadrantv1beta1 "github.com/kuadrant/kuadrant-operator/api/v1beta1"
 	corev1 "k8s.io/api/core/v1"
+	rbacv1 "k8s.io/api/rbac/v1"
 	apierrs "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
-	"k8s.io/client-go/tools/record"
+	"k8s.io/client-go/tools/events"
 	ctrl "sigs.k8s.io/controller-runtime"
 	ctrlbuilder "sigs.k8s.io/controller-runtime/pkg/builder"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -51,15 +53,16 @@ import (
 
 type LLMInferenceServiceReconciler struct {
 	client.Client
-	Recorder               record.EventRecorder
+	Recorder               events.EventRecorder
 	Scheme                 *runtime.Scheme
 	subResourceReconcilers []parentreconcilers.LLMSubResourceReconciler
 }
 
-func NewLLMInferenceServiceReconciler(client client.Client, scheme *runtime.Scheme, recorder record.EventRecorder) *LLMInferenceServiceReconciler {
+func NewLLMInferenceServiceReconciler(client client.Client, scheme *runtime.Scheme, recorder events.EventRecorder) *LLMInferenceServiceReconciler {
 	subResourceReconcilers := []parentreconcilers.LLMSubResourceReconciler{
 		reconcilers.NewKserveAuthPolicyReconciler(client, scheme),
 		reconcilers.NewKserveAuthPostureReconciler(client, recorder),
+		parentreconcilers.NewLLMKEDAReconciler(client),
 	}
 
 	return &LLMInferenceServiceReconciler{
@@ -127,7 +130,7 @@ func (r *LLMInferenceServiceReconciler) Reconcile(ctx context.Context, req ctrl.
 
 	if err := r.reconcileSubResources(ctx, logger, llmisvc); err != nil {
 		logger.Error(err, "Failed to reconcile LLMInferenceService sub-resources")
-		r.Recorder.Eventf(llmisvc, corev1.EventTypeWarning, "ReconcileError", "Failed to reconcile LLMInferenceService: %v", err)
+		r.Recorder.Eventf(llmisvc, nil, corev1.EventTypeWarning, "ReconcileError", "Reconcile", "Failed to reconcile LLMInferenceService: %v", err)
 		return ctrl.Result{}, err
 	}
 
@@ -146,14 +149,19 @@ func (r *LLMInferenceServiceReconciler) Reconcile(ctx context.Context, req ctrl.
 // +kubebuilder:rbac:groups=gateway.networking.k8s.io,resources=gateways,verbs=get;list;watch;update;patch
 // +kubebuilder:rbac:groups=gateway.networking.k8s.io,resources=gateways/finalizers,verbs=update;patch
 // +kubebuilder:rbac:groups=gateway.networking.k8s.io,resources=httproutes,verbs=get;list;watch
-// +kubebuilder:rbac:groups=config.openshift.io,resources=authentications,verbs=get;list;watch
 // +kubebuilder:rbac:groups=kuadrant.io,resources=kuadrants,verbs=get;list;watch
 // +kubebuilder:rbac:groups=operator.authorino.kuadrant.io,resources=authorinos,verbs=get;list;watch
 // +kubebuilder:rbac:groups="",resources=configmaps,verbs=get;list;watch
+// +kubebuilder:rbac:groups="",resources=serviceaccounts;secrets,verbs=get;list;watch;create;update;delete;patch
+// +kubebuilder:rbac:groups=keda.sh,resources=triggerauthentications,verbs=get;list;watch;create;update;patch;watch;delete
 
 func (r *LLMInferenceServiceReconciler) SetupWithManager(mgr ctrl.Manager, setupLog logr.Logger) error {
 	b := ctrl.NewControllerManagedBy(mgr).
 		For(&kservev1alpha2.LLMInferenceService{}).
+		Owns(&corev1.ServiceAccount{}, ctrlbuilder.MatchEveryOwner, ctrlbuilder.WithPredicates(parentreconcilers.KedaLabelPredicate)).
+		Owns(&corev1.Secret{}, ctrlbuilder.MatchEveryOwner, ctrlbuilder.WithPredicates(parentreconcilers.KedaLabelPredicate)).
+		Owns(&rbacv1.Role{}, ctrlbuilder.MatchEveryOwner, ctrlbuilder.WithPredicates(parentreconcilers.KedaLabelPredicate)).
+		Owns(&rbacv1.RoleBinding{}, ctrlbuilder.MatchEveryOwner, ctrlbuilder.WithPredicates(parentreconcilers.KedaLabelPredicate)).
 		Named("llminferenceservice")
 
 	setupLog.Info("Setting up LLMInferenceService controller")
@@ -186,6 +194,15 @@ func (r *LLMInferenceServiceReconciler) SetupWithManager(mgr ctrl.Manager, setup
 		setupLog.Error(err, "Failed to check CRD availability for Authorino")
 	} else if ok {
 		b = b.Watches(&authorinooperatorv1beta1.Authorino{}, r.globalResync(setupLog))
+	}
+
+	if ok, err := utils.IsCrdAvailable(mgr.GetConfig(), kedaapi.GroupVersion.String(), "TriggerAuthentication"); err != nil {
+		setupLog.V(1).Error(err, "could not determine if TriggerAuthentication CRD is available")
+	} else if ok {
+		b = b.Owns(&kedaapi.TriggerAuthentication{},
+			ctrlbuilder.MatchEveryOwner,
+			ctrlbuilder.WithPredicates(parentreconcilers.KedaLabelPredicate),
+		)
 	}
 
 	return b.Complete(r)

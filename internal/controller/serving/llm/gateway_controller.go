@@ -37,7 +37,7 @@ import (
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
-	"k8s.io/client-go/tools/record"
+	"k8s.io/client-go/tools/events"
 	"k8s.io/utils/ptr"
 	ctrl "sigs.k8s.io/controller-runtime"
 	ctrlbuilder "sigs.k8s.io/controller-runtime/pkg/builder"
@@ -55,6 +55,7 @@ import (
 	"github.com/opendatahub-io/odh-model-controller/internal/controller/processors"
 	"github.com/opendatahub-io/odh-model-controller/internal/controller/resources"
 	"github.com/opendatahub-io/odh-model-controller/internal/controller/utils"
+	"github.com/opendatahub-io/odh-model-controller/internal/informercache"
 )
 
 // GatewayReconciler reconciles Gateway resources to create EnvoyFilter and AuthPolicy
@@ -62,7 +63,7 @@ import (
 // for Authorino is available even when no models are deployed.
 type GatewayReconciler struct {
 	client.Client
-	Recorder          record.EventRecorder
+	Recorder          events.EventRecorder
 	Scheme            *runtime.Scheme
 	envoyFilterLoader resources.EnvoyFilterTemplateLoader
 	envoyFilterStore  resources.EnvoyFilterStore
@@ -71,7 +72,7 @@ type GatewayReconciler struct {
 	deltaProcessor    processors.DeltaProcessor
 }
 
-func NewGatewayReconciler(client client.Client, scheme *runtime.Scheme, recorder record.EventRecorder) *GatewayReconciler {
+func NewGatewayReconciler(client client.Client, scheme *runtime.Scheme, recorder events.EventRecorder) *GatewayReconciler {
 	return &GatewayReconciler{
 		Client:            client,
 		Recorder:          recorder,
@@ -119,36 +120,36 @@ func (r *GatewayReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 
 	if shouldCreateEnvoyFilter {
 		if err := r.reconcileEnvoyFilter(ctx, logger, gateway); err != nil && !meta.IsNoMatchError(err) {
-			r.Recorder.Eventf(gateway, corev1.EventTypeWarning, "ReconcileError", "Failed to reconcile EnvoyFilter: %v", err)
+			r.Recorder.Eventf(gateway, nil, corev1.EventTypeWarning, "ReconcileError", "Reconcile", "Failed to reconcile EnvoyFilter: %v", err)
 			return ctrl.Result{}, err
 		}
 	} else {
 		if err := r.deleteEnvoyFilterIfManaged(ctx, logger, gateway); err != nil && !meta.IsNoMatchError(err) {
-			r.Recorder.Eventf(gateway, corev1.EventTypeWarning, "ReconcileError", "Failed to delete EnvoyFilter: %v", err)
+			r.Recorder.Eventf(gateway, nil, corev1.EventTypeWarning, "ReconcileError", "Reconcile", "Failed to delete EnvoyFilter: %v", err)
 			return ctrl.Result{}, err
 		}
 	}
 
 	if shouldCreateAuthPolicy {
 		if err := r.reconcileAuthPolicy(ctx, logger, gateway); err != nil && !meta.IsNoMatchError(err) {
-			r.Recorder.Eventf(gateway, corev1.EventTypeWarning, "ReconcileError", "Failed to reconcile AuthPolicy: %v", err)
+			r.Recorder.Eventf(gateway, nil, corev1.EventTypeWarning, "ReconcileError", "Reconcile", "Failed to reconcile AuthPolicy: %v", err)
 			return ctrl.Result{}, err
 		}
 	} else {
 		if err := r.deleteAuthPolicyIfManaged(ctx, logger, gateway); err != nil && !meta.IsNoMatchError(err) {
-			r.Recorder.Eventf(gateway, corev1.EventTypeWarning, "ReconcileError", "Failed to delete AuthPolicy: %v", err)
+			r.Recorder.Eventf(gateway, nil, corev1.EventTypeWarning, "ReconcileError", "Reconcile", "Failed to delete AuthPolicy: %v", err)
 			return ctrl.Result{}, err
 		}
 	}
 
 	if scrape := gateway.GetLabels()[constants.RhoaiObservabilityLabel]; referencedByLLMService && scrape != "false" {
 		if err := r.reconcileGatewayPodMonitor(ctx, logger, gateway); err != nil && !meta.IsNoMatchError(err) {
-			r.Recorder.Eventf(gateway, corev1.EventTypeWarning, "ReconcileError", "Failed to reconcile gateway PodMonitor: %v", err)
+			r.Recorder.Eventf(gateway, nil, corev1.EventTypeWarning, "ReconcileError", "Reconcile", "Failed to reconcile gateway PodMonitor: %v", err)
 			return ctrl.Result{}, err
 		}
 	} else {
 		if err := r.deleteGatewayPodMonitorIfManaged(ctx, logger, gateway); err != nil && !meta.IsNoMatchError(err) {
-			r.Recorder.Eventf(gateway, corev1.EventTypeWarning, "ReconcileError", "Failed to delete gateway PodMonitor: %v", err)
+			r.Recorder.Eventf(gateway, nil, corev1.EventTypeWarning, "ReconcileError", "Reconcile", "Failed to delete gateway PodMonitor: %v", err)
 			return ctrl.Result{}, err
 		}
 	}
@@ -999,6 +1000,17 @@ func (r *GatewayReconciler) SetupWithManager(mgr ctrl.Manager, setupLog logr.Log
 		return utils.IsManagedByOpenDataHub(obj)
 	})
 
+	podNamespace := os.Getenv("POD_NAMESPACE")
+	inferenceServiceConfigSource, err := informercache.NewConfigMapNameSource(
+		mgr.GetConfig(),
+		[]types.NamespacedName{{Name: constants.InferenceServiceConfigMapName, Namespace: podNamespace}},
+		r.enqueueGatewaysFromConfigMap(),
+		inferenceServiceConfigMapPredicate(),
+	)
+	if err != nil {
+		return err
+	}
+
 	builder := ctrl.NewControllerManagedBy(mgr).
 		For(&gatewayapiv1.Gateway{}, ctrlbuilder.WithPredicates(gatewayPredicate))
 
@@ -1059,27 +1071,23 @@ func (r *GatewayReconciler) SetupWithManager(mgr ctrl.Manager, setupLog logr.Log
 					return false
 				},
 			})).
-		Watches(&corev1.ConfigMap{},
-			r.enqueueGatewaysFromConfigMap(),
-			ctrlbuilder.WithPredicates(predicate.Funcs{
-				CreateFunc: func(_ event.CreateEvent) bool {
-					return false
-				},
-				UpdateFunc: func(e event.UpdateEvent) bool {
-					if e.ObjectNew.GetName() != constants.InferenceServiceConfigMapName {
-						return false
-					}
-					if podNS := os.Getenv("POD_NAMESPACE"); podNS != "" && e.ObjectNew.GetNamespace() != podNS {
-						return false
-					}
-					oldCM := e.ObjectOld.(*corev1.ConfigMap)
-					newCM := e.ObjectNew.(*corev1.ConfigMap)
-					return oldCM.Data["ingress"] != newCM.Data["ingress"]
-				},
-				DeleteFunc: func(_ event.DeleteEvent) bool {
-					return false
-				},
-			})).
+		WatchesRawSource(inferenceServiceConfigSource).
 		Named("gateway-auth-bootstrap").
 		Complete(r)
+}
+
+func inferenceServiceConfigMapPredicate() predicate.Predicate {
+	return predicate.Funcs{
+		CreateFunc: func(_ event.CreateEvent) bool {
+			return false
+		},
+		UpdateFunc: func(e event.UpdateEvent) bool {
+			// ConfigMaps have no spec/status split, so metadata.generation is
+			// never incremented. The source already filters by name and namespace.
+			return e.ObjectNew.GetName() == constants.InferenceServiceConfigMapName
+		},
+		DeleteFunc: func(_ event.DeleteEvent) bool {
+			return false
+		},
+	}
 }

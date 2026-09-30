@@ -28,8 +28,10 @@ import (
 	. "github.com/onsi/gomega"
 	corev1 "k8s.io/api/core/v1"
 	apierrs "k8s.io/apimachinery/pkg/api/errors"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	"github.com/opendatahub-io/odh-model-controller/internal/controller/constants"
+	testutils "github.com/opendatahub-io/odh-model-controller/test/utils"
 )
 
 var _ = Describe("KServe Custom CA Cert ConfigMap Controller", func() {
@@ -49,8 +51,8 @@ var _ = Describe("KServe Custom CA Cert ConfigMap Controller", func() {
 			},
 		}
 
-		Expect(k8sClient.Delete(ctx, odhtrustedcacertConfigMap)).Should(Succeed())
-		Expect(k8sClient.Delete(ctx, openshiftServiceCAConfigMap)).Should(Succeed())
+		Expect(client.IgnoreNotFound(k8sClient.Delete(ctx, odhtrustedcacertConfigMap))).Should(Succeed())
+		Expect(client.IgnoreNotFound(k8sClient.Delete(ctx, openshiftServiceCAConfigMap))).Should(Succeed())
 
 		// Check that the odh-kserve-custom-ca-bundle configmap is also deleted since no ca bundle data will remain
 		_, err := waitForConfigMap(k8sClient, WorkingNamespace, constants.KServeCACertConfigMapName, 30, 3*time.Second)
@@ -125,7 +127,133 @@ var _ = Describe("KServe Custom CA Cert ConfigMap Controller", func() {
 			Expect(compareConfigMap(kserveCACertConfigmap, expectedKserveCACertConfigmap)).Should((BeTrue()))
 		})
 	})
+
+	It("watches unlabelled CA ConfigMaps by name across namespaces and reconciles updates", func() {
+		namespace := testutils.Namespaces.Create(ctx, k8sClient).Name
+		odhTrustedCA := caInputConfigMap(namespace, constants.ODHGlobalCertConfigMapName, map[string]string{
+			constants.ODHClusterCACertFileName: "odh-cluster-ca-v1",
+			constants.ODHCustomCACertFileName:  "odh-custom-ca-v1",
+		})
+		serviceCA := caInputConfigMap(namespace, constants.ServiceCAConfigMapName, map[string]string{
+			constants.ServiceCACertFileName: "service-ca-v1",
+		})
+
+		Expect(k8sClient.Create(ctx, odhTrustedCA)).To(Succeed())
+		Expect(k8sClient.Create(ctx, serviceCA)).To(Succeed())
+		expectKServeCABundleData(namespace, "odh-cluster-ca-v1\n\nodh-custom-ca-v1\n\nservice-ca-v1")
+
+		By("reconciling a service CA update from the non-controller namespace")
+		serviceCA = &corev1.ConfigMap{}
+		Expect(k8sClient.Get(ctx, client.ObjectKey{Namespace: namespace, Name: constants.ServiceCAConfigMapName}, serviceCA)).To(Succeed())
+		serviceCA.Data[constants.ServiceCACertFileName] = "service-ca-v2"
+		Expect(k8sClient.Update(ctx, serviceCA)).To(Succeed())
+		expectKServeCABundleData(namespace, "odh-cluster-ca-v1\n\nodh-custom-ca-v1\n\nservice-ca-v2")
+
+		By("reconciling an ODH trusted CA update from the non-controller namespace")
+		odhTrustedCA = &corev1.ConfigMap{}
+		Expect(k8sClient.Get(ctx, client.ObjectKey{Namespace: namespace, Name: constants.ODHGlobalCertConfigMapName}, odhTrustedCA)).To(Succeed())
+		odhTrustedCA.Data[constants.ODHClusterCACertFileName] = "odh-cluster-ca-v2"
+		Expect(k8sClient.Update(ctx, odhTrustedCA)).To(Succeed())
+		expectKServeCABundleData(namespace, "odh-cluster-ca-v2\n\nodh-custom-ca-v1\n\nservice-ca-v2")
+	})
+
+	It("keeps bundles isolated by namespace and reconciles partial source deletion", func() {
+		namespaceA := testutils.Namespaces.Create(ctx, k8sClient).Name
+		namespaceB := testutils.Namespaces.Create(ctx, k8sClient).Name
+
+		for namespace, suffix := range map[string]string{
+			namespaceA: "a",
+			namespaceB: "b",
+		} {
+			Expect(k8sClient.Create(ctx, caInputConfigMap(namespace, constants.ODHGlobalCertConfigMapName, map[string]string{
+				constants.ODHClusterCACertFileName: "odh-cluster-ca-" + suffix,
+				constants.ODHCustomCACertFileName:  "odh-custom-ca-" + suffix,
+			}))).To(Succeed())
+			Expect(k8sClient.Create(ctx, caInputConfigMap(namespace, constants.ServiceCAConfigMapName, map[string]string{
+				constants.ServiceCACertFileName: "service-ca-" + suffix,
+			}))).To(Succeed())
+		}
+
+		expectKServeCABundleData(namespaceA, "odh-cluster-ca-a\n\nodh-custom-ca-a\n\nservice-ca-a")
+		expectKServeCABundleData(namespaceB, "odh-cluster-ca-b\n\nodh-custom-ca-b\n\nservice-ca-b")
+
+		By("removing only namespace A's service CA from its generated bundle")
+		serviceCAA := &corev1.ConfigMap{}
+		Expect(k8sClient.Get(ctx, client.ObjectKey{Namespace: namespaceA, Name: constants.ServiceCAConfigMapName}, serviceCAA)).To(Succeed())
+		Expect(k8sClient.Delete(ctx, serviceCAA)).To(Succeed())
+		expectKServeCABundleData(namespaceA, "odh-cluster-ca-a\n\nodh-custom-ca-a")
+		expectKServeCABundleData(namespaceB, "odh-cluster-ca-b\n\nodh-custom-ca-b\n\nservice-ca-b")
+
+		By("removing the last CA source and deleting only namespace A's bundle")
+		odhTrustedCAA := &corev1.ConfigMap{}
+		Expect(k8sClient.Get(ctx, client.ObjectKey{Namespace: namespaceA, Name: constants.ODHGlobalCertConfigMapName}, odhTrustedCAA)).To(Succeed())
+		Expect(k8sClient.Delete(ctx, odhTrustedCAA)).To(Succeed())
+		expectKServeCABundleAbsent(namespaceA)
+		expectKServeCABundleData(namespaceB, "odh-cluster-ca-b\n\nodh-custom-ca-b\n\nservice-ca-b")
+	})
+
+	It("removes the generated bundle when the remaining CA data becomes empty", func() {
+		namespace := testutils.Namespaces.Create(ctx, k8sClient).Name
+		serviceCA := caInputConfigMap(namespace, constants.ServiceCAConfigMapName, map[string]string{
+			constants.ServiceCACertFileName: "service-ca-v1",
+		})
+		Expect(k8sClient.Create(ctx, serviceCA)).To(Succeed())
+		expectKServeCABundleData(namespace, "service-ca-v1")
+
+		serviceCA = &corev1.ConfigMap{}
+		Expect(k8sClient.Get(ctx, client.ObjectKey{Namespace: namespace, Name: constants.ServiceCAConfigMapName}, serviceCA)).To(Succeed())
+		serviceCA.Data[constants.ServiceCACertFileName] = " \n\t "
+		Expect(k8sClient.Update(ctx, serviceCA)).To(Succeed())
+		expectKServeCABundleAbsent(namespace)
+	})
+
+	It("ignores unrelated managed ConfigMaps", func() {
+		namespace := testutils.Namespaces.Create(ctx, k8sClient).Name
+		unrelated := &corev1.ConfigMap{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      "unrelated-config",
+				Namespace: namespace,
+				Labels:    map[string]string{constants.ODHManaged: "true"},
+			},
+			Data: map[string]string{"payload": "not a CA source"},
+		}
+		Expect(k8sClient.Create(ctx, unrelated)).To(Succeed())
+
+		Consistently(func() bool {
+			bundle := &corev1.ConfigMap{}
+			err := k8sClient.Get(ctx, client.ObjectKey{Namespace: namespace, Name: constants.KServeCACertConfigMapName}, bundle)
+			return apierrs.IsNotFound(err)
+		}, time.Second, 100*time.Millisecond).Should(BeTrue())
+	})
 })
+
+func caInputConfigMap(namespace, name string, data map[string]string) *corev1.ConfigMap {
+	return &corev1.ConfigMap{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      name,
+			Namespace: namespace,
+		},
+		Data: data,
+	}
+}
+
+func expectKServeCABundleData(namespace, expected string) {
+	Eventually(func() string {
+		bundle := &corev1.ConfigMap{}
+		if err := k8sClient.Get(context.Background(), client.ObjectKey{Namespace: namespace, Name: constants.KServeCACertConfigMapName}, bundle); err != nil {
+			return ""
+		}
+		return bundle.Data[constants.KServeCACertFileName]
+	}, 30*time.Second, 100*time.Millisecond).Should(Equal(expected))
+}
+
+func expectKServeCABundleAbsent(namespace string) {
+	Eventually(func() bool {
+		bundle := &corev1.ConfigMap{}
+		err := k8sClient.Get(context.Background(), client.ObjectKey{Namespace: namespace, Name: constants.KServeCACertConfigMapName}, bundle)
+		return apierrs.IsNotFound(err)
+	}, 30*time.Second, 100*time.Millisecond).Should(BeTrue())
+}
 
 // compareConfigMap checks if two ConfigMap data are equal, if not return false
 func compareConfigMap(s1 *corev1.ConfigMap, s2 *corev1.ConfigMap) bool {

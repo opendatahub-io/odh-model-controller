@@ -3,10 +3,20 @@ kind: Kustomization
 
 resources:
   - ../runtimes/vllm
+  - ../runtimes/vllm-omni
 
 nameSuffix: -fast-1
 
 patches:
+  - target:
+      kind: ClusterServingRuntime
+    patch: |-
+      - op: add
+        path: /metadata/annotations/opendatahub.io~1support-status
+        value: "unsupported"
+      - op: add
+        path: /metadata/annotations/opendatahub.io~1fast-version
+        value: "1"
   - target:
       kind: Template
     patch: |-
@@ -67,3 +77,8 @@ patches:
       - op: replace
         path: /objects/0/metadata/name
         value: vllm-cpu-x86-runtime-fast-1
+  - target: { kind: Template, name: vllm-omni-cuda-runtime-template }
+    patch: |-
+      - op: replace
+        path: /objects/0/metadata/name
+        value: vllm-omni-cuda-runtime-fast-1

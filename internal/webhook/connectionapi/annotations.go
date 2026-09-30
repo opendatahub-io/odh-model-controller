@@ -16,6 +16,8 @@ limitations under the License.
 
 package connectionapi
 
+import metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+
 // Annotation constants used by the ConnectionsAPI feature to associate data connections with
 // InferenceService and LLMInferenceService resources.
 const (
@@ -31,4 +33,26 @@ const (
 
 	// AnnotationConnectionPath holds the S3 bucket sub-path for the model location.
 	AnnotationConnectionPath = "opendatahub.io/connection-path"
+
+	// AnnotationInjectedConnectionType is set on an InferenceService by the connection webhook
+	// after injection. It records the connection type so that cleanup can determine the correct
+	// type-specific path even when the original connection secret has been deleted.
+	AnnotationInjectedConnectionType = "opendatahub.io/injected-connection-type"
 )
+
+// SetInjectedConnectionType records the connection type on the object's annotations.
+func SetInjectedConnectionType(obj metav1.Object, connType string) {
+	annotations := obj.GetAnnotations()
+	if annotations == nil {
+		annotations = make(map[string]string)
+	}
+	annotations[AnnotationInjectedConnectionType] = connType
+	obj.SetAnnotations(annotations)
+}
+
+// RemoveInjectedConnectionType removes the injected connection type annotation from the object.
+func RemoveInjectedConnectionType(obj metav1.Object) {
+	annotations := obj.GetAnnotations()
+	delete(annotations, AnnotationInjectedConnectionType)
+	obj.SetAnnotations(annotations)
+}

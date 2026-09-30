@@ -83,9 +83,6 @@ func NewInferenceServiceReconciler(setupLog logr.Logger, client client.Client, s
 // +kubebuilder:rbac:groups=serving.kserve.io,resources=inferenceservices,verbs=get;list;watch;update;patch
 // +kubebuilder:rbac:groups=serving.kserve.io,resources=inferenceservices/finalizers,verbs=get;list;watch;update;create;patch;delete
 
-// +kubebuilder:rbac:groups=config.openshift.io,resources=apiservers,verbs=get;list;watch
-// +kubebuilder:rbac:groups=route.openshift.io,resources=routes,verbs=get;list;watch;create;update;patch;delete
-// +kubebuilder:rbac:groups=route.openshift.io,resources=routes/custom-host,verbs=create
 // +kubebuilder:rbac:groups=rbac.authorization.k8s.io,resources=clusterrolebindings;roles;rolebindings,verbs=get;list;watch;create;update;patch;watch;delete
 // +kubebuilder:rbac:groups=networking.k8s.io,resources=networkpolicies,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups=networking.k8s.io,resources=ingresses,verbs=get;list;watch
@@ -186,10 +183,6 @@ func (r *InferenceServiceReconciler) Reconcile(ctx context.Context, req ctrl.Req
 
 		mrResult, mrErr := mrReconciler.Reconcile(ctx, req)
 
-		if mrResult.Requeue {
-			reconcileResult.Requeue = true
-		}
-
 		if mrResult.RequeueAfter > 0 && (reconcileResult.RequeueAfter == 0 || mrResult.RequeueAfter < reconcileResult.RequeueAfter) {
 			reconcileResult.RequeueAfter = mrResult.RequeueAfter
 		}
@@ -209,7 +202,7 @@ func (r *InferenceServiceReconciler) SetupWithManager(mgr ctrl.Manager, setupLog
 		Owns(&routev1.Route{}).
 		Owns(&corev1.ServiceAccount{}, ctrlbuilder.MatchEveryOwner).
 		Owns(&corev1.Service{}).
-		Owns(&corev1.ConfigMap{}).
+		Owns(&corev1.ConfigMap{}, ctrlbuilder.OnlyMetadata).
 		Owns(&corev1.Secret{}, ctrlbuilder.MatchEveryOwner).
 		Owns(&authv1.ClusterRoleBinding{}).
 		Owns(&networkingv1.NetworkPolicy{}).

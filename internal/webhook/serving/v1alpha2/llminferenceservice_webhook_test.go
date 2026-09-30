@@ -67,11 +67,19 @@ func newLLMFakeClient(objs ...client.Object) client.Client {
 }
 
 // newLLMDefaulter instantiates LLMInferenceServiceCustomDefaulter with a fake client.
-func newLLMDefaulter(cli client.Client) *LLMInferenceServiceCustomDefaulter {
-	return &LLMInferenceServiceCustomDefaulter{
+func newLLMDefaulter(cli client.Client) *llmISVCDefaulterV1alpha2 {
+	return &llmISVCDefaulterV1alpha2{&LLMInferenceServiceCustomDefaulter{
 		client:    cli,
 		apiReader: cli,
-	}
+	}}
+}
+
+// newLLMDefaulterV1alpha1 returns the v1alpha1 adapter for tests that exercise the v1alpha1 API version.
+func newLLMDefaulterV1alpha1(cli client.Client) *llmISVCDefaulterV1alpha1 {
+	return &llmISVCDefaulterV1alpha1{&LLMInferenceServiceCustomDefaulter{
+		client:    cli,
+		apiReader: cli,
+	}}
 }
 
 // llmAdmissionCtx returns a context carrying an admission request.
@@ -890,13 +898,134 @@ var _ = Describe("LLMInferenceService ConnectionsAPI Defaulter", func() {
 		})
 	})
 
+	Describe("Injected connection type annotation lifecycle", func() {
+
+		It("sets the annotation on CREATE injection", func() {
+			secret := testutils.BuildSecret(llmS3SecretName, llmNS, "s3",
+				map[string][]byte{"AWS_S3_BUCKET": []byte("b")})
+			cli := newLLMFakeClient(secret)
+			d := newLLMDefaulter(cli)
+			llmisvc := buildLLMISVC(map[string]string{
+				connectionapi.AnnotationConnections:    llmS3SecretName,
+				connectionapi.AnnotationConnectionPath: "models/v1",
+			})
+			admCtx := llmAdmissionCtx(admissionv1.Create, nil, false)
+
+			Expect(d.Default(admCtx, llmisvc)).To(Succeed())
+			Expect(llmisvc.Annotations).To(HaveKeyWithValue(connectionapi.AnnotationInjectedConnectionType, "s3"))
+		})
+
+		It("sets the annotation for OCI injection", func() {
+			secret := testutils.BuildSecret(llmOCISecretName, llmNS, "oci", nil)
+			cli := newLLMFakeClient(secret)
+			d := newLLMDefaulter(cli)
+			llmisvc := buildLLMISVC(map[string]string{
+				connectionapi.AnnotationConnections: llmOCISecretName,
+			})
+			admCtx := llmAdmissionCtx(admissionv1.Create, nil, false)
+
+			Expect(d.Default(admCtx, llmisvc)).To(Succeed())
+			Expect(llmisvc.Annotations).To(HaveKeyWithValue(connectionapi.AnnotationInjectedConnectionType, "oci"))
+		})
+
+		It("removes the annotation on connection Remove", func() {
+			secret := testutils.BuildSecret(llmS3SecretName, llmNS, "s3",
+				map[string][]byte{"AWS_S3_BUCKET": []byte("b")})
+			cli := newLLMFakeClient(secret)
+			d := newLLMDefaulter(cli)
+			oldLLM := buildLLMISVC(map[string]string{
+				connectionapi.AnnotationConnections:            llmS3SecretName,
+				connectionapi.AnnotationInjectedConnectionType: "s3",
+			})
+			newLLM := buildLLMISVC(nil)
+			newLLM.Annotations = map[string]string{
+				connectionapi.AnnotationInjectedConnectionType: "s3",
+			}
+			newLLM.Spec.Template = &corev1.PodSpec{ServiceAccountName: llmS3SecretName + "-sa"}
+			admCtx := llmAdmissionCtx(admissionv1.Update, oldLLM, false)
+
+			Expect(d.Default(admCtx, newLLM)).To(Succeed())
+			Expect(newLLM.Annotations).ToNot(HaveKey(connectionapi.AnnotationInjectedConnectionType))
+		})
+
+		It("updates the annotation on connection Replace with different type", func() {
+			s3Secret := testutils.BuildSecret(llmS3SecretName, llmNS, "s3",
+				map[string][]byte{"AWS_S3_BUCKET": []byte("b")})
+			uriSecret := testutils.BuildSecret(llmURISecretName, llmNS, "uri",
+				map[string][]byte{"URI": []byte("https://x")})
+			cli := newLLMFakeClient(s3Secret, uriSecret)
+			d := newLLMDefaulter(cli)
+			oldLLM := buildLLMISVC(map[string]string{
+				connectionapi.AnnotationConnections:            llmS3SecretName,
+				connectionapi.AnnotationInjectedConnectionType: "s3",
+			})
+			newLLM := buildLLMISVC(map[string]string{
+				connectionapi.AnnotationConnections: llmURISecretName,
+			})
+			newLLM.Annotations[connectionapi.AnnotationInjectedConnectionType] = "s3"
+			newLLM.Spec.Template = &corev1.PodSpec{ServiceAccountName: llmS3SecretName + "-sa"}
+			admCtx := llmAdmissionCtx(admissionv1.Update, oldLLM, false)
+
+			Expect(d.Default(admCtx, newLLM)).To(Succeed())
+			Expect(newLLM.Annotations).To(HaveKeyWithValue(connectionapi.AnnotationInjectedConnectionType, "uri"))
+		})
+
+		It("scoped cleanup on OCI Replace when old secret is deleted re-injects imagePullSecrets", func() {
+			ociSecret := testutils.BuildSecret("new-oci", llmNS, "oci", nil)
+			cli := newLLMFakeClient(ociSecret)
+			d := newLLMDefaulter(cli)
+			oldLLM := buildLLMISVC(map[string]string{
+				connectionapi.AnnotationConnections:            "deleted-oci",
+				connectionapi.AnnotationInjectedConnectionType: "oci",
+			})
+			newLLM := buildLLMISVC(map[string]string{
+				connectionapi.AnnotationConnections: "new-oci",
+			})
+			newLLM.Spec.Template = &corev1.PodSpec{
+				ImagePullSecrets: []corev1.LocalObjectReference{{Name: "deleted-oci"}},
+			}
+			preURI, parseErr := apis.ParseURL("oci://registry.example.com/model:latest")
+			Expect(parseErr).ToNot(HaveOccurred())
+			newLLM.Spec.Model.URI = *preURI
+			admCtx := llmAdmissionCtx(admissionv1.Update, oldLLM, false)
+
+			Expect(d.Default(admCtx, newLLM)).To(Succeed())
+			// OCI cleanup only touches imagePullSecrets — model URI must survive.
+			Expect(newLLM.Spec.Model.URI.String()).To(Equal("oci://registry.example.com/model:latest"))
+			Expect(newLLM.Spec.Template.ImagePullSecrets).To(ConsistOf(
+				corev1.LocalObjectReference{Name: "new-oci"},
+			))
+		})
+
+		It("scoped cleanup on S3 Replace when old secret is deleted re-injects correctly", func() {
+			s3Secret := testutils.BuildSecret(llmS3SecretName, llmNS, "s3",
+				map[string][]byte{"AWS_S3_BUCKET": []byte("b")})
+			cli := newLLMFakeClient(s3Secret)
+			d := newLLMDefaulter(cli)
+			oldLLM := buildLLMISVC(map[string]string{
+				connectionapi.AnnotationConnections:            "deleted-s3",
+				connectionapi.AnnotationInjectedConnectionType: "s3",
+			})
+			newLLM := buildLLMISVC(map[string]string{
+				connectionapi.AnnotationConnections:    llmS3SecretName,
+				connectionapi.AnnotationConnectionPath: "models/v1",
+			})
+			newLLM.Spec.Template = &corev1.PodSpec{ServiceAccountName: "deleted-s3-sa"}
+			admCtx := llmAdmissionCtx(admissionv1.Update, oldLLM, false)
+
+			Expect(d.Default(admCtx, newLLM)).To(Succeed())
+			Expect(newLLM.Spec.Template.ServiceAccountName).To(Equal(llmS3SecretName + "-sa"))
+			Expect(newLLM.Spec.Model.URI.String()).To(Equal("s3://b/models/v1"))
+		})
+	})
+
 	Describe("v1alpha1 API version", func() {
 
 		It("injects URI connection into a v1alpha1 LLMInferenceService", func() {
 			secret := testutils.BuildSecret(llmURISecretName, llmNS, "uri",
 				map[string][]byte{"URI": []byte("hf://meta-llama/Llama-4")})
 			cli := newLLMFakeClient(secret)
-			d := newLLMDefaulter(cli)
+			d := newLLMDefaulterV1alpha1(cli)
 			llmisvc := &kservev1alpha1.LLMInferenceService{
 				ObjectMeta: metav1.ObjectMeta{
 					Name:      llmISVCName,

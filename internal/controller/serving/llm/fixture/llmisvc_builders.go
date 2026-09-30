@@ -278,6 +278,14 @@ func WithBaseRefs(refs ...corev1.LocalObjectReference) LLMInferenceServiceOption
 	}
 }
 
+// WithScaling sets the main workload's standalone/direct KEDA scaling configuration
+// (spec.scaling), e.g. for exercising LLMKEDAReconciler in envtest.
+func WithScaling(scaling *v1alpha2.ScalingSpec) LLMInferenceServiceOption {
+	return func(llmSvc *v1alpha2.LLMInferenceService) {
+		llmSvc.Spec.Scaling = scaling
+	}
+}
+
 type LLMInferenceServiceConfigOption ObjectOption[*v1alpha2.LLMInferenceServiceConfig]
 
 func LLMInferenceServiceConfig(name string, opts ...LLMInferenceServiceConfigOption) *v1alpha2.LLMInferenceServiceConfig {

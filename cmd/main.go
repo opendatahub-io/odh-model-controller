@@ -48,11 +48,13 @@ import (
 
 	pkgtls "github.com/opendatahub-io/odh-model-controller/pkg/tls"
 
+	"github.com/opendatahub-io/odh-model-controller/internal/controller/constants"
 	corecontroller "github.com/opendatahub-io/odh-model-controller/internal/controller/core"
 	"github.com/opendatahub-io/odh-model-controller/internal/controller/nim"
 	servingcontroller "github.com/opendatahub-io/odh-model-controller/internal/controller/serving"
 	llmcontroller "github.com/opendatahub-io/odh-model-controller/internal/controller/serving/llm"
 	"github.com/opendatahub-io/odh-model-controller/internal/controller/utils"
+	"github.com/opendatahub-io/odh-model-controller/internal/informercache"
 	"github.com/opendatahub-io/odh-model-controller/internal/platform"
 
 	webhookcorev1 "github.com/opendatahub-io/odh-model-controller/internal/webhook/core/v1"
@@ -154,7 +156,7 @@ func main() {
 	signalCtx, cancel := context.WithCancel(log.IntoContext(ctrl.SetupSignalHandler(), setupLog))
 	defer cancel()
 
-	if tlsResult.ProfileFetched && !xksMode {
+	if tlsResult.APIAvailable && !xksMode {
 		watcher := &pkgtls.ProfileWatcher{
 			Client:             mgr.GetClient(),
 			InitialProfileSpec: tlsResult.ProfileSpec,
@@ -221,10 +223,25 @@ func createManager(cfg *rest.Config, metricsAddr, probeAddr string,
 		// after the manager stops then its usage might be unsafe.
 		// LeaderElectionReleaseOnCancel: true,
 		Client: client.Options{
-			Cache: &client.CacheOptions{},
+			Cache: &client.CacheOptions{
+				// ConfigMap client reads bypass the cache since the informer
+				// stores metadata-only objects (no .data/.binaryData).
+				DisableFor: []client.Object{
+					&corev1.ConfigMap{},
+				},
+			},
 		},
 		Cache: cache.Options{
+			DefaultTransform: cache.TransformStripManagedFields(),
 			ByObject: map[client.Object]cache.ByObject{
+				// Cache only ODH-managed ConfigMaps. External ConfigMaps use
+				// narrow metadata-only sources in the controllers that consume them.
+				&corev1.ConfigMap{}: {
+					Label: labels.SelectorFromSet(labels.Set{
+						constants.ODHManaged: "true",
+					}),
+					Transform: informercache.StripConfigMapData,
+				},
 				&corev1.Secret{}: {
 					Label: labels.SelectorFromSet(labels.Set{
 						"opendatahub.io/managed": "true",
@@ -380,7 +397,7 @@ func setupLLMInferenceServiceReconciler(mgr ctrl.Manager) error {
 	return llmcontroller.NewLLMInferenceServiceReconciler(
 		mgr.GetClient(),
 		mgr.GetScheme(),
-		mgr.GetEventRecorderFor("OpenDataHubModelController"),
+		mgr.GetEventRecorder("OpenDataHubModelController"),
 	).SetupWithManager(mgr, setupLog)
 }
 
@@ -388,7 +405,7 @@ func setupGatewayReconciler(mgr ctrl.Manager) error {
 	return llmcontroller.NewGatewayReconciler(
 		mgr.GetClient(),
 		mgr.GetScheme(),
-		mgr.GetEventRecorderFor("GatewayAuthBootstrap"),
+		mgr.GetEventRecorder("GatewayAuthBootstrap"),
 	).SetupWithManager(mgr, setupLog)
 }
 

@@ -16,6 +16,7 @@ limitations under the License.
 package reconcilers
 
 import (
+	kservev1alpha2 "github.com/kserve/kserve/pkg/apis/serving/v1alpha2"
 	kservev1beta1 "github.com/kserve/kserve/pkg/apis/serving/v1beta1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime/schema"
@@ -35,4 +36,9 @@ func AsOwnerRef(obj metav1.Object, gvk schema.GroupVersionKind) metav1.OwnerRefe
 // AsIsvcOwnerRef returns the non-controlling OwnerReference representation of the given isvc.
 func AsIsvcOwnerRef(isvc *kservev1beta1.InferenceService) metav1.OwnerReference {
 	return AsOwnerRef(isvc, kservev1beta1.SchemeGroupVersion.WithKind("InferenceService"))
+}
+
+// AsLLMIsvcOwnerRef returns the non-controlling OwnerReference representation of the given llmisvc.
+func AsLLMIsvcOwnerRef(llmisvc *kservev1alpha2.LLMInferenceService) metav1.OwnerReference {
+	return AsOwnerRef(llmisvc, kservev1alpha2.LLMInferenceServiceGVK)
 }
