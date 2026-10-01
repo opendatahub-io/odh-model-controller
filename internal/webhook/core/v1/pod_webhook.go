@@ -25,11 +25,10 @@ import (
 	kserveconstants "github.com/kserve/kserve/pkg/constants"
 	"github.com/opendatahub-io/odh-model-controller/internal/controller/constants"
 	corev1 "k8s.io/api/core/v1"
-	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
-	"sigs.k8s.io/controller-runtime/pkg/webhook"
+	"sigs.k8s.io/controller-runtime/pkg/webhook/admission"
 )
 
 // +kubebuilder:webhook:path=/mutate--v1-pod,mutating=true,failurePolicy=fail,groups="",resources=pods,verbs=create,versions=v1,name=mutating.pod.odh-model-controller.opendatahub.io,admissionReviewVersions=v1,sideEffects=none
@@ -41,7 +40,7 @@ type PodMutatorDefaultor struct {
 	client client.Client
 }
 
-var _ webhook.CustomDefaulter = &PodMutatorDefaultor{}
+var _ admission.Defaulter[*corev1.Pod] = &PodMutatorDefaultor{}
 
 // Handle incoming Pod and executes mutation logic.
 func (m *PodMutatorDefaultor) podMutator(pod *corev1.Pod) error {
@@ -234,12 +233,7 @@ func needToAddRayTLSGenerator(pod *corev1.Pod) bool {
 	return false
 }
 
-func (m *PodMutatorDefaultor) Default(ctx context.Context, obj runtime.Object) error {
-	pod, ok := obj.(*corev1.Pod)
-
-	if !ok {
-		return fmt.Errorf("expected an Pod object but got %T", obj)
-	}
+func (m *PodMutatorDefaultor) Default(ctx context.Context, pod *corev1.Pod) error {
 	logger := podlog.WithValues("name", pod.GetName())
 	logger.Info("Defaulting for Pod")
 
@@ -253,7 +247,7 @@ func (m *PodMutatorDefaultor) Default(ctx context.Context, obj runtime.Object) e
 
 // SetupPodWebhookWithManager sets up the MutatingWebhook with the controller manager.
 func SetupPodWebhookWithManager(mgr ctrl.Manager) error {
-	return ctrl.NewWebhookManagedBy(mgr).For(&corev1.Pod{}).
+	return ctrl.NewWebhookManagedBy(mgr, &corev1.Pod{}).
 		WithDefaulter(&PodMutatorDefaultor{client: mgr.GetClient()}).
 		Complete()
 }

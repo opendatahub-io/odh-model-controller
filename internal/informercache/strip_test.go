@@ -62,4 +62,42 @@ func TestStripConfigMapData(t *testing.T) {
 			t.Fatal("expected original object to be returned unchanged")
 		}
 	})
+
+	t.Run("strips metadata-only ConfigMap payload metadata", func(t *testing.T) {
+		metadata := &metav1.PartialObjectMetadata{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      "test-cm",
+				Namespace: "test-ns",
+				Labels: map[string]string{
+					"opendatahub.io/managed": "true",
+				},
+				Annotations: map[string]string{
+					"example.com/large": "payload",
+				},
+				ManagedFields: []metav1.ManagedFieldsEntry{{Manager: "kubectl"}},
+			},
+		}
+
+		out, err := StripConfigMapData(metadata)
+		if err != nil {
+			t.Fatalf("StripConfigMapData() error = %v", err)
+		}
+
+		stripped, ok := out.(*metav1.PartialObjectMetadata)
+		if !ok {
+			t.Fatalf("StripConfigMapData() returned %T, want *metav1.PartialObjectMetadata", out)
+		}
+		if stripped.Annotations != nil {
+			t.Fatal("expected Annotations to be nil")
+		}
+		if stripped.GetManagedFields() != nil {
+			t.Fatal("expected ManagedFields to be nil")
+		}
+		if stripped.GetLabels()["opendatahub.io/managed"] != "true" {
+			t.Fatal("expected labels to be preserved")
+		}
+		if stripped.Name != "test-cm" || stripped.Namespace != "test-ns" {
+			t.Fatalf("metadata preserved: got %s/%s", stripped.Namespace, stripped.Name)
+		}
+	})
 }

@@ -31,6 +31,8 @@ import (
 
 	"google.golang.org/protobuf/proto"
 
+	corev1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/labels"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
 
 	"github.com/onsi/ginkgo/v2"
@@ -39,10 +41,14 @@ import (
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/utils/ptr"
 	ctrl "sigs.k8s.io/controller-runtime"
+	"sigs.k8s.io/controller-runtime/pkg/cache"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/envtest"
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
 	"sigs.k8s.io/controller-runtime/pkg/log/zap"
+
+	"github.com/opendatahub-io/odh-model-controller/internal/controller/constants"
+	"github.com/opendatahub-io/odh-model-controller/internal/informercache"
 )
 
 type Config struct {
@@ -121,6 +127,23 @@ func (e *Config) Start(ctx context.Context) *Client {
 
 	mgrOptions := ctrl.Options{
 		Scheme: envTest.Scheme,
+		Client: client.Options{
+			Cache: &client.CacheOptions{
+				// ConfigMap watches use metadata-only objects. Keep typed reads
+				// direct so tests do not create a second structured cache.
+				DisableFor: []client.Object{&corev1.ConfigMap{}},
+			},
+		},
+		Cache: cache.Options{
+			ByObject: map[client.Object]cache.ByObject{
+				&corev1.ConfigMap{}: {
+					Label: labels.SelectorFromSet(labels.Set{
+						constants.ODHManaged: "true",
+					}),
+					Transform: informercache.StripConfigMapData,
+				},
+			},
+		},
 		Metrics: metricsserver.Options{
 			BindAddress: "0",
 		},
