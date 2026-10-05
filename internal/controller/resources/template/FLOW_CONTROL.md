@@ -58,6 +58,22 @@ This means:
 - **ServiceAccount tokens**: Objective is set to the SA's namespace (e.g., `my-namespace`)
 - **User tokens**: Objective is set to `"authenticated"`
 
+### Requests through Grid
+
+When Grid publishing is configured, the Gateway reconciler preserves incoming
+`x-gateway-inference-fairness-id` and `x-gateway-inference-objective` values only
+for the exact configured Grid service account identity returned by Kubernetes
+TokenReview (`system:serviceaccount:<GRID_NAMESPACE>:<GRID_SERVICE_ACCOUNT>`).
+Each absent header independently falls back to the existing fairness value or
+objective expression, including the Gateway's custom objective annotation.
+Other callers continue to receive the locally computed values. Authentication
+and model authorization remain enforced.
+
+Grid must forward values established by the caller's trusted entry gateway.
+The destination resolves the forwarded objective name against its own
+InferenceObjectives, so objective names should have consistent meanings across
+participating sites.
+
 ### Anonymous Requests
 
 For anonymous (unauthenticated) requests:

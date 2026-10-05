@@ -394,6 +394,12 @@ func setupServingRuntimeReconciler(mgr ctrl.Manager) error {
 }
 
 func setupLLMInferenceServiceReconciler(mgr ctrl.Manager) error {
+	if err := (&llmcontroller.GridInferenceProviderReconciler{
+		Client: mgr.GetClient(), APIReader: mgr.GetAPIReader(),
+		Recorder: mgr.GetEventRecorder("GridInferenceProvider"),
+	}).SetupWithManager(mgr, setupLog); err != nil {
+		return err
+	}
 	return llmcontroller.NewLLMInferenceServiceReconciler(
 		mgr.GetClient(),
 		mgr.GetScheme(),
@@ -402,11 +408,12 @@ func setupLLMInferenceServiceReconciler(mgr ctrl.Manager) error {
 }
 
 func setupGatewayReconciler(mgr ctrl.Manager) error {
-	return llmcontroller.NewGatewayReconciler(
+	reconciler := llmcontroller.NewGatewayReconciler(
 		mgr.GetClient(),
 		mgr.GetScheme(),
 		mgr.GetEventRecorder("GatewayAuthBootstrap"),
-	).SetupWithManager(mgr, setupLog)
+	)
+	return reconciler.SetupWithManager(mgr, setupLog)
 }
 
 func setupNimReconciler(mgr ctrl.Manager, cfg *rest.Config) error {
