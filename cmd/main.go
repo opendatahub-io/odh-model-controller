@@ -33,6 +33,7 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/kubernetes"
 	_ "k8s.io/client-go/plugin/pkg/client/auth"
 	"k8s.io/client-go/rest"
@@ -311,6 +312,11 @@ func webhookSetupsForMode(xksMode bool) []webhookSetup {
 }
 
 func setupReconcilers(mgr ctrl.Manager, setupLog logr.Logger, cfg *rest.Config) error {
+	gridConfig, err := llmcontroller.GridConfigFromEnv()
+	if err != nil {
+		setupLog.Error(err, "invalid Grid configuration")
+		return err
+	}
 	if err := setupInferenceServiceReconciler(mgr, cfg); err != nil {
 		setupLog.Error(err, "unable to create controller", "controller", "InferenceService")
 		return err
@@ -331,11 +337,11 @@ func setupReconcilers(mgr ctrl.Manager, setupLog logr.Logger, cfg *rest.Config) 
 		setupLog.Error(err, "unable to create controller", "controller", "ServingRuntime")
 		return err
 	}
-	if err := setupLLMInferenceServiceReconciler(mgr); err != nil {
+	if err := setupLLMInferenceServiceReconciler(mgr, gridConfig); err != nil {
 		setupLog.Error(err, "unable to create controller", "controller", "LLMInferenceService")
 		return err
 	}
-	if err := setupGatewayReconciler(mgr); err != nil {
+	if err := setupGatewayReconciler(mgr, gridConfig); err != nil {
 		setupLog.Error(err, "unable to create controller", "controller", "Gateway")
 		return err
 	}
@@ -393,7 +399,12 @@ func setupServingRuntimeReconciler(mgr ctrl.Manager) error {
 	}).SetupWithManager(mgr)
 }
 
-func setupLLMInferenceServiceReconciler(mgr ctrl.Manager) error {
+func setupLLMInferenceServiceReconciler(mgr ctrl.Manager, gridConfig llmcontroller.GridConfig) error {
+	if err := (&llmcontroller.GridInferenceProviderReconciler{
+		Client: mgr.GetClient(), APIReader: mgr.GetAPIReader(), Config: gridConfig,
+	}).SetupWithManager(mgr, setupLog); err != nil {
+		return err
+	}
 	return llmcontroller.NewLLMInferenceServiceReconciler(
 		mgr.GetClient(),
 		mgr.GetScheme(),
@@ -401,12 +412,14 @@ func setupLLMInferenceServiceReconciler(mgr ctrl.Manager) error {
 	).SetupWithManager(mgr, setupLog)
 }
 
-func setupGatewayReconciler(mgr ctrl.Manager) error {
-	return llmcontroller.NewGatewayReconciler(
+func setupGatewayReconciler(mgr ctrl.Manager, gridConfig llmcontroller.GridConfig) error {
+	reconciler := llmcontroller.NewGatewayReconciler(
 		mgr.GetClient(),
 		mgr.GetScheme(),
 		mgr.GetEventRecorder("GatewayAuthBootstrap"),
-	).SetupWithManager(mgr, setupLog)
+	)
+	reconciler.GridServiceAccount = types.NamespacedName{Namespace: gridConfig.Namespace, Name: gridConfig.ServiceAccount}
+	return reconciler.SetupWithManager(mgr, setupLog)
 }
 
 func setupNimReconciler(mgr ctrl.Manager, cfg *rest.Config) error {

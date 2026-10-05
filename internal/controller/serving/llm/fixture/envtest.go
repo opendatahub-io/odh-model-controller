@@ -22,6 +22,8 @@ import (
 
 	"github.com/onsi/ginkgo/v2"
 	"github.com/onsi/gomega"
+	"k8s.io/apimachinery/pkg/labels"
+	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/rest"
 	"k8s.io/client-go/tools/events"
 
@@ -55,16 +57,30 @@ func SetupTestEnv() (*pkgtest.Client, *events.FakeRecorder) {
 		).SetupWithManager(mgr, setupLog)
 	}
 
+	gridCtrlFunc := func(mgr ctrl.Manager, cfg *rest.Config) error {
+		return (&llmcontroller.GridInferenceProviderReconciler{
+			Client: mgr.GetClient(), APIReader: mgr.GetAPIReader(),
+			Config: llmcontroller.GridConfig{
+				NamespaceSelector: labels.SelectorFromSet(labels.Set{"grid-test": "enabled"}),
+				NetworkName:       "grid-test", Namespace: "grid-test-identity",
+				ServiceAccount: "grid-client", TokenSecret: "grid-token",
+				SiteLabels: map[string]string{"grid.praxis.fast/provider-site": "test"},
+			},
+		}).SetupWithManager(mgr, setupLog)
+	}
+
 	gatewayCtrlFunc := func(mgr ctrl.Manager, cfg *rest.Config) error {
-		return llmcontroller.NewGatewayReconciler(
+		reconciler := llmcontroller.NewGatewayReconciler(
 			mgr.GetClient(),
 			mgr.GetScheme(),
 			fakeRecorder,
-		).SetupWithManager(mgr, setupLog)
+		)
+		reconciler.GridServiceAccount = types.NamespacedName{Namespace: "grid-test-identity", Name: "grid-client"}
+		return reconciler.SetupWithManager(mgr, setupLog)
 	}
 
 	envTest := pkgtest.NewEnvTest().
-		WithControllers(llmCtrlFunc, gatewayCtrlFunc).
+		WithControllers(llmCtrlFunc, gatewayCtrlFunc, gridCtrlFunc).
 		Start(ctx)
 
 	ginkgo.DeferCleanup(func() {

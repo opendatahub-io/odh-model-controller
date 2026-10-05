@@ -63,13 +63,14 @@ import (
 // for Authorino is available even when no models are deployed.
 type GatewayReconciler struct {
 	client.Client
-	Recorder          events.EventRecorder
-	Scheme            *runtime.Scheme
-	envoyFilterLoader resources.EnvoyFilterTemplateLoader
-	envoyFilterStore  resources.EnvoyFilterStore
-	authPolicyLoader  resources.AuthPolicyTemplateLoader
-	authPolicyStore   resources.AuthPolicyStore
-	deltaProcessor    processors.DeltaProcessor
+	Recorder           events.EventRecorder
+	Scheme             *runtime.Scheme
+	GridServiceAccount types.NamespacedName
+	envoyFilterLoader  resources.EnvoyFilterTemplateLoader
+	envoyFilterStore   resources.EnvoyFilterStore
+	authPolicyLoader   resources.AuthPolicyTemplateLoader
+	authPolicyStore    resources.AuthPolicyStore
+	deltaProcessor     processors.DeltaProcessor
 }
 
 func NewGatewayReconciler(client client.Client, scheme *runtime.Scheme, recorder events.EventRecorder) *GatewayReconciler {
@@ -243,6 +244,7 @@ func (r *GatewayReconciler) reconcileAuthPolicy(ctx context.Context, logger logr
 		resources.WithLabels(map[string]string{"app.kubernetes.io/name": "llminferenceservice-auth"}),
 		resources.WithAudiences(audiences),
 		resources.WithObjectiveExpression(objectiveExpression),
+		resources.WithGridFlowControlHeaders(r.GridServiceAccount.Namespace, r.GridServiceAccount.Name),
 	)
 	if err != nil {
 		return fmt.Errorf("failed to load AuthPolicy template: %w", err)
