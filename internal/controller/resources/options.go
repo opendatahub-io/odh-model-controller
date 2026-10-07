@@ -18,6 +18,7 @@ package resources
 
 import (
 	"encoding/json"
+	"fmt"
 
 	authorinov1beta3 "github.com/kuadrant/authorino/api/v1beta3"
 	kuadrantv1 "github.com/kuadrant/kuadrant-operator/api/v1"
@@ -81,6 +82,46 @@ func WithObjectiveExpression(expression string) ObjectOption {
 				}
 				ap.Spec.AuthScheme.Authentication[key] = auth
 			}
+		}
+	}
+}
+
+// WithGridFlowControlHeaders preserves caller flow-control headers only for the
+// configured Grid identity authenticated by Kubernetes TokenReview. Apply after
+// audience and objective options so absent headers retain their configured defaults.
+func WithGridFlowControlHeaders(namespace, serviceAccount string) ObjectOption {
+	return func(obj client.Object) {
+		ap, ok := obj.(*kuadrantv1.AuthPolicy)
+		if !ok || ap.Spec.AuthScheme == nil || namespace == "" || serviceAccount == "" {
+			return
+		}
+		username := "system:serviceaccount:" + namespace + ":" + serviceAccount
+		for key, auth := range ap.Spec.AuthScheme.Authentication {
+			if auth.KubernetesTokenReview == nil {
+				continue
+			}
+			for name, header := range map[string]string{
+				"fairness":  "x-gateway-inference-fairness-id",
+				"objective": "x-gateway-inference-objective",
+			} {
+				override, exists := auth.Overrides[name]
+				if !exists {
+					continue
+				}
+				fallback := string(override.Expression)
+				if fallback == "" {
+					fallback = string(override.Value.Raw)
+				}
+				if fallback == "" {
+					continue
+				}
+				override.Expression = authorinov1beta3.CelExpression(fmt.Sprintf(
+					"auth.identity.user.username == %q && %q in request.headers ? request.headers[%q] : (%s)",
+					username, header, header, fallback))
+				override.Value = k8sruntime.RawExtension{}
+				auth.Overrides[name] = override
+			}
+			ap.Spec.AuthScheme.Authentication[key] = auth
 		}
 	}
 }

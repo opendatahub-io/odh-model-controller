@@ -26,6 +26,12 @@ spec:
                     type: string
               defaults:
                 type: object
+              patterns:
+                type: object
+                x-kubernetes-preserve-unknown-fields: true
+              rules:
+                type: object
+                x-kubernetes-preserve-unknown-fields: true
           status:
             type: object
   scope: Namespaced

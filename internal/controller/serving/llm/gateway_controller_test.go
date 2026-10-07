@@ -87,6 +87,23 @@ var _ = Describe("Gateway Controller", func() {
 	}
 
 	Context("Gateway referenced by LLMInferenceService", func() {
+		It("preserves Grid flow headers with the Gateway's configured objective as fallback", func(ctx SpecContext) {
+			gatewayName := pkgtest.GenerateUniqueTestName("grid-flow-gateway")
+			createGateway(ctx, gatewayName, fixture.WithGatewayAnnotations(map[string]string{
+				constants.AuthPolicyObjectiveExpressionAnnotation: "'custom-objective'",
+			}))
+			createLLMServiceForGateway(ctx, gatewayName)
+			policy := &kuadrantv1.AuthPolicy{}
+			Eventually(func() error {
+				return envTest.Get(ctx, types.NamespacedName{Namespace: testNs, Name: constants.GetAuthPolicyName(gatewayName)}, policy)
+			}).Should(Succeed())
+			overrides := policy.Spec.AuthScheme.Authentication["kubernetes-user"].Overrides
+			Expect(string(overrides["fairness"].Expression)).To(ContainSubstring("system:serviceaccount:grid-test-identity:grid-client"))
+			Expect(string(overrides["fairness"].Expression)).To(ContainSubstring("request.headers[\"x-gateway-inference-fairness-id\"]"))
+			Expect(string(overrides["objective"].Expression)).To(ContainSubstring("request.headers[\"x-gateway-inference-objective\"]"))
+			Expect(string(overrides["objective"].Expression)).To(ContainSubstring("('custom-objective')"))
+		})
+
 		It("should create EnvoyFilter and AuthPolicy with correct owner references", func(ctx SpecContext) {
 			gatewayName := setupReferencedGateway(ctx)
 
