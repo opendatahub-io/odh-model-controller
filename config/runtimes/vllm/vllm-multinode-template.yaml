@@ -44,6 +44,7 @@ objects:
           - /mnt/models
           - --port=8080
           - --served-model-name={{.Name}}
+          - --enable-prompt-tokens-details
           - --distributed-executor-backend=mp
           - --tensor-parallel-size=$(TENSOR_PARALLEL_SIZE)
           - --pipeline-parallel-size=$(PIPELINE_PARALLEL_SIZE)
@@ -134,6 +135,7 @@ objects:
             - /mnt/models
             - --port=8080
             - --served-model-name=$(ISVC_NAME)
+            - --enable-prompt-tokens-details
             - --distributed-executor-backend=mp
             - --tensor-parallel-size=$(TENSOR_PARALLEL_SIZE)
             - --pipeline-parallel-size=$(PIPELINE_PARALLEL_SIZE)

@@ -31,6 +31,7 @@ spec:
         - "--port=8080"
         - "--model=/mnt/models"
         - "--served-model-name={{.Name}}"
+        - "--enable-prompt-tokens-details"
       env:
         - name: HF_HOME
           value: /tmp/hf_home
