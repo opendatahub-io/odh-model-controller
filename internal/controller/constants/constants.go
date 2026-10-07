@@ -188,6 +188,19 @@ const (
 	DefaultObjectiveExpression = "auth.identity.user.username.startsWith('system:serviceaccount:') ? auth.identity.user.username.split(':')[2] : 'authenticated'"
 
 	DefaultModelRoutingHeader = "x-gateway-model-name"
+
+	// RequestBodyBufferLimitAnnotation is a Gateway annotation that sets the
+	// per_connection_buffer_limit_bytes on the gateway listener. The model-routing
+	// EnvoyFilter buffers the full request body (json_to_metadata + Lua body()) to
+	// derive the model-routing header; that buffering is bounded by this limit, so a
+	// body larger than it is rejected with 413. Raise it for large multimodal or
+	// long-prompt requests. Must be a positive integer number of bytes.
+	RequestBodyBufferLimitAnnotation = "inference.opendatahub.io/request-body-buffer-limit-bytes"
+
+	// DefaultRequestBodyBufferLimitBytes is the per_connection_buffer_limit_bytes
+	// applied to the gateway listener when the annotation above is unset or invalid
+	// (32 MiB). Envoy's own default is 1 MiB, which is small for multimodal payloads.
+	DefaultRequestBodyBufferLimitBytes int64 = 32 * 1024 * 1024
 )
 
 func GetAuthPolicyName(targetName string) string {
