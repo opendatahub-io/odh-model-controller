@@ -16,15 +16,17 @@ jobs:
 
       - name: Determine expected tag
         id: expected-tag
+        env:
+          BASE_REF: ${{ github.base_ref }}
         run: |
-          if [ "${{ github.base_ref }}" == "incubating" ]; then
+          if [ "${BASE_REF}" == "incubating" ]; then
             EXPECTED_TAG="odh-incubating"
-          elif [[ "${{ github.base_ref }}" == "main" ]]; then
+          elif [[ "${BASE_REF}" == "main" ]]; then
             EXPECTED_TAG="odh-stable"
           elif [[ "${GITHUB_REF}" == refs/tags/odh-v* ]]; then
             EXPECTED_TAG="${GITHUB_REF#refs/tags/}"
           else
-            echo "Unknown destination branch: ${{ github.base_ref }} or tag: ${GITHUB_REF}"
+            echo "Unknown destination branch: ${BASE_REF} or tag: ${GITHUB_REF}"
             exit 1
           fi
           echo "EXPECTED_TAG=$EXPECTED_TAG" >> $GITHUB_ENV
