@@ -44,6 +44,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 	"sigs.k8s.io/controller-runtime/pkg/handler"
+	"sigs.k8s.io/controller-runtime/pkg/log"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 	gatewayv1 "sigs.k8s.io/gateway-api/apis/v1"
 
@@ -196,6 +197,10 @@ func (r *GridInferenceProviderReconciler) Reconcile(ctx context.Context, req ctr
 	if !complete {
 		return ctrl.Result{RequeueAfter: 5 * time.Second}, nil
 	}
+	if err := errors.Join(plan.credentialErrors...); err != nil {
+		log.FromContext(ctx).Error(err, "Grid credential validation failed")
+		return ctrl.Result{RequeueAfter: time.Minute}, nil
+	}
 	// Secrets may be outside the label-filtered cache; refresh their validity.
 	if len(publications) > 0 {
 		return ctrl.Result{RequeueAfter: time.Minute}, nil
@@ -204,9 +209,10 @@ func (r *GridInferenceProviderReconciler) Reconcile(ctx context.Context, req ctr
 }
 
 type gridPublicationPlan struct {
-	service      *kservev1alpha2.LLMInferenceService
-	publications []gridPublication
-	errors       []error
+	service          *kservev1alpha2.LLMInferenceService
+	publications     []gridPublication
+	errors           []error
+	credentialErrors []error
 }
 
 // desiredPublications distinguishes invalid per-Gateway configuration (revoke
@@ -268,7 +274,7 @@ func (r *GridInferenceProviderReconciler) desiredPublications(ctx context.Contex
 				}
 				if err := r.checkIdentity(ctx, cfg); err != nil {
 					r.providerWarning(svc, gateway, err)
-					plan.errors = append(plan.errors, fmt.Errorf("Gateway %s: %w", attachment.Gateway, err))
+					plan.credentialErrors = append(plan.credentialErrors, fmt.Errorf("Gateway %s: %w", attachment.Gateway, err))
 					continue
 				}
 				plan.publications = append(plan.publications, gridPublication{gateway: gateway, config: cfg, attachment: attachment})

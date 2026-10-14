@@ -21,6 +21,7 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"time"
 
 	kservev1alpha2 "github.com/kserve/kserve/pkg/apis/serving/v1alpha2"
 	kservellmisvc "github.com/kserve/kserve/pkg/controller/v1alpha2/llmisvc"
@@ -482,9 +483,19 @@ var _ = Describe("Grid provider reconciliation", Ordered, func() {
 		Entry("when the service is deleted", "deletion"),
 	)
 
-	It("revokes access when the configured token does not belong to the account", func(ctx SpecContext) {
+	DescribeTable("revokes access and schedules credential validation retries", func(ctx SpecContext, holdCleanup bool) {
 		optIn(ctx)
 		provider := waitProvider(ctx)
+		if holdCleanup {
+			provider.SetFinalizers([]string{"test.example.com/hold-credential-cleanup"})
+			Expect(envTest.Update(ctx, provider)).To(Succeed())
+			DeferCleanup(func(ctx SpecContext) {
+				if err := envTest.Get(ctx, client.ObjectKeyFromObject(provider), provider); err == nil {
+					provider.SetFinalizers(nil)
+					Expect(envTest.Update(ctx, provider)).To(Succeed())
+				}
+			})
+		}
 		secret := &corev1.Secret{}
 		key := client.ObjectKey{Namespace: "grid-test-identity", Name: "grid-token"}
 		Expect(envTest.Get(ctx, key, secret)).To(Succeed())
@@ -498,11 +509,31 @@ var _ = Describe("Grid provider reconciliation", Ordered, func() {
 		Expect(envTest.Update(ctx, secret)).To(Succeed())
 		// A service update triggers the same check as the minute refresh.
 		updateService(ctx, func(s *kservev1alpha2.LLMInferenceService) { s.Annotations["test.example.com/recheck"] = "true" })
+		reconciler := &llmcontroller.GridInferenceProviderReconciler{Client: envTest.Client, APIReader: envTest.Client}
+		request := ctrl.Request{NamespacedName: client.ObjectKeyFromObject(svc)}
+		if holdCleanup {
+			Eventually(func(g Gomega) {
+				result, err := reconciler.Reconcile(ctx, request)
+				g.Expect(err).NotTo(HaveOccurred())
+				g.Expect(result.RequeueAfter).To(Equal(5 * time.Second))
+			}).Should(Succeed())
+			Expect(envTest.Get(ctx, client.ObjectKeyFromObject(provider), provider)).To(Succeed())
+			Expect(provider.GetDeletionTimestamp().IsZero()).To(BeFalse())
+			Expect(envTest.Get(ctx, client.ObjectKeyFromObject(svc), svc)).To(Succeed())
+			Expect(svc.Finalizers).To(ContainElement("grid.praxis.fast/inference-provider"))
+			provider.SetFinalizers(nil)
+			Expect(envTest.Update(ctx, provider)).To(Succeed())
+		}
+		Eventually(func(g Gomega) {
+			result, err := reconciler.Reconcile(ctx, request)
+			g.Expect(err).NotTo(HaveOccurred())
+			g.Expect(result.RequeueAfter).To(Equal(time.Minute))
+		}).Should(Succeed())
 		Eventually(func() []unstructured.Unstructured { return providers(ctx) }).Should(BeEmpty())
 		Eventually(func() bool {
 			return apierrors.IsNotFound(envTest.Get(ctx, client.ObjectKey{Namespace: ns.Name, Name: provider.GetName()}, &rbacv1.RoleBinding{}))
 		}).Should(BeTrue())
-	})
+	}, Entry("after cleanup completes", false), Entry("while cleanup waits for a provider finalizer", true))
 
 	It("holds cleanup until Grid's provider finalizers complete and revokes access immediately", func(ctx SpecContext) {
 		optIn(ctx)
