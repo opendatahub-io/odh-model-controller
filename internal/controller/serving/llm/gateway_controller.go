@@ -26,7 +26,6 @@ import (
 
 	"github.com/go-logr/logr"
 	kservev1alpha2 "github.com/kserve/kserve/pkg/apis/serving/v1alpha2"
-	kservellmisvc "github.com/kserve/kserve/pkg/controller/v1alpha2/llmisvc"
 	kserveutils "github.com/kserve/kserve/pkg/utils"
 	kuadrantv1 "github.com/kuadrant/kuadrant-operator/api/v1"
 	monitoringv1 "github.com/prometheus-operator/prometheus-operator/pkg/apis/monitoring/v1"
@@ -519,57 +518,34 @@ func (r *GatewayReconciler) isGatewayReferencedByLLMService(ctx context.Context,
 	return false, nil
 }
 
-// getEffectiveGatewayRefs combines handy Gateway refs with inline and referenced
-// HTTPRoute parentRefs after applying KServe's BaseRef merge semantics.
+// getEffectiveGatewayRefs returns the effective gateway references for an LLMInferenceService.
+// The service's own gateway refs take precedence over those inherited from BaseRef configs,
+// matching the "last one wins" merge semantics used by kserve's MergeSpecs.
 func (r *GatewayReconciler) getEffectiveGatewayRefs(ctx context.Context, gateway *gatewayapiv1.Gateway, llmSvc *kservev1alpha2.LLMInferenceService) []kservev1alpha2.GatewayObjectReference {
-	specs := make([]kservev1alpha2.LLMInferenceServiceSpec, 0, len(llmSvc.Spec.BaseRefs)+1)
-	for _, ref := range llmSvc.Spec.BaseRefs {
-		cfg, err := r.fetchLLMISvcConfig(ctx, ref.Name, llmSvc.Namespace)
+	nsLabels := r.fetchNamespaceLabels(ctx, llmSvc.Namespace)
+
+	// Service's own refs take precedence (replace config refs)
+	if refs := getGatewayRefs(ctx, gateway, llmSvc, nsLabels); len(refs) > 0 {
+		return refs
+	}
+
+	logger := log.FromContext(ctx)
+
+	// Fall back to config refs; last BaseRef with gateway refs wins
+	var refs []kservev1alpha2.GatewayObjectReference
+	for _, baseRef := range llmSvc.Spec.BaseRefs {
+		cfg, err := r.fetchLLMISvcConfig(ctx, baseRef.Name, llmSvc.Namespace)
 		if err != nil {
-			log.FromContext(ctx).Error(err, "Failed to fetch LLMInferenceServiceConfig", "name", ref.Name)
+			logger.Error(err, "Failed to fetch LLMInferenceServiceConfig", "name", baseRef.Name)
 			continue
 		}
-		specs = append(specs, cfg.Spec)
-	}
-	effective := llmSvc.DeepCopy()
-	spec, err := kservellmisvc.MergeSpecs(ctx, append(specs, llmSvc.Spec)...)
-	if err != nil {
-		log.FromContext(ctx).Error(err, "Failed to merge LLMInferenceService configuration")
-		return nil
-	}
-	effective.Spec = spec
-	refs := getGatewayRefs(ctx, nil, effective, nil)
-	if effective.Spec.Router != nil && effective.Spec.Router.Route != nil && effective.Spec.Router.Route.HTTP != nil {
-		for _, ref := range effective.Spec.Router.Route.HTTP.Refs {
-			route := &gatewayapiv1.HTTPRoute{}
-			if err := r.Get(ctx, client.ObjectKey{Namespace: llmSvc.Namespace, Name: ref.Name}, route); err != nil {
-				if !apierrors.IsNotFound(err) {
-					log.FromContext(ctx).Error(err, "Failed to read referenced HTTPRoute", "name", ref.Name)
-				}
-				continue
-			}
-			refs = append(refs, gatewayRefsFromParents(route.Spec.ParentRefs, route.Namespace)...)
+
+		if cfg.Spec.Router != nil && cfg.Spec.Router.Gateway.HasRefs() {
+			refs = cfg.Spec.Router.Gateway.Refs
 		}
 	}
-	return filterAllowedRefs(ctx, gateway, refs, llmSvc.Namespace, r.fetchNamespaceLabels(ctx, llmSvc.Namespace))
-}
 
-func gatewayRefsFromParents(parents []gatewayapiv1.ParentReference, namespace string) []kservev1alpha2.GatewayObjectReference {
-	refs := make([]kservev1alpha2.GatewayObjectReference, 0, len(parents))
-	for _, parent := range parents {
-		if ptr.Deref(parent.Group, gatewayapiv1.Group(gatewayapiv1.GroupName)) != gatewayapiv1.Group(gatewayapiv1.GroupName) || ptr.Deref(parent.Kind, gatewayapiv1.Kind("Gateway")) != "Gateway" {
-			continue
-		}
-		refs = append(refs, kservev1alpha2.GatewayObjectReference{UntypedObjectReference: kservev1alpha2.UntypedObjectReference{Name: parent.Name, Namespace: ptr.Deref(parent.Namespace, gatewayapiv1.Namespace(namespace))}, SectionName: parent.SectionName})
-	}
-	return refs
-}
-
-func (r *GatewayReconciler) enqueueGatewaysFromHTTPRoute() handler.EventHandler {
-	return handler.EnqueueRequestsFromMapFunc(func(_ context.Context, obj client.Object) []reconcile.Request {
-		route := obj.(*gatewayapiv1.HTTPRoute)
-		return gatewayRequestsFromRefs(gatewayRefsFromParents(route.Spec.ParentRefs, route.Namespace), route.Namespace)
-	})
+	return filterAllowedRefs(ctx, gateway, refs, llmSvc.Namespace, nsLabels)
 }
 
 // fetchNamespaceLabels retrieves the labels for the given namespace.
@@ -911,32 +887,24 @@ func gatewayRefsEqual(a, b []kservev1alpha2.GatewayObjectReference) bool {
 	return true
 }
 
-func httpRouteNames(spec kservev1alpha2.LLMInferenceServiceSpec) []string {
-	if spec.Router == nil || spec.Router.Route == nil || spec.Router.Route.HTTP == nil {
-		return nil
-	}
-	names := make([]string, 0, len(spec.Router.Route.HTTP.Refs))
-	for _, ref := range spec.Router.Route.HTTP.Refs {
-		names = append(names, ref.Name)
-	}
-	slices.Sort(names)
-	return names
-}
-
-// configGatewayRefsChanged covers handy refs and both HTTPRoute reference forms.
+// configGatewayRefsChanged reports whether Router.Gateway.Refs differ between two LLMInferenceServiceConfig objects.
 func configGatewayRefsChanged(oldCfg, newCfg *kservev1alpha2.LLMInferenceServiceConfig) bool {
-	oldSvc := &kservev1alpha2.LLMInferenceService{Spec: oldCfg.Spec}
-	newSvc := &kservev1alpha2.LLMInferenceService{Spec: newCfg.Spec}
-	return gatewayRefsChanged(oldSvc, newSvc)
+	oldHasRefs := oldCfg.Spec.Router != nil && oldCfg.Spec.Router.Gateway.HasRefs()
+	newHasRefs := newCfg.Spec.Router != nil && newCfg.Spec.Router.Gateway.HasRefs()
+
+	if !oldHasRefs && !newHasRefs {
+		return false
+	}
+	if oldHasRefs != newHasRefs {
+		return true
+	}
+
+	return !gatewayRefsEqual(oldCfg.Spec.Router.Gateway.Refs, newCfg.Spec.Router.Gateway.Refs)
 }
 
 // gatewayRefsChanged reports whether gateway refs or BaseRefs differ between two LLMInferenceService objects.
 // BaseRefs are compared because they can introduce gateway refs via LLMInferenceServiceConfig.
 func gatewayRefsChanged(old, new *kservev1alpha2.LLMInferenceService) bool {
-	if !slices.Equal(httpRouteNames(old.Spec), httpRouteNames(new.Spec)) {
-		return true
-	}
-
 	if !gatewayRefsEqual(getGatewayRefs(context.Background(), nil, old, nil), getGatewayRefs(context.Background(), nil, new, nil)) {
 		return true
 	}
@@ -966,17 +934,10 @@ func gatewayRefsChanged(old, new *kservev1alpha2.LLMInferenceService) bool {
 }
 
 func getGatewayRefs(ctx context.Context, gateway *gatewayapiv1.Gateway, llmSvc *kservev1alpha2.LLMInferenceService, nsLabels map[string]string) []kservev1alpha2.GatewayObjectReference {
-	if llmSvc.Spec.Router == nil {
-		return nil
+	if llmSvc.Spec.Router != nil && llmSvc.Spec.Router.Gateway.HasRefs() {
+		return filterAllowedRefs(ctx, gateway, slices.Clone(llmSvc.Spec.Router.Gateway.Refs), llmSvc.Namespace, nsLabels)
 	}
-	var refs []kservev1alpha2.GatewayObjectReference
-	if llmSvc.Spec.Router.Gateway.HasRefs() {
-		refs = slices.Clone(llmSvc.Spec.Router.Gateway.Refs)
-	}
-	if route := llmSvc.Spec.Router.Route; route != nil && route.HTTP != nil && route.HTTP.Spec != nil {
-		refs = append(refs, gatewayRefsFromParents(route.HTTP.Spec.ParentRefs, llmSvc.Namespace)...)
-	}
-	return filterAllowedRefs(ctx, gateway, refs, llmSvc.Namespace, nsLabels)
+	return nil
 }
 
 func (r *GatewayReconciler) SetupWithManager(mgr ctrl.Manager, setupLog logr.Logger) error {
@@ -1075,13 +1036,6 @@ func (r *GatewayReconciler) SetupWithManager(mgr ctrl.Manager, setupLog logr.Log
 		builder = builder.Owns(&monitoringv1.PodMonitor{}, ctrlbuilder.WithPredicates(managedPredicate))
 	}
 
-	routeAvailable, err := utils.IsCrdAvailable(mgr.GetConfig(), gatewayapiv1.GroupVersion.String(), "HTTPRoute")
-	if err != nil {
-		return err
-	}
-	if routeAvailable {
-		builder = builder.Watches(&gatewayapiv1.HTTPRoute{}, r.enqueueGatewaysFromHTTPRoute())
-	}
 	return builder.
 		Watches(&kservev1alpha2.LLMInferenceService{},
 			r.enqueueGatewaysFromLLMInferenceService(),

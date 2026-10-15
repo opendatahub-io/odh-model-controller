@@ -143,7 +143,10 @@ Gateway references may come from `spec.router.gateway.refs`, inline
 `spec.router.route.http.spec.parentRefs`, or referenced HTTPRoutes
 (`spec.router.route.http.refs`). KServe reports the resulting attachments in
 status; a spec reference alone does not establish a usable endpoint. Gateway
-authentication discovery accounts for all three reference paths.
+authentication discovery retains its existing direct Gateway-reference and BaseRef
+behavior; HTTPRoute references and reported status do not independently trigger
+creation of a managed Gateway AuthPolicy. Configure Gateway authentication
+separately when using only HTTPRoute parent references.
 
 Within each Gateway attachment, the controller prefers shared publisher paths
 (`/publishers/<service-namespace>/models/<effective-model-name>`), then root

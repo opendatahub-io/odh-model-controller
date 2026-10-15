@@ -279,6 +279,11 @@ var _ = Describe("Grid provider reconciliation", Ordered, func() {
 		secretRef, _, err := unstructured.NestedMap(secondProvider.Object, "spec", "auth", "secretRef")
 		Expect(err).NotTo(HaveOccurred())
 		Expect(secretRef).To(HaveKeyWithValue("name", "grid-token-second"))
+		// Provider publication follows KServe status independently of Gateway auth discovery.
+		Expect(apierrors.IsNotFound(envTest.Get(ctx, client.ObjectKey{Namespace: second.Namespace, Name: constants.GetAuthPolicyName(second.Name)}, &kuadrantv1.AuthPolicy{}))).To(BeTrue())
+		updateService(ctx, func(s *kservev1alpha2.LLMInferenceService) {
+			s.Spec.Router.Gateway.Refs = append(s.Spec.Router.Gateway.Refs, fixture.LLMGatewayRef(second.Name, second.Namespace))
+		})
 		for _, entry := range []struct {
 			gateway  *gatewayv1.Gateway
 			provider unstructured.Unstructured
