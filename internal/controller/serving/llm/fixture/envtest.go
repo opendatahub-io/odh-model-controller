@@ -55,16 +55,24 @@ func SetupTestEnv() (*pkgtest.Client, *events.FakeRecorder) {
 		).SetupWithManager(mgr, setupLog)
 	}
 
+	gridCtrlFunc := func(mgr ctrl.Manager, cfg *rest.Config) error {
+		return (&llmcontroller.GridInferenceProviderReconciler{
+			Client: mgr.GetClient(), APIReader: mgr.GetAPIReader(),
+			Recorder: fakeRecorder,
+		}).SetupWithManager(mgr, setupLog)
+	}
+
 	gatewayCtrlFunc := func(mgr ctrl.Manager, cfg *rest.Config) error {
-		return llmcontroller.NewGatewayReconciler(
+		reconciler := llmcontroller.NewGatewayReconciler(
 			mgr.GetClient(),
 			mgr.GetScheme(),
 			fakeRecorder,
-		).SetupWithManager(mgr, setupLog)
+		)
+		return reconciler.SetupWithManager(mgr, setupLog)
 	}
 
 	envTest := pkgtest.NewEnvTest().
-		WithControllers(llmCtrlFunc, gatewayCtrlFunc).
+		WithControllers(llmCtrlFunc, gatewayCtrlFunc, gridCtrlFunc).
 		Start(ctx)
 
 	ginkgo.DeferCleanup(func() {

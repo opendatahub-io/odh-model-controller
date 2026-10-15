@@ -233,6 +233,17 @@ func (r *GatewayReconciler) reconcileAuthPolicy(ctx context.Context, logger logr
 		objectiveExpression = customExpr
 	}
 
+	gridOptions := []resources.ObjectOption{
+		resources.WithLabels(map[string]string{"app.kubernetes.io/name": "llminferenceservice-auth"}),
+		resources.WithAudiences(audiences), resources.WithObjectiveExpression(objectiveExpression),
+	}
+	gridConfig, gridConfigErr := GridConfigFromGateway(gateway)
+	if gridConfigErr != nil {
+		// Rebuild without the exception before reporting invalid configuration.
+		logger.Error(gridConfigErr, "Invalid Gateway Grid configuration")
+	} else if gridConfig != nil {
+		gridOptions = append(gridOptions, resources.WithGridFlowControlHeaders(gridConfig.Namespace, gridConfig.ServiceAccount))
+	}
 	desired, err := r.authPolicyLoader.Load(ctx, resources.AuthPolicyTarget{
 		Kind:               "Gateway",
 		Name:               gateway.Name,
@@ -240,9 +251,7 @@ func (r *GatewayReconciler) reconcileAuthPolicy(ctx context.Context, logger logr
 		AuthType:           constants.UserDefined,
 		ModelRoutingHeader: utils.GetModelRoutingHeader(ctx, r.Client),
 	},
-		resources.WithLabels(map[string]string{"app.kubernetes.io/name": "llminferenceservice-auth"}),
-		resources.WithAudiences(audiences),
-		resources.WithObjectiveExpression(objectiveExpression),
+		gridOptions...,
 	)
 	if err != nil {
 		return fmt.Errorf("failed to load AuthPolicy template: %w", err)
@@ -252,7 +261,7 @@ func (r *GatewayReconciler) reconcileAuthPolicy(ctx context.Context, logger logr
 
 	if !delta.HasChanges() {
 		logger.V(1).Info("No changes detected for AuthPolicy", "name", authPolicyName)
-		return nil
+		return gridConfigErr
 	}
 
 	if delta.IsAdded() {
@@ -274,7 +283,7 @@ func (r *GatewayReconciler) reconcileAuthPolicy(ctx context.Context, logger logr
 		}
 	}
 
-	return nil
+	return gridConfigErr
 }
 
 func (r *GatewayReconciler) deleteEnvoyFilterIfManaged(ctx context.Context, logger logr.Logger, gateway *gatewayapiv1.Gateway) error {
@@ -977,6 +986,9 @@ func (r *GatewayReconciler) SetupWithManager(mgr ctrl.Manager, setupLog logr.Log
 			oldAnnManaged := e.ObjectOld.GetAnnotations()[constants.ODHManaged]
 			newAnnManaged := e.ObjectNew.GetAnnotations()[constants.ODHManaged]
 			if oldAnnManaged != newAnnManaged {
+				return true
+			}
+			if e.ObjectOld.GetAnnotations()[GridServingAnnotation] != e.ObjectNew.GetAnnotations()[GridServingAnnotation] {
 				return true
 			}
 			oldTLS := e.ObjectOld.GetAnnotations()[constants.AuthorinoTLSBootstrapAnnotation]
