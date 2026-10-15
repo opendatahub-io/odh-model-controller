@@ -25,6 +25,7 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/errors"
 	k8serr "k8s.io/apimachinery/pkg/api/errors"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/util/validation/field"
@@ -47,7 +48,7 @@ var inferenceservicelog = logf.Log.WithName("inferenceservice-resource")
 // SetupInferenceServiceWebhookWithManager registers the webhook for InferenceService in the manager.
 func SetupInferenceServiceWebhookWithManager(mgr ctrl.Manager) error {
 	return ctrl.NewWebhookManagedBy(mgr, &servingv1beta1.InferenceService{}).
-		WithValidator(&InferenceServiceCustomValidator{client: mgr.GetClient()}).
+		WithValidator(&InferenceServiceCustomValidator{client: mgr.GetClient(), apiReader: mgr.GetAPIReader()}).
 		WithDefaulter(&InferenceServiceCustomDefaulter{
 			client:    mgr.GetClient(),
 			apiReader: mgr.GetAPIReader(),
@@ -65,7 +66,8 @@ func SetupInferenceServiceWebhookWithManager(mgr ctrl.Manager) error {
 // NOTE: The +kubebuilder:object:generate=false marker prevents controller-gen from generating DeepCopy methods,
 // as this struct is used only for temporary operations and does not need to be deeply copied.
 type InferenceServiceCustomValidator struct {
-	client client.Client
+	client    client.Client
+	apiReader client.Reader
 }
 
 var _ admission.Validator[*servingv1beta1.InferenceService] = &InferenceServiceCustomValidator{}
@@ -102,19 +104,51 @@ func (v *InferenceServiceCustomValidator) ValidateCreate(ctx context.Context, in
 	if err := validateCanaryCount(inferenceservice); err != nil {
 		return nil, err
 	}
+	if err := v.validateHardwareProfileDRA(ctx, nil, inferenceservice); err != nil {
+		return nil, err
+	}
 
 	return nil, nil
 }
 
 // ValidateUpdate implements webhook.CustomValidator so a webhook will be registered for the type InferenceService.
-func (v *InferenceServiceCustomValidator) ValidateUpdate(ctx context.Context, _, inferenceservice *servingv1beta1.InferenceService) (admission.Warnings, error) {
+func (v *InferenceServiceCustomValidator) ValidateUpdate(ctx context.Context, oldISVC, inferenceservice *servingv1beta1.InferenceService) (admission.Warnings, error) {
 	inferenceservicelog.Info("Validation for InferenceService upon update", "name", inferenceservice.GetName())
 
 	if err := validateCanaryCount(inferenceservice); err != nil {
 		return nil, err
 	}
+	if err := v.validateHardwareProfileDRA(ctx, oldISVC, inferenceservice); err != nil {
+		return nil, err
+	}
 
 	return nil, nil
+}
+
+func (v *InferenceServiceCustomValidator) validateHardwareProfileDRA(ctx context.Context, oldISVC, isvc *servingv1beta1.InferenceService) error {
+	var oldMeta *metav1.ObjectMeta
+	if oldISVC != nil {
+		oldMeta = &oldISVC.ObjectMeta
+	}
+	if !hardwareprofile.DRAReferenceAnnotationsChanged(oldMeta, &isvc.ObjectMeta) {
+		return nil
+	}
+	reader := v.apiReader
+	if reader == nil {
+		reader = v.client
+	}
+	name, namespace := hardwareprofile.ProfileRef(isvc.Annotations, isvc.Namespace)
+	profile, err := hardwareprofile.Resolve(ctx, reader, name, namespace)
+	if err != nil {
+		return err
+	}
+	if profile.ResourceClaimTemplateName == "" {
+		return nil
+	}
+	if isvc.Spec.Predictor.Model == nil {
+		return fmt.Errorf("HardwareProfile DRA requires spec.predictor.model")
+	}
+	return hardwareprofile.ValidateResourceClaimTemplate(ctx, reader, profile.ResourceClaimTemplateName, isvc.Namespace)
 }
 
 // ValidateDelete implements webhook.CustomValidator so a webhook will be registered for the type InferenceService.
@@ -339,6 +373,7 @@ func performISVCInjection(
 }
 
 // +kubebuilder:rbac:groups=infrastructure.opendatahub.io,resources=hardwareprofiles,verbs=get;list;watch
+// +kubebuilder:rbac:groups=resource.k8s.io,resources=resourceclaimtemplates,verbs=get
 
 // applyHardwareProfile applies HardwareProfile scheduling stanzas to an InferenceService at admission time.
 //
@@ -368,6 +403,13 @@ func (d *InferenceServiceCustomDefaulter) applyHardwareProfile(
 	profileName, profileNamespace := hardwareprofile.ProfileRef(annotations, isvc.Namespace)
 
 	if profileName == "" {
+		oldTemplate, referenceChanged, err := hardwareprofile.DRAStateFromRequest(req, &isvc.ObjectMeta)
+		if err != nil {
+			return err
+		}
+		if err := reconcileISVCHardwareProfileDRA(isvc, oldTemplate, "", referenceChanged); err != nil {
+			return err
+		}
 		if req.Operation == admissionv1.Update {
 			return d.handleHWPRemovalISVC(ctx, req, isvc)
 		}
@@ -375,7 +417,7 @@ func (d *InferenceServiceCustomDefaulter) applyHardwareProfile(
 	}
 
 	// Resolve the HardwareProfile CR.
-	profile, err := hardwareprofile.Resolve(ctx, d.client, profileName, profileNamespace)
+	profile, err := hardwareprofile.Resolve(ctx, d.apiReader, profileName, profileNamespace)
 	if err != nil {
 		if k8serr.IsNotFound(err) {
 			return fmt.Errorf("hardware profile %q not found in namespace %q", profileName, profileNamespace)
@@ -389,6 +431,13 @@ func (d *InferenceServiceCustomDefaulter) applyHardwareProfile(
 			isvc.Annotations = make(map[string]string)
 		}
 		isvc.Annotations[hardwareprofile.HardwareProfileAnnotationNamespace] = profileNamespace
+	}
+	oldTemplate, referenceChanged, err := hardwareprofile.DRAStateFromRequest(req, &isvc.ObjectMeta)
+	if err != nil {
+		return err
+	}
+	if err := reconcileISVCHardwareProfileDRA(isvc, oldTemplate, profile.ResourceClaimTemplateName, referenceChanged); err != nil {
+		return err
 	}
 
 	profileChanged := hardwareprofile.ProfileChanged(req, profileName, profileNamespace)
@@ -431,6 +480,29 @@ func (d *InferenceServiceCustomDefaulter) applyHardwareProfile(
 	isvc.Spec.Predictor.Tolerations = newTols
 
 	return nil
+}
+
+func reconcileISVCHardwareProfileDRA(isvc *servingv1beta1.InferenceService, oldTemplate, selectedTemplate string, referenceChanged bool) error {
+	predictor := &isvc.Spec.Predictor
+	if referenceChanged && oldTemplate != "" {
+		hardwareprofile.RemoveDRAContainerClaims(predictor.Containers, predictor.InitContainers, predictor.EphemeralContainers)
+	}
+	desired := hardwareprofile.DesiredDRATemplate(selectedTemplate, oldTemplate, referenceChanged)
+	if desired != "" {
+		if predictor.Model == nil {
+			return fmt.Errorf("HardwareProfile DRA requires spec.predictor.model")
+		}
+		if err := hardwareprofile.ValidateDRAContainerClaims(predictor.Containers, predictor.InitContainers,
+			predictor.EphemeralContainers, -1); err != nil {
+			return err
+		}
+	}
+	var resources *corev1.ResourceRequirements
+	if predictor.Model != nil {
+		resources = &predictor.Model.Resources
+	}
+	return hardwareprofile.ReconcileDRAClaims(&isvc.ObjectMeta, &predictor.ResourceClaims,
+		resources, oldTemplate, selectedTemplate, referenceChanged)
 }
 
 // handleHWPRemovalISVC handles the case where the HWP annotation is removed from an InferenceService

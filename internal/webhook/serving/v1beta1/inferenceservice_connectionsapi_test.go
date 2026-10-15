@@ -25,6 +25,7 @@ import (
 	. "github.com/onsi/gomega"
 	admissionv1 "k8s.io/api/admission/v1"
 	corev1 "k8s.io/api/core/v1"
+	resourcev1 "k8s.io/api/resource/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
@@ -42,6 +43,7 @@ import (
 func newDefaulterScheme() *runtime.Scheme {
 	s := runtime.NewScheme()
 	utilruntime.Must(corev1.AddToScheme(s))
+	utilruntime.Must(resourcev1.AddToScheme(s))
 	return s
 }
 

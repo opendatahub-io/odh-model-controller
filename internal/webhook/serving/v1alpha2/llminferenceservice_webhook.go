@@ -20,6 +20,7 @@ import (
 	"context"
 	"fmt"
 
+	kserveconstants "github.com/kserve/kserve/pkg/constants"
 	admissionv1 "k8s.io/api/admission/v1"
 	corev1 "k8s.io/api/core/v1"
 	k8serr "k8s.io/apimachinery/pkg/api/errors"
@@ -43,6 +44,8 @@ var llmisvclog = logf.Log.WithName("llminferenceservice-resource")
 
 // +kubebuilder:webhook:path=/mutate-serving-kserve-io-v1alpha2-llminferenceservice,mutating=true,failurePolicy=fail,sideEffects=NoneOnDryRun,groups=serving.kserve.io,resources=llminferenceservices,verbs=create;update,versions=v1alpha2,name=connection-llmisvc-v1alpha2.odh-model-controller.opendatahub.io,admissionReviewVersions=v1
 // +kubebuilder:webhook:path=/mutate-serving-kserve-io-v1alpha1-llminferenceservice,mutating=true,failurePolicy=fail,sideEffects=NoneOnDryRun,groups=serving.kserve.io,resources=llminferenceservices,verbs=create;update,versions=v1alpha1,name=connection-llmisvc-v1alpha1.odh-model-controller.opendatahub.io,admissionReviewVersions=v1
+// +kubebuilder:webhook:path=/validate-serving-kserve-io-v1alpha2-llminferenceservice,mutating=false,failurePolicy=fail,sideEffects=None,groups=serving.kserve.io,resources=llminferenceservices,verbs=create;update,versions=v1alpha2,name=validating.llmisvc-v1alpha2.odh-model-controller.opendatahub.io,admissionReviewVersions=v1
+// +kubebuilder:webhook:path=/validate-serving-kserve-io-v1alpha1-llminferenceservice,mutating=false,failurePolicy=fail,sideEffects=None,groups=serving.kserve.io,resources=llminferenceservices,verbs=create;update,versions=v1alpha1,name=validating.llmisvc-v1alpha1.odh-model-controller.opendatahub.io,admissionReviewVersions=v1
 
 // +kubebuilder:rbac:groups="",resources=secrets,verbs=get;list;watch
 // +kubebuilder:rbac:groups="",resources=serviceaccounts,verbs=get;list;watch;create
@@ -51,6 +54,86 @@ var llmisvclog = logf.Log.WithName("llminferenceservice-resource")
 type LLMInferenceServiceCustomDefaulter struct {
 	client    client.Client
 	apiReader client.Reader
+}
+
+// LLMInferenceServiceCustomValidator checks HardwareProfile DRA references at admission.
+type LLMInferenceServiceCustomValidator struct {
+	apiReader client.Reader
+}
+
+type llmISVCValidatorV1alpha2 struct {
+	*LLMInferenceServiceCustomValidator
+}
+type llmISVCValidatorV1alpha1 struct {
+	*LLMInferenceServiceCustomValidator
+}
+
+var _ admission.Validator[*kservev1alpha2.LLMInferenceService] = &llmISVCValidatorV1alpha2{}
+var _ admission.Validator[*kservev1alpha1.LLMInferenceService] = &llmISVCValidatorV1alpha1{}
+
+func (v *llmISVCValidatorV1alpha2) ValidateCreate(ctx context.Context, obj *kservev1alpha2.LLMInferenceService) (admission.Warnings, error) {
+	return nil, v.validateHardwareProfileDRA(ctx, nil, &obj.ObjectMeta, obj.Spec.Template)
+}
+
+func (v *llmISVCValidatorV1alpha2) ValidateUpdate(ctx context.Context, oldObj, obj *kservev1alpha2.LLMInferenceService) (admission.Warnings, error) {
+	var oldMeta *metav1.ObjectMeta
+	if oldObj != nil {
+		oldMeta = &oldObj.ObjectMeta
+	}
+	return nil, v.validateHardwareProfileDRA(ctx, oldMeta, &obj.ObjectMeta, obj.Spec.Template)
+}
+
+func (v *llmISVCValidatorV1alpha2) ValidateDelete(context.Context, *kservev1alpha2.LLMInferenceService) (admission.Warnings, error) {
+	return nil, nil
+}
+
+func (v *llmISVCValidatorV1alpha1) ValidateCreate(ctx context.Context, obj *kservev1alpha1.LLMInferenceService) (admission.Warnings, error) {
+	return nil, v.validateHardwareProfileDRA(ctx, nil, &obj.ObjectMeta, obj.Spec.Template)
+}
+
+func (v *llmISVCValidatorV1alpha1) ValidateUpdate(ctx context.Context, oldObj, obj *kservev1alpha1.LLMInferenceService) (admission.Warnings, error) {
+	var oldMeta *metav1.ObjectMeta
+	if oldObj != nil {
+		oldMeta = &oldObj.ObjectMeta
+	}
+	return nil, v.validateHardwareProfileDRA(ctx, oldMeta, &obj.ObjectMeta, obj.Spec.Template)
+}
+
+func (v *llmISVCValidatorV1alpha1) ValidateDelete(context.Context, *kservev1alpha1.LLMInferenceService) (admission.Warnings, error) {
+	return nil, nil
+}
+
+func (v *LLMInferenceServiceCustomValidator) validateHardwareProfileDRA(
+	ctx context.Context, oldMeta, meta *metav1.ObjectMeta, template *corev1.PodSpec,
+) error {
+	name, namespace := hardwareprofile.ProfileRef(meta.Annotations, meta.Namespace)
+	if name == "" {
+		return nil
+	}
+
+	changed := hardwareprofile.DRAReferenceAnnotationsChanged(oldMeta, meta)
+	activeTemplate := meta.Annotations[hardwareprofile.DRATemplateAnnotation]
+	if changed {
+		profile, err := hardwareprofile.Resolve(ctx, v.apiReader, name, namespace)
+		if err != nil {
+			return err
+		}
+		activeTemplate = profile.ResourceClaimTemplateName
+	}
+	if activeTemplate == "" {
+		return nil
+	}
+	if _, managed := meta.Annotations[kserveconstants.ManagedDRADeviceClassAnnotationKey]; managed {
+		return fmt.Errorf("HardwareProfile DRA cannot be combined with KServe Managed DRA (%s)",
+			kserveconstants.ManagedDRADeviceClassAnnotationKey)
+	}
+	if template != nil && len(template.Containers) > 0 && mainContainerIndex(template.Containers) < 0 {
+		return fmt.Errorf("HardwareProfile DRA requires a %q container in spec.template.containers", hardwareprofile.LLMIsvcMainContainerName)
+	}
+	if changed {
+		return hardwareprofile.ValidateResourceClaimTemplate(ctx, v.apiReader, activeTemplate, meta.Namespace)
+	}
+	return nil
 }
 
 // llmISVCDefaulterV1alpha2 adapts the shared defaulter for the v1alpha2 generic webhook API.
@@ -83,8 +166,8 @@ func (d *llmISVCDefaulterV1alpha1) Default(ctx context.Context, obj *kservev1alp
 		"serving.kserve.io/v1alpha1", "LLMInferenceService")
 }
 
-// SetupLLMInferenceServiceWebhookWithManager registers the LLMInferenceService mutating webhook for both
-// v1alpha1 and v1alpha2 API versions using a single shared defaulter instance.
+// SetupLLMInferenceServiceWebhookWithManager registers mutating and validating webhooks for both
+// LLMInferenceService API versions using shared defaulter and validator instances.
 //
 // Parameters:
 //   - mgr: the controller-runtime manager
@@ -95,12 +178,15 @@ func SetupLLMInferenceServiceWebhookWithManager(mgr ctrl.Manager) error {
 		client:    mgr.GetClient(),
 		apiReader: mgr.GetAPIReader(),
 	}
+	validator := &LLMInferenceServiceCustomValidator{apiReader: mgr.GetAPIReader()}
 	if err := ctrl.NewWebhookManagedBy(mgr, &kservev1alpha2.LLMInferenceService{}).
+		WithValidator(&llmISVCValidatorV1alpha2{validator}).
 		WithDefaulter(&llmISVCDefaulterV1alpha2{core}).
 		Complete(); err != nil {
 		return err
 	}
 	return ctrl.NewWebhookManagedBy(mgr, &kservev1alpha1.LLMInferenceService{}).
+		WithValidator(&llmISVCValidatorV1alpha1{validator}).
 		WithDefaulter(&llmISVCDefaulterV1alpha1{core}).
 		Complete()
 }
@@ -275,9 +361,8 @@ func performLLMISVCInjection(
 // injects container resources, nodeSelector, tolerations, and the Kueue queue label. On UPDATE
 // where the annotation is removed, surgically cleans up previously-injected values.
 //
-// Container validation runs before any HWP application: when spec.template.containers is non-empty
-// but contains no container named "main", a Warning Event is emitted on the object and all HWP
-// application is skipped (admission is not blocked).
+// When spec.template.containers is non-empty but has no "main", a DRA profile is rejected.
+// For profiles without DRA, the existing Warning Event and skip behavior is preserved.
 //
 // Parameters:
 //   - ctx: context with logger and admission request
@@ -308,6 +393,9 @@ func (d *LLMInferenceServiceCustomDefaulter) applyHardwareProfileLLMISVC(
 	profileName, profileNamespace := hardwareprofile.ProfileRef(annotations, meta.Namespace)
 
 	if profileName == "" {
+		if err := applyLLMHardwareProfileDRA(req, meta, template, ""); err != nil {
+			return err
+		}
 		if req.Operation == admissionv1.Update {
 			return d.handleHWPRemovalLLMISVC(ctx, req, meta, template)
 		}
@@ -315,7 +403,7 @@ func (d *LLMInferenceServiceCustomDefaulter) applyHardwareProfileLLMISVC(
 	}
 
 	// Resolve the HardwareProfile CR.
-	profile, err := hardwareprofile.Resolve(ctx, d.client, profileName, profileNamespace)
+	profile, err := hardwareprofile.Resolve(ctx, d.apiReader, profileName, profileNamespace)
 	if err != nil {
 		if k8serr.IsNotFound(err) {
 			return fmt.Errorf("hardware profile %q not found in namespace %q", profileName, profileNamespace)
@@ -330,23 +418,17 @@ func (d *LLMInferenceServiceCustomDefaulter) applyHardwareProfileLLMISVC(
 		}
 		meta.Annotations[hardwareprofile.HardwareProfileAnnotationNamespace] = profileNamespace
 	}
+	if err := applyLLMHardwareProfileDRA(req, meta, template, profile.ResourceClaimTemplateName); err != nil {
+		return err
+	}
 
 	// Validate container names after HWP fetch (matches opendatahub-operator ordering).
 	// When containers is non-empty but has no "main", emit an event and skip all HWP injection.
-	if *template != nil && len((*template).Containers) > 0 {
-		hasMain := false
-		for _, c := range (*template).Containers {
-			if c.Name == hardwareprofile.LLMIsvcMainContainerName {
-				hasMain = true
-				break
-			}
-		}
-		if !hasMain {
-			log.Info("LLMIsvc containers non-empty but has no 'main' container, skipping all HWP injection",
-				"name", meta.Name, "namespace", meta.Namespace, "profile", profileName)
-			d.emitContainerValidationEvent(ctx, meta, apiVersion, kind, profileName)
-			return nil
-		}
+	if *template != nil && len((*template).Containers) > 0 && mainContainerIndex((*template).Containers) < 0 {
+		log.Info("LLMIsvc containers non-empty but has no 'main' container, skipping all HWP injection",
+			"name", meta.Name, "namespace", meta.Namespace, "profile", profileName)
+		d.emitContainerValidationEvent(ctx, meta, apiVersion, kind, profileName)
+		return nil
 	}
 
 	profileChanged := hardwareprofile.ProfileChanged(req, profileName, profileNamespace)
@@ -412,6 +494,67 @@ func (d *LLMInferenceServiceCustomDefaulter) applyHardwareProfileLLMISVC(
 	}
 
 	return nil
+}
+
+func mainContainerIndex(containers []corev1.Container) int {
+	for i := range containers {
+		if containers[i].Name == hardwareprofile.LLMIsvcMainContainerName {
+			return i
+		}
+	}
+	return -1
+}
+
+func applyLLMHardwareProfileDRA(req admission.Request, meta *metav1.ObjectMeta, template **corev1.PodSpec, selectedTemplate string) error {
+	oldTemplate, referenceChanged, err := hardwareprofile.DRAStateFromRequest(req, meta)
+	if err != nil {
+		return err
+	}
+	desired := hardwareprofile.DesiredDRATemplate(selectedTemplate, oldTemplate, referenceChanged)
+	if desired != "" {
+		if _, managed := meta.Annotations[kserveconstants.ManagedDRADeviceClassAnnotationKey]; managed {
+			return fmt.Errorf("HardwareProfile DRA cannot be combined with KServe Managed DRA (%s)",
+				kserveconstants.ManagedDRADeviceClassAnnotationKey)
+		}
+	}
+	return reconcileLLMHardwareProfileDRA(meta, template, oldTemplate, selectedTemplate, referenceChanged)
+}
+
+func reconcileLLMHardwareProfileDRA(
+	meta *metav1.ObjectMeta, template **corev1.PodSpec,
+	oldTemplate, selectedTemplate string, referenceChanged bool,
+) error {
+	desired := hardwareprofile.DesiredDRATemplate(selectedTemplate, oldTemplate, referenceChanged)
+	if desired != "" && *template == nil {
+		*template = &corev1.PodSpec{}
+	}
+	if *template == nil {
+		var claims []corev1.PodResourceClaim
+		return hardwareprofile.ReconcileDRAClaims(meta, &claims, nil, oldTemplate, selectedTemplate, referenceChanged)
+	}
+	if referenceChanged && oldTemplate != "" {
+		hardwareprofile.RemoveDRAContainerClaims((*template).Containers, (*template).InitContainers,
+			(*template).EphemeralContainers)
+	}
+	if desired != "" && len((*template).Containers) == 0 {
+		(*template).Containers = []corev1.Container{{Name: hardwareprofile.LLMIsvcMainContainerName}}
+	}
+	var resources *corev1.ResourceRequirements
+	idx := mainContainerIndex((*template).Containers)
+	if idx >= 0 {
+		resources = &(*template).Containers[idx].Resources
+	}
+	if desired != "" && resources == nil {
+		return fmt.Errorf("HardwareProfile DRA requires a %q container in spec.template.containers", hardwareprofile.LLMIsvcMainContainerName)
+	}
+	if desired != "" {
+		if err := hardwareprofile.ValidateDRAContainerClaims((*template).Containers, (*template).InitContainers,
+			(*template).EphemeralContainers, idx); err != nil {
+			return err
+		}
+	}
+	return hardwareprofile.ReconcileDRAClaims(meta, &(*template).ResourceClaims, resources,
+		oldTemplate, selectedTemplate, referenceChanged)
 }
 
 // handleHWPRemovalLLMISVC handles the case where the HWP annotation is removed from an

@@ -53,6 +53,8 @@ const LLMIsvcMainContainerName = "main"
 type ResolvedProfile struct {
 	// Identifiers is the list of resource identifiers (CPU, memory, accelerators) to inject.
 	Identifiers []ResourceIdentifier
+	// ResourceClaimTemplateName is the pre-existing DRA template selected by the profile.
+	ResourceClaimTemplateName string
 	// NodeSelector entries to merge into the workload spec.
 	NodeSelector map[string]string
 	// Tolerations to prepend to the workload spec.
@@ -131,20 +133,20 @@ func ProfileChanged(req admission.Request, newProfileName, newProfileNamespace s
 	return oldProfileName != newProfileName || oldProfileNamespace != newProfileNamespace
 }
 
-// Resolve fetches a HardwareProfile CR and returns its parsed scheduling and resource stanzas.
+// Resolve fetches a HardwareProfile CR and returns its parsed scheduling, resource, and DRA stanzas.
 //
-// Uses the controller-runtime unstructured client to avoid importing opendatahub-operator types.
+// Uses an unstructured read to avoid importing opendatahub-operator types.
 // Returns nil, nil when name is empty (no HWP configured). Returns a wrapped error (including
 // k8serr.IsNotFound errors) when the CR cannot be fetched.
 //
 // Parameters:
 //   - ctx: request context
-//   - c: controller-runtime client with read access to HardwareProfile CRs
+//   - c: reader with access to HardwareProfile CRs
 //   - name: the HardwareProfile CR name
 //   - namespace: the namespace containing the HardwareProfile CR
 //
 // Returns the parsed ResolvedProfile or an error that callers use to block admission.
-func Resolve(ctx context.Context, c client.Client, name, namespace string) (*ResolvedProfile, error) {
+func Resolve(ctx context.Context, c client.Reader, name, namespace string) (*ResolvedProfile, error) {
 	if name == "" {
 		return nil, nil
 	}
@@ -162,9 +164,9 @@ func Resolve(ctx context.Context, c client.Client, name, namespace string) (*Res
 	return parseProfile(obj)
 }
 
-// parseProfile extracts scheduling and resource stanzas from an unstructured HardwareProfile object.
+// parseProfile extracts scheduling, resource, and DRA stanzas from an unstructured HardwareProfile object.
 //
-// Reads spec.identifiers, spec.scheduling.kueue.localQueueName, spec.scheduling.node.nodeSelector,
+// Reads spec.dra.resourceClaimTemplateName, spec.identifiers, spec.scheduling.kueue.localQueueName, spec.scheduling.node.nodeSelector,
 // and spec.scheduling.node.tolerations. Kueue and Node scheduling are mutually exclusive:
 // when a Kueue queue name is found, node scheduling fields are not populated.
 //
@@ -174,6 +176,11 @@ func Resolve(ctx context.Context, c client.Client, name, namespace string) (*Res
 // Returns the parsed ResolvedProfile or an error if a field cannot be parsed.
 func parseProfile(obj *unstructured.Unstructured) (*ResolvedProfile, error) {
 	profile := &ResolvedProfile{}
+	var err error
+	profile.ResourceClaimTemplateName, _, err = unstructured.NestedString(obj.Object, "spec", "dra", "resourceClaimTemplateName")
+	if err != nil {
+		return nil, fmt.Errorf("failed parsing HardwareProfile DRA template name: %w", err)
+	}
 
 	identifiers, _, _ := unstructured.NestedSlice(obj.Object, "spec", "identifiers")
 	for _, raw := range identifiers {
