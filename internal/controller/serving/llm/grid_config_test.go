@@ -28,8 +28,9 @@ import (
 )
 
 func TestGridConfigFromGateway(t *testing.T) {
+	t.Setenv(GridGatewayNamespacesEnv, "openshift-ingress,redhat-ods-applications,opendatahub")
 	valid := `{"networkName":"grid-local","namespace":"grid-system","serviceAccount":"grid-client","tokenSecret":"grid-token","siteLabels":"grid.praxis.fast/provider-site=local"}`
-	ns := &gatewayv1.Gateway{ObjectMeta: metav1.ObjectMeta{Annotations: map[string]string{GridServingAnnotation: valid}}}
+	ns := &gatewayv1.Gateway{ObjectMeta: metav1.ObjectMeta{Namespace: "openshift-ingress", Annotations: map[string]string{GridServingAnnotation: valid}}}
 	cfg, err := GridConfigFromGateway(ns)
 	require.NoError(t, err)
 	require.Equal(t, "grid-local", cfg.NetworkName)
@@ -42,6 +43,37 @@ func TestGridConfigFromGateway(t *testing.T) {
 			require.Error(t, err)
 		})
 	}
+	for _, namespace := range []string{"openshift-ingress", "redhat-ods-applications", "opendatahub", "grid-system", "models", "openshift-ingress-other", ""} {
+		t.Run("Gateway namespace "+namespace, func(t *testing.T) {
+			copy := ns.DeepCopy()
+			copy.Namespace = namespace
+			cfg, err := GridConfigFromGateway(copy)
+			if namespace == "openshift-ingress" || namespace == "redhat-ods-applications" || namespace == "opendatahub" {
+				require.NoError(t, err)
+				require.Equal(t, "grid-system", cfg.Namespace)
+			} else {
+				require.ErrorContains(t, err, GridGatewayNamespacesEnv)
+				require.Nil(t, cfg)
+			}
+		})
+	}
+	t.Run("configured namespaces replace defaults", func(t *testing.T) {
+		t.Setenv(GridGatewayNamespacesEnv, " custom-ingress, another-ingress ")
+		for _, namespace := range []string{"custom-ingress", "another-ingress"} {
+			copy := ns.DeepCopy()
+			copy.Namespace = namespace
+			cfg, err := GridConfigFromGateway(copy)
+			require.NoError(t, err)
+			require.Equal(t, "grid-system", cfg.Namespace)
+		}
+		_, err := GridConfigFromGateway(ns)
+		require.Error(t, err)
+	})
+	t.Run("explicit empty list denies all", func(t *testing.T) {
+		t.Setenv(GridGatewayNamespacesEnv, "")
+		_, err := GridConfigFromGateway(ns)
+		require.Error(t, err)
+	})
 	delete(ns.Annotations, GridServingAnnotation)
 	cfg, err = GridConfigFromGateway(ns)
 	require.NoError(t, err)

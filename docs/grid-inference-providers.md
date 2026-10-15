@@ -37,7 +37,7 @@ apiVersion: gateway.networking.k8s.io/v1
 kind: Gateway
 metadata:
   name: model-gateway
-  namespace: infra
+  namespace: openshift-ingress
   annotations:
     # Configures provider network, credentials, and hosting site selector.
     grid.opendatahub.io/serving: '{"networkName":"grid-local","namespace":"grid-system","serviceAccount":"grid-model-client","tokenSecret":"grid-model-client-token","siteLabels":"grid.praxis.fast/provider-site=local"}'
@@ -53,6 +53,16 @@ spec:
 ```
 
 `networkName`, `namespace`, `serviceAccount`, and `tokenSecret` are required.
+Only Gateways in `openshift-ingress`, `redhat-ods-applications`, or `opendatahub`
+may configure Grid by default. Set the controller environment variable
+`GRID_GATEWAY_NAMESPACES` to a comma-separated list to replace these defaults
+(for example, `openshift-ingress,custom-ingress`); restart the controller after
+changing it. An explicitly empty value permits no Gateway namespaces. Restrict
+write access to Gateways in these namespaces to trusted administrators.
+Disallowed Gateways cannot publish providers or enable the Grid identity exception
+in managed AuthPolicies. The credential `namespace` in the annotation remains
+independent of this Gateway allowlist and retains its resource-name validation.
+
 `siteLabels` is an optional comma-separated string of `key=value` labels;
 omitting it matches every GridSite. The annotation must contain a JSON object
 with valid resource names and no unknown fields. Restrict Gateway configuration
@@ -109,7 +119,7 @@ An administrator labels allowed namespaces:
 
 ```sh
 oc label namespace models grid.opendatahub.io/allowed=true
-oc annotate gateway model-gateway -n infra grid.opendatahub.io/serving='{"networkName":"grid-local","namespace":"grid-system","serviceAccount":"grid-model-client","tokenSecret":"grid-model-client-token","siteLabels":"grid.praxis.fast/provider-site=local"}'
+oc annotate gateway model-gateway -n openshift-ingress grid.opendatahub.io/serving='{"networkName":"grid-local","namespace":"grid-system","serviceAccount":"grid-model-client","tokenSecret":"grid-model-client-token","siteLabels":"grid.praxis.fast/provider-site=local"}'
 ```
 
 For each published service–Gateway pair, the controller creates a model-scoped

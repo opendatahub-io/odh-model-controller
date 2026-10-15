@@ -19,6 +19,8 @@ package llm
 import (
 	"errors"
 	"fmt"
+	"os"
+	"strings"
 
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/util/validation"
@@ -27,12 +29,13 @@ import (
 )
 
 const (
-	GridServingAnnotation = "grid.opendatahub.io/serving"
-	GridAllowedLabel      = "grid.opendatahub.io/allowed"
-	gridFinalizer         = "grid.praxis.fast/inference-provider"
-	gridSourceUID         = "grid.praxis.fast/source-uid"
-	gridSourceName        = "grid.praxis.fast/source-name"
-	gridSourceNamespace   = "grid.praxis.fast/source-namespace"
+	GridServingAnnotation    = "grid.opendatahub.io/serving"
+	GridGatewayNamespacesEnv = "GRID_GATEWAY_NAMESPACES"
+	GridAllowedLabel         = "grid.opendatahub.io/allowed"
+	gridFinalizer            = "grid.praxis.fast/inference-provider"
+	gridSourceUID            = "grid.praxis.fast/source-uid"
+	gridSourceName           = "grid.praxis.fast/source-name"
+	gridSourceNamespace      = "grid.praxis.fast/source-namespace"
 )
 
 // GridConfig is administrator-controlled through Gateway metadata.
@@ -48,6 +51,20 @@ type GridConfig struct {
 func GridConfigFromGateway(gateway *gatewayv1.Gateway) (*GridConfig, error) {
 	if gateway.Annotations[GridServingAnnotation] == "" {
 		return nil, nil
+	}
+	allowedNamespaces, configured := os.LookupEnv(GridGatewayNamespacesEnv)
+	if !configured {
+		allowedNamespaces = "openshift-ingress,redhat-ods-applications,opendatahub"
+	}
+	allowed := false
+	for namespace := range strings.SplitSeq(allowedNamespaces, ",") {
+		if namespace = strings.TrimSpace(namespace); namespace != "" && namespace == gateway.Namespace {
+			allowed = true
+			break
+		}
+	}
+	if !allowed {
+		return nil, fmt.Errorf("Gateway namespace %q is not allowed by %s", gateway.Namespace, GridGatewayNamespacesEnv)
 	}
 	var raw struct {
 		NetworkName    string `json:"networkName"`

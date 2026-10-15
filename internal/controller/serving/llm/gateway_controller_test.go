@@ -88,8 +88,9 @@ var _ = Describe("Gateway Controller", func() {
 
 	Context("Gateway referenced by LLMInferenceService", func() {
 		It("preserves Grid flow headers with the Gateway's configured objective as fallback", func(ctx SpecContext) {
+			allowGridGatewayNamespaces(testNs)
 			gatewayName := pkgtest.GenerateUniqueTestName("grid-flow-gateway")
-			createGateway(ctx, gatewayName, fixture.WithGatewayAnnotations(map[string]string{
+			gateway := createGateway(ctx, gatewayName, fixture.WithGatewayAnnotations(map[string]string{
 				constants.AuthPolicyObjectiveExpressionAnnotation: "'custom-objective'",
 				"grid.opendatahub.io/serving":                     `{"networkName":"grid-test","namespace":"grid-test-identity","serviceAccount":"grid-client","tokenSecret":"grid-token"}`,
 			}))
@@ -103,6 +104,16 @@ var _ = Describe("Gateway Controller", func() {
 			Expect(string(overrides["fairness"].Expression)).To(ContainSubstring("request.headers[\"x-gateway-inference-fairness-id\"]"))
 			Expect(string(overrides["objective"].Expression)).To(ContainSubstring("request.headers[\"x-gateway-inference-objective\"]"))
 			Expect(string(overrides["objective"].Expression)).To(ContainSubstring("('custom-objective')"))
+			allowGridGatewayNamespaces("another-ingress")
+			Expect(envTest.Get(ctx, client.ObjectKeyFromObject(gateway), gateway)).To(Succeed())
+			gateway.Annotations[constants.AuthPolicyObjectiveExpressionAnnotation] = "'updated-objective'"
+			Expect(envTest.Update(ctx, gateway)).To(Succeed())
+			Eventually(func(g Gomega) {
+				g.Expect(envTest.Get(ctx, client.ObjectKeyFromObject(policy), policy)).To(Succeed())
+				for _, name := range []string{"fairness", "objective"} {
+					g.Expect(string(policy.Spec.AuthScheme.Authentication["kubernetes-user"].Overrides[name].Expression)).NotTo(ContainSubstring("system:serviceaccount:"))
+				}
+			}).Should(Succeed())
 		})
 
 		It("should create EnvoyFilter and AuthPolicy with correct owner references", func(ctx SpecContext) {

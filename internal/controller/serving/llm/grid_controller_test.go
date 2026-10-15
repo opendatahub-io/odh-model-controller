@@ -20,6 +20,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"os"
 	"strings"
 	"time"
 
@@ -79,6 +80,19 @@ func (r *gridWarningRecorder) Eventf(regarding runtime.Object, related runtime.O
 	r.FakeRecorder.Eventf(regarding, related, eventType, reason, action, note, args...)
 }
 
+// Grid fixtures use isolated namespaces instead of the production ingress namespaces.
+func allowGridGatewayNamespaces(namespaces ...string) {
+	previous, configured := os.LookupEnv(llmcontroller.GridGatewayNamespacesEnv)
+	Expect(os.Setenv(llmcontroller.GridGatewayNamespacesEnv, strings.Join(namespaces, ","))).To(Succeed())
+	DeferCleanup(func() {
+		if configured {
+			Expect(os.Setenv(llmcontroller.GridGatewayNamespacesEnv, previous)).To(Succeed())
+		} else {
+			Expect(os.Unsetenv(llmcontroller.GridGatewayNamespacesEnv)).To(Succeed())
+		}
+	})
+}
+
 var _ = Describe("Grid provider reconciliation", Ordered, func() {
 	var ns *corev1.Namespace
 	var svc *kservev1alpha2.LLMInferenceService
@@ -105,6 +119,7 @@ var _ = Describe("Grid provider reconciliation", Ordered, func() {
 
 	BeforeEach(func(ctx SpecContext) {
 		ns = testutils.Namespaces.Create(ctx, envTest.Client)
+		allowGridGatewayNamespaces(ns.Name)
 		ns.Labels = map[string]string{}
 		Expect(envTest.Update(ctx, ns)).To(Succeed())
 		gateway = &gatewayv1.Gateway{ObjectMeta: metav1.ObjectMeta{Name: "grid-gateway", Namespace: ns.Name}, Spec: gatewayv1.GatewaySpec{
@@ -236,6 +251,7 @@ var _ = Describe("Grid provider reconciliation", Ordered, func() {
 
 	DescribeTable("publishes separate providers for handy refs and HTTPRoute parentRefs", func(ctx SpecContext, inline bool) {
 		infra := testutils.Namespaces.Create(ctx, envTest.Client)
+		allowGridGatewayNamespaces(ns.Name, infra.Name)
 		second := &gatewayv1.Gateway{ObjectMeta: metav1.ObjectMeta{Name: "second-grid-gateway", Namespace: infra.Name, Annotations: map[string]string{llmcontroller.GridServingAnnotation: `{"networkName":"grid-second","namespace":"grid-test-identity","serviceAccount":"grid-client-second","tokenSecret":"grid-token-second","siteLabels":"grid.praxis.fast/provider-site=second"}`}}, Spec: gatewayv1.GatewaySpec{GatewayClassName: "grid-test", Listeners: []gatewayv1.Listener{{Name: "http", Protocol: gatewayv1.HTTPProtocolType, Port: 80, AllowedRoutes: &gatewayv1.AllowedRoutes{Namespaces: &gatewayv1.RouteNamespaces{From: ptr.To(gatewayv1.NamespacesFromAll)}}}}}}
 		Expect(envTest.Create(ctx, second)).To(Succeed())
 		DeferCleanup(func(ctx SpecContext) { Expect(client.IgnoreNotFound(envTest.Delete(ctx, second))).To(Succeed()) })
@@ -448,6 +464,10 @@ var _ = Describe("Grid provider reconciliation", Ordered, func() {
 		switch revoke {
 		case "annotation":
 			optOut(ctx)
+		case "Gateway namespace":
+			allowGridGatewayNamespaces("another-ingress")
+			// Environment changes take effect after restart in a deployment; enqueue explicitly here.
+			updateService(ctx, func(s *kservev1alpha2.LLMInferenceService) { s.Annotations["test.example.com/recheck"] = "true" })
 		case "namespace":
 			Expect(envTest.Get(ctx, client.ObjectKeyFromObject(ns), ns)).To(Succeed())
 			delete(ns.Labels, llmcontroller.GridAllowedLabel)
@@ -483,6 +503,7 @@ var _ = Describe("Grid provider reconciliation", Ordered, func() {
 	},
 		Entry("when its Gateway configuration is removed", "annotation"),
 		Entry("when its namespace no longer matches", "namespace"),
+		Entry("when its Gateway namespace is not allowed", "Gateway namespace"),
 		Entry("when KServe withdraws the deleted Gateway attachment", "gateway"),
 		Entry("when KServe withdraws its routing addresses", "addresses"),
 		Entry("when the service is deleted", "deletion"),
