@@ -17,15 +17,45 @@ limitations under the License.
 package llm
 
 import (
+	"os"
 	"strings"
 	"testing"
 
 	kservev1alpha2 "github.com/kserve/kserve/pkg/apis/serving/v1alpha2"
 	"github.com/stretchr/testify/require"
+	rbacv1 "k8s.io/api/rbac/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/util/validation"
 	gatewayv1 "sigs.k8s.io/gateway-api/apis/v1"
 )
+
+func TestGridOperatorIdentity(t *testing.T) {
+	t.Setenv("POD_NAMESPACE", "platform-custom")
+	for _, name := range []string{GridOperatorNamespaceEnv, GridOperatorServiceAccountEnv} {
+		t.Setenv(name, "")
+		require.NoError(t, os.Unsetenv(name))
+	}
+	identity, err := gridOperatorIdentity()
+	require.NoError(t, err)
+	require.Equal(t, rbacv1.Subject{Kind: "ServiceAccount", Name: "grid-operator", Namespace: "platform-custom"}, identity)
+	t.Run("explicit installation identity", func(t *testing.T) {
+		t.Setenv(GridOperatorNamespaceEnv, "separate-platform")
+		t.Setenv(GridOperatorServiceAccountEnv, "custom-operator")
+		identity, err := gridOperatorIdentity()
+		require.NoError(t, err)
+		require.Equal(t, rbacv1.Subject{Kind: "ServiceAccount", Name: "custom-operator", Namespace: "separate-platform"}, identity)
+	})
+	for _, tc := range []struct{ env, value string }{
+		{GridOperatorNamespaceEnv, ""}, {GridOperatorNamespaceEnv, "invalid.namespace"},
+		{GridOperatorServiceAccountEnv, ""}, {GridOperatorServiceAccountEnv, "invalid account"}, {"POD_NAMESPACE", ""},
+	} {
+		t.Run(tc.env+"="+tc.value, func(t *testing.T) {
+			t.Setenv(tc.env, tc.value)
+			_, err := gridOperatorIdentity()
+			require.Error(t, err)
+		})
+	}
+}
 
 func TestGridConfigFromGateway(t *testing.T) {
 	t.Setenv(GridGatewayNamespacesEnv, "openshift-ingress,redhat-ods-applications,opendatahub")

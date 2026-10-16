@@ -29,6 +29,7 @@ import (
 	kuadrantv1 "github.com/kuadrant/kuadrant-operator/api/v1"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
+	authorizationv1 "k8s.io/api/authorization/v1"
 	corev1 "k8s.io/api/core/v1"
 	rbacv1 "k8s.io/api/rbac/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
@@ -36,6 +37,7 @@ import (
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
+	authorizationclient "k8s.io/client-go/kubernetes/typed/authorization/v1"
 	"k8s.io/client-go/tools/events"
 	"k8s.io/utils/ptr"
 	"knative.dev/pkg/apis"
@@ -91,6 +93,17 @@ func allowGridGatewayNamespaces(namespaces ...string) {
 			Expect(os.Unsetenv(llmcontroller.GridGatewayNamespacesEnv)).To(Succeed())
 		}
 	})
+}
+
+func gridCredentialAllowed(ctx context.Context, identity rbacv1.Subject, namespace, secret, verb string) bool {
+	api, err := authorizationclient.NewForConfig(envTest.Config)
+	Expect(err).NotTo(HaveOccurred())
+	review, err := api.SubjectAccessReviews().Create(ctx, &authorizationv1.SubjectAccessReview{Spec: authorizationv1.SubjectAccessReviewSpec{
+		User:               fmt.Sprintf("system:serviceaccount:%s:%s", identity.Namespace, identity.Name),
+		ResourceAttributes: &authorizationv1.ResourceAttributes{Namespace: namespace, Resource: "secrets", Name: secret, Verb: verb},
+	}}, metav1.CreateOptions{})
+	Expect(err).NotTo(HaveOccurred())
+	return review.Status.Allowed
 }
 
 var _ = Describe("Grid provider reconciliation", Ordered, func() {
@@ -174,6 +187,17 @@ var _ = Describe("Grid provider reconciliation", Ordered, func() {
 		}
 		return matched
 	}
+	credentialBindings := func(ctx context.Context) []rbacv1.RoleBinding {
+		list := &rbacv1.RoleBindingList{}
+		Expect(envTest.List(ctx, list)).To(Succeed())
+		var matched []rbacv1.RoleBinding
+		for _, binding := range list.Items {
+			if binding.Annotations["grid.praxis.fast/source-namespace"] == ns.Name && strings.HasPrefix(binding.Name, "grid-credential-") {
+				matched = append(matched, binding)
+			}
+		}
+		return matched
+	}
 	updateService := func(ctx context.Context, change func(*kservev1alpha2.LLMInferenceService)) {
 		Eventually(func() error {
 			if err := envTest.Get(ctx, client.ObjectKeyFromObject(svc), svc); err != nil {
@@ -212,6 +236,7 @@ var _ = Describe("Grid provider reconciliation", Ordered, func() {
 			}).Should(BeTrue())
 		}
 		Eventually(func() []unstructured.Unstructured { return providers(ctx) }).Should(BeEmpty())
+		Eventually(func() []rbacv1.RoleBinding { return credentialBindings(ctx) }).Should(BeEmpty())
 		Expect(client.IgnoreNotFound(envTest.Delete(ctx, route))).To(Succeed())
 		Expect(client.IgnoreNotFound(envTest.Delete(ctx, gateway))).To(Succeed())
 	})
@@ -233,6 +258,184 @@ var _ = Describe("Grid provider reconciliation", Ordered, func() {
 		binding := &rbacv1.RoleBinding{}
 		Expect(envTest.Get(ctx, client.ObjectKeyFromObject(role), binding)).To(Succeed())
 		Expect(binding.Subjects).To(Equal([]rbacv1.Subject{{Kind: "ServiceAccount", Name: "grid-client", Namespace: "grid-test-identity"}}))
+		credentialBindings := &rbacv1.RoleBindingList{}
+		Expect(envTest.List(ctx, credentialBindings, client.InNamespace("grid-test-identity"))).To(Succeed())
+		var credentialBinding *rbacv1.RoleBinding
+		for i := range credentialBindings.Items {
+			if credentialBindings.Items[i].Annotations["grid.praxis.fast/source-uid"] == string(svc.UID) {
+				credentialBinding = &credentialBindings.Items[i]
+			}
+		}
+		Expect(credentialBinding).NotTo(BeNil(), "publication must grant the operator access to its credential")
+		Expect(credentialBinding.OwnerReferences).To(BeEmpty(), "cross-namespace owner references are invalid")
+		Expect(credentialBinding.Subjects).To(Equal([]rbacv1.Subject{{Kind: "ServiceAccount", Name: "grid-operator", Namespace: os.Getenv("POD_NAMESPACE")}}))
+		credentialRole := &rbacv1.Role{}
+		Expect(envTest.Get(ctx, client.ObjectKey{Namespace: credentialBinding.Namespace, Name: credentialBinding.RoleRef.Name}, credentialRole)).To(Succeed())
+		Expect(credentialRole.Rules).To(Equal([]rbacv1.PolicyRule{{APIGroups: []string{""}, Resources: []string{"secrets"}, ResourceNames: []string{"grid-token"}, Verbs: []string{"get"}}}))
+		operator := credentialBinding.Subjects[0]
+		Eventually(func() bool { return gridCredentialAllowed(ctx, operator, "grid-test-identity", "grid-token", "get") }).Should(BeTrue())
+		for _, verb := range []string{"list", "watch", "update", "delete"} {
+			Expect(gridCredentialAllowed(ctx, operator, "grid-test-identity", "grid-token", verb)).To(BeFalse())
+		}
+		Expect(gridCredentialAllowed(ctx, operator, "grid-test-identity", "unrelated", "get")).To(BeFalse())
+		Expect(gridCredentialAllowed(ctx, binding.Subjects[0], "grid-test-identity", "grid-token", "get")).To(BeFalse())
+	})
+
+	It("preserves credential access while another model shares the Secret", func(ctx SpecContext) {
+		second := svc.DeepCopy()
+		second.ObjectMeta = metav1.ObjectMeta{Name: "second-model", Namespace: ns.Name}
+		second.Status = kservev1alpha2.LLMInferenceServiceStatus{}
+		Expect(envTest.Create(ctx, second)).To(Succeed())
+		Eventually(func() error {
+			if err := envTest.Get(ctx, client.ObjectKeyFromObject(second), second); err != nil {
+				return err
+			}
+			second.Status = *svc.Status.DeepCopy()
+			return envTest.Status().Update(ctx, second)
+		}).Should(Succeed())
+		optIn(ctx)
+		Eventually(func() []unstructured.Unstructured { return providers(ctx) }).Should(HaveLen(2))
+		bindings := credentialBindings(ctx)
+		Expect(bindings).To(HaveLen(2))
+		Expect(bindings[0].Name).NotTo(Equal(bindings[1].Name))
+		operator := bindings[0].Subjects[0]
+		Expect(envTest.Delete(ctx, svc)).To(Succeed())
+		Eventually(func() []rbacv1.RoleBinding { return credentialBindings(ctx) }).Should(HaveLen(1))
+		Expect(credentialBindings(ctx)[0].Annotations["grid.praxis.fast/source-uid"]).To(Equal(string(second.UID)))
+		Expect(gridCredentialAllowed(ctx, operator, "grid-test-identity", "grid-token", "get")).To(BeTrue())
+		Expect(envTest.Delete(ctx, second)).To(Succeed())
+		Eventually(func() []rbacv1.RoleBinding { return credentialBindings(ctx) }).Should(BeEmpty())
+		Eventually(func() bool { return gridCredentialAllowed(ctx, operator, "grid-test-identity", "grid-token", "get") }).Should(BeFalse())
+		Expect(envTest.Get(ctx, client.ObjectKey{Namespace: "grid-test-identity", Name: "grid-token"}, &corev1.Secret{})).To(Succeed())
+	})
+
+	It("reconciles credential references and a separate operator installation identity", func(ctx SpecContext) {
+		GinkgoT().Setenv(llmcontroller.GridOperatorNamespaceEnv, ns.Name)
+		GinkgoT().Setenv(llmcontroller.GridOperatorServiceAccountEnv, "custom-operator")
+		optIn(ctx)
+		waitProvider(ctx)
+		binding := credentialBindings(ctx)[0]
+		originalOperator := rbacv1.Subject{Kind: "ServiceAccount", Namespace: ns.Name, Name: "custom-operator"}
+		Expect(binding.Subjects).To(Equal([]rbacv1.Subject{originalOperator}))
+		Expect(envTest.Get(ctx, client.ObjectKeyFromObject(gateway), gateway)).To(Succeed())
+		gateway.Annotations[llmcontroller.GridServingAnnotation] = strings.ReplaceAll(strings.ReplaceAll(gateway.Annotations[llmcontroller.GridServingAnnotation], "grid-client", "grid-client-second"), "grid-token", "grid-token-second")
+		Expect(envTest.Update(ctx, gateway)).To(Succeed())
+		Eventually(func() bool {
+			return gridCredentialAllowed(ctx, originalOperator, "grid-test-identity", "grid-token-second", "get")
+		}).Should(BeTrue())
+		Eventually(func() bool {
+			return gridCredentialAllowed(ctx, originalOperator, "grid-test-identity", "grid-token", "get")
+		}).Should(BeFalse())
+		newOperator := rbacv1.Subject{Kind: "ServiceAccount", Namespace: "grid-test-identity", Name: "replacement-operator"}
+		GinkgoT().Setenv(llmcontroller.GridOperatorNamespaceEnv, newOperator.Namespace)
+		GinkgoT().Setenv(llmcontroller.GridOperatorServiceAccountEnv, newOperator.Name)
+		updateService(ctx, func(s *kservev1alpha2.LLMInferenceService) { s.Annotations["test.example.com/recheck"] = "true" })
+		Eventually(func() bool {
+			return gridCredentialAllowed(ctx, newOperator, "grid-test-identity", "grid-token-second", "get")
+		}).Should(BeTrue())
+		Eventually(func() bool {
+			return gridCredentialAllowed(ctx, originalOperator, "grid-test-identity", "grid-token-second", "get")
+		}).Should(BeFalse())
+	})
+
+	It("removes old credential grants after the Secret namespace changes", func(ctx SpecContext) {
+		optIn(ctx)
+		waitProvider(ctx)
+		oldBinding := credentialBindings(ctx)[0]
+		identityNS := testutils.Namespaces.Create(ctx, envTest.Client)
+		sa := &corev1.ServiceAccount{ObjectMeta: metav1.ObjectMeta{Name: "grid-client", Namespace: identityNS.Name}}
+		Expect(envTest.Create(ctx, sa)).To(Succeed())
+		secret := &corev1.Secret{ObjectMeta: metav1.ObjectMeta{Name: "grid-token", Namespace: sa.Namespace, Annotations: map[string]string{
+			corev1.ServiceAccountNameKey: sa.Name, corev1.ServiceAccountUIDKey: string(sa.UID),
+		}}, Type: corev1.SecretTypeServiceAccountToken, Data: map[string][]byte{"token": []byte("replacement-token")}}
+		Expect(envTest.Create(ctx, secret)).To(Succeed())
+		Expect(envTest.Get(ctx, client.ObjectKeyFromObject(gateway), gateway)).To(Succeed())
+		gateway.Annotations[llmcontroller.GridServingAnnotation] = strings.ReplaceAll(gateway.Annotations[llmcontroller.GridServingAnnotation], "grid-test-identity", identityNS.Name)
+		Expect(envTest.Update(ctx, gateway)).To(Succeed())
+		Eventually(func(g Gomega) {
+			bindings := credentialBindings(ctx)
+			g.Expect(bindings).To(HaveLen(1))
+			g.Expect(bindings[0].Namespace).To(Equal(identityNS.Name))
+		}).Should(Succeed())
+		for _, obj := range []client.Object{&rbacv1.Role{}, &rbacv1.RoleBinding{}} {
+			Expect(apierrors.IsNotFound(envTest.Get(ctx, client.ObjectKeyFromObject(&oldBinding), obj))).To(BeTrue())
+		}
+		Eventually(func() bool {
+			return gridCredentialAllowed(ctx, oldBinding.Subjects[0], "grid-test-identity", "grid-token", "get")
+		}).Should(BeFalse())
+		Eventually(func() bool {
+			return gridCredentialAllowed(ctx, oldBinding.Subjects[0], identityNS.Name, "grid-token", "get")
+		}).Should(BeTrue())
+		optOut(ctx)
+		Eventually(func() []rbacv1.RoleBinding { return credentialBindings(ctx) }).Should(BeEmpty())
+		Expect(envTest.Get(ctx, client.ObjectKeyFromObject(secret), &corev1.Secret{})).To(Succeed())
+	})
+
+	It("repairs drift in credential grants through cross-namespace watches", func(ctx SpecContext) {
+		optIn(ctx)
+		waitProvider(ctx)
+		binding := credentialBindings(ctx)[0]
+		key := client.ObjectKeyFromObject(&binding)
+		role := &rbacv1.Role{}
+		Expect(envTest.Get(ctx, key, role)).To(Succeed())
+		role.Rules[0].ResourceNames = []string{"unrelated"}
+		Expect(envTest.Update(ctx, role)).To(Succeed())
+		binding.Subjects = []rbacv1.Subject{{Kind: "ServiceAccount", Namespace: ns.Name, Name: "unrelated"}}
+		Expect(envTest.Update(ctx, &binding)).To(Succeed())
+		Eventually(func(g Gomega) {
+			g.Expect(envTest.Get(ctx, key, role)).To(Succeed())
+			g.Expect(role.Rules[0].ResourceNames).To(Equal([]string{"grid-token"}))
+			g.Expect(envTest.Get(ctx, key, &binding)).To(Succeed())
+			g.Expect(binding.Subjects).To(Equal([]rbacv1.Subject{{Kind: "ServiceAccount", Namespace: os.Getenv("POD_NAMESPACE"), Name: "grid-operator"}}))
+		}).Should(Succeed())
+	})
+
+	DescribeTable("refuses unmanaged credential RBAC collisions", func(ctx SpecContext, bindingCollision bool) {
+		optIn(ctx)
+		waitProvider(ctx)
+		binding := credentialBindings(ctx)[0]
+		key := client.ObjectKeyFromObject(&binding)
+		optOut(ctx)
+		Eventually(func() []unstructured.Unstructured { return providers(ctx) }).Should(BeEmpty())
+		Eventually(func() []rbacv1.RoleBinding { return credentialBindings(ctx) }).Should(BeEmpty())
+		Eventually(func() bool { return apierrors.IsNotFound(envTest.Get(ctx, key, &rbacv1.Role{})) }).Should(BeTrue())
+		metadata := metav1.ObjectMeta{Name: key.Name, Namespace: key.Namespace}
+		var collision client.Object = &rbacv1.Role{ObjectMeta: metadata}
+		if bindingCollision {
+			collision = &rbacv1.RoleBinding{ObjectMeta: metadata, RoleRef: rbacv1.RoleRef{APIGroup: rbacv1.GroupName, Kind: "Role", Name: key.Name}}
+		}
+		Expect(envTest.Create(ctx, collision)).To(Succeed())
+		DeferCleanup(func(ctx SpecContext) { Expect(client.IgnoreNotFound(envTest.Delete(ctx, collision))).To(Succeed()) })
+		optIn(ctx)
+		reconciler := &llmcontroller.GridInferenceProviderReconciler{Client: envTest.Client, APIReader: envTest.Client}
+		Eventually(func() error {
+			_, err := reconciler.Reconcile(ctx, ctrl.Request{NamespacedName: client.ObjectKeyFromObject(svc)})
+			return err
+		}).Should(MatchError(ContainSubstring("refusing to overwrite unmanaged Grid credential access")))
+		Expect(providers(ctx)).To(BeEmpty())
+		optOut(ctx)
+		Eventually(func() []rbacv1.RoleBinding { return credentialBindings(ctx) }).Should(BeEmpty())
+		Expect(envTest.Get(ctx, key, collision)).To(Succeed())
+		Expect(collision.GetAnnotations()).To(BeEmpty())
+		Expect(collision.GetOwnerReferences()).To(BeEmpty())
+	}, Entry("Role", false), Entry("RoleBinding", true))
+
+	It("keeps the source finalizer until cross-namespace credential access is gone", func(ctx SpecContext) {
+		optIn(ctx)
+		waitProvider(ctx)
+		binding := credentialBindings(ctx)[0]
+		binding.Finalizers = []string{"test.example.com/hold-credential"}
+		Expect(envTest.Update(ctx, &binding)).To(Succeed())
+		Expect(envTest.Delete(ctx, svc)).To(Succeed())
+		Eventually(func() bool {
+			Expect(envTest.Get(ctx, client.ObjectKeyFromObject(&binding), &binding)).To(Succeed())
+			return !binding.DeletionTimestamp.IsZero()
+		}).Should(BeTrue())
+		Expect(envTest.Get(ctx, client.ObjectKeyFromObject(svc), svc)).To(Succeed())
+		Expect(svc.Finalizers).To(ContainElement("grid.praxis.fast/inference-provider"))
+		binding.Finalizers = nil
+		Expect(envTest.Update(ctx, &binding)).To(Succeed())
+		Eventually(func() bool { return apierrors.IsNotFound(envTest.Get(ctx, client.ObjectKeyFromObject(svc), svc)) }).Should(BeTrue())
 	})
 
 	It("emits a Warning on the source when provider creation fails", func(ctx SpecContext) {
@@ -468,6 +671,9 @@ var _ = Describe("Grid provider reconciliation", Ordered, func() {
 			allowGridGatewayNamespaces("another-ingress")
 			// Environment changes take effect after restart in a deployment; enqueue explicitly here.
 			updateService(ctx, func(s *kservev1alpha2.LLMInferenceService) { s.Annotations["test.example.com/recheck"] = "true" })
+		case "operator identity":
+			GinkgoT().Setenv(llmcontroller.GridOperatorNamespaceEnv, "")
+			updateService(ctx, func(s *kservev1alpha2.LLMInferenceService) { s.Annotations["test.example.com/recheck"] = "true" })
 		case "namespace":
 			Expect(envTest.Get(ctx, client.ObjectKeyFromObject(ns), ns)).To(Succeed())
 			delete(ns.Labels, llmcontroller.GridAllowedLabel)
@@ -504,6 +710,7 @@ var _ = Describe("Grid provider reconciliation", Ordered, func() {
 		Entry("when its Gateway configuration is removed", "annotation"),
 		Entry("when its namespace no longer matches", "namespace"),
 		Entry("when its Gateway namespace is not allowed", "Gateway namespace"),
+		Entry("when the operator identity is invalid", "operator identity"),
 		Entry("when KServe withdraws the deleted Gateway attachment", "gateway"),
 		Entry("when KServe withdraws its routing addresses", "addresses"),
 		Entry("when the service is deleted", "deletion"),
