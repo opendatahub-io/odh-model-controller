@@ -130,14 +130,14 @@ func (v *InferenceServiceCustomValidator) validateHardwareProfileDRA(ctx context
 	if oldISVC != nil {
 		oldMeta = &oldISVC.ObjectMeta
 	}
-	if !hardwareprofile.DRAReferenceAnnotationsChanged(oldMeta, &isvc.ObjectMeta) {
+	name, namespace := hardwareprofile.ProfileRef(isvc.Annotations, isvc.Namespace)
+	if name == "" || !hardwareprofile.ProfileReferenceChanged(oldMeta, &isvc.ObjectMeta, true) {
 		return nil
 	}
 	reader := v.apiReader
 	if reader == nil {
 		reader = v.client
 	}
-	name, namespace := hardwareprofile.ProfileRef(isvc.Annotations, isvc.Namespace)
 	profile, err := hardwareprofile.Resolve(ctx, reader, name, namespace)
 	if err != nil {
 		return err
@@ -401,13 +401,13 @@ func (d *InferenceServiceCustomDefaulter) applyHardwareProfile(
 
 	annotations := isvc.GetAnnotations()
 	profileName, profileNamespace := hardwareprofile.ProfileRef(annotations, isvc.Namespace)
+	oldProfileName, referenceChanged, err := hardwareprofile.ProfileReferenceChangedFromRequest(req, &isvc.ObjectMeta, true)
+	if err != nil {
+		return err
+	}
 
 	if profileName == "" {
-		oldTemplate, referenceChanged, err := hardwareprofile.DRAStateFromRequest(req, &isvc.ObjectMeta)
-		if err != nil {
-			return err
-		}
-		if err := reconcileISVCHardwareProfileDRA(isvc, oldTemplate, "", referenceChanged); err != nil {
+		if err := reconcileISVCHardwareProfileDRA(isvc, oldProfileName != "", "", referenceChanged); err != nil {
 			return err
 		}
 		if req.Operation == admissionv1.Update {
@@ -432,11 +432,7 @@ func (d *InferenceServiceCustomDefaulter) applyHardwareProfile(
 		}
 		isvc.Annotations[hardwareprofile.HardwareProfileAnnotationNamespace] = profileNamespace
 	}
-	oldTemplate, referenceChanged, err := hardwareprofile.DRAStateFromRequest(req, &isvc.ObjectMeta)
-	if err != nil {
-		return err
-	}
-	if err := reconcileISVCHardwareProfileDRA(isvc, oldTemplate, profile.ResourceClaimTemplateName, referenceChanged); err != nil {
+	if err := reconcileISVCHardwareProfileDRA(isvc, oldProfileName != "", profile.ResourceClaimTemplateName, referenceChanged); err != nil {
 		return err
 	}
 
@@ -482,13 +478,15 @@ func (d *InferenceServiceCustomDefaulter) applyHardwareProfile(
 	return nil
 }
 
-func reconcileISVCHardwareProfileDRA(isvc *servingv1beta1.InferenceService, oldTemplate, selectedTemplate string, referenceChanged bool) error {
+func reconcileISVCHardwareProfileDRA(isvc *servingv1beta1.InferenceService, oldProfileSelected bool, selectedTemplate string, referenceChanged bool) error {
 	predictor := &isvc.Spec.Predictor
-	if referenceChanged && oldTemplate != "" {
+	if !referenceChanged {
+		return nil
+	}
+	if oldProfileSelected {
 		hardwareprofile.RemoveDRAContainerClaims(predictor.Containers, predictor.InitContainers, predictor.EphemeralContainers)
 	}
-	desired := hardwareprofile.DesiredDRATemplate(selectedTemplate, oldTemplate, referenceChanged)
-	if desired != "" {
+	if selectedTemplate != "" {
 		if predictor.Model == nil {
 			return fmt.Errorf("HardwareProfile DRA requires spec.predictor.model")
 		}
@@ -501,8 +499,8 @@ func reconcileISVCHardwareProfileDRA(isvc *servingv1beta1.InferenceService, oldT
 	if predictor.Model != nil {
 		resources = &predictor.Model.Resources
 	}
-	return hardwareprofile.ReconcileDRAClaims(&isvc.ObjectMeta, &predictor.ResourceClaims,
-		resources, oldTemplate, selectedTemplate, referenceChanged)
+	return hardwareprofile.ReconcileDRAClaims(&predictor.ResourceClaims, resources,
+		oldProfileSelected, selectedTemplate, referenceChanged)
 }
 
 // handleHWPRemovalISVC handles the case where the HWP annotation is removed from an InferenceService

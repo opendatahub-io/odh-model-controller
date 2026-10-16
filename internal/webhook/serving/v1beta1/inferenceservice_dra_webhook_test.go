@@ -55,12 +55,11 @@ var _ = Describe("InferenceService HardwareProfile DRA", func() {
 		Expect(isvc.Spec.Predictor.Model.Resources.Claims).To(Equal([]corev1.ResourceClaim{{Name: hardwareprofile.DRAClaimName}}))
 		Expect(isvc.Spec.Predictor.Model.Resources.Requests).To(HaveKey(corev1.ResourceCPU))
 		Expect(isvc.Labels[hardwareprofile.KueueQueueNameLabel]).To(Equal("gpu-queue"))
-		Expect(isvc.Annotations[hardwareprofile.DRATemplateAnnotation]).To(Equal("gpu-template"))
 		Expect(isvc.Spec.Canary[0].Predictor.ResourceClaims).To(BeEmpty())
 		Expect(isvc.Spec.Canary[0].Predictor.Model.Resources.Claims).To(BeEmpty())
 	})
 
-	It("keeps the admitted template on an unchanged reference and cleans it on a profile switch", func() {
+	It("leaves claims unchanged on an unchanged reference and cleans them on a profile switch", func() {
 		original := hwptestutil.NewHardwareProfile("gpu-profile", hwpTestNS,
 			map[string]any{"dra": map[string]any{"resourceClaimTemplateName": "gpu-template"}})
 		d := newISVCDefaulter(newDefaulterFakeClient(original))
@@ -73,21 +72,19 @@ var _ = Describe("InferenceService HardwareProfile DRA", func() {
 		unchanged.Spec.Predictor.ResourceClaims = nil
 		unchanged.Spec.Predictor.Model.Resources.Claims = nil
 		Expect(newISVCDefaulter(newDefaulterFakeClient(edited)).Default(isvcUpdateCtx(unchanged, old), unchanged)).To(Succeed())
-		Expect(*unchanged.Spec.Predictor.ResourceClaims[0].ResourceClaimTemplateName).To(Equal("gpu-template"))
-		Expect(unchanged.Spec.Predictor.Model.Resources.Claims).To(HaveLen(1))
+		Expect(unchanged.Spec.Predictor.ResourceClaims).To(BeEmpty())
+		Expect(unchanged.Spec.Predictor.Model.Resources.Claims).To(BeEmpty())
 
 		withoutDRA := hwptestutil.NewHardwareProfile("plain-profile", hwpTestNS, nil)
-		switched := unchanged.DeepCopy()
+		switched := old.DeepCopy()
 		switched.Annotations[hardwareprofile.HardwareProfileAnnotationName] = "plain-profile"
-		Expect(newISVCDefaulter(newDefaulterFakeClient(withoutDRA)).Default(isvcUpdateCtx(switched, unchanged), switched)).To(Succeed())
+		Expect(newISVCDefaulter(newDefaulterFakeClient(withoutDRA)).Default(isvcUpdateCtx(switched, old), switched)).To(Succeed())
 		Expect(switched.Spec.Predictor.ResourceClaims).To(BeEmpty())
 		Expect(switched.Spec.Predictor.Model.Resources.Claims).To(BeEmpty())
-		Expect(switched.Annotations).NotTo(HaveKey(hardwareprofile.DRATemplateAnnotation))
 	})
 
 	It("cleans its claim when the profile annotation is removed after the old profile was deleted", func() {
 		old := buildISVCForHWP(hwptestutil.HWPAnnotationsWithNS("deleted-profile", hwpTestNS), nil)
-		old.Annotations[hardwareprofile.DRATemplateAnnotation] = "gpu-template"
 		old.Spec.Predictor.ResourceClaims = []corev1.PodResourceClaim{{Name: hardwareprofile.DRAClaimName}}
 		old.Spec.Predictor.Model.Resources.Claims = []corev1.ResourceClaim{{Name: hardwareprofile.DRAClaimName}}
 		old.Spec.Predictor.Containers = []corev1.Container{{Name: "sidecar", Resources: corev1.ResourceRequirements{
@@ -108,7 +105,6 @@ var _ = Describe("InferenceService HardwareProfile DRA", func() {
 		Expect(updated.Spec.Predictor.Containers[0].Resources.Claims).To(BeEmpty())
 		Expect(updated.Spec.Predictor.InitContainers[0].Resources.Claims).To(BeEmpty())
 		Expect(updated.Spec.Predictor.EphemeralContainers[0].Resources.Claims).To(BeEmpty())
-		Expect(updated.Annotations).NotTo(HaveKey(hardwareprofile.DRATemplateAnnotation))
 	})
 
 	It("rejects DRA on a non-Model predictor and rejects an unowned claim name", func() {
@@ -121,6 +117,12 @@ var _ = Describe("InferenceService HardwareProfile DRA", func() {
 		collision := buildISVCForHWP(hwptestutil.HWPAnnotations("gpu-profile"), nil)
 		collision.Spec.Predictor.ResourceClaims = []corev1.PodResourceClaim{{Name: hardwareprofile.DRAClaimName}}
 		Expect(d.Default(isvcCreateCtx(collision), collision)).To(MatchError(ContainSubstring("already used")))
+
+		initialAssignmentOld := buildISVCForHWP(nil, nil)
+		initialAssignmentOld.Spec.Predictor.ResourceClaims = []corev1.PodResourceClaim{{Name: hardwareprofile.DRAClaimName}}
+		initialAssignment := buildISVCForHWP(hwptestutil.HWPAnnotations("gpu-profile"), nil)
+		initialAssignment.Spec.Predictor.ResourceClaims = []corev1.PodResourceClaim{{Name: hardwareprofile.DRAClaimName}}
+		Expect(d.Default(isvcUpdateCtx(initialAssignment, initialAssignmentOld), initialAssignment)).To(MatchError(ContainSubstring("already used")))
 
 		sidecar := buildISVCForHWP(hwptestutil.HWPAnnotations("gpu-profile"), nil)
 		sidecar.Spec.Predictor.Containers = []corev1.Container{{Name: "sidecar", Resources: corev1.ResourceRequirements{
@@ -151,7 +153,6 @@ var _ = Describe("InferenceService HardwareProfile DRA", func() {
 		Expect(err).NotTo(HaveOccurred())
 
 		// A later template deletion does not block an unrelated workload update.
-		newISVC.Annotations[hardwareprofile.DRATemplateAnnotation] = "gpu-template"
 		validator = &InferenceServiceCustomValidator{client: wrongNamespace, apiReader: wrongNamespace}
 		_, err = validator.ValidateUpdate(context.Background(), newISVC.DeepCopy(), newISVC)
 		Expect(err).NotTo(HaveOccurred())

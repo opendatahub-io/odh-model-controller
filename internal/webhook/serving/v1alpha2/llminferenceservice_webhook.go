@@ -111,16 +111,18 @@ func (v *LLMInferenceServiceCustomValidator) validateHardwareProfileDRA(
 		return nil
 	}
 
-	changed := hardwareprofile.DRAReferenceAnnotationsChanged(oldMeta, meta)
-	activeTemplate := meta.Annotations[hardwareprofile.DRATemplateAnnotation]
+	changed := hardwareprofile.ProfileReferenceChanged(oldMeta, meta, true)
+	activeDRA := hardwareprofile.HasDRAClaim(template)
+	activeTemplate := ""
 	if changed {
 		profile, err := hardwareprofile.Resolve(ctx, v.apiReader, name, namespace)
 		if err != nil {
 			return err
 		}
 		activeTemplate = profile.ResourceClaimTemplateName
+		activeDRA = profile.ResourceClaimTemplateName != ""
 	}
-	if activeTemplate == "" {
+	if !activeDRA {
 		return nil
 	}
 	if _, managed := meta.Annotations[kserveconstants.ManagedDRADeviceClassAnnotationKey]; managed {
@@ -506,37 +508,41 @@ func mainContainerIndex(containers []corev1.Container) int {
 }
 
 func applyLLMHardwareProfileDRA(req admission.Request, meta *metav1.ObjectMeta, template **corev1.PodSpec, selectedTemplate string) error {
-	oldTemplate, referenceChanged, err := hardwareprofile.DRAStateFromRequest(req, meta)
+	oldProfileName, referenceChanged, err := hardwareprofile.ProfileReferenceChangedFromRequest(req, meta, true)
 	if err != nil {
 		return err
 	}
-	desired := hardwareprofile.DesiredDRATemplate(selectedTemplate, oldTemplate, referenceChanged)
-	if desired != "" {
+	currentProfileName, _ := hardwareprofile.ProfileRef(meta.Annotations, meta.Namespace)
+	activeDRA := (referenceChanged && selectedTemplate != "") ||
+		(!referenceChanged && currentProfileName != "" && template != nil && hardwareprofile.HasDRAClaim(*template))
+	if activeDRA {
 		if _, managed := meta.Annotations[kserveconstants.ManagedDRADeviceClassAnnotationKey]; managed {
 			return fmt.Errorf("HardwareProfile DRA cannot be combined with KServe Managed DRA (%s)",
 				kserveconstants.ManagedDRADeviceClassAnnotationKey)
 		}
 	}
-	return reconcileLLMHardwareProfileDRA(meta, template, oldTemplate, selectedTemplate, referenceChanged)
+	return reconcileLLMHardwareProfileDRA(template, oldProfileName != "", selectedTemplate, referenceChanged)
 }
 
 func reconcileLLMHardwareProfileDRA(
-	meta *metav1.ObjectMeta, template **corev1.PodSpec,
-	oldTemplate, selectedTemplate string, referenceChanged bool,
+	template **corev1.PodSpec, oldProfileSelected bool,
+	selectedTemplate string, referenceChanged bool,
 ) error {
-	desired := hardwareprofile.DesiredDRATemplate(selectedTemplate, oldTemplate, referenceChanged)
-	if desired != "" && *template == nil {
+	if !referenceChanged {
+		return nil
+	}
+	if selectedTemplate != "" && *template == nil {
 		*template = &corev1.PodSpec{}
 	}
 	if *template == nil {
 		var claims []corev1.PodResourceClaim
-		return hardwareprofile.ReconcileDRAClaims(meta, &claims, nil, oldTemplate, selectedTemplate, referenceChanged)
+		return hardwareprofile.ReconcileDRAClaims(&claims, nil, oldProfileSelected, selectedTemplate, referenceChanged)
 	}
-	if referenceChanged && oldTemplate != "" {
+	if oldProfileSelected {
 		hardwareprofile.RemoveDRAContainerClaims((*template).Containers, (*template).InitContainers,
 			(*template).EphemeralContainers)
 	}
-	if desired != "" && len((*template).Containers) == 0 {
+	if selectedTemplate != "" && len((*template).Containers) == 0 {
 		(*template).Containers = []corev1.Container{{Name: hardwareprofile.LLMIsvcMainContainerName}}
 	}
 	var resources *corev1.ResourceRequirements
@@ -544,17 +550,17 @@ func reconcileLLMHardwareProfileDRA(
 	if idx >= 0 {
 		resources = &(*template).Containers[idx].Resources
 	}
-	if desired != "" && resources == nil {
+	if selectedTemplate != "" && resources == nil {
 		return fmt.Errorf("HardwareProfile DRA requires a %q container in spec.template.containers", hardwareprofile.LLMIsvcMainContainerName)
 	}
-	if desired != "" {
+	if selectedTemplate != "" {
 		if err := hardwareprofile.ValidateDRAContainerClaims((*template).Containers, (*template).InitContainers,
 			(*template).EphemeralContainers, idx); err != nil {
 			return err
 		}
 	}
-	return hardwareprofile.ReconcileDRAClaims(meta, &(*template).ResourceClaims, resources,
-		oldTemplate, selectedTemplate, referenceChanged)
+	return hardwareprofile.ReconcileDRAClaims(&(*template).ResourceClaims, resources,
+		oldProfileSelected, selectedTemplate, referenceChanged)
 }
 
 // handleHWPRemovalLLMISVC handles the case where the HWP annotation is removed from an

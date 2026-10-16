@@ -23,6 +23,7 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	admissionv1 "k8s.io/api/admission/v1"
 	corev1 "k8s.io/api/core/v1"
 	resourcev1 "k8s.io/api/resource/v1"
 	k8serr "k8s.io/apimachinery/pkg/api/errors"
@@ -53,94 +54,134 @@ func TestParseDRAWithKueue(t *testing.T) {
 	require.ErrorContains(t, err, "DRA template name")
 }
 
-func TestDRAReferenceChangeAndOldState(t *testing.T) {
+func TestProfileReferenceChangedFromRequest(t *testing.T) {
 	old := metav1.ObjectMeta{
 		Namespace: "workload-ns",
 		Annotations: map[string]string{
 			HardwareProfileAnnotationName: "shared-profile",
-			DRATemplateAnnotation:         "original-template",
 		},
 	}
 	oldRaw, err := json.Marshal(struct {
 		Metadata metav1.ObjectMeta `json:"metadata"`
 	}{Metadata: old})
 	require.NoError(t, err)
-	req := admission.Request{}
-	req.OldObject.Raw = oldRaw
+	req := admission.Request{AdmissionRequest: admissionv1.AdmissionRequest{
+		Operation: admissionv1.Update,
+		Namespace: old.Namespace,
+		OldObject: runtime.RawExtension{Raw: oldRaw},
+	}}
 
 	newMeta := old.DeepCopy()
-	gotTemplate, changed, err := DRAStateFromRequest(req, newMeta)
+	oldName, referenceChanged, err := ProfileReferenceChangedFromRequest(req, newMeta, true)
 	require.NoError(t, err)
-	assert.Equal(t, "original-template", gotTemplate)
-	assert.False(t, changed)
-	assert.Equal(t, "original-template", DesiredDRATemplate("edited-template", gotTemplate, changed))
+	assert.Equal(t, "shared-profile", oldName)
+	assert.False(t, referenceChanged)
 
 	newMeta.Annotations[HardwareProfileAnnotationNamespace] = "workload-ns"
-	_, changed, err = DRAStateFromRequest(req, newMeta)
+	oldName, referenceChanged, err = ProfileReferenceChangedFromRequest(req, newMeta, true)
 	require.NoError(t, err)
-	assert.False(t, changed, "explicit default namespace is the same effective reference")
-	assert.True(t, DRAReferenceAnnotationsChanged(&old, newMeta), "the raw annotation was added")
+	assert.Equal(t, "shared-profile", oldName)
+	assert.False(t, referenceChanged, "explicit default namespace is the same effective reference")
+	assert.False(t, ProfileReferenceChanged(&old, newMeta, true), "the effective reference is unchanged")
 
 	newMeta.Annotations[HardwareProfileAnnotationNamespace] = "shared-ns"
-	_, changed, err = DRAStateFromRequest(req, newMeta)
+	oldName, referenceChanged, err = ProfileReferenceChangedFromRequest(req, newMeta, true)
 	require.NoError(t, err)
-	assert.True(t, changed)
+	assert.Equal(t, "shared-profile", oldName)
+	assert.True(t, referenceChanged)
+
+	noProfileRaw, err := json.Marshal(struct {
+		Metadata metav1.ObjectMeta `json:"metadata"`
+	}{Metadata: metav1.ObjectMeta{Namespace: old.Namespace}})
+	require.NoError(t, err)
+	req.OldObject.Raw = noProfileRaw
+	newMeta = &metav1.ObjectMeta{Namespace: old.Namespace, Annotations: map[string]string{
+		HardwareProfileAnnotationName: "new-profile",
+	}}
+	oldName, referenceChanged, err = ProfileReferenceChangedFromRequest(req, newMeta, true)
+	require.NoError(t, err)
+	assert.Empty(t, oldName)
+	assert.True(t, referenceChanged)
+	_, referenceChanged, err = ProfileReferenceChangedFromRequest(req, newMeta, false)
+	require.NoError(t, err)
+	assert.False(t, referenceChanged)
+
+	req.OldObject.Raw = []byte("{")
+	_, _, err = ProfileReferenceChangedFromRequest(req, newMeta, true)
+	require.ErrorContains(t, err, "failed reading previous HardwareProfile reference")
+	assert.True(t, ProfileChanged(req, "new-profile", old.Namespace), "malformed old objects conservatively trigger scheduling replacement")
+}
+
+func TestProfileReferenceChangedPreservesSchedulingInitialAssignment(t *testing.T) {
+	old := &metav1.ObjectMeta{Namespace: "workload-ns"}
+	newMeta := &metav1.ObjectMeta{Namespace: "workload-ns", Annotations: map[string]string{
+		HardwareProfileAnnotationName: "profile",
+	}}
+	assert.False(t, ProfileReferenceChanged(old, newMeta, false))
+	assert.True(t, ProfileReferenceChanged(old, newMeta, true))
+
+	withProfile := &metav1.ObjectMeta{Namespace: "workload-ns", Annotations: map[string]string{
+		HardwareProfileAnnotationName: "profile",
+	}}
+	explicitDefault := withProfile.DeepCopy()
+	explicitDefault.Annotations[HardwareProfileAnnotationNamespace] = "workload-ns"
+	assert.False(t, ProfileReferenceChanged(withProfile, explicitDefault, true))
+	assert.True(t, ProfileReferenceChanged(withProfile, &metav1.ObjectMeta{Namespace: "workload-ns"}, true))
 }
 
 func TestReconcileDRAClaimsLifecycle(t *testing.T) {
 	manualTemplate := "manual-template"
-	meta := metav1.ObjectMeta{}
 	claims := []corev1.PodResourceClaim{{Name: "manual", ResourceClaimTemplateName: &manualTemplate}}
 	resources := corev1.ResourceRequirements{Claims: []corev1.ResourceClaim{{Name: "manual"}}}
 
-	require.NoError(t, ReconcileDRAClaims(&meta, &claims, &resources, "", "gpu-template", true))
+	require.NoError(t, ReconcileDRAClaims(&claims, &resources, false, "gpu-template", true))
 	require.Len(t, claims, 2)
 	assert.Equal(t, "gpu-template", *claims[1].ResourceClaimTemplateName)
 	assert.Equal(t, DRAClaimName, claims[1].Name)
 	assert.Equal(t, []corev1.ResourceClaim{{Name: "manual"}, {Name: DRAClaimName}}, resources.Claims)
-	assert.Equal(t, "gpu-template", meta.Annotations[DRATemplateAnnotation])
 
-	// Unchanged references retain the admitted template and repair attempted edits.
+	// Unchanged references preserve the submitted claim spec, including user edits.
 	claims[1].ResourceClaimTemplateName = &manualTemplate
 	resources.Claims = resources.Claims[:1]
-	require.NoError(t, ReconcileDRAClaims(&meta, &claims, &resources, "gpu-template", "edited-template", false))
-	assert.Equal(t, "gpu-template", *claims[1].ResourceClaimTemplateName)
-	assert.Equal(t, []corev1.ResourceClaim{{Name: "manual"}, {Name: DRAClaimName}}, resources.Claims)
-	require.NoError(t, ReconcileDRAClaims(&meta, &claims, &resources, "gpu-template", "edited-template", false))
-	assert.Len(t, claims, 2)
-	assert.Len(t, resources.Claims, 2)
+	require.NoError(t, ReconcileDRAClaims(&claims, &resources, true, "edited-template", false))
+	assert.Equal(t, []corev1.PodResourceClaim{{Name: "manual", ResourceClaimTemplateName: &manualTemplate}, {Name: DRAClaimName, ResourceClaimTemplateName: &manualTemplate}}, claims)
+	assert.Equal(t, []corev1.ResourceClaim{{Name: "manual"}}, resources.Claims)
 
 	// Switching profiles replaces only the owned pair.
-	require.NoError(t, ReconcileDRAClaims(&meta, &claims, &resources, "gpu-template", "other-template", true))
+	claims[1].ResourceClaimTemplateName = func() *string {
+		v := "gpu-template"
+		return &v
+	}()
+	resources.Claims = append(resources.Claims, corev1.ResourceClaim{Name: DRAClaimName})
+	require.NoError(t, ReconcileDRAClaims(&claims, &resources, true, "other-template", true))
 	assert.Equal(t, "other-template", *claims[1].ResourceClaimTemplateName)
-	assert.Equal(t, "other-template", meta.Annotations[DRATemplateAnnotation])
 
 	// Removal does not require fetching the old profile or template.
-	require.NoError(t, ReconcileDRAClaims(&meta, &claims, &resources, "other-template", "", true))
+	require.NoError(t, ReconcileDRAClaims(&claims, &resources, true, "", true))
 	assert.Equal(t, []corev1.PodResourceClaim{{Name: "manual", ResourceClaimTemplateName: &manualTemplate}}, claims)
 	assert.Equal(t, []corev1.ResourceClaim{{Name: "manual"}}, resources.Claims)
-	assert.NotContains(t, meta.Annotations, DRATemplateAnnotation)
 }
 
 func TestReconcileDRAClaimsRejectsUnownedName(t *testing.T) {
 	manualTemplate := "other-template"
-	meta := metav1.ObjectMeta{}
 	claims := []corev1.PodResourceClaim{{Name: DRAClaimName, ResourceClaimTemplateName: &manualTemplate}}
 	resources := corev1.ResourceRequirements{Claims: []corev1.ResourceClaim{{Name: DRAClaimName}}}
 
-	err := ReconcileDRAClaims(&meta, &claims, &resources, "", "gpu-template", true)
+	err := ReconcileDRAClaims(&claims, &resources, false, "gpu-template", true)
 	require.ErrorContains(t, err, "already used")
 	assert.Equal(t, "other-template", *claims[0].ResourceClaimTemplateName)
-	assert.Empty(t, meta.Annotations)
+}
 
-	// The incoming annotation is user writable and cannot establish ownership.
-	spoofed := metav1.ObjectMeta{Annotations: map[string]string{DRATemplateAnnotation: "gpu-template"}}
-	spoofedTemplate := "gpu-template"
-	spoofedClaims := []corev1.PodResourceClaim{{Name: DRAClaimName, ResourceClaimTemplateName: &spoofedTemplate}}
-	spoofedResources := corev1.ResourceRequirements{Claims: []corev1.ResourceClaim{{Name: DRAClaimName}}}
-	err = ReconcileDRAClaims(&spoofed, &spoofedClaims, &spoofedResources, "", "gpu-template", true)
-	require.ErrorContains(t, err, "already used")
-	assert.Equal(t, "gpu-template", *spoofedClaims[0].ResourceClaimTemplateName)
+func TestReconcileDRAClaimsLeavesNoProfileManualClaimUnchanged(t *testing.T) {
+	manualTemplate := "manual-template"
+	claims := []corev1.PodResourceClaim{{Name: DRAClaimName, ResourceClaimTemplateName: &manualTemplate}}
+	resources := corev1.ResourceRequirements{Claims: []corev1.ResourceClaim{{Name: DRAClaimName}}}
+	beforeClaims := append([]corev1.PodResourceClaim(nil), claims...)
+	beforeResources := resources.DeepCopy()
+
+	require.NoError(t, ReconcileDRAClaims(&claims, &resources, false, "", false))
+	assert.Equal(t, beforeClaims, claims)
+	assert.Equal(t, beforeResources, &resources)
 }
 
 func TestDRAContainerClaimIsolation(t *testing.T) {

@@ -18,79 +18,19 @@ package hardwareprofile
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 
-	admissionv1 "k8s.io/api/admission/v1"
 	corev1 "k8s.io/api/core/v1"
 	resourcev1 "k8s.io/api/resource/v1"
 	k8serr "k8s.io/apimachinery/pkg/api/errors"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
-	"sigs.k8s.io/controller-runtime/pkg/webhook/admission"
 )
 
 const (
 	// DRAClaimName is the pod-local name reserved for HardwareProfile DRA claims.
 	DRAClaimName = "hwp-dra"
-	// DRATemplateAnnotation records the template used at admission, so profile edits and
-	// deletion cannot make us lose track of the claim we own on an existing workload.
-	DRATemplateAnnotation = "opendatahub.io/hardware-profile-dra-template-name"
 )
-
-// DRAStateFromRequest returns the old admitted template and whether the effective
-// HardwareProfile reference changed. This is intentionally separate from
-// ProfileChanged, whose initial-assignment behavior controls scheduling merges.
-func DRAStateFromRequest(req admission.Request, newMeta metav1.Object) (string, bool, error) {
-	if req.Operation == admissionv1.Create {
-		return "", true, nil
-	}
-	if req.OldObject.Raw == nil {
-		return "", true, nil
-	}
-
-	var old struct {
-		Metadata metav1.ObjectMeta `json:"metadata"`
-	}
-	if err := json.Unmarshal(req.OldObject.Raw, &old); err != nil {
-		return "", false, fmt.Errorf("failed reading previous HardwareProfile DRA state: %w", err)
-	}
-	oldName, oldNamespace := ProfileRef(old.Metadata.Annotations, old.Metadata.Namespace)
-	newName, newNamespace := ProfileRef(newMeta.GetAnnotations(), newMeta.GetNamespace())
-	oldTemplate := old.Metadata.Annotations[DRATemplateAnnotation]
-	return oldTemplate, oldName != newName || oldNamespace != newNamespace || (newName == "" && oldTemplate != ""), nil
-}
-
-// DesiredDRATemplate keeps the template captured on the previous admitted object
-// when the profile reference is unchanged. A profile edit affects new bindings only.
-func DesiredDRATemplate(selected, old string, referenceChanged bool) string {
-	if referenceChanged {
-		return selected
-	}
-	return old
-}
-
-// DRAReferenceAnnotationsChanged reports whether an added or changed HWP name or
-// namespace annotation requires an admission-time template existence check.
-func DRAReferenceAnnotationsChanged(oldMeta, newMeta *metav1.ObjectMeta) bool {
-	newAnnotations := newMeta.Annotations
-	if newAnnotations[HardwareProfileAnnotationName] == "" {
-		return false
-	}
-	if oldMeta == nil {
-		return true
-	}
-	oldAnnotations := oldMeta.Annotations
-	for _, key := range []string{HardwareProfileAnnotationName, HardwareProfileAnnotationNamespace} {
-		oldValue, oldPresent := oldAnnotations[key]
-		newValue, newPresent := newAnnotations[key]
-		if oldValue != newValue || oldPresent != newPresent {
-			return true
-		}
-	}
-	return false
-}
 
 // ValidateResourceClaimTemplate checks the workload namespace, which can differ
 // from the namespace containing the HardwareProfile.
@@ -105,45 +45,68 @@ func ValidateResourceClaimTemplate(ctx context.Context, reader client.Reader, na
 	return nil
 }
 
-// ReconcileDRAClaims changes only the HWP-owned claim name. oldTemplate must come
-// from the previous admitted object, never from the incoming object's annotation.
+// ReconcileDRAClaims changes only the reserved HWP claim name. When the effective
+// HardwareProfile reference is unchanged, the submitted claim spec is preserved exactly.
 func ReconcileDRAClaims(
-	meta *metav1.ObjectMeta,
 	podClaims *[]corev1.PodResourceClaim,
 	resources *corev1.ResourceRequirements,
-	oldTemplate, selectedTemplate string,
+	oldProfileSelected bool,
+	selectedTemplate string,
 	referenceChanged bool,
 ) error {
-	desired := DesiredDRATemplate(selectedTemplate, oldTemplate, referenceChanged)
+	if !referenceChanged {
+		return nil
+	}
 
-	if referenceChanged && oldTemplate != "" {
+	claimPresent := hasPodClaim(*podClaims) || (resources != nil && hasContainerClaim(resources.Claims))
+	if !oldProfileSelected && selectedTemplate != "" && claimPresent {
+		return fmt.Errorf("claim name %q is already used by a workload claim", DRAClaimName)
+	}
+
+	if oldProfileSelected {
 		*podClaims = removePodClaim(*podClaims)
 		if resources != nil {
 			resources.Claims = removeContainerClaim(resources.Claims)
 		}
 	}
 
-	if desired == "" {
-		if meta.Annotations != nil {
-			delete(meta.Annotations, DRATemplateAnnotation)
-		}
+	if selectedTemplate == "" {
 		return nil
 	}
 	if resources == nil {
 		return fmt.Errorf("HardwareProfile DRA requires a target container")
 	}
 
-	if referenceChanged && oldTemplate == "" && (hasPodClaim(*podClaims) || hasContainerClaim(resources.Claims)) {
-		return fmt.Errorf("claim name %q is already used by a workload claim", DRAClaimName)
-	}
-
-	*podClaims = setPodClaim(*podClaims, desired)
+	*podClaims = setPodClaim(*podClaims, selectedTemplate)
 	resources.Claims = setContainerClaim(resources.Claims)
-	if meta.Annotations == nil {
-		meta.Annotations = make(map[string]string)
-	}
-	meta.Annotations[DRATemplateAnnotation] = desired
 	return nil
+}
+
+// HasDRAClaim reports whether a PodSpec contains the reserved HWP claim in either
+// its pod-level claim list or any container resource claims.
+func HasDRAClaim(spec *corev1.PodSpec) bool {
+	if spec == nil {
+		return false
+	}
+	if hasPodClaim(spec.ResourceClaims) {
+		return true
+	}
+	for _, container := range spec.Containers {
+		if hasContainerClaim(container.Resources.Claims) {
+			return true
+		}
+	}
+	for _, container := range spec.InitContainers {
+		if hasContainerClaim(container.Resources.Claims) {
+			return true
+		}
+	}
+	for _, container := range spec.EphemeralContainers {
+		if hasContainerClaim(container.Resources.Claims) {
+			return true
+		}
+	}
+	return false
 }
 
 func hasPodClaim(claims []corev1.PodResourceClaim) bool {

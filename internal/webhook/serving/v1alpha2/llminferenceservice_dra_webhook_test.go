@@ -62,7 +62,7 @@ var _ = Describe("LLMInferenceService HardwareProfile DRA", func() {
 		Expect(llm.Spec.Prefill).To(Equal(prefillBefore))
 	})
 
-	It("handles v1alpha1 and retains the admitted template on an unchanged reference", func() {
+	It("preserves submitted v1alpha1 claims when the HWP reference is unchanged", func() {
 		hwp := hwptestutil.NewHardwareProfile("gpu-profile", llmHWPNS,
 			map[string]any{"dra": map[string]any{"resourceClaimTemplateName": "gpu-template"}})
 		llm := &kservev1alpha1.LLMInferenceService{
@@ -79,13 +79,35 @@ var _ = Describe("LLMInferenceService HardwareProfile DRA", func() {
 		edited := hwptestutil.NewHardwareProfile("gpu-profile", llmHWPNS,
 			map[string]any{"dra": map[string]any{"resourceClaimTemplateName": "edited-template"}})
 		Expect(newLLMDefaulterV1alpha1(newLLMFakeClient(edited)).Default(llmAdmissionCtx(admissionv1.Update, old, false), llm)).To(Succeed())
-		Expect(*llm.Spec.Template.ResourceClaims[0].ResourceClaimTemplateName).To(Equal("gpu-template"))
-		Expect(llm.Spec.Template.Containers[0].Resources.Claims).To(HaveLen(1))
+		Expect(llm.Spec.Template.ResourceClaims).To(BeEmpty())
+		Expect(llm.Spec.Template.Containers[0].Resources.Claims).To(BeEmpty())
+	})
+
+	It("rejects Managed DRA when an unchanged HWP retains an admitted claim pair", func() {
+		draProfile := hwptestutil.NewHardwareProfile("gpu-profile", llmHWPNS,
+			map[string]any{"dra": map[string]any{"resourceClaimTemplateName": "gpu-template"}})
+		plainProfile := hwptestutil.NewHardwareProfile("gpu-profile", llmHWPNS, nil)
+
+		llm2 := buildLLMISVCHWP(hwptestutil.HWPAnnotations("gpu-profile"), nil)
+		Expect(newLLMDefaulter(newLLMFakeClient(draProfile)).Default(llmHWPCreateCtx(llm2), llm2)).To(Succeed())
+		old2 := llm2.DeepCopy()
+		llm2.Annotations[kserveconstants.ManagedDRADeviceClassAnnotationKey] = ""
+		Expect(newLLMDefaulter(newLLMFakeClient(plainProfile)).Default(llmHWPUpdateCtx(llm2, old2), llm2)).To(
+			MatchError(ContainSubstring("cannot be combined")))
+
+		llm1 := &kservev1alpha1.LLMInferenceService{
+			ObjectMeta: metav1.ObjectMeta{Name: "test-llm-v1alpha1", Namespace: llmHWPNS,
+				Annotations: hwptestutil.HWPAnnotations("gpu-profile")},
+		}
+		Expect(newLLMDefaulterV1alpha1(newLLMFakeClient(draProfile)).Default(llmAdmissionCtx(admissionv1.Create, nil, false), llm1)).To(Succeed())
+		old1 := llm1.DeepCopy()
+		llm1.Annotations[kserveconstants.ManagedDRADeviceClassAnnotationKey] = ""
+		Expect(newLLMDefaulterV1alpha1(newLLMFakeClient(plainProfile)).Default(llmAdmissionCtx(admissionv1.Update, old1, false), llm1)).To(
+			MatchError(ContainSubstring("cannot be combined")))
 	})
 
 	It("removes the owned pair after the old profile was deleted", func() {
 		old := buildLLMISVCHWP(hwptestutil.HWPAnnotationsWithNS("deleted-profile", llmHWPNS), nil)
-		old.Annotations[hardwareprofile.DRATemplateAnnotation] = "gpu-template"
 		old.Spec.Template = &corev1.PodSpec{
 			ResourceClaims: []corev1.PodResourceClaim{{Name: hardwareprofile.DRAClaimName}},
 			Containers: []corev1.Container{
@@ -108,7 +130,6 @@ var _ = Describe("LLMInferenceService HardwareProfile DRA", func() {
 		Expect(updated.Spec.Template.Containers[1].Resources.Claims).To(BeEmpty())
 		Expect(updated.Spec.Template.InitContainers[0].Resources.Claims).To(BeEmpty())
 		Expect(updated.Spec.Template.EphemeralContainers[0].Resources.Claims).To(BeEmpty())
-		Expect(updated.Annotations).NotTo(HaveKey(hardwareprofile.DRATemplateAnnotation))
 	})
 
 	It("rejects a missing main container and Managed DRA even with an empty annotation value", func() {
@@ -136,6 +157,15 @@ var _ = Describe("LLMInferenceService HardwareProfile DRA", func() {
 				Claims: []corev1.ResourceClaim{{Name: hardwareprofile.DRAClaimName}},
 			}}}}
 		Expect(d.Default(llmHWPCreateCtx(init), init)).To(MatchError(ContainSubstring(`init container "init"`)))
+
+		initialAssignmentOld := buildLLMISVCHWP(nil, nil)
+		initialAssignmentOld.Spec.Template = &corev1.PodSpec{
+			ResourceClaims: []corev1.PodResourceClaim{{Name: hardwareprofile.DRAClaimName}},
+			Containers:     []corev1.Container{{Name: "main"}},
+		}
+		initialAssignment := buildLLMISVCHWP(hwptestutil.HWPAnnotations("gpu-profile"), nil)
+		initialAssignment.Spec.Template = initialAssignmentOld.Spec.Template.DeepCopy()
+		Expect(d.Default(llmHWPUpdateCtx(initialAssignment, initialAssignmentOld), initialAssignment)).To(MatchError(ContainSubstring("already used")))
 	})
 
 	It("validates the workload RCT for both versions and skips rechecking an unchanged reference", func() {
@@ -160,7 +190,12 @@ var _ = Describe("LLMInferenceService HardwareProfile DRA", func() {
 		_, err = (&llmISVCValidatorV1alpha1{validator}).ValidateCreate(context.Background(), llm1)
 		Expect(err).NotTo(HaveOccurred())
 
-		llm2.Annotations[hardwareprofile.DRATemplateAnnotation] = "gpu-template"
+		llm2.Spec.Template = &corev1.PodSpec{
+			ResourceClaims: []corev1.PodResourceClaim{{Name: hardwareprofile.DRAClaimName}},
+			Containers: []corev1.Container{{Name: "main", Resources: corev1.ResourceRequirements{
+				Claims: []corev1.ResourceClaim{{Name: hardwareprofile.DRAClaimName}},
+			}}},
+		}
 		_, err = (&llmISVCValidatorV1alpha2{&LLMInferenceServiceCustomValidator{apiReader: missing}}).
 			ValidateUpdate(context.Background(), llm2.DeepCopy(), llm2)
 		Expect(err).NotTo(HaveOccurred())

@@ -18,12 +18,14 @@ package hardwareprofile
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"strconv"
 
 	admissionv1 "k8s.io/api/admission/v1"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
@@ -92,45 +94,70 @@ func ProfileRef(annotations map[string]string, defaultNamespace string) (name, n
 	return
 }
 
+// ProfileReferenceChanged reports whether the effective HardwareProfile reference changed.
+// A missing old reference is considered a change only when initialAssignmentChanged is true.
+// This lets DRA treat its first binding as a new claim while scheduling keeps its existing
+// merge-on-initial-assignment behavior.
+func ProfileReferenceChanged(oldMeta *metav1.ObjectMeta, newMeta metav1.Object, initialAssignmentChanged bool) bool {
+	if newMeta == nil {
+		return false
+	}
+	newName, newNamespace := ProfileRef(newMeta.GetAnnotations(), newMeta.GetNamespace())
+	if oldMeta == nil {
+		return initialAssignmentChanged && newName != ""
+	}
+
+	oldName, oldNamespace := ProfileRef(oldMeta.GetAnnotations(), oldMeta.GetNamespace())
+	if oldName == "" {
+		return initialAssignmentChanged && newName != ""
+	}
+	if newName == "" {
+		return true
+	}
+
+	return oldName != newName || oldNamespace != newNamespace
+}
+
+// ProfileReferenceChangedFromRequest compares the effective HardwareProfile reference in an
+// admission request. It reads only the previous object's metadata, so callers can use the old
+// reference for transition decisions without depending on mutable workload claim state.
+func ProfileReferenceChangedFromRequest(req admission.Request, newMeta metav1.Object, initialAssignmentChanged bool) (oldName string, changed bool, err error) {
+	if req.Operation == admissionv1.Create || req.OldObject.Raw == nil {
+		return "", ProfileReferenceChanged(nil, newMeta, initialAssignmentChanged), nil
+	}
+
+	var old struct {
+		Metadata metav1.ObjectMeta `json:"metadata"`
+	}
+	if err := json.Unmarshal(req.OldObject.Raw, &old); err != nil {
+		return "", false, fmt.Errorf("failed reading previous HardwareProfile reference: %w", err)
+	}
+	oldMeta := &metav1.ObjectMeta{
+		Annotations: old.Metadata.Annotations,
+		Namespace:   old.Metadata.Namespace,
+	}
+	oldName, _ = ProfileRef(oldMeta.Annotations, oldMeta.Namespace)
+	return oldName, ProfileReferenceChanged(oldMeta, newMeta, initialAssignmentChanged), nil
+}
+
 // ProfileChanged reports whether the HardwareProfile reference changed between the old and new
 // object in an UPDATE admission request.
 //
-// Returns false on CREATE (no old object). Returns false when the old object had no HWP annotation
-// (initial assignment is treated as a merge, not a profile switch). Returns true when either the
-// profile name or namespace differs between old and new.
-//
-// Parameters:
-//   - req: the admission request containing the old object for UPDATE operations
-//   - newProfileName: the profile name from the new object's annotations
-//   - newProfileNamespace: the resolved profile namespace from the new object's annotations
-//
-// Returns true when the profile switched (triggers a full clear before re-injection).
+// Returns false on CREATE (no old object). Initial assignment is treated as a merge, not a profile
+// switch, so existing scheduling fields are preserved when a profile is first added.
 func ProfileChanged(req admission.Request, newProfileName, newProfileNamespace string) bool {
-	if req.Operation == admissionv1.Create {
-		return false
+	newMeta := &metav1.ObjectMeta{
+		Annotations: map[string]string{
+			HardwareProfileAnnotationName:      newProfileName,
+			HardwareProfileAnnotationNamespace: newProfileNamespace,
+		},
+		Namespace: req.Namespace,
 	}
-	if req.OldObject.Raw == nil {
+	_, changed, err := ProfileReferenceChangedFromRequest(req, newMeta, false)
+	if err != nil {
 		return true
 	}
-
-	oldObj := &unstructured.Unstructured{}
-	if err := oldObj.UnmarshalJSON(req.OldObject.Raw); err != nil {
-		return true
-	}
-
-	oldAnnotations := oldObj.GetAnnotations()
-	oldProfileName := oldAnnotations[HardwareProfileAnnotationName]
-	if oldProfileName == "" {
-		// Initial HWP assignment — treat as a merge, not a profile switch.
-		return false
-	}
-
-	oldProfileNamespace := oldAnnotations[HardwareProfileAnnotationNamespace]
-	if oldProfileNamespace == "" {
-		oldProfileNamespace = oldObj.GetNamespace()
-	}
-
-	return oldProfileName != newProfileName || oldProfileNamespace != newProfileNamespace
+	return changed
 }
 
 // Resolve fetches a HardwareProfile CR and returns its parsed scheduling, resource, and DRA stanzas.
