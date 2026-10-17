@@ -56,7 +56,7 @@ var _ = Describe("EnvoyFilterTemplateLoader", func() {
 		})
 
 		It("should render EnvoyFilter with correct name and namespace", func(ctx SpecContext) {
-			envoyFilter, err := loader.Load(ctx, "openshift-ingress", "openshift-ai-inference")
+			envoyFilter, err := loader.Load(ctx, "openshift-ingress", "openshift-ai-inference", constants.DefaultRequestBodyBufferLimitBytes)
 
 			Expect(err).ToNot(HaveOccurred())
 			Expect(envoyFilter).ToNot(BeNil())
@@ -65,7 +65,7 @@ var _ = Describe("EnvoyFilterTemplateLoader", func() {
 		})
 
 		It("should have correct targetRefs in rendered template", func(ctx SpecContext) {
-			envoyFilter, err := loader.Load(ctx, "openshift-ingress", "openshift-ai-inference")
+			envoyFilter, err := loader.Load(ctx, "openshift-ingress", "openshift-ai-inference", constants.DefaultRequestBodyBufferLimitBytes)
 
 			Expect(err).ToNot(HaveOccurred())
 			Expect(envoyFilter).ToNot(BeNil())
@@ -75,7 +75,7 @@ var _ = Describe("EnvoyFilterTemplateLoader", func() {
 		})
 
 		It("should have configPatches in rendered template", func(ctx SpecContext) {
-			envoyFilter, err := loader.Load(ctx, "openshift-ingress", "openshift-ai-inference")
+			envoyFilter, err := loader.Load(ctx, "openshift-ingress", "openshift-ai-inference", constants.DefaultRequestBodyBufferLimitBytes)
 
 			Expect(err).ToNot(HaveOccurred())
 			Expect(envoyFilter).ToNot(BeNil())
@@ -83,11 +83,73 @@ var _ = Describe("EnvoyFilterTemplateLoader", func() {
 		})
 
 		It("should have managed-by label", func(ctx SpecContext) {
-			envoyFilter, err := loader.Load(ctx, "openshift-ingress", "openshift-ai-inference")
+			envoyFilter, err := loader.Load(ctx, "openshift-ingress", "openshift-ai-inference", constants.DefaultRequestBodyBufferLimitBytes)
 
 			Expect(err).ToNot(HaveOccurred())
 			Expect(envoyFilter).ToNot(BeNil())
 			Expect(envoyFilter.GetLabels()).To(HaveKeyWithValue("app.kubernetes.io/managed-by", "odh-model-controller"))
+		})
+
+		It("should insert json_to_metadata and lua before the Kuadrant auth WASM plugin", func(ctx SpecContext) {
+			envoyFilter, err := loader.Load(ctx, "openshift-ingress", "openshift-ai-inference", constants.DefaultRequestBodyBufferLimitBytes)
+			Expect(err).ToNot(HaveOccurred())
+
+			// The model-routing header must be derived (and made authoritative) before
+			// the auth filter runs, so both the body extractor and the Lua injector are
+			// inserted BEFORE the Kuadrant WASM plugin. Istio names that HTTP filter
+			// "extensions.istio.io/wasmplugin/<gateway-namespace>.kuadrant-<gateway-name>";
+			// targeting the router (or the short name) silently no-ops the injection.
+			const wasmFilter = "extensions.istio.io/wasmplugin/openshift-ingress.kuadrant-openshift-ai-inference"
+
+			targets := map[string]string{}
+			var luaSource string
+			for _, p := range envoyFilter.Spec.ConfigPatches {
+				if p.GetApplyTo() != istiov1alpha3.EnvoyFilter_HTTP_FILTER {
+					continue
+				}
+				name := p.GetPatch().GetValue().GetFields()["name"].GetStringValue()
+				Expect(p.GetPatch().GetOperation()).To(Equal(istiov1alpha3.EnvoyFilter_Patch_INSERT_BEFORE),
+					"HTTP filter %q must be INSERT_BEFORE", name)
+				targets[name] = p.GetMatch().GetListener().GetFilterChain().GetFilter().GetSubFilter().GetName()
+				if name == "envoy.filters.http.lua" {
+					luaSource = p.GetPatch().GetValue().
+						GetFields()["typed_config"].GetStructValue().
+						GetFields()["default_source_code"].GetStructValue().
+						GetFields()["inline_string"].GetStringValue()
+				}
+			}
+
+			Expect(targets).To(HaveKeyWithValue("envoy.filters.http.json_to_metadata", wasmFilter))
+			Expect(targets).To(HaveKeyWithValue("envoy.filters.http.lua", wasmFilter))
+
+			// The Lua must buffer the body (so json_to_metadata's data-phase output is
+			// available at the header phase) and replace (not add) the header so the
+			// body-derived value overwrites any client-supplied, spoofable value.
+			Expect(luaSource).To(ContainSubstring("request_handle:body()"))
+			Expect(luaSource).To(ContainSubstring(`headers():replace("X-Gateway-Model-Name"`))
+			Expect(luaSource).ToNot(ContainSubstring(`headers():add("X-Gateway-Model-Name"`))
+		})
+
+		It("should set per_connection_buffer_limit_bytes on the gateway listener", func(ctx SpecContext) {
+			// The request body is fully buffered (json_to_metadata + Lua body()) to
+			// derive the model-routing header, so the listener buffer limit is raised
+			// to accommodate large multimodal / long-prompt request bodies. The value
+			// is operator-tunable; here we assert a custom value round-trips.
+			const custom int64 = 12345678
+			envoyFilter, err := loader.Load(ctx, "openshift-ingress", "openshift-ai-inference", custom)
+			Expect(err).ToNot(HaveOccurred())
+
+			var found bool
+			for _, p := range envoyFilter.Spec.ConfigPatches {
+				if p.GetApplyTo() != istiov1alpha3.EnvoyFilter_LISTENER {
+					continue
+				}
+				Expect(p.GetPatch().GetOperation()).To(Equal(istiov1alpha3.EnvoyFilter_Patch_MERGE))
+				limit := p.GetPatch().GetValue().GetFields()["per_connection_buffer_limit_bytes"].GetNumberValue()
+				Expect(int64(limit)).To(Equal(custom))
+				found = true
+			}
+			Expect(found).To(BeTrue(), "expected a LISTENER patch setting per_connection_buffer_limit_bytes")
 		})
 	})
 
@@ -97,7 +159,7 @@ var _ = Describe("EnvoyFilterTemplateLoader", func() {
 			fakeClient := fake.NewClientBuilder().WithScheme(scheme).Build()
 			loader := resources.NewKServeEnvoyFilterTemplateLoader(fakeClient)
 
-			envoyFilter, err := loader.Load(ctx, "openshift-ingress", "openshift-ai-inference")
+			envoyFilter, err := loader.Load(ctx, "openshift-ingress", "openshift-ai-inference", constants.DefaultRequestBodyBufferLimitBytes)
 
 			Expect(err).ToNot(HaveOccurred())
 			// The EnvoyFilter should be rendered with default kuadrant-system namespace
@@ -113,7 +175,7 @@ var _ = Describe("EnvoyFilterTemplateLoader", func() {
 			fakeClient := fake.NewClientBuilder().WithScheme(scheme).WithObjects(kuadrant).Build()
 			loader := resources.NewKServeEnvoyFilterTemplateLoader(fakeClient)
 
-			envoyFilter, err := loader.Load(ctx, "openshift-ingress", "openshift-ai-inference")
+			envoyFilter, err := loader.Load(ctx, "openshift-ingress", "openshift-ai-inference", constants.DefaultRequestBodyBufferLimitBytes)
 
 			Expect(err).ToNot(HaveOccurred())
 			Expect(envoyFilter).ToNot(BeNil())
@@ -131,7 +193,7 @@ var _ = Describe("EnvoyFilterTemplateLoader", func() {
 			fakeClient := fake.NewClientBuilder().WithScheme(scheme).WithObjects(kuadrant1, kuadrant2).Build()
 			loader := resources.NewKServeEnvoyFilterTemplateLoader(fakeClient)
 
-			envoyFilter, err := loader.Load(ctx, "openshift-ingress", "openshift-ai-inference")
+			envoyFilter, err := loader.Load(ctx, "openshift-ingress", "openshift-ai-inference", constants.DefaultRequestBodyBufferLimitBytes)
 
 			Expect(err).ToNot(HaveOccurred())
 			Expect(envoyFilter).ToNot(BeNil())
@@ -148,7 +210,7 @@ var _ = Describe("EnvoyFilterTemplateLoader", func() {
 			fakeClient := fake.NewClientBuilder().WithScheme(scheme).WithObjects(kuadrant).Build()
 			loader := resources.NewKServeEnvoyFilterTemplateLoader(fakeClient)
 
-			envoyFilter, err := loader.Load(ctx, "openshift-ingress", "openshift-ai-inference")
+			envoyFilter, err := loader.Load(ctx, "openshift-ingress", "openshift-ai-inference", constants.DefaultRequestBodyBufferLimitBytes)
 
 			Expect(err).ToNot(HaveOccurred())
 			Expect(envoyFilter).ToNot(BeNil())
