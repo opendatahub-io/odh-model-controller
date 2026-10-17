@@ -22,6 +22,7 @@ import (
 	"os"
 	"strings"
 
+	rbacv1 "k8s.io/api/rbac/v1"
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/util/validation"
 	gatewayv1 "sigs.k8s.io/gateway-api/apis/v1"
@@ -29,14 +30,36 @@ import (
 )
 
 const (
-	GridServingAnnotation    = "grid.opendatahub.io/serving"
-	GridGatewayNamespacesEnv = "GRID_GATEWAY_NAMESPACES"
-	GridAllowedLabel         = "grid.opendatahub.io/allowed"
-	gridFinalizer            = "grid.praxis.fast/inference-provider"
-	gridSourceUID            = "grid.praxis.fast/source-uid"
-	gridSourceName           = "grid.praxis.fast/source-name"
-	gridSourceNamespace      = "grid.praxis.fast/source-namespace"
+	GridServingAnnotation         = "grid.opendatahub.io/serving"
+	GridGatewayNamespacesEnv      = "GRID_GATEWAY_NAMESPACES"
+	GridOperatorNamespaceEnv      = "GRID_OPERATOR_NAMESPACE"
+	GridOperatorServiceAccountEnv = "GRID_OPERATOR_SERVICE_ACCOUNT"
+	GridAllowedLabel              = "grid.opendatahub.io/allowed"
+	gridFinalizer                 = "grid.praxis.fast/inference-provider"
+	gridSourceUID                 = "grid.praxis.fast/source-uid"
+	gridSourceName                = "grid.praxis.fast/source-name"
+	gridSourceNamespace           = "grid.praxis.fast/source-namespace"
 )
+
+// gridOperatorIdentity is installation configuration, independent of the
+// model-client identity supplied by a trusted Gateway administrator.
+func gridOperatorIdentity() (rbacv1.Subject, error) {
+	namespace, configured := os.LookupEnv(GridOperatorNamespaceEnv)
+	if !configured {
+		namespace = os.Getenv("POD_NAMESPACE")
+	}
+	name, configured := os.LookupEnv(GridOperatorServiceAccountEnv)
+	if !configured {
+		name = "grid-operator"
+	}
+	if errs := validation.IsDNS1123Label(namespace); len(errs) > 0 {
+		return rbacv1.Subject{}, fmt.Errorf("invalid %s (defaults to POD_NAMESPACE): %v", GridOperatorNamespaceEnv, errs)
+	}
+	if errs := validation.IsDNS1123Subdomain(name); len(errs) > 0 {
+		return rbacv1.Subject{}, fmt.Errorf("invalid %s: %v", GridOperatorServiceAccountEnv, errs)
+	}
+	return rbacv1.Subject{Kind: "ServiceAccount", Name: name, Namespace: namespace}, nil
+}
 
 // GridConfig is administrator-controlled through Gateway metadata.
 type GridConfig struct {

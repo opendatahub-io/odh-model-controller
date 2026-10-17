@@ -115,6 +115,48 @@ The configured service account should have no other model grants: generated
 bindings add permissions, and cannot revoke independently provisioned grants.
 The shared account and Secret remain administrator-owned.
 
+ODH Model Controller also creates a credential-reader Role and RoleBinding in
+the Secret's namespace before publishing each provider. This grants the Grid
+**operator** `get` on only that named Secret, separately from the **model-client**
+identity's permission to invoke the model. It grants no Secret listing, watching,
+or mutation permissions.
+
+The operator identity defaults to `grid-operator` in ODH Model Controller's
+`POD_NAMESPACE`, matching an installation where both operators share the platform
+namespace. For a different installation, set these environment variables on
+ODH Model Controller through its deployment configuration and restart it:
+
+| Variable | Default |
+| --- | --- |
+| `GRID_OPERATOR_NAMESPACE` | `POD_NAMESPACE` |
+| `GRID_OPERATOR_SERVICE_ACCOUNT` | `grid-operator` |
+
+An explicitly empty or invalid value prevents publication and revokes the
+controller's generated grants. These settings identify the credential reader;
+the Gateway annotation's `namespace` and `serviceAccount` still identify the
+model client. Upstream Grid requires no ODH-specific configuration or behavior.
+
+Each service–Gateway pair has its own credential-reader grant, even when several
+pairs use the same Secret. Removing one pair preserves the others' access. A
+Secret reference or operator identity change updates the grant and removes
+obsolete permissions. Opt-out and service deletion remove generated grants;
+the account and Secret remain administrator-owned. The source finalizer waits
+for cross-namespace grants to disappear, without invalid cross-namespace owner
+references. Unmanaged Role or RoleBinding collisions prevent publication.
+
+No separate administrator-created credential-reader RoleBinding is required.
+Gateway Secret mounts and backend CA trust remain gateway-owner tasks. Existing
+manually provisioned grants are not adopted or revoked; administrators can remove
+those after verifying automatic provisioning.
+
+An administrator with impersonation permission can check the resulting grant
+without reading token bytes. Substitute the installed operator identity:
+
+```sh
+oc auth can-i get secret/grid-model-client-token -n grid-system \
+  --as=system:serviceaccount:opendatahub:grid-operator
+```
+
 An administrator labels allowed namespaces:
 
 ```sh

@@ -17,12 +17,12 @@ limitations under the License.
 package llm_test
 
 import (
-	"strings"
 	"time"
 
 	kservev1alpha2 "github.com/kserve/kserve/pkg/apis/serving/v1alpha2"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
+	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/util/retry"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -54,8 +54,8 @@ var _ = Describe("Auth Posture Enforcement", func() {
 		for {
 			select {
 			case ev := <-eventRecorder.Events:
-				if strings.Contains(ev, reason) {
-					matched = append(matched, ev)
+				if ev.Namespace == testNs && ev.Reason == reason {
+					matched = append(matched, ev.Message)
 				}
 			default:
 				return matched
@@ -106,6 +106,10 @@ var _ = Describe("Auth Posture Enforcement", func() {
 		})
 
 		It("should not emit events for standalone services without a routing group", func(ctx SpecContext) {
+			other := fixture.LLMInferenceService("llama-v1",
+				fixture.InNamespace[*kservev1alpha2.LLMInferenceService](testNs+"-other"),
+			)
+			eventRecorder.Eventf(other, nil, corev1.EventTypeWarning, "AuthPostureMismatch", "Reconcile", "warning from another test namespace")
 			svc := fixture.LLMInferenceService("standalone",
 				fixture.InNamespace[*kservev1alpha2.LLMInferenceService](testNs),
 				fixture.WithEnableAuth(false),

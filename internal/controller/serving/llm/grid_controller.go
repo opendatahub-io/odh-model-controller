@@ -55,7 +55,7 @@ import (
 var gridProviderGVK = schema.GroupVersionKind{Group: "grid.praxis.fast", Version: "v1alpha1", Kind: "InferenceProvider"}
 
 // GridInferenceProviderReconciler publishes cluster-scoped Grid providers.
-// A finalizer is necessary because a namespaced service cannot own them.
+// A finalizer handles providers and credential grants outside the source namespace.
 type GridInferenceProviderReconciler struct {
 	client.Client
 	APIReader client.Reader
@@ -85,7 +85,8 @@ func gridResourceName(svc *kservev1alpha2.LLMInferenceService, gateway *gatewayv
 func (r *GridInferenceProviderReconciler) SetupWithManager(mgr ctrl.Manager, logger logr.Logger) error {
 	// Even when publishing is disabled, run cleanup for existing finalizers.
 	b := ctrl.NewControllerManagedBy(mgr).For(&kservev1alpha2.LLMInferenceService{}).
-		Owns(&rbacv1.Role{}).Owns(&rbacv1.RoleBinding{}).
+		Watches(&rbacv1.Role{}, handler.EnqueueRequestsFromMapFunc(gridSourceRequests)).
+		Watches(&rbacv1.RoleBinding{}, handler.EnqueueRequestsFromMapFunc(gridSourceRequests)).
 		Watches(&corev1.Namespace{}, r.namespaceResync(logger)).
 		Watches(&corev1.ServiceAccount{}, r.resync(logger)).
 		Watches(&kservev1alpha2.LLMInferenceServiceConfig{}, r.resync(logger)).
@@ -95,13 +96,7 @@ func (r *GridInferenceProviderReconciler) SetupWithManager(mgr ctrl.Manager, log
 		return err
 	}
 	if ok {
-		b = b.Watches(gridProvider(), handler.EnqueueRequestsFromMapFunc(func(_ context.Context, obj client.Object) []reconcile.Request {
-			annotations := obj.GetAnnotations()
-			if annotations[gridSourceName] == "" || annotations[gridSourceNamespace] == "" {
-				return nil
-			}
-			return []reconcile.Request{{NamespacedName: client.ObjectKey{Name: annotations[gridSourceName], Namespace: annotations[gridSourceNamespace]}}}
-		}))
+		b = b.Watches(gridProvider(), handler.EnqueueRequestsFromMapFunc(gridSourceRequests))
 	}
 	gatewayAvailable, err := utils.IsCrdAvailable(mgr.GetConfig(), gatewayv1.GroupVersion.String(), "Gateway")
 	if err != nil {
@@ -111,6 +106,16 @@ func (r *GridInferenceProviderReconciler) SetupWithManager(mgr ctrl.Manager, log
 		b = b.Watches(&gatewayv1.Gateway{}, r.resync(logger))
 	}
 	return b.Complete(r)
+}
+
+// Credential grants may live outside the source namespace and cannot use a
+// source owner reference, so their watches follow the same provenance as providers.
+func gridSourceRequests(_ context.Context, obj client.Object) []reconcile.Request {
+	annotations := obj.GetAnnotations()
+	if annotations[gridSourceName] == "" || annotations[gridSourceNamespace] == "" {
+		return nil
+	}
+	return []reconcile.Request{{NamespacedName: client.ObjectKey{Name: annotations[gridSourceName], Namespace: annotations[gridSourceNamespace]}}}
 }
 
 func (r *GridInferenceProviderReconciler) resync(logger logr.Logger) handler.EventHandler {
@@ -142,6 +147,7 @@ type gridPublication struct {
 	gateway    *gatewayv1.Gateway
 	config     *GridConfig
 	attachment gridAttachment
+	operator   rbacv1.Subject
 }
 
 func (r *GridInferenceProviderReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
@@ -156,9 +162,12 @@ func (r *GridInferenceProviderReconciler) Reconcile(ctx context.Context, req ctr
 	publications := plan.publications
 	reconcileErrors := plan.errors
 	publishSvc := plan.service
-	keep := map[string]bool{}
+	keep := map[client.ObjectKey]bool{}
 	for _, publication := range publications {
-		keep[gridResourceName(svc, publication.gateway)] = true
+		name := gridResourceName(svc, publication.gateway)
+		keep[client.ObjectKey{Name: name}] = true
+		keep[client.ObjectKey{Name: name, Namespace: svc.Namespace}] = true
+		keep[gridCredentialKey(svc, publication)] = true
 	}
 	if len(publications) > 0 && !controllerutil.ContainsFinalizer(svc, gridFinalizer) {
 		if err := r.setFinalizer(ctx, svc, true); err != nil {
@@ -272,12 +281,18 @@ func (r *GridInferenceProviderReconciler) desiredPublications(ctx context.Contex
 				if cfg == nil {
 					continue
 				}
+				operator, err := gridOperatorIdentity()
+				if err != nil {
+					r.providerWarning(svc, gateway, err)
+					plan.errors = append(plan.errors, err)
+					continue
+				}
 				if err := r.checkIdentity(ctx, cfg); err != nil {
 					r.providerWarning(svc, gateway, err)
 					plan.credentialErrors = append(plan.credentialErrors, fmt.Errorf("Gateway %s: %w", attachment.Gateway, err))
 					continue
 				}
-				plan.publications = append(plan.publications, gridPublication{gateway: gateway, config: cfg, attachment: attachment})
+				plan.publications = append(plan.publications, gridPublication{gateway: gateway, config: cfg, attachment: attachment, operator: operator})
 			}
 		}
 	}
@@ -358,7 +373,7 @@ func (r *GridInferenceProviderReconciler) reconcileAccess(ctx context.Context, s
 			return err
 		}
 	}
-	return nil
+	return r.reconcileCredentialAccess(ctx, svc, publication)
 }
 
 func (r *GridInferenceProviderReconciler) reconcileProvider(ctx context.Context, svc *kservev1alpha2.LLMInferenceService, publication gridPublication) error {
@@ -421,23 +436,25 @@ func (r *GridInferenceProviderReconciler) reconcileProvider(ctx context.Context,
 
 // cleanupExcept discovers resources by source ownership, so detached/deleted
 // Gateways and resources from the old one-provider-per-service scheme are removed.
-func (r *GridInferenceProviderReconciler) cleanupExcept(ctx context.Context, svc *kservev1alpha2.LLMInferenceService, keep map[string]bool) (bool, error) {
+func (r *GridInferenceProviderReconciler) cleanupExcept(ctx context.Context, svc *kservev1alpha2.LLMInferenceService, keep map[client.ObjectKey]bool) (bool, error) {
 	var objects []client.Object
 	roles := &rbacv1.RoleList{}
 	bindings := &rbacv1.RoleBindingList{}
-	if err := r.APIReader.List(ctx, roles, client.InNamespace(svc.Namespace)); err != nil {
+	// Credential grants can outlive a change to the configured Secret namespace.
+	// Discover by source provenance across namespaces, as for cluster providers.
+	if err := r.APIReader.List(ctx, roles); err != nil {
 		return false, err
 	}
-	if err := r.APIReader.List(ctx, bindings, client.InNamespace(svc.Namespace)); err != nil {
+	if err := r.APIReader.List(ctx, bindings); err != nil {
 		return false, err
 	}
 	for i := range bindings.Items {
-		if gridOwned(&bindings.Items[i], svc) && !keep[bindings.Items[i].Name] {
+		if gridOwned(&bindings.Items[i], svc) && !keep[client.ObjectKeyFromObject(&bindings.Items[i])] {
 			objects = append(objects, &bindings.Items[i])
 		}
 	}
 	for i := range roles.Items {
-		if gridOwned(&roles.Items[i], svc) && !keep[roles.Items[i].Name] {
+		if gridOwned(&roles.Items[i], svc) && !keep[client.ObjectKeyFromObject(&roles.Items[i])] {
 			objects = append(objects, &roles.Items[i])
 		}
 	}
@@ -449,7 +466,7 @@ func (r *GridInferenceProviderReconciler) cleanupExcept(ctx context.Context, svc
 		}
 	} else {
 		for i := range providers.Items {
-			if gridOwned(&providers.Items[i], svc) && !keep[providers.Items[i].GetName()] {
+			if gridOwned(&providers.Items[i], svc) && !keep[client.ObjectKeyFromObject(&providers.Items[i])] {
 				objects = append(objects, &providers.Items[i])
 			}
 		}

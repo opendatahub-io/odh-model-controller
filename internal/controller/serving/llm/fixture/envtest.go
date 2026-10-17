@@ -23,7 +23,6 @@ import (
 	"github.com/onsi/ginkgo/v2"
 	"github.com/onsi/gomega"
 	"k8s.io/client-go/rest"
-	"k8s.io/client-go/tools/events"
 
 	llmcontroller "github.com/opendatahub-io/odh-model-controller/internal/controller/serving/llm"
 	pkgtest "github.com/opendatahub-io/odh-model-controller/internal/controller/testing"
@@ -32,7 +31,7 @@ import (
 	ctrl "sigs.k8s.io/controller-runtime"
 )
 
-func SetupTestEnv() (*pkgtest.Client, *events.FakeRecorder) {
+func SetupTestEnv() (*pkgtest.Client, *EventRecorder) {
 	duration, err := time.ParseDuration(utils.GetEnvOr("ENVTEST_DEFAULT_TIMEOUT", "30s"))
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	gomega.SetDefaultEventuallyTimeout(duration)
@@ -45,7 +44,7 @@ func SetupTestEnv() (*pkgtest.Client, *events.FakeRecorder) {
 	ctx, cancel := context.WithCancel(context.Background())
 	setupLog := ctrl.Log.WithName("setup")
 
-	fakeRecorder := events.NewFakeRecorder(100)
+	fakeRecorder := &EventRecorder{Events: make(chan RecordedEvent, 100)}
 
 	llmCtrlFunc := func(mgr ctrl.Manager, cfg *rest.Config) error {
 		return llmcontroller.NewLLMInferenceServiceReconciler(
