@@ -94,9 +94,10 @@ func (r *CertReloader) Get() *tls.Certificate {
 	return r.cert.Load()
 }
 
-// NewTLSConfig returns a FIPS-compliant *tls.Config that uses the given
-// GetCertificate callback for certificate selection. It restricts cipher
-// suites to ECDHE+AES-GCM and curves to NIST P-256/P-384.
+// NewTLSConfig returns a *tls.Config that uses the given GetCertificate
+// callback for certificate selection. It restricts cipher suites to
+// ECDHE+AES-GCM and permits the OpenShift-supported classical and hybrid
+// post-quantum key exchange groups.
 func NewTLSConfig(getCertificate func(*tls.ClientHelloInfo) (*tls.Certificate, error)) *tls.Config {
 	return &tls.Config{
 		MinVersion:     tls.VersionTLS12,
@@ -108,6 +109,10 @@ func NewTLSConfig(getCertificate func(*tls.ClientHelloInfo) (*tls.Certificate, e
 			tls.TLS_ECDHE_ECDSA_WITH_AES_256_GCM_SHA384,
 		},
 		CurvePreferences: []tls.CurveID{
+			// Enable the OpenShift TLS profile's TLS 1.3 post-quantum group for
+			// non-FIPS runtimes. OpenSSL/FIPS runtimes filter hybrid ML-KEM
+			// groups because they are not currently FIPS-supported.
+			tls.X25519MLKEM768,
 			tls.CurveP256,
 			tls.CurveP384,
 		},
