@@ -2,20 +2,18 @@ package utils
 
 import "k8s.io/apimachinery/pkg/runtime/schema"
 
-// GVK is a struct that holds the GroupVersionKind for resources we don't have direct dependency on (by means of golang API)
-// but we still want to interact with them e.g. through unstructured objects.
-var GVK = struct {
+// GroupKind identifies resources for which we do not have Go API types. Their
+// served versions are resolved from the client's RESTMapper before use.
+var GroupKind = struct {
 	DataScienceClusterInitialization,
-	DataScienceCluster schema.GroupVersionKind
+	DataScienceCluster schema.GroupKind
 }{
-	DataScienceCluster: schema.GroupVersionKind{
-		Group:   "datasciencecluster.opendatahub.io",
-		Version: "v1",
-		Kind:    "DataScienceCluster",
+	DataScienceCluster: schema.GroupKind{
+		Group: "datasciencecluster.opendatahub.io",
+		Kind:  "DataScienceCluster",
 	},
-	DataScienceClusterInitialization: schema.GroupVersionKind{
-		Group:   "dscinitialization.opendatahub.io",
-		Version: "v1",
-		Kind:    "DSCInitialization",
+	DataScienceClusterInitialization: schema.GroupKind{
+		Group: "dscinitialization.opendatahub.io",
+		Kind:  "DSCInitialization",
 	},
 }
