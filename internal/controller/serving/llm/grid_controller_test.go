@@ -428,6 +428,115 @@ var _ = Describe("Grid provider reconciliation", Ordered, func() {
 		Expect(provider.Object["spec"]).To(HaveKeyWithValue("routingClusterRef", "model-upstream"))
 	})
 
+	It("publishes the reported EPP metrics endpoint only while it owns metricsConfig", func(ctx SpecContext) {
+		Expect(envTest.Get(ctx, client.ObjectKeyFromObject(svc), svc)).To(Succeed())
+		epp := &corev1.Service{ObjectMeta: metav1.ObjectMeta{Name: "grid-model-epp-service", Namespace: ns.Name,
+			OwnerReferences: []metav1.OwnerReference{*metav1.NewControllerRef(svc, kservev1alpha2.LLMInferenceServiceGVK)}},
+			Spec: corev1.ServiceSpec{Selector: map[string]string{"app": "epp"}, Ports: []corev1.ServicePort{
+				{Name: "grpc", Port: 9002}, {Name: "metrics", Port: 9090},
+			}}}
+		Expect(envTest.Create(ctx, epp)).To(Succeed())
+		// A Service of the right name that this service does not control is not a safe target.
+		foreign := &corev1.Service{ObjectMeta: metav1.ObjectMeta{Name: "grid-model-foreign-epp", Namespace: ns.Name},
+			Spec: corev1.ServiceSpec{Ports: []corev1.ServicePort{{Name: "metrics", Port: 9090}}}}
+		Expect(envTest.Create(ctx, foreign)).To(Succeed())
+		DeferCleanup(func(ctx SpecContext) { Expect(client.IgnoreNotFound(envTest.Delete(ctx, foreign))).To(Succeed()) })
+		DeferCleanup(func(ctx SpecContext) { Expect(client.IgnoreNotFound(envTest.Delete(ctx, epp))).To(Succeed()) })
+		Eventually(func() error {
+			if err := envTest.Get(ctx, client.ObjectKeyFromObject(svc), svc); err != nil {
+				return err
+			}
+			svc.Status.Router.Scheduler = &kservev1alpha2.ObservedSchedulerStatus{Service: &gatewayv1.ObjectReference{Kind: "Service", Name: gatewayv1.ObjectName(epp.Name)}}
+			return envTest.Status().Update(ctx, svc)
+		}).Should(Succeed())
+		metricsConfig := func() map[string]interface{} {
+			p := providers(ctx)
+			if len(p) != 1 {
+				return nil
+			}
+			config, _, err := unstructured.NestedMap(p[0].Object, "spec", "metricsConfig")
+			Expect(err).NotTo(HaveOccurred())
+			return config
+		}
+		recheck := func(value string) {
+			updateService(ctx, func(s *kservev1alpha2.LLMInferenceService) { s.Annotations["test.example.com/recheck"] = value })
+		}
+		setPlaintext := func(allow bool) {
+			Expect(envTest.Get(ctx, client.ObjectKeyFromObject(gateway), gateway)).To(Succeed())
+			gateway.Annotations[llmcontroller.GridServingAnnotation] = fmt.Sprintf(`{"networkName":"grid-test","namespace":"grid-test-identity","serviceAccount":"grid-client","tokenSecret":"grid-token","publishMetrics":%t}`, allow)
+			Expect(envTest.Update(ctx, gateway)).To(Succeed())
+		}
+		optIn(ctx)
+		waitProvider(ctx)
+		Consistently(metricsConfig, "500ms").Should(BeNil())
+
+		setPlaintext(true)
+		generated := "http://" + network.GetServiceHostname(epp.Name, ns.Name) + ":9090"
+		Eventually(metricsConfig).Should(And(HaveKeyWithValue("endpoint", generated), HaveKeyWithValue("path", "/metrics"), HaveKeyWithValue("timeout", "2s"),
+			HaveKeyWithValue("auth", map[string]interface{}{"type": "serviceAccountToken", "allowPlaintext": true})))
+
+		// KServe withdrawing the EPP Service withdraws the generated config.
+		Expect(envTest.Delete(ctx, epp)).To(Succeed())
+		recheck("epp-deleted")
+		Eventually(metricsConfig).Should(BeNil())
+		epp.ResourceVersion = ""
+		Expect(envTest.Create(ctx, epp)).To(Succeed())
+		recheck("epp-recreated")
+		Eventually(metricsConfig).Should(HaveKeyWithValue("endpoint", generated))
+
+		// A Service this service does not control is refused, so the scrape token is not sent to it.
+		point := func(name string) {
+			Eventually(func() error {
+				if err := envTest.Get(ctx, client.ObjectKeyFromObject(svc), svc); err != nil {
+					return err
+				}
+				svc.Status.Router.Scheduler = &kservev1alpha2.ObservedSchedulerStatus{
+					Service: &gatewayv1.ObjectReference{Kind: "Service", Name: gatewayv1.ObjectName(name)}}
+				return envTest.Status().Update(ctx, svc)
+			}).Should(Succeed())
+		}
+		point(foreign.Name)
+		Eventually(metricsConfig).Should(BeNil())
+		point(epp.Name)
+		Eventually(metricsConfig).Should(HaveKeyWithValue("endpoint", generated))
+
+		// Declaring the port https republishes as TLS against the service CA, with no plaintext.
+		Expect(envTest.Get(ctx, client.ObjectKeyFromObject(epp), epp)).To(Succeed())
+		for i := range epp.Spec.Ports {
+			if epp.Spec.Ports[i].Name == "metrics" {
+				epp.Spec.Ports[i].AppProtocol = ptr.To("https")
+			}
+		}
+		Expect(envTest.Update(ctx, epp)).To(Succeed())
+		recheck("epp-tls")
+		secure := "https://" + network.GetServiceHostname(epp.Name, ns.Name) + ":9090"
+		Eventually(metricsConfig).Should(And(
+			HaveKeyWithValue("endpoint", secure),
+			HaveKeyWithValue("auth", map[string]interface{}{"type": "serviceAccountToken"}),
+			HaveKeyWithValue("tls", map[string]interface{}{"caConfigMapRef": map[string]interface{}{
+				"name": "openshift-service-ca.crt", "namespace": "grid-test-identity", "key": "service-ca.crt"}})))
+		Expect(metricsConfig()).NotTo(HaveKey("allowPlaintext"))
+		// Undeclared is HTTP, which is what the EPP serves today.
+		Expect(envTest.Get(ctx, client.ObjectKeyFromObject(epp), epp)).To(Succeed())
+		for i := range epp.Spec.Ports {
+			if epp.Spec.Ports[i].Name == "metrics" {
+				epp.Spec.Ports[i].AppProtocol = nil
+			}
+		}
+		Expect(envTest.Update(ctx, epp)).To(Succeed())
+		recheck("epp-plaintext-again")
+		Eventually(metricsConfig).Should(HaveKeyWithValue("endpoint", generated))
+
+		// An administrator endpoint takes ownership and survives reconciliation and opt-out.
+		provider := waitProvider(ctx)
+		Expect(unstructured.SetNestedField(provider.Object, "https://metrics.example.com", "spec", "metricsConfig", "endpoint")).To(Succeed())
+		Expect(envTest.Update(ctx, provider)).To(Succeed())
+		recheck("admin-owned")
+		Eventually(func() map[string]string { return waitProvider(ctx).GetAnnotations() }).ShouldNot(HaveKey("grid.opendatahub.io/metrics-endpoint"))
+		setPlaintext(false)
+		Consistently(metricsConfig, "500ms").Should(HaveKeyWithValue("endpoint", "https://metrics.example.com"))
+	})
+
 	It("inherits model names from configs without persisting the merged spec", func(ctx SpecContext) {
 		cfg := &kservev1alpha2.LLMInferenceServiceConfig{ObjectMeta: metav1.ObjectMeta{Name: "grid-model-config", Namespace: ns.Name},
 			Spec: kservev1alpha2.LLMInferenceServiceSpec{Model: kservev1alpha2.LLMModelSpec{Name: ptr.To("inherited/model")}},
