@@ -38,6 +38,7 @@ on:
           - kserve
           - MLServer
           - odh-model-controller
+          - modelexpress
       tag_name: # The new release tag to be created and used as the search value.
         description: 'New release tag (e.g., odh-v2.35)'
         required: true
@@ -281,9 +282,9 @@ jobs:
             content = f.read()
 
           manifest_line_pattern = re.compile(
-            r'(\["(?:kserve|modelcontroller|wva)"\]="opendatahub-io:(?:kserve|odh-model-controller|workload-variant-autoscaler):)'
+            r'(\["(?:kserve|modelcontroller|wva|modelexpress)"\]="opendatahub-io:(?:kserve|odh-model-controller|workload-variant-autoscaler|modelexpress):)'
             r'([^:@"]+(?:@[a-f0-9]{7,40})?)'
-            r'(:config")'
+            r'(:[^:"]+")'
           )
 
           matches = manifest_line_pattern.findall(content)

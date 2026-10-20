@@ -1,6 +1,9 @@
 package informercache
 
-import corev1 "k8s.io/api/core/v1"
+import (
+	corev1 "k8s.io/api/core/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+)
 
 // StripConfigMapData removes data payloads from cached ConfigMaps to reduce
 // memory consumption. Watch events still trigger reconciliation; actual data
@@ -11,6 +14,9 @@ func StripConfigMapData(i interface{}) (interface{}, error) {
 		cm.BinaryData = nil
 		cm.Annotations = nil
 		cm.SetManagedFields(nil)
+	} else if metadata, ok := i.(*metav1.PartialObjectMetadata); ok {
+		metadata.Annotations = nil
+		metadata.SetManagedFields(nil)
 	}
 	return i, nil
 }

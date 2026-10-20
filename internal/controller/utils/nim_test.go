@@ -12,6 +12,82 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 )
 
+var _ = Describe("GetNimServingRuntimeTemplate", func() {
+	var testScheme *runtime.Scheme
+
+	BeforeEach(func() {
+		testScheme = runtime.NewScheme()
+		RegisterSchemes(testScheme)
+	})
+
+	It("should include NIM_SERVED_MODEL_NAME env var for non-air-gapped deployment", func() {
+		sr, err := GetNimServingRuntimeTemplate(testScheme, false)
+		Expect(err).ToNot(HaveOccurred())
+		Expect(sr).ToNot(BeNil())
+		Expect(sr.Spec.Containers).To(HaveLen(1))
+
+		envVars := sr.Spec.Containers[0].Env
+		Expect(envVars).To(ContainElement(MatchFields(IgnoreExtras, Fields{
+			"Name":  Equal("NIM_SERVED_MODEL_NAME"),
+			"Value": Equal("{{.Name}}"),
+		})))
+	})
+
+	It("should include NIM_SERVED_MODEL_NAME env var for air-gapped deployment", func() {
+		sr, err := GetNimServingRuntimeTemplate(testScheme, true)
+		Expect(err).ToNot(HaveOccurred())
+		Expect(sr).ToNot(BeNil())
+		Expect(sr.Spec.Containers).To(HaveLen(1))
+
+		envVars := sr.Spec.Containers[0].Env
+		Expect(envVars).To(ContainElement(MatchFields(IgnoreExtras, Fields{
+			"Name":  Equal("NIM_SERVED_MODEL_NAME"),
+			"Value": Equal("{{.Name}}"),
+		})))
+	})
+
+	It("should include NIM_CACHE_PATH env var for both deployment modes", func() {
+		for _, airGapped := range []bool{true, false} {
+			sr, err := GetNimServingRuntimeTemplate(testScheme, airGapped)
+			Expect(err).ToNot(HaveOccurred())
+			Expect(sr).ToNot(BeNil())
+
+			envVars := sr.Spec.Containers[0].Env
+			Expect(envVars).To(ContainElement(MatchFields(IgnoreExtras, Fields{
+				"Name":  Equal("NIM_CACHE_PATH"),
+				"Value": Equal("/mnt/models/cache"),
+			})))
+		}
+	})
+
+	It("should include NGC_API_KEY env var only for non-air-gapped deployment", func() {
+		// Non-air-gapped should have NGC_API_KEY
+		sr, err := GetNimServingRuntimeTemplate(testScheme, false)
+		Expect(err).ToNot(HaveOccurred())
+		Expect(sr).ToNot(BeNil())
+
+		envVars := sr.Spec.Containers[0].Env
+		Expect(envVars).To(ContainElement(MatchFields(IgnoreExtras, Fields{
+			"Name": Equal("NGC_API_KEY"),
+		})))
+
+		// Air-gapped should NOT have NGC_API_KEY
+		srAirGapped, errAirGapped := GetNimServingRuntimeTemplate(testScheme, true)
+		Expect(errAirGapped).ToNot(HaveOccurred())
+		Expect(srAirGapped).ToNot(BeNil())
+
+		envVarsAirGapped := srAirGapped.Spec.Containers[0].Env
+		hasNGCAPIKey := false
+		for _, env := range envVarsAirGapped {
+			if env.Name == "NGC_API_KEY" {
+				hasNGCAPIKey = true
+				break
+			}
+		}
+		Expect(hasNGCAPIKey).To(BeFalse())
+	})
+})
+
 var _ = Describe("NIMCleanupRunner", func() {
 
 	It("should not fail if no accounts exist", func(ctx SpecContext) {

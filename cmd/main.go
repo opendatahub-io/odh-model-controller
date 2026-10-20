@@ -48,6 +48,7 @@ import (
 
 	pkgtls "github.com/opendatahub-io/odh-model-controller/pkg/tls"
 
+	"github.com/opendatahub-io/odh-model-controller/internal/controller/constants"
 	corecontroller "github.com/opendatahub-io/odh-model-controller/internal/controller/core"
 	"github.com/opendatahub-io/odh-model-controller/internal/controller/nim"
 	servingcontroller "github.com/opendatahub-io/odh-model-controller/internal/controller/serving"
@@ -234,11 +235,12 @@ func createManager(cfg *rest.Config, metricsAddr, probeAddr string,
 		Cache: cache.Options{
 			DefaultTransform: cache.TransformStripManagedFields(),
 			ByObject: map[client.Object]cache.ByObject{
-				// Strip ConfigMap data from the informer cache to prevent OOM
-				// from cluster-wide caching while still delivering watch events
-				// for external ConfigMaps (CA bundles, etc.). Payload reads use
-				// direct API calls via DisableFor above.
+				// Cache only ODH-managed ConfigMaps. External ConfigMaps use
+				// narrow metadata-only sources in the controllers that consume them.
 				&corev1.ConfigMap{}: {
+					Label: labels.SelectorFromSet(labels.Set{
+						constants.ODHManaged: "true",
+					}),
 					Transform: informercache.StripConfigMapData,
 				},
 				&corev1.Secret{}: {
@@ -393,6 +395,12 @@ func setupServingRuntimeReconciler(mgr ctrl.Manager) error {
 }
 
 func setupLLMInferenceServiceReconciler(mgr ctrl.Manager) error {
+	if err := (&llmcontroller.GridInferenceProviderReconciler{
+		Client: mgr.GetClient(), APIReader: mgr.GetAPIReader(),
+		Recorder: mgr.GetEventRecorder("GridInferenceProvider"),
+	}).SetupWithManager(mgr, setupLog); err != nil {
+		return err
+	}
 	return llmcontroller.NewLLMInferenceServiceReconciler(
 		mgr.GetClient(),
 		mgr.GetScheme(),
@@ -401,11 +409,12 @@ func setupLLMInferenceServiceReconciler(mgr ctrl.Manager) error {
 }
 
 func setupGatewayReconciler(mgr ctrl.Manager) error {
-	return llmcontroller.NewGatewayReconciler(
+	reconciler := llmcontroller.NewGatewayReconciler(
 		mgr.GetClient(),
 		mgr.GetScheme(),
 		mgr.GetEventRecorder("GatewayAuthBootstrap"),
-	).SetupWithManager(mgr, setupLog)
+	)
+	return reconciler.SetupWithManager(mgr, setupLog)
 }
 
 func setupNimReconciler(mgr ctrl.Manager, cfg *rest.Config) error {

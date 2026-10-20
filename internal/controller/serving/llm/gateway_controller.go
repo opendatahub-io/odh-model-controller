@@ -55,6 +55,7 @@ import (
 	"github.com/opendatahub-io/odh-model-controller/internal/controller/processors"
 	"github.com/opendatahub-io/odh-model-controller/internal/controller/resources"
 	"github.com/opendatahub-io/odh-model-controller/internal/controller/utils"
+	"github.com/opendatahub-io/odh-model-controller/internal/informercache"
 )
 
 // GatewayReconciler reconciles Gateway resources to create EnvoyFilter and AuthPolicy
@@ -232,6 +233,17 @@ func (r *GatewayReconciler) reconcileAuthPolicy(ctx context.Context, logger logr
 		objectiveExpression = customExpr
 	}
 
+	gridOptions := []resources.ObjectOption{
+		resources.WithLabels(map[string]string{"app.kubernetes.io/name": "llminferenceservice-auth"}),
+		resources.WithAudiences(audiences), resources.WithObjectiveExpression(objectiveExpression),
+	}
+	gridConfig, gridConfigErr := GridConfigFromGateway(gateway)
+	if gridConfigErr != nil {
+		// Rebuild without the exception before reporting invalid configuration.
+		logger.Error(gridConfigErr, "Invalid Gateway Grid configuration")
+	} else if gridConfig != nil {
+		gridOptions = append(gridOptions, resources.WithGridFlowControlHeaders(gridConfig.Namespace, gridConfig.ServiceAccount))
+	}
 	desired, err := r.authPolicyLoader.Load(ctx, resources.AuthPolicyTarget{
 		Kind:               "Gateway",
 		Name:               gateway.Name,
@@ -239,9 +251,7 @@ func (r *GatewayReconciler) reconcileAuthPolicy(ctx context.Context, logger logr
 		AuthType:           constants.UserDefined,
 		ModelRoutingHeader: utils.GetModelRoutingHeader(ctx, r.Client),
 	},
-		resources.WithLabels(map[string]string{"app.kubernetes.io/name": "llminferenceservice-auth"}),
-		resources.WithAudiences(audiences),
-		resources.WithObjectiveExpression(objectiveExpression),
+		gridOptions...,
 	)
 	if err != nil {
 		return fmt.Errorf("failed to load AuthPolicy template: %w", err)
@@ -251,7 +261,7 @@ func (r *GatewayReconciler) reconcileAuthPolicy(ctx context.Context, logger logr
 
 	if !delta.HasChanges() {
 		logger.V(1).Info("No changes detected for AuthPolicy", "name", authPolicyName)
-		return nil
+		return gridConfigErr
 	}
 
 	if delta.IsAdded() {
@@ -273,7 +283,7 @@ func (r *GatewayReconciler) reconcileAuthPolicy(ctx context.Context, logger logr
 		}
 	}
 
-	return nil
+	return gridConfigErr
 }
 
 func (r *GatewayReconciler) deleteEnvoyFilterIfManaged(ctx context.Context, logger logr.Logger, gateway *gatewayapiv1.Gateway) error {
@@ -978,6 +988,9 @@ func (r *GatewayReconciler) SetupWithManager(mgr ctrl.Manager, setupLog logr.Log
 			if oldAnnManaged != newAnnManaged {
 				return true
 			}
+			if e.ObjectOld.GetAnnotations()[GridServingAnnotation] != e.ObjectNew.GetAnnotations()[GridServingAnnotation] {
+				return true
+			}
 			oldTLS := e.ObjectOld.GetAnnotations()[constants.AuthorinoTLSBootstrapAnnotation]
 			newTLS := e.ObjectNew.GetAnnotations()[constants.AuthorinoTLSBootstrapAnnotation]
 			if oldTLS != newTLS {
@@ -998,6 +1011,17 @@ func (r *GatewayReconciler) SetupWithManager(mgr ctrl.Manager, setupLog logr.Log
 	managedPredicate := predicate.NewPredicateFuncs(func(obj client.Object) bool {
 		return utils.IsManagedByOpenDataHub(obj)
 	})
+
+	podNamespace := os.Getenv("POD_NAMESPACE")
+	inferenceServiceConfigSource, err := informercache.NewConfigMapNameSource(
+		mgr.GetConfig(),
+		[]types.NamespacedName{{Name: constants.InferenceServiceConfigMapName, Namespace: podNamespace}},
+		r.enqueueGatewaysFromConfigMap(),
+		inferenceServiceConfigMapPredicate(),
+	)
+	if err != nil {
+		return err
+	}
 
 	builder := ctrl.NewControllerManagedBy(mgr).
 		For(&gatewayapiv1.Gateway{}, ctrlbuilder.WithPredicates(gatewayPredicate))
@@ -1059,29 +1083,23 @@ func (r *GatewayReconciler) SetupWithManager(mgr ctrl.Manager, setupLog logr.Log
 					return false
 				},
 			})).
-		Watches(&corev1.ConfigMap{},
-			r.enqueueGatewaysFromConfigMap(),
-			ctrlbuilder.WithPredicates(predicate.Funcs{
-				CreateFunc: func(_ event.CreateEvent) bool {
-					return false
-				},
-				UpdateFunc: func(e event.UpdateEvent) bool {
-					if e.ObjectNew.GetName() != constants.InferenceServiceConfigMapName {
-						return false
-					}
-					if podNS := os.Getenv("POD_NAMESPACE"); podNS != "" && e.ObjectNew.GetNamespace() != podNS {
-						return false
-					}
-					// ConfigMaps have no spec/status split so metadata.generation
-					// is never incremented. Return true to reconcile on any update
-					// to this ConfigMap; the name/namespace guards above are
-					// sufficient to keep the trigger narrow.
-					return true
-				},
-				DeleteFunc: func(_ event.DeleteEvent) bool {
-					return false
-				},
-			})).
+		WatchesRawSource(inferenceServiceConfigSource).
 		Named("gateway-auth-bootstrap").
 		Complete(r)
+}
+
+func inferenceServiceConfigMapPredicate() predicate.Predicate {
+	return predicate.Funcs{
+		CreateFunc: func(_ event.CreateEvent) bool {
+			return false
+		},
+		UpdateFunc: func(e event.UpdateEvent) bool {
+			// ConfigMaps have no spec/status split, so metadata.generation is
+			// never incremented. The source already filters by name and namespace.
+			return e.ObjectNew.GetName() == constants.InferenceServiceConfigMapName
+		},
+		DeleteFunc: func(_ event.DeleteEvent) bool {
+			return false
+		},
+	}
 }
