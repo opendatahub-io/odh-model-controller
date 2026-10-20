@@ -63,6 +63,10 @@ Disallowed Gateways cannot publish providers or enable the Grid identity excepti
 in managed AuthPolicies. The credential `namespace` in the annotation remains
 independent of this Gateway allowlist and retains its resource-name validation.
 
+`publishMetrics` is an optional boolean, `false` by default. When it is
+`true`, the controller also publishes the model's scheduler (EPP) metrics
+endpoint, as described below.
+
 `siteLabels` is an optional comma-separated string of `key=value` labels;
 omitting it matches every GridSite. The annotation must contain a JSON object
 with valid resource names and no unknown fields. Restrict Gateway configuration
@@ -282,7 +286,8 @@ oc get inferenceproviders.grid.praxis.fast grid-models-qwen-2-7b22b0d4cd55342d2c
 ```
 
 The controller manages discovery and auth fields while preserving optional Grid
-settings such as `trafficPolicy`, `metricsConfig`, `healthCheck`, and `cost`.
+settings such as `trafficPolicy`, `healthCheck`, and `cost`. It manages
+`metricsConfig` only as described under scheduler metrics below.
 It leaves `gatewayRef` unset on new providers; this optional Grid administrative
 identity is independent of the LLMInferenceService's attached Gateway. Existing
 administrator-configured `gatewayRef` and `routingClusterRef` values are preserved.
@@ -306,6 +311,87 @@ provider. Multiple models can share one KServe Gateway while retaining distinct
 provider identities and paths, using the shared Gateway's credentials. Grid must reconcile additions,
 removals, endpoint changes, and the new identity produced when a service or its Gateway is
 recreated with a different UID.
+
+Grid scores a provider from the metrics of the model's scheduler (EPP). The
+provider name changes whenever the service or Gateway is recreated, so a
+hand-written `metricsConfig` does not survive a reinstall. The controller can
+publish it instead.
+
+KServe reports the EPP Service in `status.router.scheduler.service`. When the
+Gateway configuration sets `publishMetrics: true`, the controller reads
+that Service in the service's namespace, takes its port named `metrics`, and sets:
+
+```yaml
+spec:
+  metricsConfig:
+    endpoint: http://qwen2-7b-epp-service.models.svc.cluster.local:9090
+    path: /metrics
+    timeout: 2s
+    auth:
+      type: serviceAccountToken
+      allowPlaintext: true
+```
+
+The scheme comes from the `metrics` port's `appProtocol`, so both transports are
+supported and the controller never has to read the scheduler's flags. A port that
+declares nothing is HTTP, which is what the EPP serves by default. A port that
+declares `appProtocol: https` is published as TLS instead, verified against the
+platform service CA and with no plaintext allowance:
+
+```yaml
+spec:
+  metricsConfig:
+    endpoint: https://qwen2-7b-epp-service.models.svc.cluster.local:9090
+    auth:
+      type: serviceAccountToken
+    tls:
+      caConfigMapRef:
+        name: openshift-service-ca.crt
+        namespace: <the Grid operator namespace>
+        key: service-ca.crt
+```
+
+The anchor is the service CA bundle in the Grid operator's own namespace, which
+the service CA operator maintains in every namespace and which the operator can
+read. This assumes the OpenShift signing path, where the certificate the EPP
+mounts is signed by that CA; elsewhere it is genuinely self-signed and that
+bundle would not validate it. On OpenShift the certificate the EPP already mounts is signed by that CA
+and already carries the EPP Service hostnames, so serving the metrics port over
+TLS needs the serving flag and the `appProtocol` declaration, and no new
+certificate.
+
+Publishing is opt-in per Gateway because the default transport is plain HTTP and
+requires a bearer token, so Grid sends its scrape token unencrypted inside the
+cluster. The platform's own ServiceMonitor scrapes the same port the same way.
+Without the setting, or without a reported EPP Service with a `metrics` port, the
+controller publishes no `metricsConfig`.
+
+The reported Service is accepted only when this service controls it. A reported
+name can be taken by another Service after a delete, and the scrape carries a
+credential, so an unowned Service of that name publishes nothing.
+
+The controller records the endpoint it wrote in the provider annotation
+`grid.opendatahub.io/metrics-endpoint`, and manages `metricsConfig` only while it
+is absent or its `endpoint` still matches that annotation. While it
+manages the field, it owns `endpoint`, and owns `auth` and `tls` because both
+follow the transport: a scheme change invalidates the plaintext allowance and the
+CA reference together. An `allowPlaintext: false` an administrator set is kept, so
+the scrape fails closed rather than being overridden. Other fields an
+administrator adds are preserved, such as `poolName`, `signalNames`, or a changed
+`timeout`. It updates the endpoint when the EPP Service or its port changes, and
+removes the field when the EPP Service is withdrawn or the setting is turned off.
+
+An administrator takes ownership by setting a different `endpoint`, or by
+setting `metricsConfig` on a provider that has no annotation, such as one created
+before this behavior existed. The controller then removes the annotation and
+leaves `metricsConfig` alone. To hand it back, delete `metricsConfig`.
+
+The controller does not create network access. KServe's per-service NetworkPolicy
+admits the platform monitoring namespaces and `openshift-ingress`, not the Grid
+operator, so the scrape is denied until the Grid operator's namespace is admitted
+to the Service's `metrics` port. Inference needs nothing: it reaches a model
+through the MaaS Gateway in `openshift-ingress`, which that policy already
+admits.
 
 Administrators supply backend CA and TLS server-identity declarations through
 Grid's transport/trust configuration; an HTTPS endpoint alone does not specify
@@ -332,7 +418,7 @@ or missing credential revokes generated access and removes the provider.
 
 The envtest Grid CRD fixture is copied unchanged from
 `praxis-grid/deploy/crds/inferenceprovider.yaml`, revision
-`3aa4d9899f1b0ce5a722ebeba28d122b914e3b6e`. It is used only for testing.
+`9ead9b27e7f8a1fdf3215d7f9d35d6ed9dfc5dd8`. It is used only for testing.
 
 Run the integration tests with:
 

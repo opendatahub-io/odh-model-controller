@@ -45,6 +45,8 @@ type GridConfig struct {
 	ServiceAccount string            `json:"serviceAccount"`
 	TokenSecret    string            `json:"tokenSecret"`
 	SiteLabels     map[string]string `json:"-"`
+	// PublishMetrics opts into EPP metrics, which the EPP serves only over HTTP.
+	PublishMetrics bool `json:"publishMetrics"`
 }
 
 // GridConfigFromGateway returns nil when the Gateway does not publish to Grid.
@@ -72,6 +74,7 @@ func GridConfigFromGateway(gateway *gatewayv1.Gateway) (*GridConfig, error) {
 		ServiceAccount string `json:"serviceAccount"`
 		TokenSecret    string `json:"tokenSecret"`
 		SiteLabels     string `json:"siteLabels"`
+		PublishMetrics bool   `json:"publishMetrics"`
 	}
 	strictErrors, err := sigsjson.UnmarshalStrict([]byte(gateway.Annotations[GridServingAnnotation]), &raw)
 	if err != nil {
@@ -80,7 +83,7 @@ func GridConfigFromGateway(gateway *gatewayv1.Gateway) (*GridConfig, error) {
 	if err := errors.Join(strictErrors...); err != nil {
 		return nil, fmt.Errorf("invalid %s: %w", GridServingAnnotation, err)
 	}
-	cfg := &GridConfig{NetworkName: raw.NetworkName, Namespace: raw.Namespace, ServiceAccount: raw.ServiceAccount, TokenSecret: raw.TokenSecret}
+	cfg := &GridConfig{NetworkName: raw.NetworkName, Namespace: raw.Namespace, ServiceAccount: raw.ServiceAccount, TokenSecret: raw.TokenSecret, PublishMetrics: raw.PublishMetrics}
 	for _, field := range []struct{ name, value string }{{"networkName", cfg.NetworkName}, {"namespace", cfg.Namespace}, {"serviceAccount", cfg.ServiceAccount}, {"tokenSecret", cfg.TokenSecret}} {
 		if errs := validation.IsDNS1123Subdomain(field.value); len(errs) > 0 {
 			return nil, fmt.Errorf("invalid %s %s: %v", GridServingAnnotation, field.name, errs)

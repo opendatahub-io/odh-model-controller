@@ -23,6 +23,7 @@ import (
 	kservev1alpha2 "github.com/kserve/kserve/pkg/apis/serving/v1alpha2"
 	"github.com/stretchr/testify/require"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/util/validation"
 	gatewayv1 "sigs.k8s.io/gateway-api/apis/v1"
 )
@@ -35,7 +36,15 @@ func TestGridConfigFromGateway(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, "grid-local", cfg.NetworkName)
 	require.Equal(t, "local", cfg.SiteLabels["grid.praxis.fast/provider-site"])
-	for _, value := range []string{`null`, `[]`, `{}`, `{"unknown":true}`, strings.Replace(valid, `"networkName":"grid-local"`, `"networkName":"grid-local","networkName":"other"`, 1), valid + ` {}`, strings.Replace(valid, "grid-system", "not.a.namespace", 1), strings.Replace(valid, "grid-token", "invalid secret", 1), strings.Replace(valid, "grid.praxis.fast/provider-site=local", "site in (a,b)", 1)} {
+	require.False(t, cfg.PublishMetrics)
+	t.Run("metrics plaintext opt-in", func(t *testing.T) {
+		copy := ns.DeepCopy()
+		copy.Annotations[GridServingAnnotation] = strings.Replace(valid, `}`, `,"publishMetrics":true}`, 1)
+		cfg, err := GridConfigFromGateway(copy)
+		require.NoError(t, err)
+		require.True(t, cfg.PublishMetrics)
+	})
+	for _, value := range []string{strings.Replace(valid, `}`, `,"publishMetrics":"true"}`, 1), `null`, `[]`, `{}`, `{"unknown":true}`, strings.Replace(valid, `"networkName":"grid-local"`, `"networkName":"grid-local","networkName":"other"`, 1), valid + ` {}`, strings.Replace(valid, "grid-system", "not.a.namespace", 1), strings.Replace(valid, "grid-token", "invalid secret", 1), strings.Replace(valid, "grid.praxis.fast/provider-site=local", "site in (a,b)", 1)} {
 		t.Run(value, func(t *testing.T) {
 			copy := ns.DeepCopy()
 			copy.Annotations[GridServingAnnotation] = value
@@ -114,4 +123,78 @@ func TestGridResourceName(t *testing.T) {
 			require.NotEqual(t, name, gridResourceName(svc, gateway))
 		})
 	}
+}
+
+func TestReconcileGridMetrics(t *testing.T) {
+	const generated = "http://model-epp-service.models.svc.cluster.local:9090"
+	const moved = "http://model-epp-service.models.svc.cluster.local:9091"
+	const secureEndpoint = "https://model-epp-service.models.svc.cluster.local:9090"
+	// path and timeout are left to the CRD defaults, so they appear only after an
+	// API-server round trip; the envtest asserts them, this unit test does not.
+	managed := func(endpoint string) map[string]interface{} {
+		return map[string]interface{}{"endpoint": endpoint,
+			"auth": map[string]interface{}{"type": "serviceAccountToken", "allowPlaintext": true}}
+	}
+	admin := map[string]interface{}{"endpoint": "https://metrics.example.com", "path": "/stats"}
+	for _, tc := range []struct {
+		name                string
+		current             map[string]interface{}
+		recorded            string
+		endpoint            string
+		secure              bool
+		wantConfig          map[string]interface{}
+		wantRecorded        string
+		wantNoMetricsConfig bool
+	}{
+		{name: "generates when absent", endpoint: generated, wantConfig: managed(generated), wantRecorded: generated},
+		{name: "follows a moved EPP port", current: managed(generated), recorded: generated, endpoint: moved, wantConfig: managed(moved), wantRecorded: moved},
+		{name: "regenerates after the administrator removes it", recorded: generated, endpoint: generated, wantConfig: managed(generated), wantRecorded: generated},
+		{name: "keeps an administrator config", current: admin, endpoint: generated, wantConfig: admin},
+		{name: "yields to an administrator endpoint edit", current: admin, recorded: generated, endpoint: generated, wantConfig: admin},
+		{name: "removes a generated config when disabled", current: managed(generated), recorded: generated, wantNoMetricsConfig: true},
+		{name: "keeps an administrator config when disabled", current: admin, wantConfig: admin},
+		{name: "stays absent when disabled", wantNoMetricsConfig: true},
+		{name: "names the service CA and refuses plaintext when the port declares https", endpoint: secureEndpoint, secure: true,
+			wantConfig: map[string]interface{}{"endpoint": secureEndpoint,
+				"auth": map[string]interface{}{"type": "serviceAccountToken"},
+				"tls": map[string]interface{}{"caConfigMapRef": map[string]interface{}{
+					"name": "openshift-service-ca.crt", "namespace": "grid-system", "key": "service-ca.crt"}}},
+			wantRecorded: secureEndpoint},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			spec := map[string]interface{}{"endpoint": "http://gateway"}
+			if tc.current != nil {
+				spec["metricsConfig"] = runtime.DeepCopyJSONValue(tc.current)
+			}
+			annotations := map[string]string{"other": "kept"}
+			if tc.recorded != "" {
+				annotations[gridMetricsEndpoint] = tc.recorded
+			}
+			reconcileGridMetrics(spec, annotations, tc.endpoint, tc.secure, "grid-system")
+			require.Equal(t, "http://gateway", spec["endpoint"])
+			require.Equal(t, "kept", annotations["other"])
+			if tc.wantNoMetricsConfig {
+				require.NotContains(t, spec, "metricsConfig")
+			} else {
+				require.Equal(t, tc.wantConfig, spec["metricsConfig"])
+			}
+			if tc.wantRecorded == "" {
+				require.NotContains(t, annotations, gridMetricsEndpoint)
+			} else {
+				require.Equal(t, tc.wantRecorded, annotations[gridMetricsEndpoint])
+			}
+		})
+	}
+	t.Run("preserves administrator tuning of a generated config", func(t *testing.T) {
+		current := managed(generated)
+		current["timeout"] = "500ms"
+		current["poolName"] = "model-pool"
+		spec := map[string]interface{}{"metricsConfig": current}
+		annotations := map[string]string{gridMetricsEndpoint: generated}
+		reconcileGridMetrics(spec, annotations, moved, false, "grid-system")
+		got := spec["metricsConfig"].(map[string]interface{})
+		require.Equal(t, moved, got["endpoint"])
+		require.Equal(t, "500ms", got["timeout"])
+		require.Equal(t, "model-pool", got["poolName"])
+	})
 }
