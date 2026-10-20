@@ -131,6 +131,14 @@ test-e2e: manifests generate fmt vet ## Run the e2e tests. Expected an isolated 
 	}
 	POD_NAMESPACE=default go test ./test/e2e/ -v -ginkgo.v
 
+.PHONY: test-e2e-authorino
+test-e2e-authorino: ## Run Serverless group authorization e2e on an OpenShift CI cluster.
+	go test -tags e2e ./test/e2e/authorino -count=1 -v -timeout 30m -ginkgo.v $(E2E_ARGS)
+
+.PHONY: test-e2e-authorino-kind
+test-e2e-authorino-kind: ## Run the local Kind EnvoyFilter/group smoke test (requires prepared cluster).
+	go test -tags e2e_kind ./test/e2e/authorino/kind -count=1 -v -timeout 15m -ginkgo.v $(E2E_ARGS)
+
 .PHONY: lint
 lint: golangci-lint ## Run golangci-lint linter
 	$(GOLANGCI_LINT) run

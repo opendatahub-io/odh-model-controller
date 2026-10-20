@@ -1,0 +1,15 @@
+meshConfig:
+  extensionProviders:
+    - name: authconfig-e2e-authorino
+      envoyExtAuthzGrpc:
+        service: authorino-authorino-authorization.authconfig-e2e.svc.cluster.local
+        port: 50051
+pilot:
+  env:
+    PILOT_ENABLE_EDS_FOR_HEADLESS_SERVICES: "false"
+global:
+  proxy:
+    resources:
+      requests:
+        cpu: 10m
+        memory: 64Mi

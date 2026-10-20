@@ -1,0 +1,17 @@
+apiVersion: operator.authorino.kuadrant.io/v1beta1
+kind: Authorino
+metadata:
+  name: authorino
+  namespace: authconfig-e2e
+spec:
+  image: quay.io/kuadrant/authorino:v0.26.4
+  clusterWide: true
+  authConfigLabelSelectors: security.opendatahub.io/authorization-group=default
+  listener:
+    ports:
+      grpc: 50051
+    tls:
+      enabled: false
+  oidcServer:
+    tls:
+      enabled: false

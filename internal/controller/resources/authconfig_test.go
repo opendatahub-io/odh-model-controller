@@ -4,6 +4,7 @@ import (
 	"context"
 	"os"
 
+	kservev1alpha1 "github.com/kserve/kserve/pkg/apis/serving/v1alpha1"
 	kservev1beta1 "github.com/kserve/kserve/pkg/apis/serving/v1beta1"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
@@ -12,6 +13,7 @@ import (
 	"knative.dev/pkg/apis"
 	duckv1 "knative.dev/pkg/apis/duck/v1"
 	knservingv1 "knative.dev/serving/pkg/apis/serving/v1"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	"github.com/opendatahub-io/odh-model-controller/internal/controller/constants"
 	"github.com/opendatahub-io/odh-model-controller/internal/controller/resources"
@@ -147,3 +149,23 @@ var _ = When("InferenceService is ready", func() {
 		})
 	})
 })
+
+var _ = DescribeTable("UserDefined AuthConfig propagates authenticated identity",
+	func(ctx SpecContext, protectedResource client.Object) {
+		ac, err := resources.NewStaticTemplateLoader().Load(ctx, constants.UserDefined, protectedResource)
+		Expect(err).To(Succeed())
+
+		sar := ac.Spec.Authorization["kubernetes-rbac"].KubernetesSubjectAccessReview
+		Expect(sar).NotTo(BeNil())
+		Expect(sar.User).NotTo(BeNil())
+		Expect(sar.User.Selector).To(Equal("auth.identity.user.username"))
+		Expect(sar.AuthorizationGroups).NotTo(BeNil())
+		Expect(sar.AuthorizationGroups.Selector).To(Equal("auth.identity.user.groups"))
+	},
+	Entry("for InferenceService", &kservev1beta1.InferenceService{
+		ObjectMeta: v1.ObjectMeta{Namespace: "test-ns", Name: "test-model"},
+	}),
+	Entry("for InferenceGraph", &kservev1alpha1.InferenceGraph{
+		ObjectMeta: v1.ObjectMeta{Namespace: "test-ns", Name: "test-graph"},
+	}),
+)

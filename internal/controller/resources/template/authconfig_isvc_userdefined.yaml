@@ -33,3 +33,5 @@ spec:
             value: "{{ .ResourceName }}"
         user:
           selector: auth.identity.user.username
+        authorizationGroups:
+          selector: auth.identity.user.groups
