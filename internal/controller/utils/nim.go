@@ -454,6 +454,10 @@ func GetNimServingRuntimeTemplate(scheme *runtime.Scheme, airGapped bool) (*v1al
 			Name:  "NIM_CACHE_PATH",
 			Value: "/mnt/models/cache",
 		},
+		{
+			Name:  "NIM_SERVED_MODEL_NAME",
+			Value: "{{.Name}}",
+		},
 	}
 	if !airGapped {
 		envVars = append(envVars, corev1.EnvVar{

@@ -18,12 +18,14 @@ package hardwareprofile
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"strconv"
 
 	admissionv1 "k8s.io/api/admission/v1"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
@@ -53,6 +55,8 @@ const LLMIsvcMainContainerName = "main"
 type ResolvedProfile struct {
 	// Identifiers is the list of resource identifiers (CPU, memory, accelerators) to inject.
 	Identifiers []ResourceIdentifier
+	// ResourceClaimTemplateName is the pre-existing DRA template selected by the profile.
+	ResourceClaimTemplateName string
 	// NodeSelector entries to merge into the workload spec.
 	NodeSelector map[string]string
 	// Tolerations to prepend to the workload spec.
@@ -90,61 +94,86 @@ func ProfileRef(annotations map[string]string, defaultNamespace string) (name, n
 	return
 }
 
+// ProfileReferenceChanged reports whether the effective HardwareProfile reference changed.
+// A missing old reference is considered a change only when initialAssignmentChanged is true.
+// This lets DRA treat its first binding as a new claim while scheduling keeps its existing
+// merge-on-initial-assignment behavior.
+func ProfileReferenceChanged(oldMeta *metav1.ObjectMeta, newMeta metav1.Object, initialAssignmentChanged bool) bool {
+	if newMeta == nil {
+		return false
+	}
+	newName, newNamespace := ProfileRef(newMeta.GetAnnotations(), newMeta.GetNamespace())
+	if oldMeta == nil {
+		return initialAssignmentChanged && newName != ""
+	}
+
+	oldName, oldNamespace := ProfileRef(oldMeta.GetAnnotations(), oldMeta.GetNamespace())
+	if oldName == "" {
+		return initialAssignmentChanged && newName != ""
+	}
+	if newName == "" {
+		return true
+	}
+
+	return oldName != newName || oldNamespace != newNamespace
+}
+
+// ProfileReferenceChangedFromRequest compares the effective HardwareProfile reference in an
+// admission request. It reads only the previous object's metadata, so callers can use the old
+// reference for transition decisions without depending on mutable workload claim state.
+func ProfileReferenceChangedFromRequest(req admission.Request, newMeta metav1.Object, initialAssignmentChanged bool) (oldName string, changed bool, err error) {
+	if req.Operation == admissionv1.Create || req.OldObject.Raw == nil {
+		return "", ProfileReferenceChanged(nil, newMeta, initialAssignmentChanged), nil
+	}
+
+	var old struct {
+		Metadata metav1.ObjectMeta `json:"metadata"`
+	}
+	if err := json.Unmarshal(req.OldObject.Raw, &old); err != nil {
+		return "", false, fmt.Errorf("failed reading previous HardwareProfile reference: %w", err)
+	}
+	oldMeta := &metav1.ObjectMeta{
+		Annotations: old.Metadata.Annotations,
+		Namespace:   old.Metadata.Namespace,
+	}
+	oldName, _ = ProfileRef(oldMeta.Annotations, oldMeta.Namespace)
+	return oldName, ProfileReferenceChanged(oldMeta, newMeta, initialAssignmentChanged), nil
+}
+
 // ProfileChanged reports whether the HardwareProfile reference changed between the old and new
 // object in an UPDATE admission request.
 //
-// Returns false on CREATE (no old object). Returns false when the old object had no HWP annotation
-// (initial assignment is treated as a merge, not a profile switch). Returns true when either the
-// profile name or namespace differs between old and new.
-//
-// Parameters:
-//   - req: the admission request containing the old object for UPDATE operations
-//   - newProfileName: the profile name from the new object's annotations
-//   - newProfileNamespace: the resolved profile namespace from the new object's annotations
-//
-// Returns true when the profile switched (triggers a full clear before re-injection).
+// Returns false on CREATE (no old object). Initial assignment is treated as a merge, not a profile
+// switch, so existing scheduling fields are preserved when a profile is first added.
 func ProfileChanged(req admission.Request, newProfileName, newProfileNamespace string) bool {
-	if req.Operation == admissionv1.Create {
-		return false
+	newMeta := &metav1.ObjectMeta{
+		Annotations: map[string]string{
+			HardwareProfileAnnotationName:      newProfileName,
+			HardwareProfileAnnotationNamespace: newProfileNamespace,
+		},
+		Namespace: req.Namespace,
 	}
-	if req.OldObject.Raw == nil {
+	_, changed, err := ProfileReferenceChangedFromRequest(req, newMeta, false)
+	if err != nil {
 		return true
 	}
-
-	oldObj := &unstructured.Unstructured{}
-	if err := oldObj.UnmarshalJSON(req.OldObject.Raw); err != nil {
-		return true
-	}
-
-	oldAnnotations := oldObj.GetAnnotations()
-	oldProfileName := oldAnnotations[HardwareProfileAnnotationName]
-	if oldProfileName == "" {
-		// Initial HWP assignment — treat as a merge, not a profile switch.
-		return false
-	}
-
-	oldProfileNamespace := oldAnnotations[HardwareProfileAnnotationNamespace]
-	if oldProfileNamespace == "" {
-		oldProfileNamespace = oldObj.GetNamespace()
-	}
-
-	return oldProfileName != newProfileName || oldProfileNamespace != newProfileNamespace
+	return changed
 }
 
-// Resolve fetches a HardwareProfile CR and returns its parsed scheduling and resource stanzas.
+// Resolve fetches a HardwareProfile CR and returns its parsed scheduling, resource, and DRA stanzas.
 //
-// Uses the controller-runtime unstructured client to avoid importing opendatahub-operator types.
+// Uses an unstructured read to avoid importing opendatahub-operator types.
 // Returns nil, nil when name is empty (no HWP configured). Returns a wrapped error (including
 // k8serr.IsNotFound errors) when the CR cannot be fetched.
 //
 // Parameters:
 //   - ctx: request context
-//   - c: controller-runtime client with read access to HardwareProfile CRs
+//   - c: reader with access to HardwareProfile CRs
 //   - name: the HardwareProfile CR name
 //   - namespace: the namespace containing the HardwareProfile CR
 //
 // Returns the parsed ResolvedProfile or an error that callers use to block admission.
-func Resolve(ctx context.Context, c client.Client, name, namespace string) (*ResolvedProfile, error) {
+func Resolve(ctx context.Context, c client.Reader, name, namespace string) (*ResolvedProfile, error) {
 	if name == "" {
 		return nil, nil
 	}
@@ -162,9 +191,9 @@ func Resolve(ctx context.Context, c client.Client, name, namespace string) (*Res
 	return parseProfile(obj)
 }
 
-// parseProfile extracts scheduling and resource stanzas from an unstructured HardwareProfile object.
+// parseProfile extracts scheduling, resource, and DRA stanzas from an unstructured HardwareProfile object.
 //
-// Reads spec.identifiers, spec.scheduling.kueue.localQueueName, spec.scheduling.node.nodeSelector,
+// Reads spec.dra.resourceClaimTemplateName, spec.identifiers, spec.scheduling.kueue.localQueueName, spec.scheduling.node.nodeSelector,
 // and spec.scheduling.node.tolerations. Kueue and Node scheduling are mutually exclusive:
 // when a Kueue queue name is found, node scheduling fields are not populated.
 //
@@ -174,6 +203,11 @@ func Resolve(ctx context.Context, c client.Client, name, namespace string) (*Res
 // Returns the parsed ResolvedProfile or an error if a field cannot be parsed.
 func parseProfile(obj *unstructured.Unstructured) (*ResolvedProfile, error) {
 	profile := &ResolvedProfile{}
+	var err error
+	profile.ResourceClaimTemplateName, _, err = unstructured.NestedString(obj.Object, "spec", "dra", "resourceClaimTemplateName")
+	if err != nil {
+		return nil, fmt.Errorf("failed parsing HardwareProfile DRA template name: %w", err)
+	}
 
 	identifiers, _, _ := unstructured.NestedSlice(obj.Object, "spec", "identifiers")
 	for _, raw := range identifiers {

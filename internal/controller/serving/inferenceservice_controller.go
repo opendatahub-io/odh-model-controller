@@ -202,7 +202,7 @@ func (r *InferenceServiceReconciler) SetupWithManager(mgr ctrl.Manager, setupLog
 		Owns(&routev1.Route{}).
 		Owns(&corev1.ServiceAccount{}, ctrlbuilder.MatchEveryOwner).
 		Owns(&corev1.Service{}).
-		Owns(&corev1.ConfigMap{}).
+		Owns(&corev1.ConfigMap{}, ctrlbuilder.OnlyMetadata).
 		Owns(&corev1.Secret{}, ctrlbuilder.MatchEveryOwner).
 		Owns(&authv1.ClusterRoleBinding{}).
 		Owns(&networkingv1.NetworkPolicy{}).

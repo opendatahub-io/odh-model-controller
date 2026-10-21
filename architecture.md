@@ -63,6 +63,7 @@ The repository produces two independent binaries from a single Go module:
 The primary controller-runtime manager. It registers all controllers and webhooks, starts the manager, and runs the NIM account reconciler in a separate goroutine. The manager uses label-filtered caches:
 - **Secrets**: only `opendatahub.io/managed=true`
 - **Pods**: only `component=predictor`
+- **ConfigMaps**: only `opendatahub.io/managed=true`; external ConfigMaps use narrow metadata-only sources
 
 ### Model Serving API (`server/main.go`)
 
@@ -159,7 +160,7 @@ spec:
 **Trigger:** ConfigMap create/update/delete for specific CA bundle ConfigMaps.
 
 **Responsibilities:**
-Watches `odh-trusted-ca-bundle` and `openshift-service-ca.crt` ConfigMaps. Aggregates their certificate contents into the KServe CA bundle ConfigMap (`odh-kserve-custom-ca-bundle`) so that model servers trust both platform and custom CAs.
+Watches `odh-trusted-ca-bundle` and `openshift-service-ca.crt` through exact-name metadata-only sources. Aggregates their certificate contents into the KServe CA bundle ConfigMap (`odh-kserve-custom-ca-bundle`) so that model servers trust both platform and custom CAs.
 
 ### Secret Controller (`internal/controller/core/`)
 
@@ -177,7 +178,7 @@ Emits metrics about predictor pod lifecycle for observability dashboards.
 
 ### NIM Account Controller (`internal/controller/nim/`)
 
-**Trigger:** NIM Account create/update/delete, plus watched Secrets (API key) and ConfigMaps (model list) via field indexers.
+**Trigger:** NIM Account create/update/delete, plus watched Secrets (API key) and exact referenced ConfigMaps (model list).
 
 **Responsibilities:**
 Manages the lifecycle of NVIDIA NIM integration through a handler chain:
