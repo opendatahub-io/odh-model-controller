@@ -1,0 +1,53 @@
+# Same STRICT_DNS upstream/inbound ext_authz rewrite as the operator fix:
+# https://github.com/opendatahub-io/opendatahub-operator/pull/4242
+# Only labelled test workloads are selected (both predictors and graphs).
+# This fixture uses an unmeshed Authorino with plaintext gRPC. The operator's
+# production filter additionally preserves Istio mTLS/SDS and server identity.
+apiVersion: networking.istio.io/v1alpha3
+kind: EnvoyFilter
+metadata:
+  name: strict-dns-ext-authz
+spec:
+  priority: 20
+  workloadSelector:
+    labels:
+      test.opendatahub.io/authconfig-groups: "true"
+  configPatches:
+    - applyTo: CLUSTER
+      match:
+        context: SIDECAR_OUTBOUND
+      patch:
+        operation: ADD
+        value:
+          name: odhai-authorino-ext-authz
+          type: STRICT_DNS
+          connect_timeout: 1s
+          lb_policy: ROUND_ROBIN
+          load_assignment:
+            cluster_name: odhai-authorino-ext-authz
+            endpoints:
+              - lb_endpoints:
+                  - endpoint:
+                      address:
+                        socket_address:
+                          address: authorino-authorino-authorization.authconfig-e2e.svc.cluster.local
+                          port_value: 50051
+          http2_protocol_options: {}
+    - applyTo: HTTP_FILTER
+      match:
+        context: SIDECAR_INBOUND
+        listener:
+          filterChain:
+            filter:
+              name: envoy.filters.network.http_connection_manager
+              subFilter:
+                name: envoy.filters.http.ext_authz
+      patch:
+        operation: MERGE
+        value:
+          name: envoy.filters.http.ext_authz
+          typed_config:
+            '@type': type.googleapis.com/envoy.extensions.filters.http.ext_authz.v3.ExtAuthz
+            grpc_service:
+              envoy_grpc:
+                cluster_name: odhai-authorino-ext-authz

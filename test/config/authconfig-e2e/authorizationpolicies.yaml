@@ -1,0 +1,33 @@
+apiVersion: security.istio.io/v1beta1
+kind: AuthorizationPolicy
+metadata:
+  name: authconfig-e2e-predictor
+spec:
+  selector:
+    matchLabels:
+      component: predictor
+      test.opendatahub.io/authconfig-groups: "true"
+  action: CUSTOM
+  provider:
+    name: authconfig-e2e-authorino
+  rules:
+    - to:
+        - operation:
+            methods: [POST]
+---
+apiVersion: security.istio.io/v1beta1
+kind: AuthorizationPolicy
+metadata:
+  name: authconfig-e2e-graph
+spec:
+  selector:
+    matchLabels:
+      serving.kserve.io/kind: InferenceGraph
+      test.opendatahub.io/authconfig-groups: "true"
+  action: CUSTOM
+  provider:
+    name: authconfig-e2e-authorino
+  rules:
+    - to:
+        - operation:
+            methods: [POST]
