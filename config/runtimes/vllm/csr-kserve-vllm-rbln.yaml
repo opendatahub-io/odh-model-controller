@@ -34,7 +34,6 @@ spec:
         - "--port=8080"
         - "--model=/mnt/models"
         - "--served-model-name={{.Name}}"
-        - "--enable-chunked-prefill"
         - "--model-impl=vllm"
       env:
         # vllm-rbln writes its NPU compile cache under $HOME.
