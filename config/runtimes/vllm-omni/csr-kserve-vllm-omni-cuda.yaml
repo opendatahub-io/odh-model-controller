@@ -17,6 +17,7 @@ spec:
     opendatahub.io/kserve-runtime: "vllm-omni"
     prometheus.io/port: "8080"
     prometheus.io/path: "/metrics"
+    monitoring.opendatahub.io/scrape: "true"
   multiModel: false
   supportedModelFormats:
     - autoSelect: false
