@@ -123,6 +123,47 @@ vet: ## Run go vet against code.
 print-envtest-assets: envtest ## Print KUBEBUILDER_ASSETS path for use in shell one-liners.
 	@$(ENVTEST) use $(ENVTEST_K8S_VERSION) --bin-dir $(LOCALBIN) -p path
 
+# Separate from `manifests`, which generates the CRDs this repo owns and ships.
+# DataScienceCluster and DSCInitialization belong to the Open Data Hub operator;
+# this controller only reads them, so envtest needs the schemas but they are not
+# listed in config/crd/external/kustomization.yaml and are never deployed. The
+# operator does not commit its generated CRD bases, so they are produced from a
+# pinned checkout of its sources. OPERATOR_CRD_REVISION below is the single record
+# of which revision the committed CRDs came from: bump it and re-run this target
+# when the DSC/DSCI API changes in a way this controller reads.
+OPERATOR_CRD_REVISION ?= 5d7674ca4045bd2c52d0510e0cd33793a02d37b3
+OPERATOR_CRD_REPO ?= https://github.com/opendatahub-io/opendatahub-operator.git
+OPERATOR_CRD_DIR = config/crd/external
+# Checkout kept outside the repository: controller-gen walks the working tree for
+# `paths=./...` and panics on the operator's sources, so a checkout under bin/
+# would break `make manifests` and leak the operator's RBAC markers into role.yaml.
+OPERATOR_CRD_CACHE ?= $(HOME)/.cache/odh-model-controller
+OPERATOR_CRD_SOURCE = $(OPERATOR_CRD_CACHE)/opendatahub-operator
+OPERATOR_CRD_BASES = $(OPERATOR_CRD_SOURCE)/config/rhoai/crd/bases
+OPERATOR_CRD_NAMES = datasciencecluster.opendatahub.io_datascienceclusters dscinitialization.opendatahub.io_dscinitializations
+
+.PHONY: operator-crds-update
+operator-crds-update: ## Refresh the DSC and DSCI CRDs from the pinned Open Data Hub operator revision.
+	@set -e; \
+	mkdir -p "$(OPERATOR_CRD_CACHE)"; \
+	if [ ! -d "$(OPERATOR_CRD_SOURCE)/.git" ]; then \
+		git clone --filter=blob:none --no-checkout "$(OPERATOR_CRD_REPO)" "$(OPERATOR_CRD_SOURCE)"; \
+	fi; \
+	git -C "$(OPERATOR_CRD_SOURCE)" fetch --depth 1 origin "$(OPERATOR_CRD_REVISION)"; \
+	git -C "$(OPERATOR_CRD_SOURCE)" checkout --force --detach "$(OPERATOR_CRD_REVISION)"; \
+	if [ -e "$(OPERATOR_CRD_SOURCE)/local.mk" ]; then \
+		echo "$(OPERATOR_CRD_SOURCE)/local.mk would override the pinned generation; remove it and retry." >&2; \
+		exit 1; \
+	fi; \
+	rm -f $(patsubst %,$(OPERATOR_CRD_BASES)/%.yaml,$(OPERATOR_CRD_NAMES)); \
+	$(MAKE) -C "$(OPERATOR_CRD_SOURCE)" manifests ODH_PLATFORM_TYPE=rhoai; \
+	for crd in $(OPERATOR_CRD_NAMES); do \
+		src="$(OPERATOR_CRD_BASES)/$$crd.yaml"; \
+		test -s "$$src"; \
+		cp "$$src" "$(OPERATOR_CRD_DIR)/$$crd.yaml"; \
+	done; \
+	echo "Operator CRDs updated from revision $(OPERATOR_CRD_REVISION)."
+
 .PHONY: test
 test: manifests generate fmt vet envtest validate-samples ## Run tests.
 	@go tool covdata >/dev/null 2>&1 || true

@@ -141,9 +141,9 @@ func init() {
 func IsNimAirGapped(ctx context.Context, clt client.Client) bool {
 	logger := log.FromContext(ctx)
 
-	dscList := &unstructured.UnstructuredList{}
-	dscList.SetGroupVersionKind(GVK.DataScienceCluster)
-	if err := clt.List(ctx, dscList); err != nil {
+	// spec.components.kserve.nim.airGapped is shared by every served DataScienceCluster version.
+	dscList, err := ListUnstructuredByGroupKind(ctx, clt, GroupKind.DataScienceCluster)
+	if err != nil {
 		logger.V(1).Error(err, "failed to list DataScienceCluster for NIM air-gapped flag")
 		return false
 	}
