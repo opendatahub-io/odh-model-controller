@@ -21,8 +21,10 @@ import (
 	"crypto/sha256"
 	"errors"
 	"fmt"
+	"net"
 	"net/url"
 	"slices"
+	"strconv"
 	"strings"
 	"time"
 
@@ -40,6 +42,7 @@ import (
 	"k8s.io/client-go/tools/events"
 	"k8s.io/utils/ptr"
 	"knative.dev/pkg/kmeta"
+	"knative.dev/pkg/network"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
@@ -50,6 +53,14 @@ import (
 
 	"github.com/opendatahub-io/odh-model-controller/internal/controller/constants"
 	"github.com/opendatahub-io/odh-model-controller/internal/controller/utils"
+)
+
+const (
+	// gridMetricsEndpoint records the generated endpoint; any other value is administrator-owned.
+	gridMetricsEndpoint = "grid.opendatahub.io/metrics-endpoint"
+	eppMetricsPortName  = "metrics"
+	schemeHTTP          = "http"
+	schemeHTTPS         = "https"
 )
 
 var gridProviderGVK = schema.GroupVersionKind{Group: "grid.praxis.fast", Version: "v1alpha1", Kind: "InferenceProvider"}
@@ -80,12 +91,15 @@ func gridResourceName(svc *kservev1alpha2.LLMInferenceService, gateway *gatewayv
 // +kubebuilder:rbac:groups=grid.praxis.fast,resources=inferenceproviders,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups=events.k8s.io,resources=events,verbs=create;patch
 // +kubebuilder:rbac:groups="",resources=namespaces,verbs=get;list;watch
+// +kubebuilder:rbac:groups="",resources=services,verbs=get;list;watch
 // +kubebuilder:rbac:groups=rbac.authorization.k8s.io,resources=roles;rolebindings,verbs=get;list;watch;create;update;patch;delete
 
 func (r *GridInferenceProviderReconciler) SetupWithManager(mgr ctrl.Manager, logger logr.Logger) error {
 	// Even when publishing is disabled, run cleanup for existing finalizers.
 	b := ctrl.NewControllerManagedBy(mgr).For(&kservev1alpha2.LLMInferenceService{}).
 		Owns(&rbacv1.Role{}).Owns(&rbacv1.RoleBinding{}).
+		// KServe's EPP Service is owned by the LLMInferenceService.
+		Owns(&corev1.Service{}).
 		Watches(&corev1.Namespace{}, r.namespaceResync(logger)).
 		Watches(&corev1.ServiceAccount{}, r.resync(logger)).
 		Watches(&kservev1alpha2.LLMInferenceServiceConfig{}, r.resync(logger)).
@@ -364,6 +378,14 @@ func (r *GridInferenceProviderReconciler) reconcileAccess(ctx context.Context, s
 func (r *GridInferenceProviderReconciler) reconcileProvider(ctx context.Context, svc *kservev1alpha2.LLMInferenceService, publication gridPublication) error {
 	cfg := publication.config
 	endpoint := publication.attachment.Endpoint
+	var metricsEndpoint string
+	var metricsSecure bool
+	if cfg.PublishMetrics {
+		var err error
+		if metricsEndpoint, metricsSecure, err = r.eppMetricsEndpoint(ctx, svc); err != nil {
+			return err
+		}
+	}
 	provider := gridProvider()
 	provider.SetName(gridResourceName(svc, publication.gateway))
 	_, err := controllerutil.CreateOrUpdate(ctx, r.Client, provider, func() error {
@@ -381,7 +403,6 @@ func (r *GridInferenceProviderReconciler) reconcileProvider(ctx context.Context,
 		for key, value := range metadata.Annotations {
 			annotations[key] = value
 		}
-		provider.SetAnnotations(annotations)
 		providerLabels := provider.GetLabels()
 		if providerLabels == nil {
 			providerLabels = map[string]string{}
@@ -396,8 +417,8 @@ func (r *GridInferenceProviderReconciler) reconcileProvider(ctx context.Context,
 		for key, value := range cfg.SiteLabels {
 			siteLabels[key] = value
 		}
-		// Preserve optional administrator-managed fields (trafficPolicy, metrics,
-		// cost, healthCheck) while reconciling the discovery and identity fields.
+		// Preserve optional administrator-managed fields (trafficPolicy, cost,
+		// healthCheck) while reconciling the discovery and identity fields.
 		spec, _, err := unstructured.NestedMap(provider.Object, "spec")
 		if err != nil {
 			return err
@@ -405,6 +426,8 @@ func (r *GridInferenceProviderReconciler) reconcileProvider(ctx context.Context,
 		if spec == nil {
 			spec = map[string]interface{}{}
 		}
+		reconcileGridMetrics(spec, annotations, metricsEndpoint, metricsSecure, cfg.Namespace)
+		provider.SetAnnotations(annotations)
 		for key, value := range map[string]interface{}{
 			"gridNetworkRef": cfg.NetworkName, "providerKind": "vllm", "backendKind": "local_model",
 			"endpoint":     endpoint,
@@ -417,6 +440,97 @@ func (r *GridInferenceProviderReconciler) reconcileProvider(ctx context.Context,
 		return unstructured.SetNestedMap(provider.Object, spec, "spec")
 	})
 	return err
+}
+
+// eppMetricsService returns the reported EPP Service and its metrics port, or nil when there is none.
+func (r *GridInferenceProviderReconciler) eppMetricsService(ctx context.Context, svc *kservev1alpha2.LLMInferenceService) (*corev1.Service, *corev1.ServicePort, error) {
+	if svc.Status.Router == nil || svc.Status.Router.Scheduler == nil || svc.Status.Router.Scheduler.Service == nil {
+		return nil, nil, nil
+	}
+	ref := svc.Status.Router.Scheduler.Service
+	// KServe creates the EPP Service beside the model; never follow a ref elsewhere.
+	if ns := ptr.Deref(ref.Namespace, ""); ref.Group != "" || ref.Kind != "Service" || ref.Name == "" || (ns != "" && string(ns) != svc.Namespace) {
+		return nil, nil, nil
+	}
+	service := &corev1.Service{}
+	if err := r.Get(ctx, client.ObjectKey{Namespace: svc.Namespace, Name: string(ref.Name)}, service); err != nil {
+		return nil, nil, client.IgnoreNotFound(fmt.Errorf("get EPP Service %s/%s: %w", svc.Namespace, ref.Name, err))
+	}
+	// A reported name can be taken by another Service after a delete, and the scrape carries a
+	// credential, so only the service's own EPP Service is a safe target.
+	if !metav1.IsControlledBy(service, svc) {
+		return nil, nil, nil
+	}
+	i := slices.IndexFunc(service.Spec.Ports, func(p corev1.ServicePort) bool { return p.Name == eppMetricsPortName })
+	if i < 0 {
+		return nil, nil, nil
+	}
+	return service, &service.Spec.Ports[i], nil
+}
+
+// eppMetricsEndpoint returns the EPP metrics URL and whether it is TLS, or "" when there is none.
+//
+// Scheme comes from the port's appProtocol, so a TLS flip needs no reading of scheduler flags.
+func (r *GridInferenceProviderReconciler) eppMetricsEndpoint(ctx context.Context, svc *kservev1alpha2.LLMInferenceService) (string, bool, error) {
+	service, port, err := r.eppMetricsService(ctx, svc)
+	if err != nil || service == nil {
+		return "", false, err
+	}
+	secure := ptr.Deref(port.AppProtocol, "") == schemeHTTPS
+	scheme := schemeHTTP
+	if secure {
+		scheme = schemeHTTPS
+	}
+	host := net.JoinHostPort(network.GetServiceHostname(service.Name, service.Namespace), strconv.Itoa(int(port.Port)))
+	return (&url.URL{Scheme: scheme, Host: host}).String(), secure, nil
+}
+
+// reconcileGridMetrics manages spec.metricsConfig only while it is absent or
+// still carries the endpoint this controller generated.
+func reconcileGridMetrics(spec map[string]interface{}, annotations map[string]string, endpoint string, secure bool, caNamespace string) {
+	current, _ := spec["metricsConfig"].(map[string]interface{})
+	generated, recorded := annotations[gridMetricsEndpoint]
+	// Accept the deprecated key too, or a provider written before the rename is abandoned.
+	ours := recorded && (current["endpoint"] == generated || current["metricsEndpoint"] == generated)
+	if current != nil && !ours {
+		delete(annotations, gridMetricsEndpoint)
+		return
+	}
+	if endpoint == "" {
+		if recorded {
+			delete(spec, "metricsConfig")
+			delete(annotations, gridMetricsEndpoint)
+		}
+		return
+	}
+	if current == nil {
+		current = map[string]interface{}{}
+	}
+	// Credential and trust follow the transport: plaintext needs the allowance, TLS needs the CA.
+	auth, _ := current["auth"].(map[string]interface{})
+	if auth == nil {
+		auth = map[string]interface{}{}
+	}
+	auth["type"] = "serviceAccountToken"
+	if secure {
+		// Service CA bundle in the operator's namespace, the only one it can read.
+		delete(auth, "allowPlaintext")
+		current["tls"] = map[string]interface{}{
+			"caConfigMapRef": map[string]interface{}{"name": "openshift-service-ca.crt", "namespace": caNamespace, "key": "service-ca.crt"},
+		}
+	} else {
+		// Honour an explicit refusal to send a bearer in clear; the scrape then fails closed.
+		if allowed, set := auth["allowPlaintext"].(bool); !set || allowed {
+			auth["allowPlaintext"] = true
+		}
+		delete(current, "tls")
+	}
+	current["auth"] = auth
+	// The CRD refuses both endpoint keys at once, so the deprecated one goes as this one lands.
+	delete(current, "metricsEndpoint")
+	current["endpoint"] = endpoint
+	spec["metricsConfig"] = current
+	annotations[gridMetricsEndpoint] = endpoint
 }
 
 // cleanupExcept discovers resources by source ownership, so detached/deleted
