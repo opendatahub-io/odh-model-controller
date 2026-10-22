@@ -241,6 +241,7 @@ Pre-built ServingRuntime templates for supported model servers live in `config/r
 | `vllm-rocm-template.yaml` | vLLM (AMD ROCm) |
 | `vllm-cpu-template.yaml` | vLLM (CPU) |
 | `vllm-gaudi-template.yaml` | vLLM (Intel Gaudi) |
+| `vllm-rbln-template.yaml` | vLLM (Rebellions RBLN NPU) |
 | `vllm-spyre-*.yaml` | vLLM (IBM Spyre accelerator) |
 | `vllm-multinode-template.yaml` | vLLM multi-node (Ray) |
 | `vllm-omni-cuda-template.yaml` | vLLM-Omni (NVIDIA GPU, multimodal) |
