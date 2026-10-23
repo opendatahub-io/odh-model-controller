@@ -20,13 +20,7 @@ var (
 )
 
 func NewModelRegistryInferenceServiceReconciler(client client.Client, log logr.Logger, skipTLSVerify bool, bearerToken string) (*infrctrl.InferenceServiceController, error) {
-	dsc := unstructured.Unstructured{}
-
-	dscList := unstructured.UnstructuredList{}
-
-	dscList.SetGroupVersionKind(utils.GVK.DataScienceCluster)
-
-	err := client.List(context.Background(), &dscList)
+	dscList, err := utils.ListUnstructuredByGroupKind(context.Background(), client, utils.GroupKind.DataScienceCluster)
 	if err != nil {
 		return nil, fmt.Errorf("%w: %w", errGetDSC, err)
 	}
@@ -35,15 +29,19 @@ func NewModelRegistryInferenceServiceReconciler(client client.Client, log logr.L
 		return nil, fmt.Errorf("%w: only one DataScienceCluster is allowed", errGetDSC)
 	}
 
-	dsc = dscList.Items[0]
+	dsc := dscList.Items[0]
 
-	ns, found, err := unstructured.NestedFieldCopy(dsc.Object, "spec", "components", "modelregistry", "registriesNamespace")
-	if err != nil || !found {
-		return nil, fmt.Errorf("%w: %w", errGetMRNamespaceFromDSC, err)
+	// DSC v3 exposes Model Registry through AI Hub; v1 and v2 use the legacy field.
+	component, namespaceField := "aiHub", "instancesNamespace"
+	if dscList.GroupVersionKind().Version == "v1" || dscList.GroupVersionKind().Version == "v2" {
+		component, namespaceField = "modelregistry", "registriesNamespace"
 	}
 
-	mrNamespaceFromDSC, isNsOk := ns.(string)
-	if !isNsOk || mrNamespaceFromDSC == "" {
+	mrNamespaceFromDSC, found, err := unstructured.NestedString(dsc.Object, "spec", "components", component, namespaceField)
+	if err != nil {
+		return nil, fmt.Errorf("%w: %w", errGetMRNamespaceFromDSC, err)
+	}
+	if !found || mrNamespaceFromDSC == "" {
 		return nil, fmt.Errorf("%w: invalid namespace", errGetMRNamespaceFromDSC)
 	}
 

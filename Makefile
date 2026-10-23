@@ -27,6 +27,10 @@ GOBIN=$(shell go env GOBIN)
 endif
 
 KSERVE_MANIFESTS_REVISION ?= v0.17.0-rc1
+# Pin the operator source used to generate the DSC and DSCI envtest CRDs.
+OPERATOR_CRD_REVISION ?= e27d9969c8a7c61c675dd1490257fd25e86d3938
+OPERATOR_CRD_SOURCE = $(LOCALBIN)/opendatahub-operator-crd-source
+OPERATOR_CRD_REVISION_FILE = config/crd/external/.opendatahub_operator_manifests_revision
 
 # KServe E2E test configuration
 KSERVE_E2E_REPO ?= https://github.com/opendatahub-io/kserve.git
@@ -101,6 +105,25 @@ manifests-update:
 	else \
 		echo "KServe manifests for revision $(KSERVE_MANIFESTS_REVISION) are already up-to-date (based on $(KSERVE_REVISION_FILE))."; \
 	fi
+
+# The operator does not commit its generated CRD bases. Generate them from a
+# pinned checkout with its own Makefile, then copy only the two CRDs used here.
+.PHONY: operator-crds-update
+operator-crds-update: ## Refresh DSC and DSCI CRDs from the pinned Open Data Hub operator source.
+	@command -v go >/dev/null 2>&1 || { echo "Go is required to generate operator CRDs"; exit 127; }
+	@mkdir -p "$(LOCALBIN)"
+	@if [ ! -d "$(OPERATOR_CRD_SOURCE)/.git" ]; then \
+		git clone --filter=blob:none --no-checkout https://github.com/opendatahub-io/opendatahub-operator.git "$(OPERATOR_CRD_SOURCE)"; \
+	fi
+	@git -C "$(OPERATOR_CRD_SOURCE)" fetch --depth 1 origin "$(OPERATOR_CRD_REVISION)"
+	@git -C "$(OPERATOR_CRD_SOURCE)" checkout --force --detach "$(OPERATOR_CRD_REVISION)"
+	@test "$$(git -C "$(OPERATOR_CRD_SOURCE)" rev-parse HEAD)" = "$(OPERATOR_CRD_REVISION)"
+	@$(MAKE) -C "$(OPERATOR_CRD_SOURCE)" manifests ODH_PLATFORM_TYPE=rhoai
+	@test -s "$(OPERATOR_CRD_SOURCE)/config/rhoai/crd/bases/datasciencecluster.opendatahub.io_datascienceclusters.yaml"
+	@test -s "$(OPERATOR_CRD_SOURCE)/config/rhoai/crd/bases/dscinitialization.opendatahub.io_dscinitializations.yaml"
+	@cp "$(OPERATOR_CRD_SOURCE)/config/rhoai/crd/bases/datasciencecluster.opendatahub.io_datascienceclusters.yaml" config/crd/external/
+	@cp "$(OPERATOR_CRD_SOURCE)/config/rhoai/crd/bases/dscinitialization.opendatahub.io_dscinitializations.yaml" config/crd/external/
+	@printf '%s\n' "$(OPERATOR_CRD_REVISION)" > "$(OPERATOR_CRD_REVISION_FILE)"
 
 .PHONY: manifests
 manifests: manifests-update controller-gen ## Generate WebhookConfiguration, ClusterRole and CustomResourceDefinition objects.
