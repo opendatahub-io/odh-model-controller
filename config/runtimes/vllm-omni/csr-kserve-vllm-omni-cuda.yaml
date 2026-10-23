@@ -1,0 +1,50 @@
+apiVersion: serving.kserve.io/v1alpha1
+kind: ClusterServingRuntime
+metadata:
+  name: csr-kserve-vllm-omni-cuda
+  labels:
+    opendatahub.io/managed: "true"
+    opendatahub.io/dashboard: "true"
+    opendatahub.io/ootb: "true"
+  annotations:
+    opendatahub.io/version: "1.0.0"
+    opendatahub.io/template-display-name: "vLLM-Omni"
+    opendatahub.io/runtime-version: "v0.26.0"
+    opendatahub.io/recommended-accelerators: '["nvidia.com/gpu"]'
+    openshift.io/display-name: vLLM-Omni NVIDIA GPU ServingRuntime for KServe - Tech Preview
+spec:
+  annotations:
+    opendatahub.io/kserve-runtime: "vllm-omni"
+    prometheus.io/port: "8080"
+    prometheus.io/path: "/metrics"
+    monitoring.opendatahub.io/scrape: "true"
+  multiModel: false
+  supportedModelFormats:
+    - autoSelect: false
+      name: vLLM
+  containers:
+    - name: kserve-container
+      image: $(vllm-omni-cuda-image)
+      command:
+        - vllm
+        - serve
+      args:
+        - "--port=8080"
+        - "--model=/mnt/models"
+        - "--omni"
+        - "--log-stats"
+        - "--served-model-name={{.Name}}"
+      env:
+        - name: HF_HOME
+          value: /tmp/hf_home
+      ports:
+        - containerPort: 8080
+          protocol: TCP
+      volumeMounts:
+        - name: shm
+          mountPath: /dev/shm
+  volumes:
+    - name: shm
+      emptyDir:
+        medium: Memory
+        sizeLimit: 2Gi
