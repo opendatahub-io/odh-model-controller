@@ -37,7 +37,7 @@ import (
 
 // EnvoyFilterTemplateLoader renders EnvoyFilter templates.
 type EnvoyFilterTemplateLoader interface {
-	Load(ctx context.Context, gatewayNamespace, gatewayName string) (*istioclientv1alpha3.EnvoyFilter, error)
+	Load(ctx context.Context, gatewayNamespace, gatewayName string, requestBodyBufferLimitBytes int64) (*istioclientv1alpha3.EnvoyFilter, error)
 }
 
 type EnvoyFilterStore interface {
@@ -61,32 +61,34 @@ func NewKServeEnvoyFilterTemplateLoader(client client.Client) EnvoyFilterTemplat
 }
 
 // Load renders the EnvoyFilter SSL template for the given gateway.
-func (k *kserveEnvoyFilterTemplateLoader) Load(ctx context.Context, gatewayNamespace, gatewayName string) (*istioclientv1alpha3.EnvoyFilter, error) {
+func (k *kserveEnvoyFilterTemplateLoader) Load(ctx context.Context, gatewayNamespace, gatewayName string, requestBodyBufferLimitBytes int64) (*istioclientv1alpha3.EnvoyFilter, error) {
 	kuadrantNamespace := controllerutils.GetKuadrantNamespace(ctx, k.client)
-	return k.renderSSLTemplate(gatewayNamespace, gatewayName, kuadrantNamespace)
+	return k.renderSSLTemplate(gatewayNamespace, gatewayName, kuadrantNamespace, requestBodyBufferLimitBytes)
 }
 
 type envoyFilterTemplateData struct {
-	Name              string
-	Namespace         string
-	TargetKind        string
-	TargetName        string
-	KuadrantNamespace string
+	Name                        string
+	Namespace                   string
+	TargetKind                  string
+	TargetName                  string
+	KuadrantNamespace           string
+	RequestBodyBufferLimitBytes int64
 }
 
 // renderSSLTemplate renders the EnvoyFilter template. Pure function.
-func (k *kserveEnvoyFilterTemplateLoader) renderSSLTemplate(gatewayNamespace, gatewayName, kuadrantNamespace string) (*istioclientv1alpha3.EnvoyFilter, error) {
+func (k *kserveEnvoyFilterTemplateLoader) renderSSLTemplate(gatewayNamespace, gatewayName, kuadrantNamespace string, requestBodyBufferLimitBytes int64) (*istioclientv1alpha3.EnvoyFilter, error) {
 	tmpl, err := template.New("envoyfilter").Parse(string(envoyFilterTemplateSSL))
 	if err != nil {
 		return nil, fmt.Errorf("failed to parse EnvoyFilter template: %w", err)
 	}
 
 	data := envoyFilterTemplateData{
-		Name:              constants.GetGatewayEnvoyFilterName(gatewayName),
-		Namespace:         gatewayNamespace,
-		TargetKind:        "Gateway",
-		TargetName:        gatewayName,
-		KuadrantNamespace: kuadrantNamespace,
+		Name:                        constants.GetGatewayEnvoyFilterName(gatewayName),
+		Namespace:                   gatewayNamespace,
+		TargetKind:                  "Gateway",
+		TargetName:                  gatewayName,
+		KuadrantNamespace:           kuadrantNamespace,
+		RequestBodyBufferLimitBytes: requestBodyBufferLimitBytes,
 	}
 
 	var builder strings.Builder
