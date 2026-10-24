@@ -19,7 +19,6 @@ package llm_test
 import (
 	"context"
 	"os"
-	"strings"
 	"time"
 
 	kservev1alpha2 "github.com/kserve/kserve/pkg/apis/serving/v1alpha2"
@@ -231,8 +230,8 @@ var _ = Describe("LLMInferenceService Controller", func() {
 					for {
 						select {
 						case ev := <-eventRecorder.Events:
-							if strings.Contains(ev, reason) {
-								matched = append(matched, ev)
+							if ev.Namespace == testNs && ev.Reason == reason {
+								matched = append(matched, ev.Message)
 							}
 						default:
 							return matched
@@ -308,8 +307,7 @@ var _ = Describe("BaseRefs and Spec Merging", func() {
 			gatewayName := pkgtest.GenerateUniqueTestName("system-gateway")
 			systemNamespace := testutils.Namespaces.Create(ctx, envTest.Client).Name
 
-			_ = os.Setenv("POD_NAMESPACE", systemNamespace)
-			defer func() { _ = os.Unsetenv("POD_NAMESPACE") }()
+			GinkgoT().Setenv("POD_NAMESPACE", systemNamespace)
 
 			createCrossNamespaceGateway(ctx, gatewayName, systemNamespace)
 			createConfigWithGatewayRef(ctx, "system-config", systemNamespace, gatewayName, systemNamespace)
@@ -328,8 +326,7 @@ var _ = Describe("BaseRefs and Spec Merging", func() {
 			systemGatewayName := pkgtest.GenerateUniqueTestName("system-gateway")
 			systemNamespace := testutils.Namespaces.Create(ctx, envTest.Client).Name
 
-			_ = os.Setenv("POD_NAMESPACE", systemNamespace)
-			defer func() { _ = os.Unsetenv("POD_NAMESPACE") }()
+			GinkgoT().Setenv("POD_NAMESPACE", systemNamespace)
 
 			createTestGateway(ctx, serviceGatewayName, testNs)
 			createTestGateway(ctx, systemGatewayName, systemNamespace)
@@ -349,6 +346,8 @@ var _ = Describe("BaseRefs and Spec Merging", func() {
 		})
 
 		It("should handle config not found when POD_NAMESPACE is not set", func(ctx SpecContext) {
+			GinkgoT().Setenv("POD_NAMESPACE", "")
+			Expect(os.Unsetenv("POD_NAMESPACE")).To(Succeed())
 			llmisvc := fixture.LLMInferenceService(LLMInferenceServiceName,
 				fixture.InNamespace[*kservev1alpha2.LLMInferenceService](testNs),
 				fixture.WithBaseRefs(corev1.LocalObjectReference{Name: "missing-config"}),
