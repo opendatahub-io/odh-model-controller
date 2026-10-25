@@ -35,8 +35,9 @@ import (
 
 // Annotation keys for hardware profile references on workload objects.
 const (
-	HardwareProfileAnnotationName      = "opendatahub.io/hardware-profile-name"
-	HardwareProfileAnnotationNamespace = "opendatahub.io/hardware-profile-namespace"
+	HardwareProfileAnnotationName            = "opendatahub.io/hardware-profile-name"
+	HardwareProfileAnnotationNamespace       = "opendatahub.io/hardware-profile-namespace"
+	HardwareProfileAnnotationResourceVersion = "opendatahub.io/hardware-profile-resource-version"
 )
 
 // HardwareProfile CRD group and version.
@@ -157,7 +158,41 @@ func ProfileChanged(req admission.Request, newProfileName, newProfileNamespace s
 	if err != nil {
 		return true
 	}
-	return changed
+	if changed {
+		return true
+	}
+	rvChanged, err := resourceVersionAnnotationChanged(req)
+	if err != nil {
+		return true
+	}
+	return rvChanged
+}
+
+// resourceVersionAnnotationChanged reports whether opendatahub.io/hardware-profile-resource-version
+// changed on UPDATE. An empty new value does not count as a change.
+func resourceVersionAnnotationChanged(req admission.Request) (bool, error) {
+	if req.Operation != admissionv1.Update || len(req.OldObject.Raw) == 0 || len(req.Object.Raw) == 0 {
+		return false, nil
+	}
+	oldRV, err := annotationValue(req.OldObject.Raw, HardwareProfileAnnotationResourceVersion)
+	if err != nil {
+		return false, err
+	}
+	newRV, err := annotationValue(req.Object.Raw, HardwareProfileAnnotationResourceVersion)
+	if err != nil {
+		return false, err
+	}
+	return newRV != "" && oldRV != newRV, nil
+}
+
+func annotationValue(raw []byte, key string) (string, error) {
+	var obj struct {
+		Metadata metav1.ObjectMeta `json:"metadata"`
+	}
+	if err := json.Unmarshal(raw, &obj); err != nil {
+		return "", err
+	}
+	return obj.Metadata.Annotations[key], nil
 }
 
 // Resolve fetches a HardwareProfile CR and returns its parsed scheduling, resource, and DRA stanzas.
