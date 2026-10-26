@@ -16,8 +16,19 @@ spec:
         - jsonPath: .spec.providerKind
           name: Provider
           type: string
+        - jsonPath: .status.conditions[?(@.type=="Ready")].status
+          name: Ready
+          type: string
+        - jsonPath: .metadata.creationTimestamp
+          name: Age
+          type: date
+        - jsonPath: .status.conditions[?(@.type=="Ready")].reason
+          name: Reason
+          priority: 1
+          type: string
         - jsonPath: .status.phase
           name: Phase
+          priority: 1
           type: string
       name: v1alpha1
       schema:
@@ -50,10 +61,16 @@ spec:
                   description: Authentication configuration.
                   nullable: true
                   properties:
-                    manual:
-                      default: false
+                    credentialsManagedExternally:
                       description: |-
                         Whether the user manages credentials manually.
+
+                        When true, the operator does not inject credentials
+                        and the user is responsible for configuring auth.
+                      type: boolean
+                    manual:
+                      description: |-
+                        Deprecated in favor of `credentialsManagedExternally`; this legacy field will be removed in a future release. Whether the user manages credentials manually.
 
                         When true, the operator does not inject credentials
                         and the user is responsible for configuring auth.
@@ -98,6 +115,9 @@ spec:
                   required:
                     - strategy
                   type: object
+                  x-kubernetes-validations:
+                    - message: set only `manual` or `credentialsManagedExternally`, not both
+                      rule: '!(has(self.manual) && has(self.credentialsManagedExternally))'
                 backendKind:
                   description: Backend deployment category.
                   type: string
@@ -108,6 +128,24 @@ spec:
                   minimum: 1.0
                   nullable: true
                   type: integer
+                clusterName:
+                  description: |-
+                    Optional routing identity used in overlay candidate `site` and `cluster` fields.
+
+                    When set, routing overlay candidates produced for this provider use this value
+                    instead of `metadata.name`:
+
+                    - In Phase 1 (no [`GridSite`] inventory), both `candidate.site` and `candidate.cluster` are set to this value.
+                    - When [`GridSite`] resources are present, only `candidate.cluster` is overridden; `candidate.site` is derived
+                      from the matched `GridSite`.
+
+                    Use this to align the provider's routing identity with an upstream cluster
+                    name already configured in the consumer gateway, such as a Praxis
+                    `load_balancer` cluster entry.  When absent, `metadata.name` is used.
+
+                    [`GridSite`]: crate::crd::grid_site::GridSite
+                  nullable: true
+                  type: string
                 cost:
                   description: Cost information.
                   nullable: true
@@ -128,7 +166,7 @@ spec:
                   type: string
                 gatewayRef:
                   description: |-
-                    Stable provider-gateway identity used by administrative operations.
+                    Deprecated in favor of `providerGateway`; this legacy field will be removed in a future release. Stable provider-gateway identity used by administrative operations.
 
                     Providers with the same value are drained together by the gateway-wide
                     operation. It is an explicit control-plane relationship; the operator
@@ -173,12 +211,12 @@ spec:
                       type: string
                     tls:
                       description: |-
-                        TLS configuration for the health probe endpoint.
+                        Optional TLS override for the health probe endpoint.
 
-                        When set, the operator uses the provided CA certificate for TLS server
-                        verification and optionally presents a client certificate for mutual TLS
-                        (mTLS).  When absent, the probe uses system root certificates
-                        (backward-compatible).
+                        When absent, `InferenceProvider.spec.tls` is used when configured;
+                        otherwise, the probe uses system root certificates. Set this only when
+                        the health endpoint requires different trust material or a different
+                        client identity.
 
                         **Fail-closed:** when configured but the referenced Secrets cannot be
                         resolved or contain invalid material, the probe is skipped entirely.
@@ -313,11 +351,24 @@ spec:
                       required:
                         - type
                       type: object
-                    metricsEndpoint:
+                    endpoint:
                       description: |-
                         Base URL for the metrics endpoint, independent of `spec.endpoint`.
 
-                        When set, the scrape URL is `{metrics_endpoint}{path}` instead of
+                        When set, the scrape URL is `{endpoint}{path}` instead of
+                        `{spec.endpoint}{path}`.  This allows scraping metrics from a separate
+                        service (such as an llm-d EPP) while the provider inference endpoint
+                        points at the pool's request path.
+
+                        When absent, the scrape URL uses `spec.endpoint` as before.
+                      minLength: 1
+                      nullable: true
+                      type: string
+                    metricsEndpoint:
+                      description: |-
+                        Deprecated in favor of `endpoint`; this legacy field will be removed in a future release. Base URL for the metrics endpoint, independent of `spec.endpoint`.
+
+                        When set, the scrape URL is `{endpoint}{path}` instead of
                         `{spec.endpoint}{path}`.  This allows scraping metrics from a separate
                         service (such as an llm-d EPP) while the provider inference endpoint
                         points at the pool's request path.
@@ -331,7 +382,7 @@ spec:
                       description: |-
                         HTTP path for the Prometheus metrics endpoint.
 
-                        Appended to `metrics_endpoint` (when set) or `spec.endpoint`.
+                        Appended to `endpoint` (when set) or `spec.endpoint`.
                         Defaults to `"/metrics"` when absent.
                       type: string
                     poolName:
@@ -354,7 +405,7 @@ spec:
                     queueCapacity:
                       description: |-
                         Maximum queue slot count for normalising a raw queue-size metric to
-                        0.0–1.0.
+                        the 0.0 to 1.0 range.
 
                         When set, the `queue_depth` signal value is divided by this capacity
                         and clamped to `[0.0, 1.0]` before scoring.  This allows consuming raw
@@ -362,7 +413,7 @@ spec:
                         without requiring the exporter to pre-normalise.
 
                         When absent, the `queue_depth` signal must already be normalised to
-                        0.0–1.0 by the exporter (backward compatible).
+                        the 0.0 to 1.0 range by the exporter (backward compatible).
                       format: uint32
                       minimum: 1.0
                       nullable: true
@@ -376,7 +427,7 @@ spec:
                         neutral default value (`0.5`) in scoring.
                       properties:
                         errorRate:
-                          description: Metric name for normalised error rate (0.0–1.0).
+                          description: Metric name for normalised error rate (0.0 to 1.0).
                           nullable: true
                           type: string
                         healthy:
@@ -384,7 +435,7 @@ spec:
                           nullable: true
                           type: string
                         kvCacheUtilization:
-                          description: Metric name for KV-cache utilisation (0.0–1.0).
+                          description: Metric name for KV-cache utilisation (0.0 to 1.0).
                           nullable: true
                           type: string
                         latencyP99Ms:
@@ -392,11 +443,19 @@ spec:
                           nullable: true
                           type: string
                         prefixCacheHitRatio:
-                          description: Metric name for prefix-cache hit ratio (0.0–1.0).
+                          description: Metric name for prefix-cache hit ratio (0.0 to 1.0).
                           nullable: true
                           type: string
                         queueDepth:
-                          description: Metric name for normalised queue depth (0.0–1.0).
+                          description: Metric name for normalised queue depth (0.0 to 1.0).
+                          nullable: true
+                          type: string
+                        readyEndpoints:
+                          description: |-
+                            Metric name counting the pool's ready endpoints, read for the `Ready` condition.
+
+                            Defaults to `llm_d_epp_ready_endpoints`, then `inference_pool_ready_pods`.
+                            Filtered by `poolName` when set. Zero marks the provider not ready.
                           nullable: true
                           type: string
                       type: object
@@ -434,12 +493,12 @@ spec:
                       type: string
                     tls:
                       description: |-
-                        TLS configuration for the metrics endpoint.
+                        Optional TLS override for the metrics endpoint.
 
-                        When set, the operator uses the provided CA certificate for TLS server
-                        verification and optionally presents a client certificate for mutual TLS
-                        (mTLS).  When absent, the scraper uses system root certificates
-                        (backward-compatible).
+                        When absent, `InferenceProvider.spec.tls` is used when configured;
+                        otherwise, the scraper uses system root certificates. Set this only
+                        when the metrics endpoint requires different trust material or a
+                        different client identity.
 
                         **Fail-closed:** when configured but the referenced Secrets cannot be
                         resolved or contain invalid material, the scrape is skipped entirely.
@@ -542,6 +601,9 @@ spec:
                         - message: set exactly one of caSecretRef and caConfigMapRef
                           rule: has(self.caSecretRef) != has(self.caConfigMapRef)
                   type: object
+                  x-kubernetes-validations:
+                    - message: set only `metricsEndpoint` or `endpoint`, not both
+                      rule: '!(has(self.metricsEndpoint) && has(self.endpoint))'
                 modelDiscovery:
                   description: |-
                     Where to discover the models this provider serves.
@@ -577,9 +639,12 @@ spec:
                           type: string
                         tls:
                           description: |-
-                            TLS configuration for the model-listing endpoint.
+                            Optional TLS override for the model-listing endpoint.
 
-                            When absent, system root certificates are used.
+                            When absent, `InferenceProvider.spec.tls` is used when configured;
+                            otherwise, system root certificates are used. Set this only when the
+                            model-listing endpoint requires different trust material or a different
+                            client identity.
                           nullable: true
                           properties:
                             caConfigMapRef:
@@ -704,12 +769,22 @@ spec:
                       - name
                     type: object
                   type: array
+                providerGateway:
+                  description: |-
+                    Stable provider-gateway identity used by administrative operations.
+
+                    Providers with the same value are drained together by the gateway-wide
+                    operation. It is an explicit control-plane relationship; the operator
+                    never infers it from endpoint URLs.
+                  minLength: 1
+                  nullable: true
+                  type: string
                 providerKind:
                   description: Inference provider type.
                   type: string
                 routingClusterRef:
                   description: |-
-                    Optional routing identity used in overlay candidate `site` and `cluster` fields.
+                    Deprecated in favor of `clusterName`; this legacy field will be removed in a future release. Optional routing identity used in overlay candidate `site` and `cluster` fields.
 
                     When set, routing overlay candidates produced for this provider use this value
                     instead of `metadata.name`:
@@ -737,6 +812,111 @@ spec:
                       description: Label key-value pairs that must match.
                       type: object
                   type: object
+                tls:
+                  description: |-
+                    Shared TLS configuration for provider health checks, metrics scraping,
+                    and model discovery.
+
+                    A feature-specific `tls` setting overrides this value when it needs a
+                    different CA bundle or client identity. When neither is set, the
+                    request uses system root certificates.
+                  nullable: true
+                  properties:
+                    caConfigMapRef:
+                      description: |-
+                        Reference to a `ConfigMap` holding the CA certificate PEM, such as the
+                        platform service CA (`openshift-service-ca.crt`, key `service-ca.crt`).
+
+                        A CA bundle is public, so it may live in a `ConfigMap`. Like
+                        `ca_secret_ref`, it is the only trust consulted when set.
+                      nullable: true
+                      properties:
+                        key:
+                          description: Key within the `ConfigMap`'s `data`. Defaults to `ca.crt`.
+                          nullable: true
+                          type: string
+                        name:
+                          description: '`ConfigMap` name.'
+                          type: string
+                        namespace:
+                          description: '`ConfigMap` namespace.'
+                          type: string
+                      required:
+                        - name
+                        - namespace
+                      type: object
+                    caSecretRef:
+                      description: |-
+                        Reference to a Secret containing the CA certificate PEM for server
+                        verification.
+
+                        The Secret must contain the PEM-encoded CA certificate under the key
+                        `ca.crt` (or the key specified by `key`).  When this CA is
+                        set, the scraper trusts **only** this CA; system root certificates
+                        are not consulted. Exactly one of this and `ca_config_map_ref` is set.
+                      nullable: true
+                      properties:
+                        key:
+                          description: |-
+                            Key within the Secret's `data` map.
+
+                            Required when the Secret holds multiple keys (e.g. credential references
+                            in `InferenceProvider.spec.auth.secretRef`).  Omit only when the entire
+                            Secret is consumed (e.g. TLS `ca_secret_ref`).
+                          minLength: 1
+                          nullable: true
+                          type: string
+                        name:
+                          description: Secret name.
+                          minLength: 1
+                          type: string
+                        namespace:
+                          description: Secret namespace.
+                          minLength: 1
+                          type: string
+                      required:
+                        - name
+                        - namespace
+                      type: object
+                    clientCertificateSecretRef:
+                      description: |-
+                        Reference to a Secret containing the client certificate and private
+                        key for mutual TLS.
+
+                        When set, the scraper presents this identity during the TLS handshake.
+                        The Secret must contain `tls.crt` (or `certificate_key`) and
+                        `tls.key` (or `private_key_key`) in PEM format.
+
+                        When absent, the scraper performs one-way TLS only (server verification
+                        with the CA from `ca_secret_ref`, no client certificate).
+                      nullable: true
+                      properties:
+                        certificateKey:
+                          default: tls.crt
+                          description: Key within `Secret.data` holding the PEM-encoded client certificate.
+                          minLength: 1
+                          type: string
+                        name:
+                          description: Secret name.
+                          minLength: 1
+                          type: string
+                        namespace:
+                          description: Secret namespace.
+                          minLength: 1
+                          type: string
+                        privateKeyKey:
+                          default: tls.key
+                          description: Key within `Secret.data` holding the PEM-encoded private key.
+                          minLength: 1
+                          type: string
+                      required:
+                        - name
+                        - namespace
+                      type: object
+                  type: object
+                  x-kubernetes-validations:
+                    - message: set exactly one of caSecretRef and caConfigMapRef
+                      rule: has(self.caSecretRef) != has(self.caConfigMapRef)
                 trafficPolicy:
                   description: Optional administrative traffic policy.
                   nullable: true
@@ -752,10 +932,55 @@ spec:
                 - gridNetworkRef
                 - providerKind
               type: object
+              x-kubernetes-validations:
+                - message: set only `gatewayRef` or `providerGateway`, not both
+                  rule: '!(has(self.gatewayRef) && has(self.providerGateway))'
+                - message: set only `routingClusterRef` or `clusterName`, not both
+                  rule: '!(has(self.routingClusterRef) && has(self.clusterName))'
             status:
               description: Observed status of an [`InferenceProvider`].
               nullable: true
               properties:
+                conditions:
+                  description: |-
+                    Observed conditions. `Ready` says whether the provider can currently serve a request.
+
+                    Written by the operator's signals loop, never by provider reconciliation.
+                  items:
+                    description: One observed condition, shaped like `metav1.Condition`.
+                    properties:
+                      lastTransitionTime:
+                        description: When `status` last changed, RFC 3339.
+                        format: date-time
+                        type: string
+                      message:
+                        default: ""
+                        description: Human-readable detail.
+                        type: string
+                      observedGeneration:
+                        description: The `metadata.generation` this was computed against.
+                        format: int64
+                        nullable: true
+                        type: integer
+                      reason:
+                        description: CamelCase reason for the status.
+                        type: string
+                      status:
+                        description: '`True`, `False`, or `Unknown`.'
+                        type: string
+                      type:
+                        description: Condition type, such as `Ready`.
+                        type: string
+                    required:
+                      - lastTransitionTime
+                      - reason
+                      - status
+                      - type
+                    type: object
+                  type: array
+                  x-kubernetes-list-map-keys:
+                    - type
+                  x-kubernetes-list-type: map
                 matchingSites:
                   default: []
                   description: Sites matched by the site selector.
@@ -801,6 +1026,30 @@ spec:
                     - `MetricsTlsSecretMissing`, `MetricsTlsKeyMissing`, `MetricsTlsMaterialInvalid`, `MetricsTlsIdentityMismatch`
                     - `HealthCheckTlsSecretMissing`, `HealthCheckTlsKeyMissing`, `HealthCheckTlsMaterialInvalid`,
                       `HealthCheckTlsIdentityMismatch`
+                    - `HealthCheckAuthCredentialUnavailable`, `HealthCheckAuthValueInvalid`
+                  nullable: true
+                  type: string
+                servedModels:
+                  description: |-
+                    Models the discovery loop last observed this provider serving.
+
+                    Present for a successful held set. Cleared when the set is unknown,
+                    expired, or discovery is disabled, though clearing may lag after expiry.
+                    Readers must require `servedModelsExpiresAt` to be in the future. An
+                    empty set means the backend serves no models. Bounded by the discovery
+                    caps (256 models, 256-byte names); order carries no meaning.
+                  items:
+                    type: string
+                  nullable: true
+                  type: array
+                  x-kubernetes-list-type: atomic
+                servedModelsExpiresAt:
+                  description: |-
+                    RFC 3339 UTC deadline for the corresponding `servedModels` set.
+
+                    Readers must reject the set at or after this time, even if the status
+                    field has not yet been cleared by the next discovery round.
+                  format: date-time
                   nullable: true
                   type: string
               type: object
