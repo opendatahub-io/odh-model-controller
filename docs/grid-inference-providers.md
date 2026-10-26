@@ -386,12 +386,15 @@ setting `metricsConfig` on a provider that has no annotation, such as one create
 before this behavior existed. The controller then removes the annotation and
 leaves `metricsConfig` alone. To hand it back, delete `metricsConfig`.
 
-The controller does not create network access. KServe's per-service NetworkPolicy
-admits the platform monitoring namespaces and `openshift-ingress`, not the Grid
-operator, so the scrape is denied until the Grid operator's namespace is admitted
-to the Service's `metrics` port. Inference needs nothing: it reaches a model
-through the MaaS Gateway in `openshift-ingress`, which that policy already
-admits.
+KServe's per-service NetworkPolicy admits the platform monitoring namespaces and
+`openshift-ingress`, not the Grid operator. While it publishes `metricsConfig`, the
+controller therefore owns a NetworkPolicy, named like the provider, that admits the
+Grid operator's namespace to the EPP pods' metrics port. It selects the pods with
+the EPP Service's selector and allows the port's `targetPort`, and it is not created
+for a Service without a selector. The policy is removed when publication stops, the
+EPP Service is withdrawn, or the provider is revoked. Inference needs no policy: it
+reaches a model through the MaaS Gateway in `openshift-ingress`, which KServe's
+policy already admits.
 
 Administrators supply backend CA and TLS server-identity declarations through
 Grid's transport/trust configuration; an HTTPS endpoint alone does not specify
@@ -401,10 +404,10 @@ needed; the exported workload health probes are not inferred from service names.
 Grid's inference transport must trust HTTPS Gateway certificates.
 
 Removing a Gateway annotation or deleting that Gateway revokes its associated
-RoleBindings/Roles and providers. Excluding the namespace, stopping the model,
+RoleBindings/Roles, NetworkPolicies, and providers. Excluding the namespace, stopping the model,
 withdrawing reported routing attachments, or deleting the LLMInferenceService
 revokes the affected pairs. A finalizer holds service deletion
-until uncached reads confirm the provider, Role, and RoleBinding are all absent,
+until uncached reads confirm the provider, Role, RoleBinding, and NetworkPolicy are all absent,
 including resources held by other finalizers. All deletions are requested even
 when another resource is still terminating. Resources with a different recorded
 source identity are never overwritten or deleted.

@@ -17,6 +17,7 @@ limitations under the License.
 package llm
 
 import (
+	"cmp"
 	"context"
 	"crypto/sha256"
 	"errors"
@@ -33,12 +34,14 @@ import (
 	kservellmisvc "github.com/kserve/kserve/pkg/controller/v1alpha2/llmisvc"
 	kserveutils "github.com/kserve/kserve/pkg/utils"
 	corev1 "k8s.io/api/core/v1"
+	networkingv1 "k8s.io/api/networking/v1"
 	rbacv1 "k8s.io/api/rbac/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime/schema"
+	"k8s.io/apimachinery/pkg/util/intstr"
 	"k8s.io/client-go/tools/events"
 	"k8s.io/utils/ptr"
 	"knative.dev/pkg/kmeta"
@@ -92,12 +95,13 @@ func gridResourceName(svc *kservev1alpha2.LLMInferenceService, gateway *gatewayv
 // +kubebuilder:rbac:groups=events.k8s.io,resources=events,verbs=create;patch
 // +kubebuilder:rbac:groups="",resources=namespaces,verbs=get;list;watch
 // +kubebuilder:rbac:groups="",resources=services,verbs=get;list;watch
+// +kubebuilder:rbac:groups=networking.k8s.io,resources=networkpolicies,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups=rbac.authorization.k8s.io,resources=roles;rolebindings,verbs=get;list;watch;create;update;patch;delete
 
 func (r *GridInferenceProviderReconciler) SetupWithManager(mgr ctrl.Manager, logger logr.Logger) error {
 	// Even when publishing is disabled, run cleanup for existing finalizers.
 	b := ctrl.NewControllerManagedBy(mgr).For(&kservev1alpha2.LLMInferenceService{}).
-		Owns(&rbacv1.Role{}).Owns(&rbacv1.RoleBinding{}).
+		Owns(&rbacv1.Role{}).Owns(&rbacv1.RoleBinding{}).Owns(&networkingv1.NetworkPolicy{}).
 		// KServe's EPP Service is owned by the LLMInferenceService.
 		Owns(&corev1.Service{}).
 		Watches(&corev1.Namespace{}, r.namespaceResync(logger)).
@@ -372,7 +376,67 @@ func (r *GridInferenceProviderReconciler) reconcileAccess(ctx context.Context, s
 			return err
 		}
 	}
-	return nil
+	return r.reconcileMetricsAccess(ctx, svc, publication)
+}
+
+// reconcileMetricsAccess admits the Grid operator to the EPP metrics port while metrics are published.
+// KServe's per-service policy admits only the monitoring namespaces and the Gateway there.
+func (r *GridInferenceProviderReconciler) reconcileMetricsAccess(ctx context.Context, svc *kservev1alpha2.LLMInferenceService, publication gridPublication) error {
+	cfg := publication.config
+	policy := &networkingv1.NetworkPolicy{ObjectMeta: gridMetadata(svc, publication.gateway)}
+	policy.Namespace = svc.Namespace
+	var service *corev1.Service
+	var port *corev1.ServicePort
+	if cfg.PublishMetrics {
+		var err error
+		if service, port, err = r.eppMetricsService(ctx, svc); err != nil {
+			return err
+		}
+	}
+	// An empty selector would admit the operator to every pod in the namespace.
+	if service == nil || len(service.Spec.Selector) == 0 {
+		return r.deleteOwned(ctx, svc, policy)
+	}
+	// Policies match the pod port, which the Service maps from its own.
+	target := port.TargetPort
+	if target.Type == intstr.Int && target.IntVal == 0 {
+		target = intstr.FromInt32(port.Port)
+	}
+	_, err := controllerutil.CreateOrUpdate(ctx, r.Client, policy, func() error {
+		if policy.GetResourceVersion() != "" && !gridOwned(policy, svc) {
+			return fmt.Errorf("refusing to overwrite unmanaged Grid access %s", policy.GetName())
+		}
+		if !policy.GetDeletionTimestamp().IsZero() {
+			return fmt.Errorf("Grid access %s is still deleting", policy.GetName())
+		}
+		if err := controllerutil.SetControllerReference(svc, policy, r.Scheme()); err != nil {
+			return err
+		}
+		policy.Spec = networkingv1.NetworkPolicySpec{
+			PodSelector: metav1.LabelSelector{MatchLabels: service.Spec.Selector},
+			PolicyTypes: []networkingv1.PolicyType{networkingv1.PolicyTypeIngress},
+			Ingress: []networkingv1.NetworkPolicyIngressRule{{
+				From: []networkingv1.NetworkPolicyPeer{{
+					NamespaceSelector: &metav1.LabelSelector{MatchLabels: map[string]string{corev1.LabelMetadataName: cfg.Namespace}},
+				}},
+				Ports: []networkingv1.NetworkPolicyPort{{Protocol: ptr.To(cmp.Or(port.Protocol, corev1.ProtocolTCP)), Port: &target}},
+			}},
+		}
+		return nil
+	})
+	return err
+}
+
+// deleteOwned removes obj only when this service's recorded identity owns it.
+func (r *GridInferenceProviderReconciler) deleteOwned(ctx context.Context, svc *kservev1alpha2.LLMInferenceService, obj client.Object) error {
+	if err := r.Get(ctx, client.ObjectKeyFromObject(obj), obj); err != nil {
+		return client.IgnoreNotFound(err)
+	}
+	if !gridOwned(obj, svc) {
+		return nil
+	}
+	uid := obj.GetUID()
+	return client.IgnoreNotFound(r.Delete(ctx, obj, &client.DeleteOptions{Preconditions: &metav1.Preconditions{UID: &uid}}))
 }
 
 func (r *GridInferenceProviderReconciler) reconcileProvider(ctx context.Context, svc *kservev1alpha2.LLMInferenceService, publication gridPublication) error {
@@ -539,11 +603,20 @@ func (r *GridInferenceProviderReconciler) cleanupExcept(ctx context.Context, svc
 	var objects []client.Object
 	roles := &rbacv1.RoleList{}
 	bindings := &rbacv1.RoleBindingList{}
+	policies := &networkingv1.NetworkPolicyList{}
 	if err := r.APIReader.List(ctx, roles, client.InNamespace(svc.Namespace)); err != nil {
 		return false, err
 	}
 	if err := r.APIReader.List(ctx, bindings, client.InNamespace(svc.Namespace)); err != nil {
 		return false, err
+	}
+	if err := r.APIReader.List(ctx, policies, client.InNamespace(svc.Namespace)); err != nil {
+		return false, err
+	}
+	for i := range policies.Items {
+		if gridOwned(&policies.Items[i], svc) && !keep[policies.Items[i].Name] {
+			objects = append(objects, &policies.Items[i])
+		}
 	}
 	for i := range bindings.Items {
 		if gridOwned(&bindings.Items[i], svc) && !keep[bindings.Items[i].Name] {
