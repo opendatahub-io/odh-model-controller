@@ -79,12 +79,26 @@ func IsNotNil(i any) bool {
 
 // Query the DSCI from the cluster
 func getDSCIObject(ctx context.Context, cli client.Client) (*unstructured.UnstructuredList, error) {
-	objectList := &unstructured.UnstructuredList{}
-	objectList.SetAPIVersion(GVK.DataScienceClusterInitialization.GroupVersion().String())
-	objectList.SetKind(GVK.DataScienceClusterInitialization.Kind)
+	objectList, err := ListUnstructuredByGroupKind(ctx, cli, GroupKind.DataScienceClusterInitialization)
+	if err != nil {
+		return nil, fmt.Errorf("not able to read DSCInitialization: %w", err)
+	}
 
+	return objectList, nil
+}
+
+// ListUnstructuredByGroupKind lists a resource using the version preferred by
+// the API server. This supports clusters that no longer serve older versions.
+func ListUnstructuredByGroupKind(ctx context.Context, cli client.Client, groupKind schema.GroupKind) (*unstructured.UnstructuredList, error) {
+	mapping, err := cli.RESTMapper().RESTMapping(groupKind)
+	if err != nil {
+		return nil, fmt.Errorf("resolve API version for %s: %w", groupKind, err)
+	}
+
+	objectList := &unstructured.UnstructuredList{}
+	objectList.SetGroupVersionKind(mapping.GroupVersionKind)
 	if err := cli.List(ctx, objectList); err != nil {
-		return objectList, fmt.Errorf("not able to read %s: %w", objectList, err)
+		return nil, err
 	}
 
 	return objectList, nil
