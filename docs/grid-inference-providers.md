@@ -34,8 +34,11 @@ Label the model namespace and annotate the Gateway:
 
 ```sh
 oc label namespace models grid.opendatahub.io/allowed=true
-oc annotate gateway model-gateway -n openshift-ingress grid.opendatahub.io/serving='{"networkName":"grid-local","namespace":"grid-system","serviceAccount":"grid-model-client","tokenSecret":"grid-model-client-token","siteLabels":"grid.praxis.fast/provider-site=local","publishMetrics":true}'
+oc annotate gateway model-gateway -n openshift-ingress grid.opendatahub.io/serving='{"networkName":"grid-local","namespace":"grid-system","serviceAccount":"grid-model-client","tokenSecret":"grid-model-client-token","siteLabels":"grid.praxis.fast/provider-site=local","publishMetrics":true,"metricsAllowPlaintext":true}'
 ```
+
+The EPP serves metrics over plain HTTP, so Grid needs `metricsAllowPlaintext` to send its
+token there. It defaults to false, and without it Grid reports `MetricsAvailable=False`.
 
 Provision the service account and its token Secret in the configured namespace:
 
