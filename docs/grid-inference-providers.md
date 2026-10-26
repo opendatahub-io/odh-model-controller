@@ -65,7 +65,9 @@ independent of this Gateway allowlist and retains its resource-name validation.
 
 `publishMetrics` is an optional boolean, `false` by default. When it is
 `true`, the controller also publishes the model's scheduler (EPP) metrics
-endpoint, as described below.
+endpoint, as described below. `metricsAllowPlaintext` is an optional boolean,
+`false` by default, that grants Grid's `auth.allowPlaintext` when that endpoint
+is plain HTTP.
 
 `siteLabels` is an optional comma-separated string of `key=value` labels;
 omitting it matches every GridSite. The annotation must contain a JSON object
@@ -319,7 +321,9 @@ publish it instead.
 
 KServe reports the EPP Service in `status.router.scheduler.service`. When the
 Gateway configuration sets `publishMetrics: true`, the controller reads
-that Service in the service's namespace, takes its port named `metrics`, and sets:
+that Service in the service's namespace, takes its port named `metrics`, and sets
+the following. `allowPlaintext` is written only when the Gateway configuration
+also sets `metricsAllowPlaintext: true`:
 
 ```yaml
 spec:
@@ -332,11 +336,18 @@ spec:
       allowPlaintext: true
 ```
 
-The scheme comes from the `metrics` port's `appProtocol`, so both transports are
-supported and the controller never has to read the scheduler's flags. A port that
-declares nothing is HTTP, which is what the EPP serves by default. A port that
-declares `appProtocol: https` is published as TLS instead, verified against the
-platform service CA and with no plaintext allowance:
+Grid takes the scheme from the endpoint URL and its defaults apply to the rest:
+with a credential, it refuses an `http://` endpoint unless `auth.allowPlaintext` is
+true, and an `https://` endpoint unless `metricsConfig.tls` or `spec.tls` names the
+CA. The controller takes the scheme from the `metrics` port's `appProtocol`. A port
+that declares nothing is HTTP, which is what the EPP serves: KServe's
+`enableLLMInferenceServiceTLS` turns on TLS for the EPP's gRPC listener
+(`--secure-serving`, `--cert-path`), while the EPP serves metrics over TLS only with
+`--metrics-cert-dir`, which KServe does not set. Without `metricsAllowPlaintext`,
+Grid therefore refuses the scrape and reports `MetricsAvailable=False` with reason
+`MetricsCredentialUnavailable` on the provider. A port that declares
+`appProtocol: https` is published as TLS instead, verified against the platform
+service CA and with no plaintext allowance:
 
 ```yaml
 spec:
@@ -360,9 +371,10 @@ and already carries the EPP Service hostnames, so serving the metrics port over
 TLS needs the serving flag and the `appProtocol` declaration, and no new
 certificate.
 
-Publishing is opt-in per Gateway because the default transport is plain HTTP and
-requires a bearer token, so Grid sends its scrape token unencrypted inside the
-cluster. The platform's own ServiceMonitor scrapes the same port the same way.
+Publishing is opt-in per Gateway, and sending the scrape token over plain HTTP
+is a second, separate opt-in, because Grid then sends the token unencrypted
+inside the cluster. The platform's own ServiceMonitor scrapes the same port the
+same way.
 Without the setting, or without a reported EPP Service with a `metrics` port, the
 controller publishes no `metricsConfig`.
 
@@ -375,8 +387,10 @@ The controller records the endpoint it wrote in the provider annotation
 is absent or its `endpoint` still matches that annotation. While it
 manages the field, it owns `endpoint`, and owns `auth` and `tls` because both
 follow the transport: a scheme change invalidates the plaintext allowance and the
-CA reference together. An `allowPlaintext: false` an administrator set is kept, so
-the scrape fails closed rather than being overridden. Other fields an
+CA reference together. The controller sets `allowPlaintext: true` only on an HTTP
+endpoint whose Gateway grants it, and otherwise removes a `true`. It never changes
+an `allowPlaintext: false` an administrator set, so that refusal is kept through any
+transport change or grant, and the plaintext scrape fails closed. Other fields an
 administrator adds are preserved, such as `poolName`, `signalNames`, or a changed
 `timeout`. It updates the endpoint when the EPP Service or its port changes, and
 removes the field when the EPP Service is withdrawn or the setting is turned off.

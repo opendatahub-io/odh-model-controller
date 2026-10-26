@@ -490,7 +490,7 @@ func (r *GridInferenceProviderReconciler) reconcileProvider(ctx context.Context,
 		if spec == nil {
 			spec = map[string]interface{}{}
 		}
-		reconcileGridMetrics(spec, annotations, metricsEndpoint, metricsSecure, cfg.Namespace)
+		reconcileGridMetrics(spec, annotations, metricsEndpoint, metricsSecure, cfg.MetricsAllowPlaintext, cfg.Namespace)
 		provider.SetAnnotations(annotations)
 		for key, value := range map[string]interface{}{
 			"gridNetworkRef": cfg.NetworkName, "providerKind": "vllm", "backendKind": "local_model",
@@ -534,7 +534,8 @@ func (r *GridInferenceProviderReconciler) eppMetricsService(ctx context.Context,
 
 // eppMetricsEndpoint returns the EPP metrics URL and whether it is TLS, or "" when there is none.
 //
-// Scheme comes from the port's appProtocol, so a TLS flip needs no reading of scheduler flags.
+// The scheme follows the port's appProtocol, not enableLLMInferenceServiceTLS: that setting
+// switches the EPP's gRPC listener, while its metrics serve TLS only with --metrics-cert-dir.
 func (r *GridInferenceProviderReconciler) eppMetricsEndpoint(ctx context.Context, svc *kservev1alpha2.LLMInferenceService) (string, bool, error) {
 	service, port, err := r.eppMetricsService(ctx, svc)
 	if err != nil || service == nil {
@@ -551,7 +552,7 @@ func (r *GridInferenceProviderReconciler) eppMetricsEndpoint(ctx context.Context
 
 // reconcileGridMetrics manages spec.metricsConfig only while it is absent or
 // still carries the endpoint this controller generated.
-func reconcileGridMetrics(spec map[string]interface{}, annotations map[string]string, endpoint string, secure bool, caNamespace string) {
+func reconcileGridMetrics(spec map[string]interface{}, annotations map[string]string, endpoint string, secure, allowPlaintext bool, caNamespace string) {
 	current, _ := spec["metricsConfig"].(map[string]interface{})
 	generated, recorded := annotations[gridMetricsEndpoint]
 	// Accept the deprecated key too, or a provider written before the rename is abandoned.
@@ -570,23 +571,27 @@ func reconcileGridMetrics(spec map[string]interface{}, annotations map[string]st
 	if current == nil {
 		current = map[string]interface{}{}
 	}
-	// Credential and trust follow the transport: plaintext needs the allowance, TLS needs the CA.
+	// Credential and trust follow the transport; Grid refuses a bearer over http unless allowPlaintext.
 	auth, _ := current["auth"].(map[string]interface{})
 	if auth == nil {
 		auth = map[string]interface{}{}
 	}
 	auth["type"] = "serviceAccountToken"
+	// An explicit false is never raised, so a refusal outlives a TLS period and a later grant.
+	if allowed, set := auth["allowPlaintext"].(bool); !set || allowed {
+		if !secure && allowPlaintext {
+			auth["allowPlaintext"] = true
+		} else {
+			delete(auth, "allowPlaintext")
+		}
+	}
 	if secure {
-		// Service CA bundle in the operator's namespace, the only one it can read.
-		delete(auth, "allowPlaintext")
+		// Grid sends a bearer over https only to a host a named CA proves. The service CA bundle
+		// in the operator's namespace is the one it can read.
 		current["tls"] = map[string]interface{}{
 			"caConfigMapRef": map[string]interface{}{"name": "openshift-service-ca.crt", "namespace": caNamespace, "key": "service-ca.crt"},
 		}
 	} else {
-		// Honour an explicit refusal to send a bearer in clear; the scrape then fails closed.
-		if allowed, set := auth["allowPlaintext"].(bool); !set || allowed {
-			auth["allowPlaintext"] = true
-		}
 		delete(current, "tls")
 	}
 	current["auth"] = auth
