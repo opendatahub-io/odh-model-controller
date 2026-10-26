@@ -224,9 +224,9 @@ var _ = Describe("Grid provider reconciliation", Ordered, func() {
 		}).Should(Succeed())
 		return epp
 	}
-	publishMetrics := func(ctx context.Context, publish bool) {
+	publishMetrics := func(ctx context.Context, publish, allowPlaintext bool) {
 		Expect(envTest.Get(ctx, client.ObjectKeyFromObject(gateway), gateway)).To(Succeed())
-		gateway.Annotations[llmcontroller.GridServingAnnotation] = fmt.Sprintf(`{"networkName":"grid-test","namespace":"grid-test-identity","serviceAccount":"grid-client","tokenSecret":"grid-token","publishMetrics":%t}`, publish)
+		gateway.Annotations[llmcontroller.GridServingAnnotation] = fmt.Sprintf(`{"networkName":"grid-test","namespace":"grid-test-identity","serviceAccount":"grid-client","tokenSecret":"grid-token","publishMetrics":%t,"metricsAllowPlaintext":%t}`, publish, allowPlaintext)
 		Expect(envTest.Update(ctx, gateway)).To(Succeed())
 	}
 	metricsPolicy := func(ctx context.Context, name string) func() *networkingv1.NetworkPolicy {
@@ -497,14 +497,18 @@ var _ = Describe("Grid provider reconciliation", Ordered, func() {
 		recheck := func(value string) {
 			updateService(ctx, func(s *kservev1alpha2.LLMInferenceService) { s.Annotations["test.example.com/recheck"] = value })
 		}
-		setPlaintext := func(allow bool) { publishMetrics(ctx, allow) }
+		setPlaintext := func(allow bool) { publishMetrics(ctx, allow, allow) }
 		optIn(ctx)
 		policy := metricsPolicy(ctx, waitProvider(ctx).GetName())
 		Consistently(metricsConfig, "500ms").Should(BeNil())
 		Expect(policy()).To(BeNil())
 
-		setPlaintext(true)
+		// The EPP serves http; without the Gateway's grant, Grid's default refuses to send the token.
+		publishMetrics(ctx, true, false)
 		generated := "http://" + network.GetServiceHostname(epp.Name, ns.Name) + ":9090"
+		Eventually(metricsConfig).Should(And(HaveKeyWithValue("endpoint", generated),
+			HaveKeyWithValue("auth", map[string]interface{}{"type": "serviceAccountToken"})))
+		setPlaintext(true)
 		Eventually(metricsConfig).Should(And(HaveKeyWithValue("endpoint", generated), HaveKeyWithValue("path", "/metrics"), HaveKeyWithValue("timeout", "2s"),
 			HaveKeyWithValue("auth", map[string]interface{}{"type": "serviceAccountToken", "allowPlaintext": true})))
 		// The operator is admitted to the EPP's metrics pod port, which KServe's policy does not admit.
@@ -589,7 +593,7 @@ var _ = Describe("Grid provider reconciliation", Ordered, func() {
 		epp := reportEPP(ctx)
 		optIn(ctx)
 		policy := metricsPolicy(ctx, waitProvider(ctx).GetName())
-		publishMetrics(ctx, true)
+		publishMetrics(ctx, true, false)
 		Eventually(policy).ShouldNot(BeNil())
 		Expect(envTest.Get(ctx, client.ObjectKeyFromObject(epp), epp)).To(Succeed())
 		epp.Spec.Selector = nil
@@ -634,7 +638,7 @@ var _ = Describe("Grid provider reconciliation", Ordered, func() {
 		reportEPP(ctx)
 		optIn(ctx)
 		provider := waitProvider(ctx)
-		publishMetrics(ctx, true)
+		publishMetrics(ctx, true, false)
 		Eventually(metricsPolicy(ctx, provider.GetName())).ShouldNot(BeNil())
 		switch revoke {
 		case "annotation":

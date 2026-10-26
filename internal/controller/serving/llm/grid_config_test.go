@@ -43,8 +43,13 @@ func TestGridConfigFromGateway(t *testing.T) {
 		cfg, err := GridConfigFromGateway(copy)
 		require.NoError(t, err)
 		require.True(t, cfg.PublishMetrics)
+		require.False(t, cfg.MetricsAllowPlaintext)
+		copy.Annotations[GridServingAnnotation] = strings.Replace(valid, `}`, `,"publishMetrics":true,"metricsAllowPlaintext":true}`, 1)
+		cfg, err = GridConfigFromGateway(copy)
+		require.NoError(t, err)
+		require.True(t, cfg.MetricsAllowPlaintext)
 	})
-	for _, value := range []string{strings.Replace(valid, `}`, `,"publishMetrics":"true"}`, 1), `null`, `[]`, `{}`, `{"unknown":true}`, strings.Replace(valid, `"networkName":"grid-local"`, `"networkName":"grid-local","networkName":"other"`, 1), valid + ` {}`, strings.Replace(valid, "grid-system", "not.a.namespace", 1), strings.Replace(valid, "grid-token", "invalid secret", 1), strings.Replace(valid, "grid.praxis.fast/provider-site=local", "site in (a,b)", 1)} {
+	for _, value := range []string{strings.Replace(valid, `}`, `,"publishMetrics":"true"}`, 1), strings.Replace(valid, `}`, `,"metricsAllowPlaintext":"true"}`, 1), `null`, `[]`, `{}`, `{"unknown":true}`, strings.Replace(valid, `"networkName":"grid-local"`, `"networkName":"grid-local","networkName":"other"`, 1), valid + ` {}`, strings.Replace(valid, "grid-system", "not.a.namespace", 1), strings.Replace(valid, "grid-token", "invalid secret", 1), strings.Replace(valid, "grid.praxis.fast/provider-site=local", "site in (a,b)", 1)} {
 		t.Run(value, func(t *testing.T) {
 			copy := ns.DeepCopy()
 			copy.Annotations[GridServingAnnotation] = value
@@ -142,11 +147,16 @@ func TestReconcileGridMetrics(t *testing.T) {
 		recorded            string
 		endpoint            string
 		secure              bool
+		notGranted          bool
 		wantConfig          map[string]interface{}
 		wantRecorded        string
 		wantNoMetricsConfig bool
 	}{
 		{name: "generates when absent", endpoint: generated, wantConfig: managed(generated), wantRecorded: generated},
+		{name: "leaves Grid's plaintext refusal in place unless the Gateway grants it", endpoint: generated, notGranted: true,
+			wantConfig: map[string]interface{}{"endpoint": generated, "auth": map[string]interface{}{"type": "serviceAccountToken"}}, wantRecorded: generated},
+		{name: "withdraws the allowance when the Gateway stops granting it", current: managed(generated), recorded: generated, endpoint: generated, notGranted: true,
+			wantConfig: map[string]interface{}{"endpoint": generated, "auth": map[string]interface{}{"type": "serviceAccountToken"}}, wantRecorded: generated},
 		{name: "follows a moved EPP port", current: managed(generated), recorded: generated, endpoint: moved, wantConfig: managed(moved), wantRecorded: moved},
 		{name: "regenerates after the administrator removes it", recorded: generated, endpoint: generated, wantConfig: managed(generated), wantRecorded: generated},
 		{name: "keeps an administrator config", current: admin, endpoint: generated, wantConfig: admin},
@@ -170,7 +180,7 @@ func TestReconcileGridMetrics(t *testing.T) {
 			if tc.recorded != "" {
 				annotations[gridMetricsEndpoint] = tc.recorded
 			}
-			reconcileGridMetrics(spec, annotations, tc.endpoint, tc.secure, "grid-system")
+			reconcileGridMetrics(spec, annotations, tc.endpoint, tc.secure, !tc.notGranted, "grid-system")
 			require.Equal(t, "http://gateway", spec["endpoint"])
 			require.Equal(t, "kept", annotations["other"])
 			if tc.wantNoMetricsConfig {
@@ -185,13 +195,35 @@ func TestReconcileGridMetrics(t *testing.T) {
 			}
 		})
 	}
+	t.Run("keeps a plaintext refusal across a TLS period and back", func(t *testing.T) {
+		current := managed(generated)
+		current["auth"].(map[string]interface{})["allowPlaintext"] = false
+		spec := map[string]interface{}{"metricsConfig": current}
+		annotations := map[string]string{gridMetricsEndpoint: generated}
+		allowPlaintext := func() interface{} {
+			return spec["metricsConfig"].(map[string]interface{})["auth"].(map[string]interface{})["allowPlaintext"]
+		}
+		reconcileGridMetrics(spec, annotations, secureEndpoint, true, true, "grid-system")
+		require.Equal(t, false, allowPlaintext())
+		reconcileGridMetrics(spec, annotations, generated, false, true, "grid-system")
+		require.Equal(t, false, allowPlaintext())
+		require.NotContains(t, spec["metricsConfig"], "tls")
+	})
+	t.Run("drops a granted allowance under TLS and grants it again on return", func(t *testing.T) {
+		spec := map[string]interface{}{"metricsConfig": managed(generated)}
+		annotations := map[string]string{gridMetricsEndpoint: generated}
+		reconcileGridMetrics(spec, annotations, secureEndpoint, true, true, "grid-system")
+		require.NotContains(t, spec["metricsConfig"].(map[string]interface{})["auth"], "allowPlaintext")
+		reconcileGridMetrics(spec, annotations, generated, false, true, "grid-system")
+		require.Equal(t, managed(generated), spec["metricsConfig"])
+	})
 	t.Run("preserves administrator tuning of a generated config", func(t *testing.T) {
 		current := managed(generated)
 		current["timeout"] = "500ms"
 		current["poolName"] = "model-pool"
 		spec := map[string]interface{}{"metricsConfig": current}
 		annotations := map[string]string{gridMetricsEndpoint: generated}
-		reconcileGridMetrics(spec, annotations, moved, false, "grid-system")
+		reconcileGridMetrics(spec, annotations, moved, false, true, "grid-system")
 		got := spec["metricsConfig"].(map[string]interface{})
 		require.Equal(t, moved, got["endpoint"])
 		require.Equal(t, "500ms", got["timeout"])
