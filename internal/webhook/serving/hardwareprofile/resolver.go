@@ -169,9 +169,18 @@ func ProfileChanged(req admission.Request, newProfileName, newProfileNamespace s
 }
 
 // resourceVersionAnnotationChanged reports whether opendatahub.io/hardware-profile-resource-version
-// changed on UPDATE. An empty new value does not count as a change.
+// changed on UPDATE for a workload that already referenced a HardwareProfile.
+// The dashboard sets this to the HardwareProfile metadata.resourceVersion when it saves the workload.
+// An empty new value does not replace scheduling. A first assignment that adds the annotation still merges.
 func resourceVersionAnnotationChanged(req admission.Request) (bool, error) {
 	if req.Operation != admissionv1.Update || len(req.OldObject.Raw) == 0 || len(req.Object.Raw) == 0 {
+		return false, nil
+	}
+	oldName, err := annotationValue(req.OldObject.Raw, HardwareProfileAnnotationName)
+	if err != nil {
+		return false, err
+	}
+	if oldName == "" {
 		return false, nil
 	}
 	oldRV, err := annotationValue(req.OldObject.Raw, HardwareProfileAnnotationResourceVersion)

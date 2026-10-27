@@ -86,3 +86,15 @@ func profileUpdateRequest(oldRV, newRV string) admission.Request {
 		},
 	}
 }
+
+func TestProfileChanged_InitialAssignmentWithResourceVersion(t *testing.T) {
+	req := admission.Request{
+		AdmissionRequest: admissionv1.AdmissionRequest{
+			Operation: admissionv1.Update,
+			Namespace: "ns",
+			OldObject: runtime.RawExtension{Raw: []byte(`{"metadata":{"namespace":"ns"}}`)},
+			Object:    runtime.RawExtension{Raw: []byte(`{"metadata":{"namespace":"ns","annotations":{"opendatahub.io/hardware-profile-name":"repro-hwp","opendatahub.io/hardware-profile-namespace":"ns","opendatahub.io/hardware-profile-resource-version":"2583577"}}}`)},
+		},
+	}
+	assert.False(t, ProfileChanged(req, "repro-hwp", "ns"))
+}
