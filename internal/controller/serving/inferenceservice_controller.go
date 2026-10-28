@@ -19,6 +19,7 @@ package serving
 import (
 	"context"
 	"errors"
+	"sort"
 
 	"github.com/go-logr/logr"
 	"github.com/hashicorp/go-multierror"
@@ -261,7 +262,9 @@ func (r *InferenceServiceReconciler) SetupWithManager(mgr ctrl.Manager, setupLog
 				return []reconcile.Request{
 					{NamespacedName: types.NamespacedName{Name: o.GetName(), Namespace: o.GetNamespace()}},
 				}
-			}))
+			})).
+		Watches(&kservev1alpha1.InferenceGraph{},
+			handler.EnqueueRequestsFromMapFunc(inferenceGraphInferenceServiceRequests))
 
 	isKedaTriggerAuthenticationAvailable, err := utils.IsCrdAvailable(mgr.GetConfig(), kedaapi.GroupVersion.String(), "TriggerAuthentication")
 	if err != nil {
@@ -276,6 +279,40 @@ func (r *InferenceServiceReconciler) SetupWithManager(mgr ctrl.Manager, setupLog
 	}
 
 	return builder.Complete(r)
+}
+
+// inferenceGraphInferenceServiceRequests maps the graph's named ServiceName
+// references to same-namespace ISVC reconcile requests. Update events invoke
+// this mapper for both old and new graph objects, so removed references are
+// reconciled without listing every ISVC in the namespace.
+func inferenceGraphInferenceServiceRequests(_ context.Context, o client.Object) []reconcile.Request {
+	graph, ok := o.(*kservev1alpha1.InferenceGraph)
+	if !ok || graph == nil {
+		return nil
+	}
+
+	names := make(map[string]struct{})
+	for _, router := range graph.Spec.Nodes {
+		for _, step := range router.Steps {
+			if step.ServiceName != "" {
+				names[step.ServiceName] = struct{}{}
+			}
+		}
+	}
+
+	serviceNames := make([]string, 0, len(names))
+	for name := range names {
+		serviceNames = append(serviceNames, name)
+	}
+	sort.Strings(serviceNames)
+
+	requests := make([]reconcile.Request, 0, len(serviceNames))
+	for _, name := range serviceNames {
+		requests = append(requests, reconcile.Request{NamespacedName: types.NamespacedName{
+			Name: name, Namespace: graph.Namespace,
+		}})
+	}
+	return requests
 }
 
 // general clean-up, mostly resources in different namespaces from kservev1beta1.InferenceService

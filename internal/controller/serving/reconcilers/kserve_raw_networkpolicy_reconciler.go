@@ -18,6 +18,7 @@ package reconcilers
 import (
 	"context"
 	"fmt"
+	"net/url"
 	"os"
 	"sort"
 	"strconv"
@@ -25,6 +26,7 @@ import (
 
 	"github.com/go-logr/logr"
 	"github.com/hashicorp/go-multierror"
+	kservev1alpha1 "github.com/kserve/kserve/pkg/apis/serving/v1alpha1"
 	kservev1beta1 "github.com/kserve/kserve/pkg/apis/serving/v1beta1"
 	kserveconstants "github.com/kserve/kserve/pkg/constants"
 	corev1 "k8s.io/api/core/v1"
@@ -85,6 +87,11 @@ func (r *KserveRawNetworkPolicyReconciler) Reconcile(ctx context.Context, log lo
 		return err
 	}
 
+	graphIngressRules, err := r.graphIngressRules(ctx, isvc, services)
+	if err != nil {
+		return err
+	}
+
 	hasTransformer := isvc.Spec.Transformer != nil || len(services[transformerNetworkPolicyComponent]) > 0
 	// KServe currently creates multi-node worker/head resources only for the
 	// stable predictor. Keep the all-port peer scoped to that concrete resource
@@ -98,7 +105,7 @@ func (r *KserveRawNetworkPolicyReconciler) Reconcile(ctx context.Context, log lo
 
 	var reconcileErrors *multierror.Error
 	for _, component := range components {
-		desired, err := r.desiredNetworkPolicy(isvc, component, services, metricsPorts, multiNode)
+		desired, err := r.desiredNetworkPolicy(isvc, component, services, metricsPorts, multiNode, graphIngressRules[component])
 		if err != nil {
 			reconcileErrors = multierror.Append(reconcileErrors, err)
 			continue
@@ -196,6 +203,7 @@ func (r *KserveRawNetworkPolicyReconciler) desiredNetworkPolicy(
 	services map[string][]corev1.Service,
 	metricsPorts []networkingv1.NetworkPolicyPort,
 	multiNode bool,
+	graphIngressRules []networkingv1.NetworkPolicyIngressRule,
 ) (*networkingv1.NetworkPolicy, error) {
 	policy := &networkingv1.NetworkPolicy{
 		ObjectMeta: metav1.ObjectMeta{
@@ -273,9 +281,10 @@ func (r *KserveRawNetworkPolicyReconciler) desiredNetworkPolicy(
 			})
 		}
 	}
-	// InferenceGraph and explainer callers are intentionally outside this raw
-	// policy slice. Their named peer rules must be added with those workload
-	// reconcilers rather than admitting all same-namespace Pods here.
+	// Graph peers are derived from named, same-namespace ServiceName references
+	// and are kept on the ISVC-owned policy so one controller owns all ingress
+	// to these Pods.
+	policy.Spec.Ingress = append(policy.Spec.Ingress, graphIngressRules...)
 
 	// Metrics are enabled by a ServingRuntime annotation. The metrics Service
 	// selects the ISVC Pods, so the same monitoring rule is applied to each
@@ -297,6 +306,151 @@ func (r *KserveRawNetworkPolicyReconciler) desiredNetworkPolicy(
 	}
 
 	return policy, nil
+}
+
+// graphIngressRules returns the graph router peers that are allowed to call
+// this ISVC. A graph's ServiceName is useful only after it resolves to the
+// exact same-namespace raw KServe Service. Explicit external or unrelated
+// ServiceURL values are intentionally ignored.
+func (r *KserveRawNetworkPolicyReconciler) graphIngressRules(
+	ctx context.Context,
+	isvc *kservev1beta1.InferenceService,
+	services map[string][]corev1.Service,
+) (map[string][]networkingv1.NetworkPolicyIngressRule, error) {
+	// The graph and ISVC controllers reconcile independently. A graph may begin
+	// sending requests before this ISVC reconcile adds its graph peer, so those
+	// calls can fail briefly until the watch or a retry converges the policy.
+	rules := map[string][]networkingv1.NetworkPolicyIngressRule{
+		predictorNetworkPolicyComponent:   {},
+		transformerNetworkPolicyComponent: {},
+	}
+	if !IsRawInferenceService(isvc) {
+		return rules, nil
+	}
+
+	graphs := &kservev1alpha1.InferenceGraphList{}
+	if err := r.client.List(ctx, graphs, client.InNamespace(isvc.Namespace)); err != nil {
+		return nil, fmt.Errorf("failed to list InferenceGraphs for InferenceService %q: %w", isvc.Name, err)
+	}
+	sort.Slice(graphs.Items, func(i, j int) bool { return graphs.Items[i].Name < graphs.Items[j].Name })
+
+	component := graphTargetComponent(isvc)
+	targetServices := graphTargetServices(isvc, services[component])
+	if len(targetServices) == 0 {
+		return rules, nil
+	}
+	for i := range graphs.Items {
+		graph := &graphs.Items[i]
+		if !IsRawInferenceGraph(graph) {
+			continue
+		}
+		for _, router := range graph.Spec.Nodes {
+			for _, step := range router.Steps {
+				if step.ServiceName != isvc.Name {
+					continue
+				}
+				if step.ServiceURL != "" && !graphServiceURLMatches(step.ServiceURL, isvc.Namespace, targetServices) {
+					continue
+				}
+
+				ports, err := serviceTargetPorts(targetServices, rawAuthEnabled(isvc))
+				if err != nil {
+					return nil, err
+				}
+				if len(ports) == 0 {
+					continue
+				}
+				rule := networkingv1.NetworkPolicyIngressRule{
+					From: []networkingv1.NetworkPolicyPeer{{
+						PodSelector: &metav1.LabelSelector{MatchLabels: map[string]string{
+							kserveconstants.InferenceGraphLabel: graph.Name,
+						}},
+					}},
+					Ports: ports,
+				}
+				if !containsIngressRule(rules[component], rule) {
+					rules[component] = append(rules[component], rule)
+				}
+			}
+		}
+	}
+	return rules, nil
+}
+
+func graphTargetComponent(isvc *kservev1beta1.InferenceService) string {
+	if isvc.Spec.Transformer != nil {
+		return transformerNetworkPolicyComponent
+	}
+	return predictorNetworkPolicyComponent
+}
+
+func graphTargetServices(isvc *kservev1beta1.InferenceService, services []corev1.Service) []corev1.Service {
+	component := graphTargetComponent(isvc)
+	serviceName := kserveconstants.PredictorServiceName(isvc.Name, isvc.Spec.Predictor.Name)
+	if component == transformerNetworkPolicyComponent {
+		serviceName = kserveconstants.TransformerServiceName(isvc.Name)
+	}
+
+	result := make([]corev1.Service, 0, 1)
+	for i := range services {
+		service := services[i]
+		if service.Name == serviceName && service.Spec.Type != corev1.ServiceTypeExternalName {
+			result = append(result, service)
+		}
+	}
+	return result
+}
+
+func graphServiceURLMatches(rawURL, namespace string, services []corev1.Service) bool {
+	parsed, err := url.Parse(rawURL)
+	if err != nil || parsed.Hostname() == "" {
+		return false
+	}
+	host := strings.ToLower(strings.TrimSuffix(parsed.Hostname(), "."))
+	for i := range services {
+		service := &services[i]
+		hosts := []string{
+			strings.ToLower(service.Name),
+			strings.ToLower(service.Name + "." + namespace),
+			strings.ToLower(service.Name + "." + namespace + ".svc"),
+			strings.ToLower(service.Name + "." + namespace + ".svc.cluster.local"),
+		}
+		matchedHost := false
+		for _, candidate := range hosts {
+			if host == candidate {
+				matchedHost = true
+				break
+			}
+		}
+		if !matchedHost {
+			continue
+		}
+
+		if parsed.Port() == "" {
+			return true
+		}
+		port, err := strconv.Atoi(parsed.Port())
+		if err != nil || port < 1 || port > 65535 {
+			return false
+		}
+		for _, servicePort := range service.Spec.Ports {
+			if servicePort.Port == int32(port) ||
+				(service.Spec.ClusterIP == corev1.ClusterIPNone &&
+					servicePort.TargetPort.Type == intstr.Int && servicePort.TargetPort.IntVal == int32(port)) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+func containsIngressRule(rules []networkingv1.NetworkPolicyIngressRule, candidate networkingv1.NetworkPolicyIngressRule) bool {
+	for _, rule := range rules {
+		if equality.Semantic.DeepEqual(rule, candidate) {
+			return true
+		}
+	}
+	return false
 }
 
 func (r *KserveRawNetworkPolicyReconciler) metricsPorts(ctx context.Context, log logr.Logger, isvc *kservev1beta1.InferenceService) ([]networkingv1.NetworkPolicyPort, error) {

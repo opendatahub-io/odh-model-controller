@@ -17,6 +17,7 @@ limitations under the License.
 package serving
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"time"
@@ -38,6 +39,7 @@ import (
 	"k8s.io/apiserver/pkg/storage/names"
 	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	"github.com/opendatahub-io/odh-model-controller/internal/controller/constants"
 	. "github.com/opendatahub-io/odh-model-controller/test/matchers"
@@ -894,6 +896,38 @@ var _ = Describe("InferenceService Controller", func() {
 				Expect(k8sErrors.IsNotFound(err)).Should(BeTrue())
 			})
 		})
+	})
+})
+
+var _ = Describe("InferenceGraph InferenceService watch mapping", func() {
+	It("maps old and new graph references so removed peers are reconciled", func() {
+		oldGraph := &kservev1alpha1.InferenceGraph{
+			ObjectMeta: metav1.ObjectMeta{Namespace: "models"},
+			Spec: kservev1alpha1.InferenceGraphSpec{Nodes: map[string]kservev1alpha1.InferenceRouter{
+				"root": {Steps: []kservev1alpha1.InferenceStep{
+					{InferenceTarget: kservev1alpha1.InferenceTarget{ServiceName: "removed-model"}},
+					{InferenceTarget: kservev1alpha1.InferenceTarget{ServiceName: "shared-model"}},
+				}},
+			}},
+		}
+		newGraph := oldGraph.DeepCopy()
+		root := newGraph.Spec.Nodes["root"]
+		root.Steps = []kservev1alpha1.InferenceStep{
+			{InferenceTarget: kservev1alpha1.InferenceTarget{ServiceName: "shared-model"}},
+			{InferenceTarget: kservev1alpha1.InferenceTarget{ServiceName: "added-model"}},
+		}
+		newGraph.Spec.Nodes["root"] = root
+
+		oldRequests := inferenceGraphInferenceServiceRequests(context.Background(), oldGraph)
+		newRequests := inferenceGraphInferenceServiceRequests(context.Background(), newGraph)
+		Expect(oldRequests).To(Equal([]reconcile.Request{
+			{NamespacedName: types.NamespacedName{Name: "removed-model", Namespace: "models"}},
+			{NamespacedName: types.NamespacedName{Name: "shared-model", Namespace: "models"}},
+		}))
+		Expect(newRequests).To(Equal([]reconcile.Request{
+			{NamespacedName: types.NamespacedName{Name: "added-model", Namespace: "models"}},
+			{NamespacedName: types.NamespacedName{Name: "shared-model", Namespace: "models"}},
+		}))
 	})
 })
 
