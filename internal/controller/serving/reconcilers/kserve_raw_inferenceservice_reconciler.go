@@ -33,8 +33,10 @@ type KserveRawInferenceServiceReconciler struct {
 
 func NewKServeRawInferenceServiceReconciler(client client.Client) *KserveRawInferenceServiceReconciler {
 
+	networkPolicyReconciler := NewKserveRawNetworkPolicyReconciler(client)
 	subResourceReconciler := []SubResourceReconciler{
 		NewKserveRawClusterRoleBindingReconciler(client),
+		networkPolicyReconciler,
 		NewKserveRawRouteReconciler(client),
 		NewKServeRawMetricsServiceReconciler(client),
 		NewKServeRawMetricsServiceMonitorReconciler(client),
@@ -50,8 +52,33 @@ func NewKServeRawInferenceServiceReconciler(client client.Client) *KserveRawInfe
 
 func (r *KserveRawInferenceServiceReconciler) Reconcile(ctx context.Context, log logr.Logger, isvc *kservev1beta1.InferenceService) error {
 	var reconcileErrors *multierror.Error
+	networkPolicyFailed := false
 	for _, reconciler := range r.subResourceReconcilers {
-		reconcileErrors = multierror.Append(reconcileErrors, reconciler.Reconcile(ctx, log, isvc))
+		if networkPolicyFailed {
+			if routeReconciler, isRouteReconciler := reconciler.(*KserveRawRouteReconciler); isRouteReconciler {
+				// A policy failure must not create or update an exposed Route. This
+				// removes an owned Route whether exposure was removed or the
+				// policy failure requires fail-closed behavior. It leaves an
+				// unrelated same-name Route untouched.
+				reconcileErr := routeReconciler.DeleteOwnedRouteOnNetworkPolicyFailure(ctx, log, isvc)
+				reconcileErrors = multierror.Append(reconcileErrors, reconcileErr)
+			}
+			// Continue with independent metrics, dashboard, and KEDA
+			// reconciliation. Only Route create/update is gated by the failed
+			// NetworkPolicy reconciliation.
+			continue
+		}
+
+		reconcileErr := reconciler.Reconcile(ctx, log, isvc)
+		reconcileErrors = multierror.Append(reconcileErrors, reconcileErr)
+		if reconcileErr != nil {
+			if _, isNetworkPolicyReconciler := reconciler.(*KserveRawNetworkPolicyReconciler); isNetworkPolicyReconciler {
+				// Route create/update must wait until the component policy is
+				// successfully created or repaired. Route removal and independent
+				// subreconcilers are handled in the gated path above.
+				networkPolicyFailed = true
+			}
+		}
 	}
 
 	return reconcileErrors.ErrorOrNil()
