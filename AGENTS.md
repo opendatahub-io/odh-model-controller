@@ -8,7 +8,7 @@ ODH Model Controller is a companion Kubernetes controller to [KServe](https://gi
   - `api/nim/v1/zz_generated.deepcopy.go`
   - `config/crd/bases/` CRD manifests
   - `config/rbac/role.yaml` (generated from `+kubebuilder:rbac` markers)
-- **External CRDs are downloaded, not authored.** Files under `config/crd/external/` are fetched from upstream KServe via `make manifests-update`. The revision is tracked in `config/crd/external/.kserve_manifests_revision`.
+- **External CRDs are downloaded, not authored.** Files under `config/crd/external/` are fetched from upstream KServe via `make manifests-update`. The revision is tracked in `config/crd/external/.kserve_manifests_revision`. The DataScienceCluster and DSCInitialization CRDs there come instead from `make operator-crds-update`, which generates them from the Open Data Hub operator revision pinned in the `OPERATOR_CRD_REVISION` Makefile variable. Bump that variable and re-run the target when the DSC/DSCI API changes in a way this controller reads. They are installed into envtest but are not listed in `config/crd/external/kustomization.yaml`, so they are never deployed.
 - **Makefile is the source of truth.** Read `Makefile` before running or modifying build steps. Do not invent `go` commands when a Make target exists.
 - **KServe dependency is replaced.** `go.mod` replaces `github.com/kserve/kserve` with the `opendatahub-io/kserve` fork. Several k8s libraries are pinned to `v0.34.x` and `controller-runtime` is pinned to `v0.19.7` (keda compatibility). Check `replace` directives before updating dependencies.
 - **RawDeployment mode only.** This controller exclusively supports KServe's `RawDeployment` mode (no Knative/Serverless). Do not add Serverless-mode logic.
