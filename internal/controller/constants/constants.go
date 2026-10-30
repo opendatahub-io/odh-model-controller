@@ -110,6 +110,7 @@ const (
 	VllmOmniRuntimeName     = "vllm-omni"
 	MLServerRuntimeName     = "mlserver"
 	AutogluonRuntimeName    = "autogluon"
+	CustomRuntimeName       = "custom"
 )
 
 // openshift
