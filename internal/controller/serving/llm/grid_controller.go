@@ -97,6 +97,7 @@ func gridResourceName(svc *kservev1alpha2.LLMInferenceService, gateway *gatewayv
 // +kubebuilder:rbac:groups="",resources=services,verbs=get;list;watch
 // +kubebuilder:rbac:groups=networking.k8s.io,resources=networkpolicies,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups=rbac.authorization.k8s.io,resources=roles;rolebindings,verbs=get;list;watch;create;update;patch;delete
+// +kubebuilder:rbac:groups=serving.opendatahub.io,resources=models,verbs=post
 
 func (r *GridInferenceProviderReconciler) SetupWithManager(mgr ctrl.Manager, logger logr.Logger) error {
 	// Even when publishing is disabled, run cleanup for existing finalizers.
@@ -365,7 +366,7 @@ func (r *GridInferenceProviderReconciler) reconcileAccess(ctx context.Context, s
 			}
 			switch resource := obj.(type) {
 			case *rbacv1.Role:
-				resource.Rules = []rbacv1.PolicyRule{{APIGroups: []string{"serving.kserve.io"}, Resources: []string{"llminferenceservices"}, ResourceNames: []string{svc.Name}, Verbs: []string{"get"}}}
+				resource.Rules = gridAccessRules(svc, publication.attachment.Endpoint)
 			case *rbacv1.RoleBinding:
 				resource.RoleRef = rbacv1.RoleRef{APIGroup: rbacv1.GroupName, Kind: "Role", Name: role.Name}
 				resource.Subjects = []rbacv1.Subject{{Kind: "ServiceAccount", Name: cfg.ServiceAccount, Namespace: cfg.Namespace}}
@@ -381,6 +382,31 @@ func (r *GridInferenceProviderReconciler) reconcileAccess(ctx context.Context, s
 
 // reconcileMetricsAccess admits the Grid operator to the EPP metrics port while metrics are published.
 // KServe's per-service policy admits only the monitoring namespaces and the Gateway there.
+// gridAccessRules grants what the serving gateway's AuthPolicy reviews for the endpoint:
+// get on the LLMInferenceService for a participant path, and post on the model for a
+// publisher path, named as the policy derives it from the request path.
+func gridAccessRules(svc *kservev1alpha2.LLMInferenceService, endpoint string) []rbacv1.PolicyRule {
+	rules := []rbacv1.PolicyRule{{APIGroups: []string{"serving.kserve.io"}, Resources: []string{"llminferenceservices"}, ResourceNames: []string{svc.Name}, Verbs: []string{"get"}}}
+	if model := gridPublisherModel(svc, endpoint); model != "" {
+		rules = append(rules, rbacv1.PolicyRule{APIGroups: []string{"serving.opendatahub.io"}, Resources: []string{"models"}, ResourceNames: []string{model}, Verbs: []string{"post"}})
+	}
+	return rules
+}
+
+// gridPublisherModel is the publisher model name an endpoint path carries, or "" for any
+// other endpoint.
+func gridPublisherModel(svc *kservev1alpha2.LLMInferenceService, endpoint string) string {
+	parsed, err := url.Parse(endpoint)
+	if err != nil {
+		return ""
+	}
+	path := strings.Trim(parsed.Path, "/")
+	if strings.HasPrefix(path, "publishers/"+svc.Namespace+"/models/") {
+		return path
+	}
+	return ""
+}
+
 func (r *GridInferenceProviderReconciler) reconcileMetricsAccess(ctx context.Context, svc *kservev1alpha2.LLMInferenceService, publication gridPublication) error {
 	cfg := publication.config
 	policy := &networkingv1.NetworkPolicy{ObjectMeta: gridMetadata(svc, publication.gateway)}

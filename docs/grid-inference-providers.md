@@ -10,7 +10,9 @@ is installed after the controller starts, restart the controller.
 For each LLMInferenceService and Gateway pair, the controller creates one
 cluster-scoped `InferenceProvider`, plus a Role and RoleBinding with the same name
 in the service's namespace. The Role grants the Gateway's Grid service account
-`get` on that one LLMInferenceService.
+`get` on that one LLMInferenceService and, when the endpoint is a publisher path,
+`post` on that one `serving.opendatahub.io` model, which is what the serving
+gateway's AuthPolicy reviews for each path.
 
 A pair is published when all of the following hold:
 
