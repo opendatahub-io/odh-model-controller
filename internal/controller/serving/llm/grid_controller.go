@@ -495,7 +495,7 @@ func (r *GridInferenceProviderReconciler) reconcileProvider(ctx context.Context,
 		for key, value := range map[string]interface{}{
 			"gridNetworkRef": cfg.NetworkName, "providerKind": "vllm", "backendKind": "local_model",
 			"endpoint":     endpoint,
-			"models":       []interface{}{map[string]interface{}{"name": model, "capabilities": []interface{}{"text_generation"}}},
+			"models":       gridProviderModels(model, publication.attachment.Adapters),
 			"siteSelector": map[string]interface{}{"matchLabels": siteLabels},
 			"auth":         map[string]interface{}{"strategy": "bearer_token", "manual": false, "secretRef": map[string]interface{}{"name": cfg.TokenSecret, "namespace": cfg.Namespace, "key": "token"}},
 		} {
@@ -686,6 +686,53 @@ type gridAttachment struct {
 	Gateway  client.ObjectKey
 	Endpoint string
 	Model    string
+	// Adapters are the LoRA adapters KServe reports at the same address, in the
+	// base model's name form. They share the endpoint and its authorization.
+	Adapters []string
+}
+
+// gridAddressModels is what KServe reports served at an address, derived with KServe's
+// own path-dependent naming for addresses written before Models existed.
+func gridAddressModels(ctx context.Context, address kservev1alpha2.SourcedAddress, svc *kservev1alpha2.LLMInferenceService) []kservev1alpha2.ModelSourcedAddressStatus {
+	if len(address.Models) > 0 {
+		return address.Models
+	}
+	model := ptr.Deref(svc.Spec.Model.Name, svc.Name)
+	if model == "" {
+		model = svc.Name
+	}
+	effective := svc.DeepCopy()
+	effective.Spec.Model.Name = ptr.To(model)
+	return kservellmisvc.SourcedAddress(ctx, kservellmisvc.DiscoveredURL{URL: address.URL}, effective).Models
+}
+
+// gridProviderModels lists the base model first, then each adapter, as the provider
+// publishes them. Every entry is reached through the same endpoint.
+func gridProviderModels(model string, adapters []string) []interface{} {
+	models := make([]interface{}, 0, 1+len(adapters))
+	for _, name := range append([]string{model}, adapters...) {
+		models = append(models, map[string]interface{}{"name": name, "capabilities": []interface{}{"text_generation"}})
+	}
+	return models
+}
+
+// gridAddressAdapters returns the other model names KServe reports at an address, in
+// the form the base model matched: the LoRA adapters served behind the same route.
+// KServe routes an adapter by the model header, not by a path of its own, and the
+// serving gateway authorizes the path, so an adapter shares the base model's endpoint
+// and access.
+func gridAddressAdapters(ctx context.Context, address kservev1alpha2.SourcedAddress, svc *kservev1alpha2.LLMInferenceService, model string) []string {
+	prefix := "publishers/" + svc.Namespace + "/models/"
+	qualified := strings.HasPrefix(model, prefix)
+	var adapters []string
+	for _, reported := range gridAddressModels(ctx, address, svc) {
+		name := reported.Name
+		if name == model || strings.HasPrefix(name, prefix) != qualified || slices.Contains(adapters, name) {
+			continue
+		}
+		adapters = append(adapters, name)
+	}
+	return adapters
 }
 
 // gridAttachedEndpoints selects one reported cluster-internal address per Gateway.
@@ -724,7 +771,7 @@ func gridAttachedEndpoints(ctx context.Context, svc *kservev1alpha2.LLMInference
 		}
 		if model := gridAddressModel(ctx, address, svc); model != "" {
 			key := client.ObjectKey{Namespace: originNS, Name: string(origin.Name)}
-			candidates[key] = append(candidates[key], gridAttachment{Gateway: key, Endpoint: address.URL.String(), Model: model})
+			candidates[key] = append(candidates[key], gridAttachment{Gateway: key, Endpoint: address.URL.String(), Model: model, Adapters: gridAddressAdapters(ctx, address, svc, model)})
 		}
 	}
 	if len(candidates) == 0 {
@@ -788,14 +835,7 @@ func gridAddressModel(ctx context.Context, address kservev1alpha2.SourcedAddress
 	if model == "" {
 		model = svc.Name
 	}
-	models := address.Models
-	if len(models) == 0 {
-		// Retain compatibility with addresses written before Models existed,
-		// using KServe's own path-dependent model naming rules.
-		effective := svc.DeepCopy()
-		effective.Spec.Model.Name = ptr.To(model)
-		models = kservellmisvc.SourcedAddress(ctx, kservellmisvc.DiscoveredURL{URL: address.URL}, effective).Models
-	}
+	models := gridAddressModels(ctx, address, svc)
 	for _, name := range []string{model, "publishers/" + svc.Namespace + "/models/" + model} {
 		if slices.ContainsFunc(models, func(m kservev1alpha2.ModelSourcedAddressStatus) bool { return m.Name == name }) {
 			return name

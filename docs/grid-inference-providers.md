@@ -28,6 +28,14 @@ reports several addresses for one Gateway, the controller prefers the shared
 publisher path, then group model routing, then the service's own path, and HTTPS
 over HTTP.
 
+LoRA adapters (`spec.model.lora.adapters`) are published as further `models`
+entries on the same provider, in the order KServe reports them at the chosen
+address, so Grid routes a request naming an adapter to this endpoint. KServe routes
+an adapter by the model header rather than by a path of its own, and the serving
+gateway authorizes the request path, so an adapter is reached through the base
+model's path and the Role stays the base model's; there is no per-adapter grant.
+An adapter removed from the service leaves the provider's models.
+
 ## Turn it on
 
 Label the model namespace and annotate the Gateway:

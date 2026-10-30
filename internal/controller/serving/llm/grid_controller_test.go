@@ -604,6 +604,61 @@ var _ = Describe("Grid provider reconciliation", Ordered, func() {
 		Eventually(policy).Should(BeNil())
 	})
 
+	It("publishes LoRA adapters on the base model's endpoint with the base authorization", func(ctx SpecContext) {
+		adapterURI, err := apis.ParseURL("hf://test/adapter")
+		Expect(err).NotTo(HaveOccurred())
+		updateService(ctx, func(s *kservev1alpha2.LLMInferenceService) {
+			s.Spec.Model.LoRA = &kservev1alpha2.LoRASpec{Adapters: []kservev1alpha2.LLMModelSpec{
+				{URI: *adapterURI, Name: ptr.To("adapter-b")}, {URI: *adapterURI, Name: ptr.To("adapter-a")},
+			}}
+		})
+		// KServe lists each model at the address in both name forms.
+		reportModels := func(names ...string) {
+			Eventually(func() error {
+				if err := envTest.Get(ctx, client.ObjectKeyFromObject(svc), svc); err != nil {
+					return err
+				}
+				var models []kservev1alpha2.ModelSourcedAddressStatus
+				for _, name := range names {
+					models = append(models, kservev1alpha2.ModelSourcedAddressStatus{Name: "publishers/" + ns.Name + "/models/" + name}, kservev1alpha2.ModelSourcedAddressStatus{Name: name})
+				}
+				svc.Status.Addresses[0].Models = models
+				return envTest.Status().Update(ctx, svc)
+			}).Should(Succeed())
+		}
+		reportModels("test/model", "adapter-b", "adapter-a")
+		optIn(ctx)
+		provider := waitProvider(ctx)
+		Expect(provider.Object["spec"]).To(HaveKeyWithValue("endpoint", endpoint))
+		names := func(p *unstructured.Unstructured) []string {
+			models, _, err := unstructured.NestedSlice(p.Object, "spec", "models")
+			Expect(err).NotTo(HaveOccurred())
+			names := make([]string, 0, len(models))
+			for _, model := range models {
+				names = append(names, model.(map[string]interface{})["name"].(string))
+			}
+			return names
+		}
+		Expect(names(provider)).To(Equal([]string{"test/model", "adapter-b", "adapter-a"}))
+		// The serving gateway authorizes the path, which names the base model only.
+		role := &rbacv1.Role{}
+		Expect(envTest.Get(ctx, client.ObjectKey{Namespace: ns.Name, Name: provider.GetName()}, role)).To(Succeed())
+		Expect(role.Rules).To(HaveLen(1))
+		Expect(role.Rules[0].ResourceNames).To(Equal([]string{svc.Name}))
+		// A removed adapter leaves the published models.
+		updateService(ctx, func(s *kservev1alpha2.LLMInferenceService) {
+			s.Spec.Model.LoRA.Adapters = s.Spec.Model.LoRA.Adapters[1:]
+		})
+		reportModels("test/model", "adapter-a")
+		Eventually(func() []string {
+			p := providers(ctx)
+			if len(p) != 1 {
+				return nil
+			}
+			return names(&p[0])
+		}).Should(Equal([]string{"test/model", "adapter-a"}))
+	})
+
 	It("inherits model names from configs without persisting the merged spec", func(ctx SpecContext) {
 		cfg := &kservev1alpha2.LLMInferenceServiceConfig{ObjectMeta: metav1.ObjectMeta{Name: "grid-model-config", Namespace: ns.Name},
 			Spec: kservev1alpha2.LLMInferenceServiceSpec{Model: kservev1alpha2.LLMModelSpec{Name: ptr.To("inherited/model")}},
