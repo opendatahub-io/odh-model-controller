@@ -172,6 +172,22 @@ func TestReconcileDRAClaimsRejectsUnownedName(t *testing.T) {
 	assert.Equal(t, "other-template", *claims[0].ResourceClaimTemplateName)
 }
 
+func TestReconcileDRAClaimsAcceptsOwnClaimOnCreate(t *testing.T) {
+	selected := "gpu-template"
+	claims := []corev1.PodResourceClaim{{Name: DRAClaimName, ResourceClaimTemplateName: &selected}}
+	resources := corev1.ResourceRequirements{Claims: []corev1.ResourceClaim{{Name: DRAClaimName}}}
+
+	// Re-submitting an already admitted object as a create, e.g. oc get -o yaml | oc create.
+	require.NoError(t, ReconcileDRAClaims(&claims, &resources, false, selected, true))
+	assert.Equal(t, []corev1.PodResourceClaim{{Name: DRAClaimName, ResourceClaimTemplateName: &selected}}, claims)
+	assert.Equal(t, []corev1.ResourceClaim{{Name: DRAClaimName}}, resources.Claims)
+
+	// A claim carrying no template is still a user claim.
+	untemplated := []corev1.PodResourceClaim{{Name: DRAClaimName}}
+	err := ReconcileDRAClaims(&untemplated, &corev1.ResourceRequirements{}, false, selected, true)
+	require.ErrorContains(t, err, "already used")
+}
+
 func TestReconcileDRAClaimsLeavesNoProfileManualClaimUnchanged(t *testing.T) {
 	manualTemplate := "manual-template"
 	claims := []corev1.PodResourceClaim{{Name: DRAClaimName, ResourceClaimTemplateName: &manualTemplate}}
