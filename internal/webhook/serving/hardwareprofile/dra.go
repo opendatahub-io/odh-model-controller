@@ -59,7 +59,7 @@ func ReconcileDRAClaims(
 	}
 
 	claimPresent := hasPodClaim(*podClaims) || (resources != nil && hasContainerClaim(resources.Claims))
-	if !oldProfileSelected && selectedTemplate != "" && claimPresent {
+	if !oldProfileSelected && selectedTemplate != "" && claimPresent && !hasPodClaimFor(*podClaims, selectedTemplate) {
 		return fmt.Errorf("claim name %q is already used by a workload claim", DRAClaimName)
 	}
 
@@ -113,6 +113,19 @@ func hasPodClaim(claims []corev1.PodResourceClaim) bool {
 	for _, claim := range claims {
 		if claim.Name == DRAClaimName {
 			return true
+		}
+	}
+	return false
+}
+
+// hasPodClaimFor reports whether the reserved HWP claim is present and already points at template.
+// Re-admitting an object this webhook previously mutated then stays idempotent, as the admission
+// webhook good practices require, while a claim naming a different template, or naming none, is
+// still treated as a user claim and rejected.
+func hasPodClaimFor(claims []corev1.PodResourceClaim, template string) bool {
+	for _, claim := range claims {
+		if claim.Name == DRAClaimName {
+			return claim.ResourceClaimTemplateName != nil && *claim.ResourceClaimTemplateName == template
 		}
 	}
 	return false
