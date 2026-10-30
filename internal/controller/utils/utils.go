@@ -79,15 +79,7 @@ func IsNotNil(i any) bool {
 
 // Query the DSCI from the cluster
 func getDSCIObject(ctx context.Context, cli client.Client) (*unstructured.UnstructuredList, error) {
-	objectList := &unstructured.UnstructuredList{}
-	objectList.SetAPIVersion(GVK.DataScienceClusterInitialization.GroupVersion().String())
-	objectList.SetKind(GVK.DataScienceClusterInitialization.Kind)
-
-	if err := cli.List(ctx, objectList); err != nil {
-		return objectList, fmt.Errorf("not able to read %s: %w", objectList, err)
-	}
-
-	return objectList, nil
+	return ListUnstructuredByGroupKind(ctx, cli, GroupKind.DataScienceClusterInitialization)
 }
 
 // IsCrdAvailable checks if a given CRD is present in the cluster by verifying the
