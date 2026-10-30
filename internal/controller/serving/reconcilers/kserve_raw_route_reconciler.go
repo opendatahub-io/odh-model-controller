@@ -24,6 +24,7 @@ import (
 	kservev1beta1 "github.com/kserve/kserve/pkg/apis/serving/v1beta1"
 	v1 "github.com/openshift/api/route/v1"
 	corev1 "k8s.io/api/core/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/intstr"
@@ -78,6 +79,29 @@ func (r *KserveRawRouteReconciler) Reconcile(ctx context.Context, log logr.Logge
 
 func (r *KserveRawRouteReconciler) Delete(ctx context.Context, log logr.Logger, isvc *kservev1beta1.InferenceService) error {
 	// No OP as route will be deleted by the ownerref
+	return nil
+}
+
+// DeleteOwnedRouteOnNetworkPolicyFailure removes an already exposed Route only
+// when this InferenceService controls it. This keeps a failed policy reconcile
+// from leaving an owned Route serving traffic while avoiding deletion of an
+// unrelated same-name Route.
+func (r *KserveRawRouteReconciler) DeleteOwnedRouteOnNetworkPolicyFailure(ctx context.Context, log logr.Logger, isvc *kservev1beta1.InferenceService) error {
+	existingRoute, err := r.getExistingResource(ctx, log, isvc)
+	if err != nil {
+		return err
+	}
+	if existingRoute == nil {
+		return nil
+	}
+	if !isOwnedByInferenceServiceOwnerReferences(existingRoute.OwnerReferences, isvc) {
+		log.V(1).Info("Leaving unowned Route in place after NetworkPolicy failure", "name", existingRoute.Name)
+		return nil
+	}
+	log.Info("Deleting Route after NetworkPolicy reconciliation failure", "name", existingRoute.Name)
+	if err := r.client.Delete(ctx, existingRoute); err != nil && !apierrors.IsNotFound(err) {
+		return fmt.Errorf("failed to delete Route %s after NetworkPolicy failure: %w", client.ObjectKeyFromObject(existingRoute), err)
+	}
 	return nil
 }
 
