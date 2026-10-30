@@ -633,7 +633,7 @@ var _ = Describe("Grid provider reconciliation", Ordered, func() {
 		names := func(p *unstructured.Unstructured) []string {
 			models, _, err := unstructured.NestedSlice(p.Object, "spec", "models")
 			Expect(err).NotTo(HaveOccurred())
-			var names []string
+			names := make([]string, 0, len(models))
 			for _, model := range models {
 				names = append(names, model.(map[string]interface{})["name"].(string))
 			}
