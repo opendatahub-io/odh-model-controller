@@ -42,8 +42,8 @@ import (
 // nolint:unused
 var llmisvclog = logf.Log.WithName("llminferenceservice-resource")
 
-// +kubebuilder:webhook:path=/mutate-serving-kserve-io-v1alpha2-llminferenceservice,mutating=true,failurePolicy=fail,sideEffects=NoneOnDryRun,groups=serving.kserve.io,resources=llminferenceservices,verbs=create;update,versions=v1alpha2,name=connection-llmisvc-v1alpha2.odh-model-controller.opendatahub.io,admissionReviewVersions=v1
-// +kubebuilder:webhook:path=/mutate-serving-kserve-io-v1alpha1-llminferenceservice,mutating=true,failurePolicy=fail,sideEffects=NoneOnDryRun,groups=serving.kserve.io,resources=llminferenceservices,verbs=create;update,versions=v1alpha1,name=connection-llmisvc-v1alpha1.odh-model-controller.opendatahub.io,admissionReviewVersions=v1
+// +kubebuilder:webhook:path=/mutate-serving-kserve-io-v1alpha2-llminferenceservice,mutating=true,failurePolicy=fail,matchPolicy=Exact,sideEffects=NoneOnDryRun,groups=serving.kserve.io,resources=llminferenceservices,verbs=create;update,versions=v1alpha2,name=connection-llmisvc-v1alpha2.odh-model-controller.opendatahub.io,admissionReviewVersions=v1
+// +kubebuilder:webhook:path=/mutate-serving-kserve-io-v1alpha1-llminferenceservice,mutating=true,failurePolicy=fail,matchPolicy=Exact,sideEffects=NoneOnDryRun,groups=serving.kserve.io,resources=llminferenceservices,verbs=create;update,versions=v1alpha1,name=connection-llmisvc-v1alpha1.odh-model-controller.opendatahub.io,admissionReviewVersions=v1
 // +kubebuilder:webhook:path=/validate-serving-kserve-io-v1alpha2-llminferenceservice,mutating=false,failurePolicy=fail,sideEffects=None,groups=serving.kserve.io,resources=llminferenceservices,verbs=create;update,versions=v1alpha2,name=validating.llmisvc-v1alpha2.odh-model-controller.opendatahub.io,admissionReviewVersions=v1
 // +kubebuilder:webhook:path=/validate-serving-kserve-io-v1alpha1-llminferenceservice,mutating=false,failurePolicy=fail,sideEffects=None,groups=serving.kserve.io,resources=llminferenceservices,verbs=create;update,versions=v1alpha1,name=validating.llmisvc-v1alpha1.odh-model-controller.opendatahub.io,admissionReviewVersions=v1
 

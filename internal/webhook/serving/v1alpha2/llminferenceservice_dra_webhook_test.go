@@ -37,7 +37,89 @@ func llmDRAResourceClaimTemplate(template string) *resourcev1.ResourceClaimTempl
 	return &resourcev1.ResourceClaimTemplate{ObjectMeta: metav1.ObjectMeta{Name: template, Namespace: llmHWPNS}}
 }
 
+func expectLLMDRAClaimPair(template *corev1.PodSpec) {
+	claimTemplate := "gpu-template"
+	ExpectWithOffset(1, template).NotTo(BeNil())
+	ExpectWithOffset(1, template.ResourceClaims).To(Equal([]corev1.PodResourceClaim{{
+		Name: hardwareprofile.DRAClaimName, ResourceClaimTemplateName: &claimTemplate,
+	}}))
+	ExpectWithOffset(1, template.Containers).To(HaveLen(1))
+	ExpectWithOffset(1, template.Containers[0].Resources.Claims).To(Equal([]corev1.ResourceClaim{{
+		Name: hardwareprofile.DRAClaimName,
+	}}))
+}
+
 var _ = Describe("LLMInferenceService HardwareProfile DRA", func() {
+	It("retains and removes DRA claims through v1alpha2 updates", func() {
+		dra := hwptestutil.NewHardwareProfile("gpu-profile", llmHWPNS,
+			map[string]any{"dra": map[string]any{"resourceClaimTemplateName": "gpu-template"}})
+		plain := hwptestutil.NewHardwareProfile("plain-profile", llmHWPNS, nil)
+		d := newLLMDefaulter(newLLMFakeClient(dra, plain))
+		llm := buildLLMISVCHWP(hwptestutil.HWPAnnotations("gpu-profile"), nil)
+		llm.Spec.Template = &corev1.PodSpec{Containers: []corev1.Container{{Name: "main"}}}
+
+		Expect(d.Default(llmHWPCreateCtx(llm), llm)).To(Succeed())
+		expectLLMDRAClaimPair(llm.Spec.Template)
+
+		old := llm.DeepCopy()
+		Expect(d.Default(llmHWPUpdateCtx(llm, old), llm)).To(Succeed())
+		expectLLMDRAClaimPair(llm.Spec.Template)
+
+		old = llm.DeepCopy()
+		llm.Annotations[hardwareprofile.HardwareProfileAnnotationName] = "plain-profile"
+		Expect(d.Default(llmHWPUpdateCtx(llm, old), llm)).To(Succeed())
+		Expect(llm.Spec.Template.ResourceClaims).To(BeEmpty())
+		Expect(llm.Spec.Template.Containers[0].Resources.Claims).To(BeEmpty())
+
+		old = llm.DeepCopy()
+		llm.Annotations[hardwareprofile.HardwareProfileAnnotationName] = "gpu-profile"
+		Expect(d.Default(llmHWPUpdateCtx(llm, old), llm)).To(Succeed())
+		expectLLMDRAClaimPair(llm.Spec.Template)
+
+		old = llm.DeepCopy()
+		delete(llm.Annotations, hardwareprofile.HardwareProfileAnnotationName)
+		Expect(d.Default(llmHWPUpdateCtx(llm, old), llm)).To(Succeed())
+		Expect(llm.Spec.Template.ResourceClaims).To(BeEmpty())
+		Expect(llm.Spec.Template.Containers[0].Resources.Claims).To(BeEmpty())
+	})
+
+	It("retains and removes DRA claims through v1alpha1 updates", func() {
+		dra := hwptestutil.NewHardwareProfile("gpu-profile", llmHWPNS,
+			map[string]any{"dra": map[string]any{"resourceClaimTemplateName": "gpu-template"}})
+		plain := hwptestutil.NewHardwareProfile("plain-profile", llmHWPNS, nil)
+		d := newLLMDefaulterV1alpha1(newLLMFakeClient(dra, plain))
+		llm := &kservev1alpha1.LLMInferenceService{
+			TypeMeta: metav1.TypeMeta{Kind: "LLMInferenceService", APIVersion: "serving.kserve.io/v1alpha1"},
+			ObjectMeta: metav1.ObjectMeta{Name: "test-llm", Namespace: llmHWPNS,
+				Annotations: hwptestutil.HWPAnnotations("gpu-profile")},
+		}
+		llm.Spec.Template = &corev1.PodSpec{Containers: []corev1.Container{{Name: "main"}}}
+
+		Expect(d.Default(llmAdmissionCtx(admissionv1.Create, nil, false), llm)).To(Succeed())
+		expectLLMDRAClaimPair(llm.Spec.Template)
+
+		old := llm.DeepCopy()
+		Expect(d.Default(llmAdmissionCtx(admissionv1.Update, old, false), llm)).To(Succeed())
+		expectLLMDRAClaimPair(llm.Spec.Template)
+
+		old = llm.DeepCopy()
+		llm.Annotations[hardwareprofile.HardwareProfileAnnotationName] = "plain-profile"
+		Expect(d.Default(llmAdmissionCtx(admissionv1.Update, old, false), llm)).To(Succeed())
+		Expect(llm.Spec.Template.ResourceClaims).To(BeEmpty())
+		Expect(llm.Spec.Template.Containers[0].Resources.Claims).To(BeEmpty())
+
+		old = llm.DeepCopy()
+		llm.Annotations[hardwareprofile.HardwareProfileAnnotationName] = "gpu-profile"
+		Expect(d.Default(llmAdmissionCtx(admissionv1.Update, old, false), llm)).To(Succeed())
+		expectLLMDRAClaimPair(llm.Spec.Template)
+
+		old = llm.DeepCopy()
+		delete(llm.Annotations, hardwareprofile.HardwareProfileAnnotationName)
+		Expect(d.Default(llmAdmissionCtx(admissionv1.Update, old, false), llm)).To(Succeed())
+		Expect(llm.Spec.Template.ResourceClaims).To(BeEmpty())
+		Expect(llm.Spec.Template.Containers[0].Resources.Claims).To(BeEmpty())
+	})
+
 	It("injects only the primary template while retaining Kueue, identifiers, worker and prefill", func() {
 		spec := hwptestutil.ResourceSpec([]string{"cpu", "4"})
 		spec["dra"] = map[string]any{"resourceClaimTemplateName": "gpu-template"}
