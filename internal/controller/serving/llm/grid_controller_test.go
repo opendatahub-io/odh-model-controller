@@ -857,6 +857,15 @@ var _ = Describe("Grid provider reconciliation", Ordered, func() {
 		optIn(ctx)
 		provider := waitProvider(ctx)
 		Expect(provider.Object["spec"]).To(HaveKeyWithValue("endpoint", groupURL))
+		role := &rbacv1.Role{}
+		Expect(envTest.Get(ctx, client.ObjectKey{Namespace: ns.Name, Name: provider.GetName()}, role)).To(Succeed())
+		// The serving gateway reviews post on the publisher model for a publisher path; a
+		// root URL carries no model, so the Role keeps only the participant rule.
+		expected := []rbacv1.PolicyRule{{APIGroups: []string{"serving.kserve.io"}, Resources: []string{"llminferenceservices"}, ResourceNames: []string{svc.Name}, Verbs: []string{"get"}}}
+		if !root {
+			expected = append(expected, rbacv1.PolicyRule{APIGroups: []string{"serving.opendatahub.io"}, Resources: []string{"models"}, ResourceNames: []string{"publishers/" + ns.Name + "/models/test/model"}, Verbs: []string{"post"}})
+		}
+		Expect(role.Rules).To(Equal(expected))
 		models, _, err := unstructured.NestedSlice(provider.Object, "spec", "models")
 		Expect(err).NotTo(HaveOccurred())
 		Expect(models[0]).To(HaveKeyWithValue("name", model))
