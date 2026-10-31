@@ -19,11 +19,15 @@ package hardwareprofile
 import (
 	"context"
 	"errors"
+	"fmt"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	admissionv1 "k8s.io/api/admission/v1"
+	"k8s.io/apimachinery/pkg/runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/webhook/admission"
 )
 
 // errClient is a minimal client.Client stub that returns a fixed error from Get.
@@ -57,4 +61,40 @@ func TestResolve_FetchError(t *testing.T) {
 	require.Error(t, err)
 	assert.Nil(t, profile)
 	assert.ErrorContains(t, err, "transient connection error")
+}
+
+func TestProfileChanged_ResourceVersionChanged(t *testing.T) {
+	req := profileUpdateRequest("2530010", "2583577")
+	assert.True(t, ProfileChanged(req, "repro-hwp", "ns"))
+}
+
+func TestProfileChanged_ResourceVersionUnchanged(t *testing.T) {
+	req := profileUpdateRequest("2530010", "2530010")
+	assert.False(t, ProfileChanged(req, "repro-hwp", "ns"))
+}
+
+func profileUpdateRequest(oldRV, newRV string) admission.Request {
+	body := func(rv string) []byte {
+		return []byte(fmt.Sprintf(`{"metadata":{"namespace":"ns","annotations":{"opendatahub.io/hardware-profile-name":"repro-hwp","opendatahub.io/hardware-profile-namespace":"ns","opendatahub.io/hardware-profile-resource-version":"%s"}}}`, rv))
+	}
+	return admission.Request{
+		AdmissionRequest: admissionv1.AdmissionRequest{
+			Operation: admissionv1.Update,
+			Namespace: "ns",
+			Object:    runtime.RawExtension{Raw: body(newRV)},
+			OldObject: runtime.RawExtension{Raw: body(oldRV)},
+		},
+	}
+}
+
+func TestProfileChanged_InitialAssignmentWithResourceVersion(t *testing.T) {
+	req := admission.Request{
+		AdmissionRequest: admissionv1.AdmissionRequest{
+			Operation: admissionv1.Update,
+			Namespace: "ns",
+			OldObject: runtime.RawExtension{Raw: []byte(`{"metadata":{"namespace":"ns"}}`)},
+			Object:    runtime.RawExtension{Raw: []byte(`{"metadata":{"namespace":"ns","annotations":{"opendatahub.io/hardware-profile-name":"repro-hwp","opendatahub.io/hardware-profile-namespace":"ns","opendatahub.io/hardware-profile-resource-version":"2583577"}}}`)},
+		},
+	}
+	assert.False(t, ProfileChanged(req, "repro-hwp", "ns"))
 }
