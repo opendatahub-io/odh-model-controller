@@ -186,6 +186,15 @@ func TestReconcileDRAClaimsAcceptsOwnClaimOnCreate(t *testing.T) {
 	untemplated := []corev1.PodResourceClaim{{Name: DRAClaimName}}
 	err := ReconcileDRAClaims(&untemplated, &corev1.ResourceRequirements{}, false, selected, true)
 	require.ErrorContains(t, err, "already used")
+
+	// A duplicate reserved name with a different target must not be silently replaced.
+	other := "other-template"
+	duplicate := []corev1.PodResourceClaim{
+		{Name: DRAClaimName, ResourceClaimTemplateName: &selected},
+		{Name: DRAClaimName, ResourceClaimTemplateName: &other},
+	}
+	err = ReconcileDRAClaims(&duplicate, &corev1.ResourceRequirements{}, false, selected, true)
+	require.ErrorContains(t, err, "already used")
 }
 
 func TestReconcileDRAClaimsLeavesNoProfileManualClaimUnchanged(t *testing.T) {

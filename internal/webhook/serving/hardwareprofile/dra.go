@@ -123,12 +123,16 @@ func hasPodClaim(claims []corev1.PodResourceClaim) bool {
 // webhook good practices require, while a claim naming a different template, or naming none, is
 // still treated as a user claim and rejected.
 func hasPodClaimFor(claims []corev1.PodResourceClaim, template string) bool {
+	found := false
 	for _, claim := range claims {
 		if claim.Name == DRAClaimName {
-			return claim.ResourceClaimTemplateName != nil && *claim.ResourceClaimTemplateName == template
+			if claim.ResourceClaimTemplateName == nil || *claim.ResourceClaimTemplateName != template {
+				return false
+			}
+			found = true
 		}
 	}
-	return false
+	return found
 }
 
 func hasContainerClaim(claims []corev1.ResourceClaim) bool {
