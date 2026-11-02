@@ -37,7 +37,8 @@ func llmDRAResourceClaimTemplate(template string) *resourcev1.ResourceClaimTempl
 	return &resourcev1.ResourceClaimTemplate{ObjectMeta: metav1.ObjectMeta{Name: template, Namespace: llmHWPNS}}
 }
 
-func expectLLMDRAClaimPair(template *corev1.PodSpec, claimTemplate string) {
+func expectLLMDRAClaimPair(template *corev1.PodSpec) {
+	claimTemplate := "gpu-template"
 	ExpectWithOffset(1, template).NotTo(BeNil())
 	ExpectWithOffset(1, template.ResourceClaims).To(Equal([]corev1.PodResourceClaim{{
 		Name: hardwareprofile.DRAClaimName, ResourceClaimTemplateName: &claimTemplate,
@@ -58,14 +59,14 @@ var _ = Describe("LLMInferenceService HardwareProfile DRA", func() {
 		llm.Spec.Template = &corev1.PodSpec{Containers: []corev1.Container{{Name: "main"}}}
 
 		Expect(d.Default(llmHWPCreateCtx(llm), llm)).To(Succeed())
-		expectLLMDRAClaimPair(llm.Spec.Template, "gpu-template")
+		expectLLMDRAClaimPair(llm.Spec.Template)
 		// Admission may run again on its own output or receive a previously admitted object.
 		Expect(d.Default(llmHWPCreateCtx(llm), llm)).To(Succeed())
-		expectLLMDRAClaimPair(llm.Spec.Template, "gpu-template")
+		expectLLMDRAClaimPair(llm.Spec.Template)
 
 		old := llm.DeepCopy()
 		Expect(d.Default(llmHWPUpdateCtx(llm, old), llm)).To(Succeed())
-		expectLLMDRAClaimPair(llm.Spec.Template, "gpu-template")
+		expectLLMDRAClaimPair(llm.Spec.Template)
 
 		old = llm.DeepCopy()
 		llm.Annotations[hardwareprofile.HardwareProfileAnnotationName] = "plain-profile"
@@ -76,7 +77,7 @@ var _ = Describe("LLMInferenceService HardwareProfile DRA", func() {
 		old = llm.DeepCopy()
 		llm.Annotations[hardwareprofile.HardwareProfileAnnotationName] = "gpu-profile"
 		Expect(d.Default(llmHWPUpdateCtx(llm, old), llm)).To(Succeed())
-		expectLLMDRAClaimPair(llm.Spec.Template, "gpu-template")
+		expectLLMDRAClaimPair(llm.Spec.Template)
 
 		old = llm.DeepCopy()
 		delete(llm.Annotations, hardwareprofile.HardwareProfileAnnotationName)
@@ -98,13 +99,13 @@ var _ = Describe("LLMInferenceService HardwareProfile DRA", func() {
 		llm.Spec.Template = &corev1.PodSpec{Containers: []corev1.Container{{Name: "main"}}}
 
 		Expect(d.Default(llmAdmissionCtx(admissionv1.Create, nil, false), llm)).To(Succeed())
-		expectLLMDRAClaimPair(llm.Spec.Template, "gpu-template")
+		expectLLMDRAClaimPair(llm.Spec.Template)
 		Expect(d.Default(llmAdmissionCtx(admissionv1.Create, nil, false), llm)).To(Succeed())
-		expectLLMDRAClaimPair(llm.Spec.Template, "gpu-template")
+		expectLLMDRAClaimPair(llm.Spec.Template)
 
 		old := llm.DeepCopy()
 		Expect(d.Default(llmAdmissionCtx(admissionv1.Update, old, false), llm)).To(Succeed())
-		expectLLMDRAClaimPair(llm.Spec.Template, "gpu-template")
+		expectLLMDRAClaimPair(llm.Spec.Template)
 
 		old = llm.DeepCopy()
 		llm.Annotations[hardwareprofile.HardwareProfileAnnotationName] = "plain-profile"
@@ -115,7 +116,7 @@ var _ = Describe("LLMInferenceService HardwareProfile DRA", func() {
 		old = llm.DeepCopy()
 		llm.Annotations[hardwareprofile.HardwareProfileAnnotationName] = "gpu-profile"
 		Expect(d.Default(llmAdmissionCtx(admissionv1.Update, old, false), llm)).To(Succeed())
-		expectLLMDRAClaimPair(llm.Spec.Template, "gpu-template")
+		expectLLMDRAClaimPair(llm.Spec.Template)
 
 		old = llm.DeepCopy()
 		delete(llm.Annotations, hardwareprofile.HardwareProfileAnnotationName)

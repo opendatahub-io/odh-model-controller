@@ -53,9 +53,9 @@ func TestLLMInferenceServiceMutatingWebhooksCoverServedVersions(t *testing.T) {
 	patchYAML, err := os.ReadFile("../overlays/xks/patches/mutating-webhooks-xks.yaml")
 	require.NoError(t, err)
 	var patches []struct {
-		Op    string                                     `json:"op"`
-		Path  string                                     `json:"path"`
-		Value []admissionregistrationv1.MutatingWebhook `json:"value"`
+		Op	string	`json:"op"`
+		Path	string	`json:"path"`
+		Value	[]admissionregistrationv1.MutatingWebhook	`json:"value"`
 	}
 	require.NoError(t, yaml.Unmarshal(patchYAML, &patches))
 	require.Len(t, patches, 1)
