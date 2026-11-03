@@ -210,7 +210,7 @@ require (
 )
 
 // Use ODH release branch instead
-replace github.com/kserve/kserve => github.com/opendatahub-io/kserve v0.0.0-20261102174500-77be385bdaa4
+replace github.com/kserve/kserve => github.com/opendatahub-io/kserve v0.0.0-20261103140125-756aaf9a141e
 
 // CVE-2025-68156: Update expr-lang/expr to v1.17.7
 replace github.com/expr-lang/expr => github.com/expr-lang/expr v1.17.7
