@@ -632,7 +632,7 @@ func WithTargetPort(port int32) InferencePoolOption {
 
 func WithExtensionRef(group, kind, name string) InferencePoolOption {
 	return func(pool *igwapi.InferencePool) {
-		pool.Spec.EndpointPickerRef = igwapi.EndpointPickerRef{
+		pool.Spec.EndpointPickerRef = &igwapi.EndpointPickerRef{
 			Group: ptr.To(igwapi.Group(group)),
 			Kind:  igwapi.Kind(kind),
 			Name:  igwapi.ObjectName(name),
