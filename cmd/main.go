@@ -315,6 +315,10 @@ func setupReconcilers(mgr ctrl.Manager, setupLog logr.Logger, cfg *rest.Config) 
 		setupLog.Error(err, "unable to create controller", "controller", "InferenceService")
 		return err
 	}
+	if err := setupInferenceGraphReconciler(mgr); err != nil {
+		setupLog.Error(err, "unable to create controller", "controller", "InferenceGraph")
+		return err
+	}
 	if err := setupSecretReconciler(mgr); err != nil {
 		setupLog.Error(err, "unable to create controller", "controller", "Secret")
 		return err
@@ -363,6 +367,10 @@ func setupInferenceServiceReconciler(mgr ctrl.Manager, cfg *rest.Config) error {
 		enableMRInferenceServiceReconcile,
 		getEnvAsBool("MR_SKIP_TLS_VERIFY", false),
 		cfg.BearerToken)).SetupWithManager(mgr, setupLog)
+}
+
+func setupInferenceGraphReconciler(mgr ctrl.Manager) error {
+	return servingcontroller.NewInferenceGraphReconciler(mgr).SetupWithManager(mgr)
 }
 
 func setupSecretReconciler(mgr ctrl.Manager) error {
