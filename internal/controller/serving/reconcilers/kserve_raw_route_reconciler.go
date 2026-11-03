@@ -82,11 +82,14 @@ func (r *KserveRawRouteReconciler) Delete(ctx context.Context, log logr.Logger, 
 	return nil
 }
 
-// DeleteOwnedRouteOnNetworkPolicyFailure removes an already exposed Route only
-// when this InferenceService controls it. This keeps a failed policy reconcile
-// from leaving an owned Route serving traffic while avoiding deletion of an
-// unrelated same-name Route.
-func (r *KserveRawRouteReconciler) DeleteOwnedRouteOnNetworkPolicyFailure(ctx context.Context, log logr.Logger, isvc *kservev1beta1.InferenceService) error {
+// DeleteOwnedRouteIfNotExposed honors removal of exposure even when policy
+// reconciliation fails. Existing exposed Routes and unrelated same-name Routes
+// are left untouched.
+func (r *KserveRawRouteReconciler) DeleteOwnedRouteIfNotExposed(ctx context.Context, log logr.Logger, isvc *kservev1beta1.InferenceService) error {
+	if routeEnabled(isvc) {
+		return nil
+	}
+
 	existingRoute, err := r.getExistingResource(ctx, log, isvc)
 	if err != nil {
 		return err
@@ -95,12 +98,12 @@ func (r *KserveRawRouteReconciler) DeleteOwnedRouteOnNetworkPolicyFailure(ctx co
 		return nil
 	}
 	if !isOwnedByInferenceServiceOwnerReferences(existingRoute.OwnerReferences, isvc) {
-		log.V(1).Info("Leaving unowned Route in place after NetworkPolicy failure", "name", existingRoute.Name)
+		log.V(1).Info("Leaving unowned Route in place after exposure was disabled", "name", existingRoute.Name)
 		return nil
 	}
-	log.Info("Deleting Route after NetworkPolicy reconciliation failure", "name", existingRoute.Name)
+	log.Info("Deleting Route because exposure was disabled", "name", existingRoute.Name)
 	if err := r.client.Delete(ctx, existingRoute); err != nil && !apierrors.IsNotFound(err) {
-		return fmt.Errorf("failed to delete Route %s after NetworkPolicy failure: %w", client.ObjectKeyFromObject(existingRoute), err)
+		return fmt.Errorf("failed to delete Route %s after exposure was disabled: %w", client.ObjectKeyFromObject(existingRoute), err)
 	}
 	return nil
 }

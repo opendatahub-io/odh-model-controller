@@ -93,7 +93,7 @@ var _ = Describe("KserveRawInferenceGraphNetworkPolicyReconciler", func() {
 		Expect(policy.Spec.Ingress).To(HaveLen(1))
 	})
 
-	It("switches cluster-local ingress to the graph-specific caller label", func(ctx SpecContext) {
+	It("permits all cluster Pods and repairs legacy caller-label restrictions", func(ctx SpecContext) {
 		graph := newGraph()
 		graph.Labels[kserveconstants.NetworkVisibility] = kserveconstants.ClusterLocalVisibility
 		cli := fake.NewClientBuilder().WithScheme(scheme).WithObjects(graph).Build()
@@ -102,16 +102,63 @@ var _ = Describe("KserveRawInferenceGraphNetworkPolicyReconciler", func() {
 		Expect(reconciler.Reconcile(ctx, log.Log, graph)).To(Succeed())
 		policy := &networkingv1.NetworkPolicy{}
 		Expect(cli.Get(ctx, client.ObjectKey{Name: inferenceGraphNetworkPolicyName(graph), Namespace: graph.Namespace}, policy)).To(Succeed())
+		Expect(policy.Spec.Ingress).To(HaveLen(1))
+		Expect(policy.Spec.Ingress[0].From).To(HaveLen(1))
 		peer := policy.Spec.Ingress[0].From[0]
-		Expect(peer.NamespaceSelector).To(BeNil())
-		Expect(peer.PodSelector.MatchLabels).To(Equal(map[string]string{
-			inferenceGraphCallerLabel: graph.Name,
-		}))
+		Expect(peer.NamespaceSelector).To(Equal(&metav1.LabelSelector{}))
+		Expect(peer.PodSelector).To(Equal(&metav1.LabelSelector{}))
+		Expect(policy.Spec.PodSelector.MatchLabels).To(Equal(map[string]string{kserveconstants.InferenceGraphLabel: graph.Name}))
+		Expect(policy.Spec.PolicyTypes).To(ConsistOf(networkingv1.PolicyTypeIngress, networkingv1.PolicyTypeEgress))
+		Expect(policy.Spec.Egress).To(Equal([]networkingv1.NetworkPolicyEgressRule{{}}))
 		Expect(policyPortStrings(policy.Spec.Ingress[0].Ports)).To(Equal([]string{"TCP:8080"}))
+		Expect(isOwnedByInferenceGraph(policy, graph)).To(BeTrue())
+
+		desired := policy.DeepCopy()
+		policy.Spec.Ingress[0].From = []networkingv1.NetworkPolicyPeer{{
+			PodSelector: &metav1.LabelSelector{MatchLabels: map[string]string{
+				"serving.kserve.io/inferencegraph-caller": graph.Name,
+			}},
+		}}
+		Expect(cli.Update(ctx, policy)).To(Succeed())
+		Expect(reconciler.Reconcile(ctx, log.Log, graph)).To(Succeed())
+		Expect(cli.Get(ctx, client.ObjectKeyFromObject(policy), policy)).To(Succeed())
+		Expect(policy.Spec).To(Equal(desired.Spec))
+		Expect(policy.OwnerReferences).To(Equal(desired.OwnerReferences))
 
 		Expect(reconciler.Delete(ctx, log.Log, graph)).To(Succeed())
 		err := cli.Get(ctx, client.ObjectKey{Name: inferenceGraphNetworkPolicyName(graph), Namespace: graph.Namespace}, &networkingv1.NetworkPolicy{})
 		Expect(apierrors.IsNotFound(err)).To(BeTrue())
+	})
+
+	It("switches exposed and ClusterLocal ingress without changing other policy invariants", func(ctx SpecContext) {
+		graph := newGraph()
+		cli := fake.NewClientBuilder().WithScheme(scheme).WithObjects(graph).Build()
+		reconciler := NewKserveRawInferenceGraphNetworkPolicyReconciler(cli)
+		Expect(reconciler.Reconcile(ctx, log.Log, graph)).To(Succeed())
+		policy := &networkingv1.NetworkPolicy{}
+		key := client.ObjectKey{Name: inferenceGraphNetworkPolicyName(graph), Namespace: graph.Namespace}
+		Expect(cli.Get(ctx, key, policy)).To(Succeed())
+		exposed := policy.DeepCopy()
+
+		for _, visibility := range []string{kserveconstants.ClusterLocalVisibility, "exposed"} {
+			graph.Labels[kserveconstants.NetworkVisibility] = visibility
+			Expect(cli.Update(ctx, graph)).To(Succeed())
+			Expect(reconciler.Reconcile(ctx, log.Log, graph)).To(Succeed())
+			Expect(cli.Get(ctx, key, policy)).To(Succeed())
+			Expect(policy.Spec.PodSelector).To(Equal(exposed.Spec.PodSelector))
+			Expect(policy.Spec.PolicyTypes).To(Equal(exposed.Spec.PolicyTypes))
+			Expect(policy.Spec.Egress).To(Equal(exposed.Spec.Egress))
+			Expect(policy.OwnerReferences).To(Equal(exposed.OwnerReferences))
+			Expect(policy.Spec.Ingress).To(HaveLen(1))
+			Expect(policy.Spec.Ingress[0].Ports).To(Equal(exposed.Spec.Ingress[0].Ports))
+			if visibility == kserveconstants.ClusterLocalVisibility {
+				Expect(policy.Spec.Ingress[0].From).To(Equal([]networkingv1.NetworkPolicyPeer{{
+					NamespaceSelector: &metav1.LabelSelector{}, PodSelector: &metav1.LabelSelector{},
+				}}))
+			} else {
+				Expect(policy.Spec).To(Equal(exposed.Spec))
+			}
+		}
 	})
 
 	It("does not take over an unowned policy", func(ctx SpecContext) {
@@ -144,16 +191,29 @@ var _ = Describe("KserveRawInferenceGraphNetworkPolicyReconciler", func() {
 		Expect(IsRawInferenceService(isvc)).To(BeFalse())
 	})
 
-	It("accepts only internal URLs for known graph targets", func() {
-		service := corev1.Service{ObjectMeta: metav1.ObjectMeta{Name: "raw-model-predictor", Namespace: "models"}, Spec: corev1.ServiceSpec{Ports: []corev1.ServicePort{{Port: 80, TargetPort: intstr.FromInt32(8080)}}}}
-		Expect(graphServiceURLMatches("http://raw-model-predictor.models.svc.cluster.local", "models", []corev1.Service{service})).To(BeTrue())
-		Expect(graphServiceURLMatches("http://raw-model-predictor.models.svc.cluster.local:80", "models", []corev1.Service{service})).To(BeTrue())
-		Expect(graphServiceURLMatches("http://raw-model-predictor.models.svc.cluster.local:8080", "models", []corev1.Service{service})).To(BeFalse())
-		service.Spec.ClusterIP = corev1.ClusterIPNone
-		Expect(graphServiceURLMatches("http://raw-model-predictor.models.svc.cluster.local:8080", "models", []corev1.Service{service})).To(BeTrue())
-		Expect(graphServiceURLMatches("http://example.com", "models", []corev1.Service{service})).To(BeFalse())
-		Expect(graphServiceURLMatches("not a URL", "models", []corev1.Service{service})).To(BeFalse())
-	})
+	DescribeTable("resolves only the URL's actual internal serving port", func(targetURL string, headless bool, expected []string) {
+		service := corev1.Service{ObjectMeta: metav1.ObjectMeta{Name: "raw-model-predictor", Namespace: "models"}, Spec: corev1.ServiceSpec{Ports: []corev1.ServicePort{
+			{Port: 80, TargetPort: intstr.FromInt32(8080)},
+			{Port: 443, TargetPort: intstr.FromInt32(8443)},
+			{Port: 9000, TargetPort: intstr.FromInt32(9001)},
+		}}}
+		if headless {
+			service.Spec.ClusterIP = corev1.ClusterIPNone
+		}
+		ports, err := GraphServiceURLPorts(targetURL, "models", []corev1.Service{service})
+		Expect(err).NotTo(HaveOccurred())
+		Expect(policyPortStrings(ports)).To(Equal(expected))
+	},
+		Entry("HTTP default", "http://raw-model-predictor.models.svc.cluster.local", false, []string{"TCP:8080"}),
+		Entry("HTTPS default", "https://raw-model-predictor.models.svc", false, []string{"TCP:8443"}),
+		Entry("explicit auxiliary Service port", "http://raw-model-predictor.models.svc:9000/path", false, []string{"TCP:9001"}),
+		Entry("rejects Pod ports through a ClusterIP Service", "http://raw-model-predictor.models.svc:8080", false, []string{}),
+		Entry("headless Pod port", "http://raw-model-predictor.models.svc:8080", true, []string{"TCP:8080"}),
+		Entry("rejects untranslated headless Service port", "http://raw-model-predictor.models.svc:80", true, []string{}),
+		Entry("other namespace", "http://raw-model-predictor.other.svc", false, []string{}),
+		Entry("external host", "http://example.com", false, []string{}),
+		Entry("malformed URL", "not a URL", false, []string{}),
+	)
 
 	It("adds and removes only verified graph peers on the ISVC policy", func(ctx SpecContext) {
 		isvc := &kservev1beta1.InferenceService{ObjectMeta: metav1.ObjectMeta{
@@ -194,6 +254,7 @@ var _ = Describe("KserveRawInferenceGraphNetworkPolicyReconciler", func() {
 		Expect(cli.Get(ctx, key, policy)).To(Succeed())
 		Expect(policy.Spec.Ingress).To(BeEmpty())
 
+		graph.Spec.Nodes["root"].Steps[0].ServiceName = ""
 		graph.Spec.Nodes["root"].Steps[0].ServiceURL = "http://raw-model-predictor.models.svc.cluster.local"
 		Expect(cli.Update(ctx, graph)).To(Succeed())
 		Expect(reconciler.Reconcile(ctx, log.Log, isvc)).To(Succeed())
@@ -204,14 +265,30 @@ var _ = Describe("KserveRawInferenceGraphNetworkPolicyReconciler", func() {
 		}))
 		Expect(policyPortStrings(policy.Spec.Ingress[0].Ports)).To(Equal([]string{"TCP:8080"}))
 
+		service.Spec.Ports = append(service.Spec.Ports, corev1.ServicePort{Port: 9000, TargetPort: intstr.FromInt32(9001)})
+		Expect(cli.Update(ctx, service)).To(Succeed())
+		graph.Spec.Nodes["root"].Steps[0].ServiceURL = "http://raw-model-predictor.models.svc:9000"
+		Expect(cli.Update(ctx, graph)).To(Succeed())
+		Expect(reconciler.Reconcile(ctx, log.Log, isvc)).To(Succeed())
+		Expect(cli.Get(ctx, key, policy)).To(Succeed())
+		Expect(policyPortStrings(policy.Spec.Ingress[0].Ports)).To(Equal([]string{"TCP:9001"}))
+
+		graph.Spec.Nodes["root"].Steps[0].ServiceURL = "http://raw-model-predictor.other.svc"
+		Expect(cli.Update(ctx, graph)).To(Succeed())
+		Expect(reconciler.Reconcile(ctx, log.Log, isvc)).To(Succeed())
+		Expect(cli.Get(ctx, key, policy)).To(Succeed())
+		Expect(policy.Spec.Ingress).To(BeEmpty())
+
 		// KServe resolves a named ServiceName to the ISVC's internal Address when
 		// ServiceURL is omitted, including when the ISVC also has an exposed Route.
+		graph.Spec.Nodes["root"].Steps[0].ServiceName = isvc.Name
 		graph.Spec.Nodes["root"].Steps[0].ServiceURL = ""
 		Expect(cli.Update(ctx, graph)).To(Succeed())
 		Expect(reconciler.Reconcile(ctx, log.Log, isvc)).To(Succeed())
 		Expect(cli.Get(ctx, key, policy)).To(Succeed())
 		Expect(policy.Spec.Ingress).To(HaveLen(1))
 
+		graph.Spec.Nodes["root"].Steps[0].ServiceName = ""
 		graph.Spec.Nodes["root"].Steps[0].ServiceURL = "https://external.example.com"
 		Expect(cli.Update(ctx, graph)).To(Succeed())
 		Expect(reconciler.Reconcile(ctx, log.Log, isvc)).To(Succeed())

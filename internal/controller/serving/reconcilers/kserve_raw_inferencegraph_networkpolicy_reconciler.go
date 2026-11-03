@@ -39,7 +39,6 @@ import (
 const (
 	inferenceGraphNetworkPolicyNameSuffix       = "-inferencegraph-network-policy"
 	inferenceGraphNetworkPolicyManagedComponent = "kserve-inferencegraph-network-policy"
-	inferenceGraphCallerLabel                   = "serving.kserve.io/inferencegraph-caller"
 )
 
 // KserveRawInferenceGraphNetworkPolicyReconciler owns the NetworkPolicy that
@@ -124,13 +123,13 @@ func (r *KserveRawInferenceGraphNetworkPolicyReconciler) desiredNetworkPolicy(
 	}
 
 	if isClusterLocalInferenceGraph(graph) {
-		// A PodSelector without a NamespaceSelector is deliberately namespace
-		// local. Callers opt in by labeling their Pod for this graph.
+		// ClusterLocal suppresses the external Route, not cross-namespace
+		// Service access. Preserve access from all cluster Pods without
+		// requiring existing clients to adopt a caller label.
 		policy.Spec.Ingress = []networkingv1.NetworkPolicyIngressRule{{
 			From: []networkingv1.NetworkPolicyPeer{{
-				PodSelector: &metav1.LabelSelector{MatchLabels: map[string]string{
-					inferenceGraphCallerLabel: graph.Name,
-				}},
+				NamespaceSelector: &metav1.LabelSelector{},
+				PodSelector:       &metav1.LabelSelector{},
 			}},
 			Ports: []networkingv1.NetworkPolicyPort{networkPolicyPortTCP(kserveconstants.RouterPort)},
 		}}

@@ -918,8 +918,9 @@ var _ = Describe("InferenceGraph InferenceService watch mapping", func() {
 		}
 		newGraph.Spec.Nodes["root"] = root
 
-		oldRequests := inferenceGraphInferenceServiceRequests(context.Background(), oldGraph)
-		newRequests := inferenceGraphInferenceServiceRequests(context.Background(), newGraph)
+		reconciler := &InferenceServiceReconciler{}
+		oldRequests := reconciler.inferenceGraphInferenceServiceRequests(context.Background(), oldGraph)
+		newRequests := reconciler.inferenceGraphInferenceServiceRequests(context.Background(), newGraph)
 		Expect(oldRequests).To(Equal([]reconcile.Request{
 			{NamespacedName: types.NamespacedName{Name: "removed-model", Namespace: "models"}},
 			{NamespacedName: types.NamespacedName{Name: "shared-model", Namespace: "models"}},

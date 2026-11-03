@@ -32,6 +32,7 @@ import (
 	networkingv1 "k8s.io/api/networking/v1"
 	authv1 "k8s.io/api/rbac/v1"
 	apierrs "k8s.io/apimachinery/pkg/api/errors"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
 	ctrl "sigs.k8s.io/controller-runtime"
@@ -264,7 +265,7 @@ func (r *InferenceServiceReconciler) SetupWithManager(mgr ctrl.Manager, setupLog
 				}
 			})).
 		Watches(&kservev1alpha1.InferenceGraph{},
-			handler.EnqueueRequestsFromMapFunc(inferenceGraphInferenceServiceRequests))
+			handler.EnqueueRequestsFromMapFunc(r.inferenceGraphInferenceServiceRequests))
 
 	isKedaTriggerAuthenticationAvailable, err := utils.IsCrdAvailable(mgr.GetConfig(), kedaapi.GroupVersion.String(), "TriggerAuthentication")
 	if err != nil {
@@ -281,21 +282,44 @@ func (r *InferenceServiceReconciler) SetupWithManager(mgr ctrl.Manager, setupLog
 	return builder.Complete(r)
 }
 
-// inferenceGraphInferenceServiceRequests maps the graph's named ServiceName
-// references to same-namespace ISVC reconcile requests. Update events invoke
-// this mapper for both old and new graph objects, so removed references are
-// reconciled without listing every ISVC in the namespace.
-func inferenceGraphInferenceServiceRequests(_ context.Context, o client.Object) []reconcile.Request {
+// inferenceGraphInferenceServiceRequests maps named and internal URL targets to
+// same-namespace ISVCs. Update events map both old and new graph objects so
+// removed references are reconciled as well.
+func (r *InferenceServiceReconciler) inferenceGraphInferenceServiceRequests(ctx context.Context, o client.Object) []reconcile.Request {
 	graph, ok := o.(*kservev1alpha1.InferenceGraph)
 	if !ok || graph == nil {
 		return nil
 	}
 
 	names := make(map[string]struct{})
+	urls := make(map[string]struct{})
 	for _, router := range graph.Spec.Nodes {
 		for _, step := range router.Steps {
 			if step.ServiceName != "" {
 				names[step.ServiceName] = struct{}{}
+			} else if step.ServiceURL != "" {
+				urls[step.ServiceURL] = struct{}{}
+			}
+		}
+	}
+	if len(urls) > 0 {
+		services := &corev1.ServiceList{}
+		if err := r.List(ctx, services, client.InNamespace(graph.Namespace)); err != nil {
+			log.FromContext(ctx).Error(err, "Unable to resolve graph URL targets", "graph", client.ObjectKeyFromObject(graph))
+		} else {
+			for _, service := range services.Items {
+				owner := metav1.GetControllerOf(&service)
+				if owner == nil || owner.APIVersion != kservev1beta1.SchemeGroupVersion.String() || owner.Kind != constants.InferenceServiceKind {
+					continue
+				}
+				for targetURL := range urls {
+					ports, err := reconcilers.GraphServiceURLPorts(targetURL, graph.Namespace, []corev1.Service{service})
+					if err == nil && len(ports) > 0 {
+						// Enqueuing is not authorization: policy reconciliation checks
+						// the current ISVC UID before admitting any graph traffic.
+						names[owner.Name] = struct{}{}
+					}
+				}
 			}
 		}
 	}

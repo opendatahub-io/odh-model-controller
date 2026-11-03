@@ -260,30 +260,56 @@ func (r *KserveRawNetworkPolicyReconciler) desiredNetworkPolicy(
 		}
 	}
 
-	// The transformer calls the predictor Service directly. Use the predictor
-	// Service target port, rather than Service.Port, because NetworkPolicy is
-	// evaluated against the Pod port. This also covers stable and canary
-	// predictor Services with one per-component policy.
-	if component == predictorNetworkPolicyComponent && len(services[transformerNetworkPolicyComponent]) > 0 {
+	// ClusterLocal removes external exposure, not access to the advertised
+	// internal entry point. Keep predictor backends private behind a transformer
+	// and select the authenticated port when auth is enabled.
+	if isvc.Labels[kserveconstants.NetworkVisibility] == kserveconstants.ClusterLocalVisibility && component == graphTargetComponent(isvc) {
+		ports, err := serviceTargetPorts(graphTargetServices(isvc, componentServices), authEnabled)
+		if err != nil {
+			return nil, err
+		}
+		if len(ports) > 0 {
+			policy.Spec.Ingress = append(policy.Spec.Ingress, networkingv1.NetworkPolicyIngressRule{
+				From: []networkingv1.NetworkPolicyPeer{{
+					NamespaceSelector: &metav1.LabelSelector{},
+					PodSelector:       &metav1.LabelSelector{},
+				}},
+				Ports: ports,
+			})
+		}
+	}
+
+	// Transformers and configured explainers call the predictor directly.
+	// Restrict each peer to this ISVC in the same namespace, using the Pod
+	// target port rather than the Service port (including canary Services).
+	var predictorCallers []string
+	if len(services[transformerNetworkPolicyComponent]) > 0 {
+		predictorCallers = append(predictorCallers, transformerNetworkPolicyComponent)
+	}
+	if isvc.Spec.Explainer != nil {
+		predictorCallers = append(predictorCallers, string(kservev1beta1.ExplainerComponent))
+	}
+	if component == predictorNetworkPolicyComponent && len(predictorCallers) > 0 {
 		predictorPorts, err := serviceTargetPorts(services[predictorNetworkPolicyComponent], authEnabled)
 		if err != nil {
 			return nil, err
 		}
 		if len(predictorPorts) > 0 {
-			policy.Spec.Ingress = append(policy.Spec.Ingress, networkingv1.NetworkPolicyIngressRule{
-				From: []networkingv1.NetworkPolicyPeer{{
-					PodSelector: &metav1.LabelSelector{MatchLabels: map[string]string{
-						constants.KserveGroupAnnotation:        isvc.Name,
-						kserveconstants.KServiceComponentLabel: transformerNetworkPolicyComponent,
+			for _, caller := range predictorCallers {
+				policy.Spec.Ingress = append(policy.Spec.Ingress, networkingv1.NetworkPolicyIngressRule{
+					From: []networkingv1.NetworkPolicyPeer{{
+						PodSelector: &metav1.LabelSelector{MatchLabels: map[string]string{
+							constants.KserveGroupAnnotation:        isvc.Name,
+							kserveconstants.KServiceComponentLabel: caller,
+						}},
 					}},
-				}},
-				Ports: predictorPorts,
-			})
+					Ports: predictorPorts,
+				})
+			}
 		}
 	}
-	// Graph peers are derived from named, same-namespace ServiceName references
-	// and are kept on the ISVC-owned policy so one controller owns all ingress
-	// to these Pods.
+	// Named and URL-only graph peers stay on the ISVC-owned policy so a
+	// single controller owns the managed ingress rules for these Pods.
 	policy.Spec.Ingress = append(policy.Spec.Ingress, graphIngressRules...)
 
 	// Metrics are enabled by a ServingRuntime annotation. The metrics Service
@@ -309,9 +335,8 @@ func (r *KserveRawNetworkPolicyReconciler) desiredNetworkPolicy(
 }
 
 // graphIngressRules returns the graph router peers that are allowed to call
-// this ISVC. A graph's ServiceName is useful only after it resolves to the
-// exact same-namespace raw KServe Service. Explicit external or unrelated
-// ServiceURL values are intentionally ignored.
+// this ISVC. Named targets use the front-door Service; explicit URLs must
+// resolve to a verified owned component Service and its actual serving port.
 func (r *KserveRawNetworkPolicyReconciler) graphIngressRules(
 	ctx context.Context,
 	isvc *kservev1beta1.InferenceService,
@@ -334,11 +359,6 @@ func (r *KserveRawNetworkPolicyReconciler) graphIngressRules(
 	}
 	sort.Slice(graphs.Items, func(i, j int) bool { return graphs.Items[i].Name < graphs.Items[j].Name })
 
-	component := graphTargetComponent(isvc)
-	targetServices := graphTargetServices(isvc, services[component])
-	if len(targetServices) == 0 {
-		return rules, nil
-	}
 	for i := range graphs.Items {
 		graph := &graphs.Items[i]
 		if !IsRawInferenceGraph(graph) {
@@ -346,30 +366,34 @@ func (r *KserveRawNetworkPolicyReconciler) graphIngressRules(
 		}
 		for _, router := range graph.Spec.Nodes {
 			for _, step := range router.Steps {
-				if step.ServiceName != isvc.Name {
+				if step.ServiceName != "" && step.ServiceName != isvc.Name {
 					continue
 				}
-				if step.ServiceURL != "" && !graphServiceURLMatches(step.ServiceURL, isvc.Namespace, targetServices) {
-					continue
-				}
-
-				ports, err := serviceTargetPorts(targetServices, rawAuthEnabled(isvc))
-				if err != nil {
-					return nil, err
-				}
-				if len(ports) == 0 {
-					continue
-				}
-				rule := networkingv1.NetworkPolicyIngressRule{
-					From: []networkingv1.NetworkPolicyPeer{{
-						PodSelector: &metav1.LabelSelector{MatchLabels: map[string]string{
-							kserveconstants.InferenceGraphLabel: graph.Name,
+				for _, component := range []string{predictorNetworkPolicyComponent, transformerNetworkPolicyComponent} {
+					var ports []networkingv1.NetworkPolicyPort
+					var err error
+					if step.ServiceURL != "" {
+						ports, err = GraphServiceURLPorts(step.ServiceURL, isvc.Namespace, services[component])
+					} else if step.ServiceName == isvc.Name && component == graphTargetComponent(isvc) {
+						ports, err = serviceTargetPorts(graphTargetServices(isvc, services[component]), rawAuthEnabled(isvc))
+					}
+					if err != nil {
+						return nil, err
+					}
+					if len(ports) == 0 {
+						continue
+					}
+					rule := networkingv1.NetworkPolicyIngressRule{
+						From: []networkingv1.NetworkPolicyPeer{{
+							PodSelector: &metav1.LabelSelector{MatchLabels: map[string]string{
+								kserveconstants.InferenceGraphLabel: graph.Name,
+							}},
 						}},
-					}},
-					Ports: ports,
-				}
-				if !containsIngressRule(rules[component], rule) {
-					rules[component] = append(rules[component], rule)
+						Ports: ports,
+					}
+					if !containsIngressRule(rules[component], rule) {
+						rules[component] = append(rules[component], rule)
+					}
 				}
 			}
 		}
@@ -401,14 +425,34 @@ func graphTargetServices(isvc *kservev1beta1.InferenceService, services []corev1
 	return result
 }
 
-func graphServiceURLMatches(rawURL, namespace string, services []corev1.Service) bool {
+// GraphServiceURLPorts resolves an internal graph URL to Pod target ports.
+// Callers granting ingress must first verify the supplied Services' ownership.
+func GraphServiceURLPorts(rawURL, namespace string, services []corev1.Service) ([]networkingv1.NetworkPolicyPort, error) {
 	parsed, err := url.Parse(rawURL)
 	if err != nil || parsed.Hostname() == "" {
-		return false
+		return nil, nil
+	}
+	var port int
+	switch parsed.Scheme {
+	case "http":
+		port = 80
+	case "https":
+		port = 443
+	default:
+		return nil, nil
+	}
+	if parsed.Port() != "" {
+		port, err = strconv.Atoi(parsed.Port())
+		if err != nil || port < 1 || port > 65535 {
+			return nil, nil
+		}
 	}
 	host := strings.ToLower(strings.TrimSuffix(parsed.Hostname(), "."))
 	for i := range services {
 		service := &services[i]
+		if service.Namespace != namespace || service.Spec.Type == corev1.ServiceTypeExternalName || service.Labels[kserveconstants.MultiNodeRoleLabelKey] != "" {
+			continue
+		}
 		hosts := []string{
 			strings.ToLower(service.Name),
 			strings.ToLower(service.Name + "." + namespace),
@@ -426,22 +470,20 @@ func graphServiceURLMatches(rawURL, namespace string, services []corev1.Service)
 			continue
 		}
 
-		if parsed.Port() == "" {
-			return true
-		}
-		port, err := strconv.Atoi(parsed.Port())
-		if err != nil || port < 1 || port > 65535 {
-			return false
-		}
 		for _, servicePort := range service.Spec.Ports {
-			if servicePort.Port == int32(port) ||
-				(service.Spec.ClusterIP == corev1.ClusterIPNone &&
-					servicePort.TargetPort.Type == intstr.Int && servicePort.TargetPort.IntVal == int32(port)) {
-				return true
+			if servicePort.Protocol != "" && servicePort.Protocol != corev1.ProtocolTCP {
+				continue
+			}
+			endpointPort := servicePort.Port
+			if service.Spec.ClusterIP == corev1.ClusterIPNone && servicePort.TargetPort.Type == intstr.Int && servicePort.TargetPort.IntVal != 0 {
+				endpointPort = servicePort.TargetPort.IntVal
+			}
+			if endpointPort == int32(port) {
+				return networkPolicyPorts([]corev1.ServicePort{servicePort})
 			}
 		}
 	}
-	return false
+	return nil, nil
 }
 
 func containsIngressRule(rules []networkingv1.NetworkPolicyIngressRule, candidate networkingv1.NetworkPolicyIngressRule) bool {

@@ -56,17 +56,13 @@ func (r *KserveRawInferenceServiceReconciler) Reconcile(ctx context.Context, log
 	for _, reconciler := range r.subResourceReconcilers {
 		if networkPolicyFailed {
 			if routeReconciler, isRouteReconciler := reconciler.(*KserveRawRouteReconciler); isRouteReconciler {
-				// A policy failure must not create or update an exposed Route. This
-				// removes an owned Route whether exposure was removed or the
-				// policy failure requires fail-closed behavior. It leaves an
-				// unrelated same-name Route untouched.
-				reconcileErr := routeReconciler.DeleteOwnedRouteOnNetworkPolicyFailure(ctx, log, isvc)
+				// Preserve existing exposure on policy errors, but still honor an
+				// explicit request to remove it. Only Route create/update is gated;
+				// independent metrics, dashboard, and KEDA reconciliation continues.
+				reconcileErr := routeReconciler.DeleteOwnedRouteIfNotExposed(ctx, log, isvc)
 				reconcileErrors = multierror.Append(reconcileErrors, reconcileErr)
+				continue
 			}
-			// Continue with independent metrics, dashboard, and KEDA
-			// reconciliation. Only Route create/update is gated by the failed
-			// NetworkPolicy reconciliation.
-			continue
 		}
 
 		reconcileErr := reconciler.Reconcile(ctx, log, isvc)
