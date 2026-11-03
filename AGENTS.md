@@ -1,6 +1,6 @@
 # ODH Model Controller
 
-ODH Model Controller is a companion Kubernetes controller to [KServe](https://github.com/kserve/kserve) that augments KServe with OpenShift-specific and Open Data Hub platform features. It manages OpenShift routes, monitoring integration, NIM account lifecycle, multi-node Ray TLS certificates, Model Registry sync, LLMInferenceService auth policies, and Gateway API integration.
+ODH Model Controller is a companion Kubernetes controller to [KServe](https://github.com/kserve/kserve) that augments KServe with OpenShift-specific and Open Data Hub platform features. It manages monitoring integration, NIM account lifecycle, multi-node Ray TLS certificates, Model Registry sync, LLMInferenceService auth policies, and Gateway API integration.
 
 ## Constraints
 
@@ -21,10 +21,10 @@ cmd/main.go                          # Manager entrypoint — wires all controll
 api/nim/v1/                          # NIM Account CRD types (the only CRD owned by this repo)
 internal/controller/
   serving/
-    inferenceservice_controller.go   # InferenceService reconciler (routes, certs, metrics, KEDA, Model Registry)
+    inferenceservice_controller.go   # InferenceService reconciler (certs, metrics, KEDA, Model Registry)
     servingruntime_controller.go     # ServingRuntime reconciler (monitoring RoleBindings, multi-node Ray TLS)
     inferencegraph_controller.go     # InferenceGraph reconciler (stub/placeholder)
-    reconcilers/                     # Sub-reconcilers for ISVC (route, metrics, KEDA, clusterrolebinding, model registry)
+    reconcilers/                     # Sub-reconcilers for ISVC (metrics, KEDA, model registry)
     llm/
       llm_inferenceservice_controller.go  # LLMInferenceService reconciler (AuthPolicy for MaaS)
       gateway_controller.go               # Gateway reconciler (EnvoyFilter + AuthPolicy bootstrap)
@@ -40,7 +40,7 @@ internal/controller/
   comparators/                       # Resource comparators for delta processing
   constants/                         # Shared constants, labels, annotations
   processors/                        # DeltaProcessor for desired-vs-actual reconciliation
-  resources/                         # Resource builders (AuthPolicy, EnvoyFilter, Route, NetworkPolicy, etc.)
+  resources/                         # Resource builders (AuthPolicy, EnvoyFilter, NetworkPolicy, etc.)
   testing/                           # Shared envtest setup (Config, Client, Cleaner, WithCRDs, WithScheme)
   utils/                             # Shared utilities (CRD detection, cert generation, condition helpers)
 internal/webhook/

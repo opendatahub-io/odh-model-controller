@@ -67,8 +67,6 @@ const (
 	RoleBindingPath                 = "./testdata/results/model-server-ns-role.yaml"
 	KserveServingRuntimePath1       = "./testdata/deploy/kserve-openvino-serving-runtime-1.yaml"
 	KserveInferenceServicePath1     = "./testdata/deploy/kserve-openvino-inference-service-1.yaml"
-	KserveInferenceServicePath2     = "./testdata/deploy/kserve-openvino-inference-service-custom-timeout.yaml"
-	KserveInferenceServicePath3     = "./testdata/deploy/kserve-openvino-inference-service-default-timeout.yaml"
 	InferenceServiceConfigPath1     = "./testdata/configmaps/inferenceservice-config.yaml"
 	odhtrustedcabundleConfigMapPath = "./testdata/configmaps/odh-trusted-ca-bundle-configmap.yaml"
 	timeout                         = time.Second * 20

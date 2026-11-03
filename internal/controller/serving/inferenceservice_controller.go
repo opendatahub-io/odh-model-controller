@@ -25,7 +25,6 @@ import (
 	kedaapi "github.com/kedacore/keda/v2/apis/keda/v1alpha1"
 	kservev1alpha1 "github.com/kserve/kserve/pkg/apis/serving/v1alpha1"
 	kservev1beta1 "github.com/kserve/kserve/pkg/apis/serving/v1beta1"
-	routev1 "github.com/openshift/api/route/v1"
 	monitoringv1 "github.com/prometheus-operator/prometheus-operator/pkg/apis/monitoring/v1"
 	corev1 "k8s.io/api/core/v1"
 	networkingv1 "k8s.io/api/networking/v1"
@@ -83,7 +82,7 @@ func NewInferenceServiceReconciler(setupLog logr.Logger, client client.Client, s
 // +kubebuilder:rbac:groups=serving.kserve.io,resources=inferenceservices,verbs=get;list;watch;update;patch
 // +kubebuilder:rbac:groups=serving.kserve.io,resources=inferenceservices/finalizers,verbs=get;list;watch;update;create;patch;delete
 
-// +kubebuilder:rbac:groups=rbac.authorization.k8s.io,resources=clusterrolebindings;roles;rolebindings,verbs=get;list;watch;create;update;patch;watch;delete
+// +kubebuilder:rbac:groups=rbac.authorization.k8s.io,resources=roles;rolebindings,verbs=get;list;watch;create;update;patch;watch;delete
 // +kubebuilder:rbac:groups=networking.k8s.io,resources=networkpolicies,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups=networking.k8s.io,resources=ingresses,verbs=get;list;watch
 // +kubebuilder:rbac:groups=monitoring.coreos.com,resources=servicemonitors;podmonitors,verbs=get;list;watch;create;update;patch;delete
@@ -166,7 +165,7 @@ func (r *InferenceServiceReconciler) ReconcileServing(ctx context.Context, req c
 
 // Reconcile is the top-level function to run the different integrations with ODH platform:
 // - Model Registry integration (opt-in via CLI flag)
-// - OpenShift and other ODH features, like Data Connections, Routes and certificate trust.
+// - OpenShift and other ODH features, like Data Connections and certificate trust.
 func (r *InferenceServiceReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
 	reconcileResult, reconcileErr := r.ReconcileServing(ctx, req)
 
@@ -199,12 +198,10 @@ func (r *InferenceServiceReconciler) SetupWithManager(mgr ctrl.Manager, setupLog
 		For(&kservev1beta1.InferenceService{}).
 		Owns(&kservev1alpha1.ServingRuntime{}).
 		Owns(&corev1.Namespace{}).
-		Owns(&routev1.Route{}).
 		Owns(&corev1.ServiceAccount{}, ctrlbuilder.MatchEveryOwner).
 		Owns(&corev1.Service{}).
 		Owns(&corev1.ConfigMap{}, ctrlbuilder.OnlyMetadata).
 		Owns(&corev1.Secret{}, ctrlbuilder.MatchEveryOwner).
-		Owns(&authv1.ClusterRoleBinding{}).
 		Owns(&networkingv1.NetworkPolicy{}).
 		Owns(&monitoringv1.ServiceMonitor{}).
 		Owns(&monitoringv1.PodMonitor{}).
