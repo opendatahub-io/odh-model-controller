@@ -16,6 +16,9 @@ limitations under the License.
 package reconcilers
 
 import (
+	"context"
+	"errors"
+
 	kservev1beta1 "github.com/kserve/kserve/pkg/apis/serving/v1beta1"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
@@ -24,7 +27,9 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/util/intstr"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
+	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
 	"sigs.k8s.io/controller-runtime/pkg/log"
 
 	"github.com/opendatahub-io/odh-model-controller/internal/controller/constants"
@@ -40,6 +45,23 @@ var _ = Describe("KserveRawRouteReconciler", func() {
 		Expect(routev1.AddToScheme(scheme)).To(Succeed())
 		Expect(corev1.AddToScheme(scheme)).To(Succeed())
 		controllerutils.RegisterSchemes(scheme)
+	})
+
+	It("does not look up or delete a Route while exposure remains enabled", func(ctx SpecContext) {
+		cli := fake.NewClientBuilder().WithScheme(scheme).WithInterceptorFuncs(interceptor.Funcs{
+			Get: func(_ context.Context, _ client.WithWatch, _ client.ObjectKey, _ client.Object, _ ...client.GetOption) error {
+				Fail("exposure-enabled cleanup must not query the API")
+				return errors.New("unexpected lookup")
+			},
+			Delete: func(_ context.Context, _ client.WithWatch, _ client.Object, _ ...client.DeleteOption) error {
+				Fail("exposure-enabled cleanup must not delete a Route")
+				return errors.New("unexpected deletion")
+			},
+		}).Build()
+		isvc := &kservev1beta1.InferenceService{ObjectMeta: metav1.ObjectMeta{Labels: map[string]string{
+			constants.KserveNetworkVisibility: constants.LabelEnableKserveRawRoute,
+		}}}
+		Expect(NewKserveRawRouteReconciler(cli).DeleteOwnedRouteIfNotExposed(ctx, log.Log, isvc)).To(Succeed())
 	})
 
 	Describe("setRouteTargetPort", func() {
