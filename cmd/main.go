@@ -121,6 +121,12 @@ func main() {
 		setupLog.Error(err, "unable to resolve TLS configuration")
 		os.Exit(1)
 	}
+	// The manager honors the profile under every adherence mode, so a
+	// malformed profile is always fatal here.
+	if err := tlsStartupError(tlsResult); err != nil {
+		setupLog.Error(err, "invalid cluster TLS profile")
+		os.Exit(1)
+	}
 	tlsOpts := tlsResult.TLSOpts
 	mgr := createManager(cfg, metricsAddr, probeAddr, enableLeaderElection, secureMetrics, tlsOpts)
 
@@ -161,6 +167,7 @@ func main() {
 		watcher := &pkgtls.ProfileWatcher{
 			Client:             mgr.GetClient(),
 			InitialProfileSpec: tlsResult.ProfileSpec,
+			InitialRawProfile:  tlsResult.RawProfile,
 			OnProfileChange: func(_ context.Context, _, _ configv1.TLSProfileSpec) {
 				setupLog.Info("TLS profile changed, initiating shutdown to reload")
 				cancel()
@@ -442,4 +449,14 @@ func setupNimReconciler(mgr ctrl.Manager, cfg *rest.Config) error {
 		KClient:        kubeClient,
 		TemplateClient: templateClient,
 	}).SetupWithManager(mgr)
+}
+
+// tlsStartupError reports whether the resolved TLS configuration must prevent
+// manager startup. The manager honors the profile under every adherence mode,
+// so a recorded profile error is always fatal.
+func tlsStartupError(result pkgtls.Result) error {
+	if result.ProfileErr != nil {
+		return fmt.Errorf("invalid cluster TLS profile: %w", result.ProfileErr)
+	}
+	return nil
 }

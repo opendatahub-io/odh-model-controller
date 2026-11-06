@@ -22,6 +22,11 @@ import (
 
 // Config holds the observability configuration.
 type Config struct {
+	// DisableHTTP2 prevents net/http from configuring HTTP/2 on the metrics
+	// server. Required when the effective TLS configuration cannot serve
+	// HTTP/2 (Go requires an AES-128-GCM cipher suite); otherwise
+	// ListenAndServeTLS fails during HTTP/2 setup.
+	DisableHTTP2 bool
 	MetricsAddr  string      // HTTPS listen address for Prometheus /metrics endpoint (default ":8080")
 	TLSConfig    *tls.Config // TLS configuration for the metrics server
 	OTLPEndpoint string      // Optional OTLP collector endpoint; enables trace export when set
@@ -94,6 +99,10 @@ func Setup(ctx context.Context, cfg Config) (shutdown func(context.Context) erro
 		WriteTimeout:      10 * time.Second,
 		ReadHeaderTimeout: 5 * time.Second,
 		IdleTimeout:       120 * time.Second,
+	}
+
+	if cfg.DisableHTTP2 {
+		metricsSrv.TLSNextProto = map[string]func(*http.Server, *tls.Conn, http.Handler){}
 	}
 
 	go func() {
