@@ -145,6 +145,22 @@ replacements:
       kind: ConfigMap
       version: v1
       name: odh-model-controller-parameters
+      fieldPath: data.vllm-rbln-image
+    targets:
+      - select:
+          kind: Template
+          name: vllm-rbln-runtime-template
+        fieldPaths:
+          - objects.0.spec.containers.0.image
+      - select:
+          kind: ClusterServingRuntime
+          name: csr-kserve-vllm-rbln
+        fieldPaths:
+          - spec.containers.0.image
+  - source:
+      kind: ConfigMap
+      version: v1
+      name: odh-model-controller-parameters
       fieldPath: data.vllm-cpu-pz-image
     targets:
       - select:
@@ -317,6 +333,22 @@ replacements:
       kind: ConfigMap
       version: v1
       name: odh-model-controller-parameters
+      fieldPath: data.vllm-rbln-image-fast-1
+    targets:
+      - select:
+          kind: ClusterServingRuntime
+          name: csr-kserve-vllm-rbln-fast-1
+        fieldPaths:
+          - spec.containers.0.image
+      - select:
+          kind: Template
+          name: vllm-rbln-runtime-template-fast-1
+        fieldPaths:
+          - objects.0.spec.containers.0.image
+  - source:
+      kind: ConfigMap
+      version: v1
+      name: odh-model-controller-parameters
       fieldPath: data.vllm-gaudi-image-fast-2
     targets:
       - select:
@@ -327,6 +359,22 @@ replacements:
       - select:
           kind: Template
           name: vllm-gaudi-runtime-template-fast-2
+        fieldPaths:
+          - objects.0.spec.containers.0.image
+  - source:
+      kind: ConfigMap
+      version: v1
+      name: odh-model-controller-parameters
+      fieldPath: data.vllm-rbln-image-fast-2
+    targets:
+      - select:
+          kind: ClusterServingRuntime
+          name: csr-kserve-vllm-rbln-fast-2
+        fieldPaths:
+          - spec.containers.0.image
+      - select:
+          kind: Template
+          name: vllm-rbln-runtime-template-fast-2
         fieldPaths:
           - objects.0.spec.containers.0.image
   - source:
@@ -705,6 +753,28 @@ replacements:
       kind: ConfigMap
       version: v1
       name: odh-model-controller-parameters
+      fieldPath: data.vllm-rbln-image-upstream-version
+    targets:
+      - select:
+          kind: Template
+          name: vllm-rbln-runtime-template
+        reject:
+          - name: vllm-rbln-runtime-template-fast-1
+          - name: vllm-rbln-runtime-template-fast-2
+        fieldPaths:
+          - objects.0.metadata.annotations.[opendatahub.io/runtime-version]
+      - select:
+          kind: ClusterServingRuntime
+          name: csr-kserve-vllm-rbln
+        reject:
+          - name: csr-kserve-vllm-rbln-fast-1
+          - name: csr-kserve-vllm-rbln-fast-2
+        fieldPaths:
+          - metadata.annotations.[opendatahub.io/runtime-version]
+  - source:
+      kind: ConfigMap
+      version: v1
+      name: odh-model-controller-parameters
       fieldPath: data.vllm-rocm-image-upstream-version
     targets:
       - select:
@@ -919,6 +989,22 @@ replacements:
       kind: ConfigMap
       version: v1
       name: odh-model-controller-parameters
+      fieldPath: data.vllm-rbln-image-fast-1-upstream-version
+    targets:
+      - select:
+          kind: Template
+          name: vllm-rbln-runtime-template-fast-1
+        fieldPaths:
+          - objects.0.metadata.annotations.[opendatahub.io/runtime-version]
+      - select:
+          kind: ClusterServingRuntime
+          name: csr-kserve-vllm-rbln-fast-1
+        fieldPaths:
+          - metadata.annotations.[opendatahub.io/runtime-version]
+  - source:
+      kind: ConfigMap
+      version: v1
+      name: odh-model-controller-parameters
       fieldPath: data.vllm-gaudi-image-fast-2-upstream-version
     targets:
       - select:
@@ -929,6 +1015,22 @@ replacements:
       - select:
           kind: ClusterServingRuntime
           name: csr-kserve-vllm-gaudi-fast-2
+        fieldPaths:
+          - metadata.annotations.[opendatahub.io/runtime-version]
+  - source:
+      kind: ConfigMap
+      version: v1
+      name: odh-model-controller-parameters
+      fieldPath: data.vllm-rbln-image-fast-2-upstream-version
+    targets:
+      - select:
+          kind: Template
+          name: vllm-rbln-runtime-template-fast-2
+        fieldPaths:
+          - objects.0.metadata.annotations.[opendatahub.io/runtime-version]
+      - select:
+          kind: ClusterServingRuntime
+          name: csr-kserve-vllm-rbln-fast-2
         fieldPaths:
           - metadata.annotations.[opendatahub.io/runtime-version]
   - source:
