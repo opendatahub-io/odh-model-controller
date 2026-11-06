@@ -12,6 +12,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/go-logr/logr"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
@@ -32,6 +33,9 @@ func main() {
 	}
 
 	initLogging(cfg.LogLevel)
+	// pkg/tls uses controller-runtime's logger for profile resolution and
+	// fallback diagnostics; bridge it to the server's slog configuration.
+	ctrl.SetLogger(logr.FromSlogHandler(slog.Default().Handler()))
 
 	scheme := runtime.NewScheme()
 	utilruntime.Must(gatewayapiv1.Install(scheme))
@@ -86,12 +90,26 @@ func main() {
 
 	tlsConfig := common.NewTLSConfig(getCertificate)
 
+	// Apply the cluster TLS policy to the API and metrics listeners: the
+	// TLS 1.2/AES-GCM baseline is preserved under NoOpinion and Legacy
+	// adherence; Strict and unknown adherence apply the cluster profile.
+	// Policy changes shut the process down gracefully so it restarts with
+	// the new settings.
+	if err := applyClusterTLSPolicy(ctx, restCfg, tlsConfig, stop); err != nil {
+		slog.Error("failed to apply cluster TLS policy", "error", err)
+		os.Exit(1)
+	}
+
 	srv := NewServer(cfg, discoverer, tlsConfig)
+	if !servesHTTP2(tlsConfig) {
+		disableHTTP2(srv)
+	}
 
 	shutdownTelemetry, err := observability.Setup(ctx, observability.Config{
 		MetricsAddr:  cfg.MetricsAddr,
 		TLSConfig:    tlsConfig,
 		OTLPEndpoint: cfg.OTLPEndpoint,
+		DisableHTTP2: !servesHTTP2(tlsConfig),
 	})
 	if err != nil {
 		slog.Error("failed to setup telemetry", "error", err)

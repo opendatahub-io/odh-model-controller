@@ -23,9 +23,15 @@ const apiServerName = "cluster"
 type ProfileWatcher struct {
 	client.Client
 	InitialProfileSpec configv1.TLSProfileSpec
-	OnProfileChange    func(ctx context.Context, old, new configv1.TLSProfileSpec)
+	// InitialRawProfile seeds the raw-profile baseline. Comparing the raw
+	// profile (not only the normalized spec) catches a transition from a
+	// valid profile to a malformed one that normalizes to the same spec:
+	// the restart fires and startup validation then fails closed.
+	InitialRawProfile *configv1.TLSSecurityProfile
+	OnProfileChange   func(ctx context.Context, old, new configv1.TLSProfileSpec)
 
 	lastProfile configv1.TLSProfileSpec
+	lastRaw     *configv1.TLSSecurityProfile
 }
 
 func (w *ProfileWatcher) Reconcile(ctx context.Context, req reconcile.Request) (reconcile.Result, error) {
@@ -39,9 +45,11 @@ func (w *ProfileWatcher) Reconcile(ctx context.Context, req reconcile.Request) (
 	}
 
 	currentProfile := *resolveProfileSpec(apiServer.Spec.TLSSecurityProfile)
-	if w.OnProfileChange != nil && !reflect.DeepEqual(w.lastProfile, currentProfile) {
+	rawChanged := !reflect.DeepEqual(w.lastRaw, apiServer.Spec.TLSSecurityProfile)
+	if w.OnProfileChange != nil && (rawChanged || !reflect.DeepEqual(w.lastProfile, currentProfile)) {
 		old := w.lastProfile
 		w.lastProfile = currentProfile
+		w.lastRaw = apiServer.Spec.TLSSecurityProfile
 		w.OnProfileChange(ctx, old, currentProfile)
 	}
 
@@ -50,6 +58,7 @@ func (w *ProfileWatcher) Reconcile(ctx context.Context, req reconcile.Request) (
 
 func (w *ProfileWatcher) SetupWithManager(mgr ctrl.Manager) error {
 	w.lastProfile = w.InitialProfileSpec
+	w.lastRaw = w.InitialRawProfile
 
 	return ctrl.NewControllerManagedBy(mgr).
 		Named("tls-profile-watcher").
