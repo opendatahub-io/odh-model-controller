@@ -256,13 +256,11 @@ func parseProfile(profile *configv1.TLSSecurityProfile) (
 	minVersion uint16, ciphers []uint16, curves []tls.CurveID, unsupported []string, err error,
 ) {
 	if profile == nil {
-		return tls.VersionTLS12, IntermediateCiphers, nil, nil, nil
+		profile = &configv1.TLSSecurityProfile{Type: configv1.TLSProfileIntermediateType}
 	}
 
 	switch profile.Type {
-	case "":
-		return tls.VersionTLS12, IntermediateCiphers, nil, nil, nil
-	case configv1.TLSProfileIntermediateType:
+	case "", configv1.TLSProfileIntermediateType:
 		intermediate := configv1.TLSProfiles[configv1.TLSProfileIntermediateType]
 		if intermediate == nil {
 			return 0, nil, nil, nil, fmt.Errorf("Intermediate TLS profile is not defined by openshift/api")

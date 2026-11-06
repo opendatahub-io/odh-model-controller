@@ -137,54 +137,14 @@ func watchTLSPolicy(ctx context.Context, cfg *rest.Config, initial opstls.Result
 		return
 	}
 
-	for {
-		w, err := watchWithTimeout(ctx, watcher)
-		if err != nil {
-			slog.Error("failed to watch APIServer for TLS policy changes; retrying", "error", err)
-		} else {
-			// Re-check for changes between the initial Resolve snapshot and
-			// the watch being established: the stream only replays events from
-			// this point on, so a change in that window would otherwise be
-			// missed until the next update.
-			changed, retry := policyRecheck(ctx, watcher, initial, "before the watch was established", onChange)
-			if changed {
-				return
-			}
-			if retry {
-				w.Stop()
-				if !waitForTLSWatchRetry(ctx) {
-					return
-				}
-				continue
-			}
-			if !watchTLSPolicyLoop(ctx, w, initial, onChange) {
-				return
-			}
-			slog.Info("TLS policy watch stream closed; re-establishing")
-		}
-
-		// Re-check for changes that happened while the stream was down.
-		changed, retry := policyRecheck(ctx, watcher, initial, "while the watch was down", onChange)
-		if changed {
-			return
-		}
-		if retry {
-			if !waitForTLSWatchRetry(ctx) {
-				return
-			}
-			continue
-		}
-		if !waitForTLSWatchRetry(ctx) {
-			return
-		}
-	}
+	runTLSWatch(ctx, watcher, initial, onChange, tlsPolicyWatchRetryInterval)
 }
 
-func waitForTLSWatchRetry(ctx context.Context) bool {
+func waitForTLSWatchRetryInterval(ctx context.Context, interval time.Duration) bool {
 	select {
 	case <-ctx.Done():
 		return false
-	case <-time.After(tlsPolicyWatchRetryInterval):
+	case <-time.After(interval):
 		return true
 	}
 }
@@ -227,6 +187,58 @@ func watchTLSPolicyLoop(ctx context.Context, w watch.Interface, initial opstls.R
 // Intermediate, which would hide a transition from a valid profile to a
 // malformed one under Strict. Detecting the raw change triggers a restart,
 // and startup validation then fails closed on the malformed profile.
+
+// runTLSWatch owns the retry loop so transient re-check and watch-setup
+// recovery can be tested without constructing a controller-runtime Manager.
+func runTLSWatch(
+	ctx context.Context,
+	watcher client.WithWatch,
+	initial opstls.Result,
+	onChange func(),
+	retryInterval time.Duration,
+) {
+	for {
+		w, err := watchWithTimeoutBound(ctx, watcher, watchSetupTimeout)
+		if err != nil {
+			slog.Error("failed to watch APIServer for TLS policy changes; retrying", "error", err)
+		} else {
+			// Re-check for changes between the initial Resolve snapshot and
+			// the watch being established: the stream only replays events from
+			// this point on, so a change in that window would otherwise be
+			// missed until the next update.
+			changed, retry := policyRecheck(ctx, watcher, initial, "before the watch was established", onChange)
+			if changed {
+				return
+			}
+			if retry {
+				w.Stop()
+				if !waitForTLSWatchRetryInterval(ctx, retryInterval) {
+					return
+				}
+				continue
+			}
+			if !watchTLSPolicyLoop(ctx, w, initial, onChange) {
+				return
+			}
+			slog.Info("TLS policy watch stream closed; re-establishing")
+		}
+
+		// Re-check for changes that happened while the stream was down.
+		changed, retry := policyRecheck(ctx, watcher, initial, "while the watch was down", onChange)
+		if changed {
+			return
+		}
+		if retry {
+			if !waitForTLSWatchRetryInterval(ctx, retryInterval) {
+				return
+			}
+			continue
+		}
+		if !waitForTLSWatchRetryInterval(ctx, retryInterval) {
+			return
+		}
+	}
+}
 func policyChanged(initial opstls.Result, apiServer *configv1.APIServer) bool {
 	if initial.Adherence != apiServer.Spec.TLSAdherence {
 		return true
@@ -285,10 +297,6 @@ func (w *cancelOnStopWatch) Stop() {
 		w.Interface.Stop()
 		w.cancel()
 	})
-}
-
-func watchWithTimeout(ctx context.Context, watcher client.WithWatch) (watch.Interface, error) {
-	return watchWithTimeoutBound(ctx, watcher, watchSetupTimeout)
 }
 
 func watchWithTimeoutBound(
@@ -360,6 +368,11 @@ func policyRecheck(
 	recheckCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
 	defer cancel()
 	if err := watcher.Get(recheckCtx, client.ObjectKey{Name: "cluster"}, apiServer); err != nil {
+		// Shutdown cancellation is not a policy failure; don't trigger another
+		// shutdown or retry after the parent context has already ended.
+		if ctx.Err() != nil {
+			return false, false
+		}
 		if apierrors.IsNotFound(err) || meta.IsNoMatchError(err) {
 			slog.Warn("TLS policy re-check could not find the APIServer object; continuing on the watch", "window", window)
 			return false, false

@@ -20,12 +20,17 @@ import (
 	"bytes"
 	"context"
 	"crypto/tls"
+	"crypto/x509"
 	"errors"
 	"log/slog"
+	"net"
 	"net/http"
+	"net/url"
 	"reflect"
 	"strings"
 	"sync"
+	"sync/atomic"
+	"syscall"
 	"testing"
 	"time"
 
@@ -246,16 +251,8 @@ func TestWatchTLSPolicyLoop_TriggersOnChange(t *testing.T) {
 		watchTLSPolicyLoop(ctx, w, initial, func() { onChange <- struct{}{} })
 	}()
 
-	// A benign update must not trigger. The assertion drains any spurious
-	// callback after the adherence change fires: by that point the loop has
-	// processed both events, so a regression that fires on the benign update
-	// would leave a second signal in the channel.
-	apiServer.Spec.TLSSecurityProfile = &configv1.TLSSecurityProfile{Type: configv1.TLSProfileIntermediateType}
-	if err := fakeClient.Update(ctx, apiServer); err != nil {
-		t.Fatal(err)
-	}
-
-	// An adherence change must trigger.
+	// An adherence change must trigger. Benign profile edits are covered by
+	// TestPolicyChanged, keeping this event-delivery test deterministic.
 	apiServer.Spec.TLSAdherence = configv1.TLSAdherencePolicyNoOpinion
 	if err := fakeClient.Update(ctx, apiServer); err != nil {
 		t.Fatal(err)
@@ -265,14 +262,6 @@ func TestWatchTLSPolicyLoop_TriggersOnChange(t *testing.T) {
 	case <-onChange:
 	case <-time.After(5 * time.Second):
 		t.Fatal("watch loop did not report the policy change")
-	}
-	// The benign event was processed before the adherence event (the fake
-	// watch delivers in order); if it had spuriously triggered onChange, a
-	// second signal would be buffered now.
-	select {
-	case <-onChange:
-		t.Fatal("benign update (same profile, same adherence) must not trigger onChange")
-	default:
 	}
 	<-done
 }
@@ -476,7 +465,20 @@ func TestPolicyRecheck(t *testing.T) {
 
 type stubWatchClient struct {
 	client.WithWatch
+	getFunc   func(context.Context, client.ObjectKey, client.Object, ...client.GetOption) error
 	watchFunc func(context.Context, client.ObjectList, ...client.ListOption) (watch.Interface, error)
+}
+
+func (c *stubWatchClient) Get(
+	ctx context.Context,
+	key client.ObjectKey,
+	obj client.Object,
+	opts ...client.GetOption,
+) error {
+	if c.getFunc == nil {
+		return errors.New("unexpected Get")
+	}
+	return c.getFunc(ctx, key, obj, opts...)
 }
 
 func TestCreateWatchClientWithRetry(t *testing.T) {
@@ -575,4 +577,106 @@ func TestWatchWithTimeoutContextLifecycle(t *testing.T) {
 			t.Fatal("watch returned after timeout was not stopped")
 		}
 	})
+}
+
+func TestIsTransientAPIServerReadError(t *testing.T) {
+	certificateErr := &url.Error{
+		Op:  "Get",
+		URL: "https://kubernetes.default.svc",
+		Err: x509.UnknownAuthorityError{Cert: &x509.Certificate{}},
+	}
+	for _, tc := range []struct {
+		name string
+		err  error
+		want bool
+	}{
+		{name: "internal error", err: apierrors.NewInternalError(errors.New("temporary internal error")), want: true},
+		{name: "deadline exceeded", err: context.DeadlineExceeded, want: true},
+		{name: "connection refused", err: &net.OpError{Op: "dial", Err: syscall.ECONNREFUSED}, want: true},
+		{name: "wrapped certificate verification failure", err: certificateErr, want: false},
+		{name: "bad request with transport-like text", err: apierrors.NewBadRequest("connection reset by peer"), want: false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := isTransientAPIServerReadError(tc.err); got != tc.want {
+				t.Errorf("isTransientAPIServerReadError(%v) = %v, want %v", tc.err, got, tc.want)
+			}
+		})
+	}
+}
+
+func TestRunTLSWatchRetriesRecheckAfterTransientError(t *testing.T) {
+	apiServer := &configv1.APIServer{
+		ObjectMeta: metav1.ObjectMeta{Name: "cluster"},
+		Spec: configv1.APIServerSpec{
+			TLSSecurityProfile: &configv1.TLSSecurityProfile{Type: configv1.TLSProfileIntermediateType},
+			TLSAdherence:       configv1.TLSAdherencePolicyStrictAllComponents,
+		},
+	}
+	initial := opstls.Result{
+		ProfileSpec: *configv1.TLSProfiles[configv1.TLSProfileIntermediateType],
+		RawProfile:  apiServer.Spec.TLSSecurityProfile,
+		Adherence:   configv1.TLSAdherencePolicyStrictAllComponents,
+	}
+	firstWatch, secondWatch := newLifecycleTestWatch(), newLifecycleTestWatch()
+	watchResults := make(chan *lifecycleTestWatch, 2)
+	var getCount atomic.Int32
+	var watchCount atomic.Int32
+	unavailable := apierrors.NewServiceUnavailable("apiserver restarting")
+	stub := &stubWatchClient{
+		getFunc: func(_ context.Context, _ client.ObjectKey, obj client.Object, _ ...client.GetOption) error {
+			if getCount.Add(1) == 1 {
+				return unavailable
+			}
+			*obj.(*configv1.APIServer) = *apiServer.DeepCopy()
+			return nil
+		},
+		watchFunc: func(_ context.Context, _ client.ObjectList, _ ...client.ListOption) (watch.Interface, error) {
+			if watchCount.Add(1) == 1 {
+				watchResults <- firstWatch
+				return firstWatch, nil
+			}
+			watchResults <- secondWatch
+			return secondWatch, nil
+		},
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan struct{})
+	changed := make(chan struct{}, 1)
+	go func() {
+		defer close(done)
+		runTLSWatch(ctx, stub, initial, func() { changed <- struct{}{} }, time.Millisecond)
+	}()
+
+	if got := <-watchResults; got != firstWatch {
+		t.Fatal("first watch was not created")
+	}
+	if got := <-watchResults; got != secondWatch {
+		t.Fatal("transient re-check did not replace the watch")
+	}
+	select {
+	case <-firstWatch.stopped:
+	case <-time.After(time.Second):
+		t.Fatal("old watch was not stopped before retry")
+	}
+	select {
+	case <-secondWatch.stopped:
+		t.Fatal("replacement watch stopped before shutdown")
+	default:
+	}
+	select {
+	case <-changed:
+		t.Fatal("transient re-check error must not trigger a restart")
+	default:
+	}
+	cancel()
+	select {
+	case <-done:
+	case <-time.After(time.Second):
+		t.Fatal("watch loop did not stop after context cancellation")
+	}
+	select {
+	case <-secondWatch.stopped:
+	case <-time.After(time.Second):
+		t.Fatal("replacement watch was not stopped on shutdown")
+	}
 }

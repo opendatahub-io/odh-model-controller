@@ -52,12 +52,14 @@ func TestParseProfile(t *testing.T) {
 			profile:        nil,
 			wantMinVersion: tls.VersionTLS12,
 			wantCiphers:    IntermediateCiphers,
+			wantCurves:     []tls.CurveID{tls.X25519MLKEM768, tls.X25519, tls.CurveP256, tls.CurveP384},
 		},
 		{
 			name:           "empty profile returns Intermediate defaults",
 			profile:        &configv1.TLSSecurityProfile{},
 			wantMinVersion: tls.VersionTLS12,
 			wantCiphers:    IntermediateCiphers,
+			wantCurves:     []tls.CurveID{tls.X25519MLKEM768, tls.X25519, tls.CurveP256, tls.CurveP384},
 		},
 		{
 			name:           "Intermediate type returns Intermediate defaults",
