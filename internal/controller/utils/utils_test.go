@@ -561,6 +561,44 @@ var _ = Describe("MergeUserLabelsAndAnnotations", func() {
 	})
 })
 
+var _ = Describe("GetRequestBodyBufferLimit", func() {
+	newGateway := func(annotations map[string]string) *gatewayapiv1.Gateway {
+		return &gatewayapiv1.Gateway{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:        "test-gateway",
+				Namespace:   "test-ns",
+				Annotations: annotations,
+			},
+		}
+	}
+
+	It("should return the default when the annotation is absent", func() {
+		Expect(GetRequestBodyBufferLimit(newGateway(nil))).To(Equal(constants.DefaultRequestBodyBufferLimitBytes))
+	})
+
+	It("should return the default when the annotation is empty", func() {
+		gw := newGateway(map[string]string{constants.RequestBodyBufferLimitAnnotation: ""})
+		Expect(GetRequestBodyBufferLimit(gw)).To(Equal(constants.DefaultRequestBodyBufferLimitBytes))
+	})
+
+	It("should parse a valid positive value", func() {
+		gw := newGateway(map[string]string{constants.RequestBodyBufferLimitAnnotation: "67108864"})
+		Expect(GetRequestBodyBufferLimit(gw)).To(Equal(int64(67108864)))
+	})
+
+	It("should fall back to the default for a non-numeric value", func() {
+		gw := newGateway(map[string]string{constants.RequestBodyBufferLimitAnnotation: "32MiB"})
+		Expect(GetRequestBodyBufferLimit(gw)).To(Equal(constants.DefaultRequestBodyBufferLimitBytes))
+	})
+
+	It("should fall back to the default for zero or negative values", func() {
+		gwZero := newGateway(map[string]string{constants.RequestBodyBufferLimitAnnotation: "0"})
+		Expect(GetRequestBodyBufferLimit(gwZero)).To(Equal(constants.DefaultRequestBodyBufferLimitBytes))
+		gwNeg := newGateway(map[string]string{constants.RequestBodyBufferLimitAnnotation: "-1"})
+		Expect(GetRequestBodyBufferLimit(gwNeg)).To(Equal(constants.DefaultRequestBodyBufferLimitBytes))
+	})
+})
+
 var _ = Describe("ShouldCreateEnvoyFilterForGateway", func() {
 	It("should return true for managed gateway (no managed label)", func() {
 		gateway := &gatewayapiv1.Gateway{
