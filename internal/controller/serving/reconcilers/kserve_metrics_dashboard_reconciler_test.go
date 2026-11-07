@@ -366,6 +366,59 @@ var _ = Describe("KserveMetricsDashboardReconciler", func() {
 				Expect(configMap.Data["metrics"]).To(ContainSubstring("request_predict_seconds_count"))
 				Expect(configMap.Data["metrics"]).To(ContainSubstring("request_preprocess_seconds"))
 			})
+
+			It("should create ConfigMap with supported=true and Custom metrics", func(ctx SpecContext) {
+				// Create ServingRuntime annotated as a custom runtime
+				servingRuntime := createServingRuntime("custom-runtime", map[string]string{
+					constants.KServeRuntimeAnnotation: constants.CustomRuntimeName,
+				})
+
+				// Create InferenceService using custom runtime
+				isvc := &kservev1beta1.InferenceService{
+					ObjectMeta: metav1.ObjectMeta{
+						Name:      "custom-model",
+						Namespace: "test-namespace",
+					},
+					Spec: kservev1beta1.InferenceServiceSpec{
+						Predictor: kservev1beta1.PredictorSpec{
+							Model: &kservev1beta1.ModelSpec{
+								ModelFormat: kservev1beta1.ModelFormat{Name: "custom"},
+								Runtime:     ptr.To("custom-runtime"),
+							},
+						},
+					},
+				}
+
+				// Create fake k8s client and reconciler
+				client := fake.NewClientBuilder().
+					WithScheme(scheme).
+					WithObjects(isvc, servingRuntime).
+					Build()
+				reconciler := NewKserveMetricsDashboardReconciler(client)
+
+				// Run reconciler
+				err := reconciler.Reconcile(ctx, log.Log, isvc)
+				Expect(err).NotTo(HaveOccurred())
+
+				// Query k8s API to verify ConfigMap
+				configMap := &corev1.ConfigMap{}
+				err = client.Get(ctx, k8stypes.NamespacedName{
+					Name:      isvc.Name + constants.KserveMetricsConfigMapNameSuffix,
+					Namespace: isvc.Namespace,
+				}, configMap)
+				Expect(err).NotTo(HaveOccurred())
+
+				fromGetMetrics, _ := getMetricsData(servingRuntime)
+				finaldata := utils.SubstituteVariablesInQueries(fromGetMetrics, isvc.Namespace, isvc.Name)
+
+				Expect(configMap.Data["supported"]).To(Equal("true"))
+				Expect(configMap.Data["metrics"]).To(Equal(finaldata))
+				Expect(configMap.Data["metrics"]).To(ContainSubstring("custom-model"))
+				Expect(configMap.Data["metrics"]).To(ContainSubstring("test-namespace"))
+				Expect(configMap.Data["metrics"]).To(ContainSubstring("model_infer_request_success_total"))
+				Expect(configMap.Data["metrics"]).To(ContainSubstring("model_infer_request_failure_total"))
+				Expect(configMap.Data["metrics"]).To(ContainSubstring("model_infer_request_duration_sum"))
+			})
 		})
 
 		When("all runtime metrics templates are validated", func() {
@@ -377,6 +430,7 @@ var _ = Describe("KserveMetricsDashboardReconciler", func() {
 				"vLLM-Omni": constants.VllmOmniMetricsData,
 				"NIM":       constants.NIMMetricsData,
 				"MLServer":  constants.MLServerMetricsData,
+				"Custom":    constants.CustomRuntimeMetricsData,
 			}
 
 			for name, data := range runtimeData {
