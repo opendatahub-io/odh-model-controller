@@ -20,6 +20,7 @@ import (
 	"context"
 
 	servingv1alpha1 "github.com/kserve/kserve/pkg/apis/serving/v1alpha1"
+	networkingv1 "k8s.io/api/networking/v1"
 	apierrs "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/client-go/tools/events"
@@ -28,6 +29,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/log"
 
 	"github.com/opendatahub-io/odh-model-controller/internal/controller/processors"
+	"github.com/opendatahub-io/odh-model-controller/internal/controller/serving/reconcilers"
 )
 
 // InferenceGraphReconciler reconciles a InferenceGraph object
@@ -36,10 +38,12 @@ type InferenceGraphReconciler struct {
 	Scheme         *runtime.Scheme
 	Recorder       events.EventRecorder
 	deltaProcessor processors.DeltaProcessor
+	networkPolicy  *reconcilers.KserveRawInferenceGraphNetworkPolicyReconciler
 }
 
 // +kubebuilder:rbac:groups=serving.kserve.io,resources=inferencegraphs,verbs=get;list;watch
 // +kubebuilder:rbac:groups=serving.kserve.io,resources=inferencegraphs/finalizers,verbs=update
+// +kubebuilder:rbac:groups=networking.k8s.io,resources=networkpolicies,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups=core,resources=events,verbs=create;patch
 
 func NewInferenceGraphReconciler(mgr ctrl.Manager) *InferenceGraphReconciler {
@@ -48,6 +52,7 @@ func NewInferenceGraphReconciler(mgr ctrl.Manager) *InferenceGraphReconciler {
 		Scheme:         mgr.GetScheme(),
 		Recorder:       mgr.GetEventRecorder("serving-inferencegraph-controller"),
 		deltaProcessor: processors.NewDeltaProcessor(),
+		networkPolicy:  reconcilers.NewKserveRawInferenceGraphNetworkPolicyReconciler(mgr.GetClient()),
 	}
 }
 
@@ -59,10 +64,21 @@ func (r *InferenceGraphReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 	ig := &servingv1alpha1.InferenceGraph{}
 	err := r.Client.Get(ctx, req.NamespacedName, ig)
 	if err != nil && apierrs.IsNotFound(err) {
-		if apierrs.IsNotFound(err) {
-			return ctrl.Result{}, nil
-		}
+		return ctrl.Result{}, nil
+	} else if err != nil {
 		logger.Error(err, "Unable to get the InferenceGraph resource")
+		return ctrl.Result{}, err
+	}
+
+	if !ig.DeletionTimestamp.IsZero() || !reconcilers.IsRawInferenceGraph(ig) {
+		if err := r.networkPolicy.Delete(ctx, logger, ig); err != nil {
+			return ctrl.Result{}, err
+		}
+		return ctrl.Result{}, nil
+	}
+
+	if err := r.networkPolicy.Reconcile(ctx, logger, ig); err != nil {
+		return ctrl.Result{}, err
 	}
 
 	return ctrl.Result{}, nil
@@ -72,6 +88,7 @@ func (r *InferenceGraphReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 func (r *InferenceGraphReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	return ctrl.NewControllerManagedBy(mgr).
 		For(&servingv1alpha1.InferenceGraph{}).
+		Owns(&networkingv1.NetworkPolicy{}).
 		Named("serving-inferencegraph").
 		Complete(r)
 }
