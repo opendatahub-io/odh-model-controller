@@ -379,6 +379,9 @@ func TestApplyTLSPolicy_MalformedProfile_OnlyFatalWhenApplied(t *testing.T) {
 	}
 }
 
+// TestPolicyRecheck covers the recheck decision table: graceful NotFound and
+// NoMatch, fail-closed authorization and wrapped certificate errors, transient
+// retry without onChange, parent cancellation, and policy-change reload.
 func TestPolicyRecheck(t *testing.T) {
 	scheme := runtime.NewScheme()
 	if err := configv1.Install(scheme); err != nil {
@@ -407,21 +410,40 @@ func TestPolicyRecheck(t *testing.T) {
 	changed.Spec.TLSAdherence = configv1.TLSAdherencePolicyNoOpinion
 
 	for _, tc := range []struct {
-		name       string
-		getErr     error
-		obj        *configv1.APIServer
-		wantRet    bool
-		wantRetry  bool
-		wantChange bool
+		name         string
+		getErr       error
+		obj          *configv1.APIServer
+		wantRet      bool
+		wantRetry    bool
+		wantChange   bool
+		cancelParent bool
 	}{
 		{name: "NotFound is graceful", getErr: notFound, wantRet: false},
 		{name: "NoMatch is graceful", getErr: noMatch, wantRet: false},
 		{name: "Forbidden fails closed", getErr: forbidden, wantRet: true, wantChange: true},
 		{name: "transient error retries with a fresh watch", getErr: serviceUnavailable, wantRetry: true},
+		{name: "context deadline exceeded requests a retry", getErr: context.DeadlineExceeded, wantRetry: true},
+		{name: "connection refused requests a retry",
+			getErr: &net.OpError{Op: "dial", Err: syscall.ECONNREFUSED}, wantRetry: true},
+		{name: "wrapped connection refused requests a retry",
+			getErr: &url.Error{Op: "Get", URL: "https://kubernetes.default.svc",
+				Err: &net.OpError{Op: "dial", Err: syscall.ECONNREFUSED}}, wantRetry: true},
+		{name: "wrapped certificate verification error fails closed",
+			getErr:     &url.Error{Err: x509.UnknownAuthorityError{Cert: &x509.Certificate{}}},
+			wantRet:    true,
+			wantChange: true},
+		{name: "parent context cancellation is not a policy failure",
+			getErr: forbidden, cancelParent: true},
 		{name: "unchanged policy continues", obj: apiServer, wantRet: false},
 		{name: "changed policy triggers reload", obj: changed, wantRet: true, wantChange: true},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
+			ctx := context.Background()
+			if tc.cancelParent {
+				canceled, cancel := context.WithCancel(ctx)
+				cancel()
+				ctx = canceled
+			}
 			builder := fake.NewClientBuilder().WithScheme(scheme)
 			if tc.obj != nil {
 				builder = builder.WithObjects(tc.obj)
@@ -438,7 +460,7 @@ func TestPolicyRecheck(t *testing.T) {
 			c := builder.Build()
 
 			onChange := make(chan struct{}, 1)
-			fired, retry := policyRecheck(context.Background(), c, initial, "test", func() { onChange <- struct{}{} })
+			fired, retry := policyRecheck(ctx, c, initial, "test", func() { onChange <- struct{}{} })
 
 			if fired != tc.wantRet {
 				t.Fatalf("policyRecheck() changed = %v, want %v", fired, tc.wantRet)

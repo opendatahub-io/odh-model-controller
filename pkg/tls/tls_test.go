@@ -293,6 +293,45 @@ func TestParseProfile_OldExplicitSuites(t *testing.T) {
 	}
 }
 
+// Custom profiles naming weak suites must fail profile parsing, in every
+// spelling.
+func TestParseProfile_CustomRejectsWeakCiphers(t *testing.T) {
+	tests := []struct {
+		name    string
+		ciphers []string
+	}{
+		{name: "IANA RC4", ciphers: []string{"TLS_RSA_WITH_RC4_128_SHA"}},
+		{name: "OpenSSL RC4", ciphers: []string{"ECDHE-RSA-RC4-SHA"}},
+		{name: "IANA 3DES", ciphers: []string{"TLS_RSA_WITH_3DES_EDE_CBC_SHA"}},
+		{name: "OpenSSL 3DES", ciphers: []string{"DES-CBC3-SHA"}},
+		{name: "IANA SHA-1 CBC", ciphers: []string{"TLS_ECDHE_RSA_WITH_AES_128_CBC_SHA"}},
+		{name: "OpenSSL SHA-1 CBC", ciphers: []string{"ECDHE-RSA-AES128-SHA"}},
+		{
+			name: "weak suite mixed with an approved suite",
+			ciphers: []string{
+				"ECDHE-RSA-AES128-GCM-SHA256",
+				"ECDHE-RSA-AES128-SHA",
+			},
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			profile := &configv1.TLSSecurityProfile{
+				Type: configv1.TLSProfileCustomType,
+				Custom: &configv1.CustomTLSProfile{TLSProfileSpec: configv1.TLSProfileSpec{
+					MinTLSVersion: configv1.VersionTLS12,
+					Ciphers:       tc.ciphers,
+				}},
+			}
+			_, _, _, _, err := parseProfile(profile)
+			if err == nil || !strings.Contains(err.Error(), "disallowed cipher suite") {
+				t.Fatalf("parseProfile() error = %v, want disallowed cipher suite error", err)
+			}
+		})
+	}
+}
+
 func TestNextProtos(t *testing.T) {
 	if got := nextProtos(tls.VersionTLS12, nil); !reflect.DeepEqual(got, []string{"h2", "http/1.1"}) {
 		t.Errorf("nextProtos(TLS1.2, defaults) = %v, want h2+http/1.1", got)
