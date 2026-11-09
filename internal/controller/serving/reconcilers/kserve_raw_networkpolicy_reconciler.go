@@ -260,10 +260,11 @@ func (r *KserveRawNetworkPolicyReconciler) desiredNetworkPolicy(
 		}
 	}
 
-	// ClusterLocal removes external exposure, not access to the advertised
-	// internal entry point. Keep predictor backends private behind a transformer
-	// and select the authenticated port when auth is enabled.
-	if isvc.Labels[kserveconstants.NetworkVisibility] == kserveconstants.ClusterLocalVisibility && component == graphTargetComponent(isvc) {
+	// Raw ISVCs are private by default: absent visibility and explicit ClusterLocal
+	// both retain access to the advertised internal entry point. Keep predictor
+	// backends private behind a transformer and select the authenticated port
+	// when auth is enabled.
+	if !routeEnabled(isvc) && component == graphTargetComponent(isvc) {
 		ports, err := serviceTargetPorts(graphTargetServices(isvc, componentServices), authEnabled)
 		if err != nil {
 			return nil, err

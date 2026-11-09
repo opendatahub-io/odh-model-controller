@@ -252,18 +252,26 @@ var _ = Describe("KserveRawInferenceGraphNetworkPolicyReconciler", func() {
 		policy := &networkingv1.NetworkPolicy{}
 		key := client.ObjectKey{Name: rawNetworkPolicyName(isvc, predictorNetworkPolicyComponent), Namespace: isvc.Namespace}
 		Expect(cli.Get(ctx, key, policy)).To(Succeed())
-		Expect(policy.Spec.Ingress).To(BeEmpty())
+		Expect(policy.Spec.Ingress).To(HaveLen(1))
+		Expect(policy.Spec.Ingress[0].From).To(Equal([]networkingv1.NetworkPolicyPeer{{
+			NamespaceSelector: &metav1.LabelSelector{}, PodSelector: &metav1.LabelSelector{},
+		}}))
+		Expect(policyPortStrings(policy.Spec.Ingress[0].Ports)).To(Equal([]string{"TCP:8080"}))
+		internalIngress := policy.Spec.DeepCopy().Ingress
 
 		graph.Spec.Nodes["root"].Steps[0].ServiceName = ""
 		graph.Spec.Nodes["root"].Steps[0].ServiceURL = "http://raw-model-predictor.models.svc.cluster.local"
 		Expect(cli.Update(ctx, graph)).To(Succeed())
 		Expect(reconciler.Reconcile(ctx, log.Log, isvc)).To(Succeed())
 		Expect(cli.Get(ctx, key, policy)).To(Succeed())
-		Expect(policy.Spec.Ingress).To(HaveLen(1))
-		Expect(policy.Spec.Ingress[0].From[0].PodSelector.MatchLabels).To(Equal(map[string]string{
-			kserveconstants.InferenceGraphLabel: graph.Name,
-		}))
-		Expect(policyPortStrings(policy.Spec.Ingress[0].Ports)).To(Equal([]string{"TCP:8080"}))
+		Expect(policy.Spec.Ingress).To(HaveLen(2))
+		Expect(policy.Spec.Ingress[:1]).To(Equal(internalIngress))
+		Expect(policy.Spec.Ingress[1].From).To(Equal([]networkingv1.NetworkPolicyPeer{{
+			PodSelector: &metav1.LabelSelector{MatchLabels: map[string]string{
+				kserveconstants.InferenceGraphLabel: graph.Name,
+			}},
+		}}))
+		Expect(policyPortStrings(policy.Spec.Ingress[1].Ports)).To(Equal([]string{"TCP:8080"}))
 
 		service.Spec.Ports = append(service.Spec.Ports, corev1.ServicePort{Port: 9000, TargetPort: intstr.FromInt32(9001)})
 		Expect(cli.Update(ctx, service)).To(Succeed())
@@ -271,13 +279,15 @@ var _ = Describe("KserveRawInferenceGraphNetworkPolicyReconciler", func() {
 		Expect(cli.Update(ctx, graph)).To(Succeed())
 		Expect(reconciler.Reconcile(ctx, log.Log, isvc)).To(Succeed())
 		Expect(cli.Get(ctx, key, policy)).To(Succeed())
-		Expect(policyPortStrings(policy.Spec.Ingress[0].Ports)).To(Equal([]string{"TCP:9001"}))
+		Expect(policy.Spec.Ingress).To(HaveLen(2))
+		Expect(policy.Spec.Ingress[:1]).To(Equal(internalIngress))
+		Expect(policyPortStrings(policy.Spec.Ingress[1].Ports)).To(Equal([]string{"TCP:9001"}))
 
 		graph.Spec.Nodes["root"].Steps[0].ServiceURL = "http://raw-model-predictor.other.svc"
 		Expect(cli.Update(ctx, graph)).To(Succeed())
 		Expect(reconciler.Reconcile(ctx, log.Log, isvc)).To(Succeed())
 		Expect(cli.Get(ctx, key, policy)).To(Succeed())
-		Expect(policy.Spec.Ingress).To(BeEmpty())
+		Expect(policy.Spec.Ingress).To(Equal(internalIngress))
 
 		// KServe resolves a named ServiceName to the ISVC's internal Address when
 		// ServiceURL is omitted, including when the ISVC also has an exposed Route.
@@ -286,14 +296,15 @@ var _ = Describe("KserveRawInferenceGraphNetworkPolicyReconciler", func() {
 		Expect(cli.Update(ctx, graph)).To(Succeed())
 		Expect(reconciler.Reconcile(ctx, log.Log, isvc)).To(Succeed())
 		Expect(cli.Get(ctx, key, policy)).To(Succeed())
-		Expect(policy.Spec.Ingress).To(HaveLen(1))
+		Expect(policy.Spec.Ingress).To(HaveLen(2))
+		Expect(policy.Spec.Ingress[:1]).To(Equal(internalIngress))
 
 		graph.Spec.Nodes["root"].Steps[0].ServiceName = ""
 		graph.Spec.Nodes["root"].Steps[0].ServiceURL = "https://external.example.com"
 		Expect(cli.Update(ctx, graph)).To(Succeed())
 		Expect(reconciler.Reconcile(ctx, log.Log, isvc)).To(Succeed())
 		Expect(cli.Get(ctx, key, policy)).To(Succeed())
-		Expect(policy.Spec.Ingress).To(BeEmpty())
+		Expect(policy.Spec.Ingress).To(Equal(internalIngress))
 	})
 
 	It("uses the transformer HTTPS target port for a blank ServiceURL", func(ctx SpecContext) {
@@ -337,10 +348,16 @@ var _ = Describe("KserveRawInferenceGraphNetworkPolicyReconciler", func() {
 			Name:      rawNetworkPolicyName(isvc, transformerNetworkPolicyComponent),
 			Namespace: isvc.Namespace,
 		}, policy)).To(Succeed())
-		Expect(policy.Spec.Ingress).To(HaveLen(1))
-		Expect(policy.Spec.Ingress[0].From[0].PodSelector.MatchLabels).To(Equal(map[string]string{
-			kserveconstants.InferenceGraphLabel: graph.Name,
-		}))
+		Expect(policy.Spec.Ingress).To(HaveLen(2))
+		Expect(policy.Spec.Ingress[0].From).To(Equal([]networkingv1.NetworkPolicyPeer{{
+			NamespaceSelector: &metav1.LabelSelector{}, PodSelector: &metav1.LabelSelector{},
+		}}))
 		Expect(policyPortStrings(policy.Spec.Ingress[0].Ports)).To(Equal([]string{"TCP:8443"}))
+		Expect(policy.Spec.Ingress[1].From).To(Equal([]networkingv1.NetworkPolicyPeer{{
+			PodSelector: &metav1.LabelSelector{MatchLabels: map[string]string{
+				kserveconstants.InferenceGraphLabel: graph.Name,
+			}},
+		}}))
+		Expect(policyPortStrings(policy.Spec.Ingress[1].Ports)).To(Equal([]string{"TCP:8443"}))
 	})
 })
