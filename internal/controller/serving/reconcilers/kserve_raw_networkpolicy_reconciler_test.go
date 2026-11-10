@@ -18,6 +18,7 @@ package reconcilers
 import (
 	"context"
 	"errors"
+	"maps"
 	"strconv"
 	"strings"
 
@@ -116,66 +117,92 @@ var _ = Describe("KserveRawNetworkPolicyReconciler", func() {
 		}
 	}
 
-	DescribeTable("preserves only the ClusterLocal front-door port for cluster clients", func(ctx SpecContext, transformer, auth bool) {
-		isvc := newISVC()
-		isvc.Labels[kserveconstants.NetworkVisibility] = kserveconstants.ClusterLocalVisibility
-		isvc.Annotations = map[string]string{constants.EnableAuthODHAnnotation: strconv.FormatBool(auth)}
-		predictor := newService("raw-model-predictor", predictorNetworkPolicyComponent,
-			corev1.ServicePort{Name: "http", Port: 80, TargetPort: intstr.FromInt32(8080)},
-			corev1.ServicePort{Name: "https", Port: 443, TargetPort: intstr.FromInt32(8443)},
-		)
-		objects := []client.Object{isvc, predictor}
-		component := predictorNetworkPolicyComponent
-		expectedPort := "TCP:8080"
-		if auth {
-			expectedPort = "TCP:8443"
-		}
-		if transformer {
-			isvc.Spec.Transformer = &kservev1beta1.TransformerSpec{}
-			objects = append(objects, newService("raw-model-transformer", transformerNetworkPolicyComponent,
-				corev1.ServicePort{Name: "http", Port: 80, TargetPort: intstr.FromInt32(9090)},
-				corev1.ServicePort{Name: "https", Port: 443, TargetPort: intstr.FromInt32(9443)},
-			))
-			component = transformerNetworkPolicyComponent
-			expectedPort = "TCP:9090"
+	for _, visibility := range []struct {
+		name   string
+		labels map[string]string
+	}{
+		{name: "nil labels"},
+		{name: "empty labels", labels: map[string]string{}},
+		{name: "unrelated labels", labels: map[string]string{"app": "model"}},
+		{name: "empty visibility", labels: map[string]string{kserveconstants.NetworkVisibility: ""}},
+		{name: "explicit ClusterLocal", labels: map[string]string{kserveconstants.NetworkVisibility: kserveconstants.ClusterLocalVisibility}},
+	} {
+		DescribeTable("preserves only the internal front-door port for cluster clients with "+visibility.name, func(ctx SpecContext, transformer, auth bool) {
+			isvc := newISVC()
+			isvc.Labels = maps.Clone(visibility.labels)
+			isvc.Annotations = map[string]string{constants.EnableAuthODHAnnotation: strconv.FormatBool(auth)}
+			predictor := newService("raw-model-predictor", predictorNetworkPolicyComponent,
+				corev1.ServicePort{Name: "http", Port: 80, TargetPort: intstr.FromInt32(8080)},
+				corev1.ServicePort{Name: "https", Port: 443, TargetPort: intstr.FromInt32(8443)},
+			)
+			objects := []client.Object{isvc, predictor}
+			component := predictorNetworkPolicyComponent
+			expectedPort := "TCP:8080"
 			if auth {
-				expectedPort = "TCP:9443"
+				expectedPort = "TCP:8443"
 			}
-		}
-		cli := fake.NewClientBuilder().WithScheme(scheme).WithObjects(objects...).Build()
-		reconciler := NewKserveRawNetworkPolicyReconciler(cli)
-		Expect(reconciler.Reconcile(ctx, log.Log, isvc)).To(Succeed())
-		policy := &networkingv1.NetworkPolicy{}
-		key := client.ObjectKey{Name: rawNetworkPolicyName(isvc, component), Namespace: isvc.Namespace}
-		Expect(cli.Get(ctx, key, policy)).To(Succeed())
-		Expect(policy.Spec.Ingress).To(HaveLen(1))
-		Expect(policy.Spec.Ingress[0].From).To(Equal([]networkingv1.NetworkPolicyPeer{{
-			NamespaceSelector: &metav1.LabelSelector{}, PodSelector: &metav1.LabelSelector{},
-		}}))
-		Expect(policyPortStrings(policy.Spec.Ingress[0].Ports)).To(Equal([]string{expectedPort}))
-		if transformer {
-			backend := &networkingv1.NetworkPolicy{}
-			Expect(cli.Get(ctx, client.ObjectKey{Name: rawNetworkPolicyName(isvc, predictorNetworkPolicyComponent), Namespace: isvc.Namespace}, backend)).To(Succeed())
-			Expect(backend.Spec.Ingress).To(HaveLen(1))
-			Expect(backend.Spec.Ingress[0].From[0].NamespaceSelector).To(BeNil())
-			Expect(backend.Spec.Ingress[0].From[0].PodSelector.MatchLabels).To(Equal(map[string]string{
-				constants.KserveGroupAnnotation: isvc.Name, kserveconstants.KServiceComponentLabel: transformerNetworkPolicyComponent,
+			if transformer {
+				isvc.Spec.Transformer = &kservev1beta1.TransformerSpec{}
+				objects = append(objects, newService("raw-model-transformer", transformerNetworkPolicyComponent,
+					corev1.ServicePort{Name: "http", Port: 80, TargetPort: intstr.FromInt32(9090)},
+					corev1.ServicePort{Name: "https", Port: 443, TargetPort: intstr.FromInt32(9443)},
+				))
+				component = transformerNetworkPolicyComponent
+				expectedPort = "TCP:9090"
+				if auth {
+					expectedPort = "TCP:9443"
+				}
+			}
+			cli := fake.NewClientBuilder().WithScheme(scheme).WithObjects(objects...).Build()
+			reconciler := NewKserveRawNetworkPolicyReconciler(cli)
+			Expect(reconciler.Reconcile(ctx, log.Log, isvc)).To(Succeed())
+			policy := &networkingv1.NetworkPolicy{}
+			key := client.ObjectKey{Name: rawNetworkPolicyName(isvc, component), Namespace: isvc.Namespace}
+			Expect(cli.Get(ctx, key, policy)).To(Succeed())
+			Expect(policy.Spec.Ingress).To(HaveLen(1))
+			Expect(policy.Spec.Ingress[0].From).To(Equal([]networkingv1.NetworkPolicyPeer{{
+				NamespaceSelector: &metav1.LabelSelector{}, PodSelector: &metav1.LabelSelector{},
+			}}))
+			Expect(policyPortStrings(policy.Spec.Ingress[0].Ports)).To(Equal([]string{expectedPort}))
+			Expect(policy.Spec.PodSelector.MatchLabels).To(Equal(map[string]string{
+				constants.KserveGroupAnnotation: isvc.Name, kserveconstants.KServiceComponentLabel: component,
 			}))
-		}
+			internalSpec := policy.Spec.DeepCopy()
+			if transformer {
+				backend := &networkingv1.NetworkPolicy{}
+				Expect(cli.Get(ctx, client.ObjectKey{Name: rawNetworkPolicyName(isvc, predictorNetworkPolicyComponent), Namespace: isvc.Namespace}, backend)).To(Succeed())
+				Expect(backend.Spec.Ingress).To(HaveLen(1))
+				Expect(backend.Spec.Ingress[0].From[0].NamespaceSelector).To(BeNil())
+				Expect(backend.Spec.Ingress[0].From[0].PodSelector.MatchLabels).To(Equal(map[string]string{
+					constants.KserveGroupAnnotation: isvc.Name, kserveconstants.KServiceComponentLabel: transformerNetworkPolicyComponent,
+				}))
+			}
 
-		isvc.Labels[kserveconstants.NetworkVisibility] = constants.LabelEnableKserveRawRoute
-		Expect(reconciler.Reconcile(ctx, log.Log, isvc)).To(Succeed())
-		Expect(cli.Get(ctx, key, policy)).To(Succeed())
-		Expect(policy.Spec.Ingress).To(HaveLen(1))
-		Expect(policy.Spec.Ingress[0].From).To(Equal([]networkingv1.NetworkPolicyPeer{routerPeer()}))
-	},
-		Entry("plain predictor", false, false),
-		Entry("authenticated predictor", false, true),
-		Entry("plain transformer", true, false),
-		Entry("authenticated transformer", true, true),
-	)
+			isvc.Labels = map[string]string{kserveconstants.NetworkVisibility: constants.LabelEnableKserveRawRoute}
+			Expect(reconciler.Reconcile(ctx, log.Log, isvc)).To(Succeed())
+			Expect(cli.Get(ctx, key, policy)).To(Succeed())
+			Expect(policy.Spec.Ingress).To(HaveLen(1))
+			Expect(policy.Spec.Ingress[0].From).To(Equal([]networkingv1.NetworkPolicyPeer{routerPeer()}))
+			Expect(policyPortStrings(policy.Spec.Ingress[0].Ports)).To(Equal([]string{expectedPort}))
 
-	DescribeTable("permits only the configured ISVC explainer to call its predictor", func(ctx SpecContext, transformer, auth bool) {
+			isvc.Labels = maps.Clone(visibility.labels)
+			Expect(reconciler.Reconcile(ctx, log.Log, isvc)).To(Succeed())
+			Expect(cli.Get(ctx, key, policy)).To(Succeed())
+			Expect(policy.Spec).To(Equal(*internalSpec))
+			resourceVersion := policy.ResourceVersion
+			Expect(reconciler.Reconcile(ctx, log.Log, isvc)).To(Succeed())
+			Expect(cli.Get(ctx, key, policy)).To(Succeed())
+			Expect(policy.Spec).To(Equal(*internalSpec))
+			Expect(policy.ResourceVersion).To(Equal(resourceVersion))
+		},
+			Entry("plain predictor", false, false),
+			Entry("authenticated predictor", false, true),
+			Entry("plain transformer", true, false),
+			Entry("authenticated transformer", true, true),
+		)
+	}
+
+	DescribeTable("scopes the explainer-specific peer to the configured ISVC", func(ctx SpecContext, transformer, auth bool) {
 		isvc := newISVC()
 		delete(isvc.Labels, constants.KserveNetworkVisibility)
 		isvc.Spec.Explainer = &kservev1beta1.ExplainerSpec{}
@@ -185,13 +212,15 @@ var _ = Describe("KserveRawNetworkPolicyReconciler", func() {
 			corev1.ServicePort{Name: "https", Port: 443, TargetPort: intstr.FromInt32(8443)},
 		)
 		objects := []client.Object{isvc, predictor}
-		expectedRules := 1
+		// The predictor allows either cluster clients or its transformer, plus
+		// the configured explainer. Only the explainer-specific rule is removed below.
+		expectedRules := 2
 		if transformer {
 			isvc.Spec.Transformer = &kservev1beta1.TransformerSpec{}
 			objects = append(objects, newService("raw-model-transformer", transformerNetworkPolicyComponent,
 				corev1.ServicePort{Name: "http", Port: 80, TargetPort: intstr.FromInt32(9090)},
+				corev1.ServicePort{Name: "https", Port: 443, TargetPort: intstr.FromInt32(9443)},
 			))
-			expectedRules++
 		}
 		cli := fake.NewClientBuilder().WithScheme(scheme).WithObjects(objects...).Build()
 		reconciler := NewKserveRawNetworkPolicyReconciler(cli)
@@ -218,10 +247,11 @@ var _ = Describe("KserveRawNetworkPolicyReconciler", func() {
 		})).To(BeFalse())
 		Expect(policy.Spec.PodSelector.MatchLabels[kserveconstants.KServiceComponentLabel]).To(Equal(predictorNetworkPolicyComponent))
 
+		remainingRule := policy.Spec.Ingress[0].DeepCopy()
 		isvc.Spec.Explainer = nil
 		Expect(reconciler.Reconcile(ctx, log.Log, isvc)).To(Succeed())
 		Expect(cli.Get(ctx, key, policy)).To(Succeed())
-		Expect(policy.Spec.Ingress).To(HaveLen(expectedRules - 1))
+		Expect(policy.Spec.Ingress).To(Equal([]networkingv1.NetworkPolicyIngressRule{*remainingRule}))
 	},
 		Entry("plain predictor", false, false),
 		Entry("authenticated predictor", false, true),
@@ -365,8 +395,13 @@ var _ = Describe("KserveRawNetworkPolicyReconciler", func() {
 		Expect(policy.Spec.Egress).To(HaveLen(1))
 	})
 
-	It("creates deny-ingress policy before a backing Service exists", func(ctx SpecContext) {
+	DescribeTable("creates deny-ingress policy before a backing Service exists", func(ctx SpecContext, visibility string) {
 		isvc := newISVC()
+		if visibility == "" {
+			isvc.Labels = nil
+		} else {
+			isvc.Labels[kserveconstants.NetworkVisibility] = visibility
+		}
 		cli := fake.NewClientBuilder().WithScheme(scheme).WithObjects(isvc).Build()
 		Expect(NewKserveRawNetworkPolicyReconciler(cli).Reconcile(ctx, log.Log, isvc)).To(Succeed())
 
@@ -374,7 +409,11 @@ var _ = Describe("KserveRawNetworkPolicyReconciler", func() {
 		Expect(cli.Get(ctx, client.ObjectKey{Name: rawNetworkPolicyName(isvc, predictorNetworkPolicyComponent), Namespace: isvc.Namespace}, policy)).To(Succeed())
 		Expect(policy.Spec.Ingress).To(BeEmpty())
 		Expect(policy.Spec.Egress).To(HaveLen(1))
-	})
+	},
+		Entry("exposed", constants.LabelEnableKserveRawRoute),
+		Entry("unlabeled", ""),
+		Entry("explicit ClusterLocal", kserveconstants.ClusterLocalVisibility),
+	)
 
 	It("selects only the requested ISVC component Pods", func(ctx SpecContext) {
 		isvc := newISVC()
