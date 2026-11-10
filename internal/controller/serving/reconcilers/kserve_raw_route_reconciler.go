@@ -24,6 +24,7 @@ import (
 	kservev1beta1 "github.com/kserve/kserve/pkg/apis/serving/v1beta1"
 	v1 "github.com/openshift/api/route/v1"
 	corev1 "k8s.io/api/core/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/intstr"
@@ -78,6 +79,32 @@ func (r *KserveRawRouteReconciler) Reconcile(ctx context.Context, log logr.Logge
 
 func (r *KserveRawRouteReconciler) Delete(ctx context.Context, log logr.Logger, isvc *kservev1beta1.InferenceService) error {
 	// No OP as route will be deleted by the ownerref
+	return nil
+}
+
+// DeleteOwnedRouteIfNotExposed honors removal of exposure even when policy
+// reconciliation fails. Existing exposed Routes and unrelated same-name Routes
+// are left untouched.
+func (r *KserveRawRouteReconciler) DeleteOwnedRouteIfNotExposed(ctx context.Context, log logr.Logger, isvc *kservev1beta1.InferenceService) error {
+	if routeEnabled(isvc) {
+		return nil
+	}
+
+	existingRoute, err := r.getExistingResource(ctx, log, isvc)
+	if err != nil {
+		return err
+	}
+	if existingRoute == nil {
+		return nil
+	}
+	if !isOwnedByInferenceServiceOwnerReferences(existingRoute.OwnerReferences, isvc) {
+		log.V(1).Info("Leaving unowned Route in place after exposure was disabled", "name", existingRoute.Name)
+		return nil
+	}
+	log.Info("Deleting Route because exposure was disabled", "name", existingRoute.Name)
+	if err := r.client.Delete(ctx, existingRoute); err != nil && !apierrors.IsNotFound(err) {
+		return fmt.Errorf("failed to delete Route %s after exposure was disabled: %w", client.ObjectKeyFromObject(existingRoute), err)
+	}
 	return nil
 }
 
