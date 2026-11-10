@@ -22,6 +22,7 @@ import (
 	"errors"
 	"fmt"
 	"net"
+	"strings"
 	"time"
 
 	configv1 "github.com/openshift/api/config/v1"
@@ -282,10 +283,38 @@ func parseProfile(profile *configv1.TLSSecurityProfile) (
 		if profile.Custom == nil {
 			return 0, nil, nil, nil, fmt.Errorf("custom TLS profile type specified but custom block is nil")
 		}
+		if err := validateCustomCipherSuites(profile.Custom.Ciphers); err != nil {
+			return 0, nil, nil, nil, err
+		}
 		return parseSuites(&profile.Custom.TLSProfileSpec)
 	default:
 		return 0, nil, nil, nil, fmt.Errorf("unknown TLS profile type %q", profile.Type)
 	}
+}
+
+// validateCustomCipherSuites rejects Custom profiles that name RC4, 3DES, or
+// SHA-1 CBC suites, accepting both IANA and OpenSSL spellings. Built-in
+// profiles are exempt: Old serves those suites as documented.
+func validateCustomCipherSuites(names []string) error {
+	for _, name := range names {
+		canonicalName := name
+		if id, ok := cipherID(name); ok {
+			canonicalName = tls.CipherSuiteName(id)
+			if strings.HasPrefix(strings.ToLower(canonicalName), "0x") {
+				if ianaNames := ocpcrypto.OpenSSLToIANACipherSuites([]string{name}); len(ianaNames) == 1 {
+					canonicalName = ianaNames[0]
+				}
+			}
+		}
+		canonicalName = strings.ToUpper(canonicalName)
+		if strings.Contains(canonicalName, "RC4") ||
+			strings.Contains(canonicalName, "3DES") ||
+			strings.Contains(canonicalName, "CBC3") ||
+			strings.HasSuffix(canonicalName, "_CBC_SHA") {
+			return fmt.Errorf("custom TLS profile includes disallowed cipher suite %q", name)
+		}
+	}
+	return nil
 }
 
 // parseSuites validates a profile spec: the minimum version must be known,
