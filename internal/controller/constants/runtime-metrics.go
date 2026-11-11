@@ -311,7 +311,10 @@ const (
 		]
     }`
 
-	// NVIDIA NIM
+	// NVIDIA NIM. Prefer backend-native vLLM metrics over legacy unprefixed metrics.
+	// The native/legacy selection happens per pod, before aggregation, so fleets with
+	// mixed NIM versions are counted without double-counting pods that expose both
+	// metric families (NIM >= 1.12.0 < 2.0.0) and without dropping legacy-only pods.
 	NIMMetricsData = `{
         "config": [
 			{
@@ -320,11 +323,11 @@ const (
 				"queries": [
 					{
 						"title": "Number of successful incoming requests",
-						"query": "round(sum(increase(request_success_total{namespace='${NAMESPACE}', pod=~'${MODEL_NAME}-predictor-.*'}[${REQUEST_RATE_INTERVAL}])))"
+						"query": "round(sum(sum by (namespace, pod) (increase(vllm:request_success_total{namespace='${NAMESPACE}', pod=~'${MODEL_NAME}-predictor-.*', finished_reason!~'error|abort'}[${REQUEST_RATE_INTERVAL}])) or sum by (namespace, pod) (increase(request_success_total{namespace='${NAMESPACE}', pod=~'${MODEL_NAME}-predictor-.*'}[${REQUEST_RATE_INTERVAL}]))))"
 					},
 					{
 						"title": "Number of failed incoming requests",
-						"query": "round(sum(increase(request_failure_total{namespace='${NAMESPACE}', pod=~'${MODEL_NAME}-predictor-.*'}[${REQUEST_RATE_INTERVAL}])))"
+						"query": "round(sum(sum by (namespace, pod) (increase(vllm:request_success_total{namespace='${NAMESPACE}', pod=~'${MODEL_NAME}-predictor-.*', finished_reason=~'error|abort'}[${REQUEST_RATE_INTERVAL}])) or sum by (namespace, pod) (increase(request_failure_total{namespace='${NAMESPACE}', pod=~'${MODEL_NAME}-predictor-.*'}[${REQUEST_RATE_INTERVAL}]))))"
 					}
 				]
 			},
@@ -334,7 +337,7 @@ const (
 				"queries": [
 					{
 						"title": "Average e2e latency",
-						"query": "(rate(e2e_request_latency_seconds_sum{namespace='${NAMESPACE}', pod=~'${MODEL_NAME}-predictor-.*'}[${RATE_INTERVAL}]) * 1000) / (rate(e2e_request_latency_seconds_count{namespace='${NAMESPACE}', pod=~'${MODEL_NAME}-predictor-.*'}[${RATE_INTERVAL}]) * 1000)"
+						"query": "sum(sum by (namespace, pod) (rate(vllm:e2e_request_latency_seconds_sum{namespace='${NAMESPACE}', pod=~'${MODEL_NAME}-predictor-.*'}[${RATE_INTERVAL}])) or sum by (namespace, pod) (rate(e2e_request_latency_seconds_sum{namespace='${NAMESPACE}', pod=~'${MODEL_NAME}-predictor-.*'}[${RATE_INTERVAL}]))) / sum(sum by (namespace, pod) (rate(vllm:e2e_request_latency_seconds_count{namespace='${NAMESPACE}', pod=~'${MODEL_NAME}-predictor-.*'}[${RATE_INTERVAL}])) or sum by (namespace, pod) (rate(e2e_request_latency_seconds_count{namespace='${NAMESPACE}', pod=~'${MODEL_NAME}-predictor-.*'}[${RATE_INTERVAL}]))) * 1000"
 					}
 				]
 			},
@@ -364,7 +367,7 @@ const (
 				"queries": [
 					{
 						"title": "GPU cache usage over time",
-						"query": "sum_over_time(gpu_cache_usage_perc{namespace='${NAMESPACE}', pod=~'${MODEL_NAME}-predictor-.*'}[${KV_CACHE_SAMPLING_RATE}])"
+						"query": "vllm:kv_cache_usage_perc{namespace='${NAMESPACE}', pod=~'${MODEL_NAME}-predictor-.*'} or vllm:gpu_cache_usage_perc{namespace='${NAMESPACE}', pod=~'${MODEL_NAME}-predictor-.*'} or gpu_cache_usage_perc{namespace='${NAMESPACE}', pod=~'${MODEL_NAME}-predictor-.*'}"
 					}
 				]
 			},
@@ -374,15 +377,15 @@ const (
 				"queries": [
 					{
 						"title": "Requests waiting",
-						"query":  "num_requests_waiting{namespace='${NAMESPACE}', pod=~'${MODEL_NAME}-predictor-.*'}"
+						"query":  "vllm:num_requests_waiting{namespace='${NAMESPACE}', pod=~'${MODEL_NAME}-predictor-.*'} or num_requests_waiting{namespace='${NAMESPACE}', pod=~'${MODEL_NAME}-predictor-.*'}"
 					},
 					{
 						"title": "Requests running",
-						"query":  "num_requests_running{namespace='${NAMESPACE}', pod=~'${MODEL_NAME}-predictor-.*'}"
+						"query":  "vllm:num_requests_running{namespace='${NAMESPACE}', pod=~'${MODEL_NAME}-predictor-.*'} or num_requests_running{namespace='${NAMESPACE}', pod=~'${MODEL_NAME}-predictor-.*'}"
 					},
 					{
 						"title": "Max requests",
-						"query":  "num_request_max{namespace='${NAMESPACE}', pod=~'${MODEL_NAME}-predictor-.*'}"
+						"query":  "vllm:num_request_max{namespace='${NAMESPACE}', pod=~'${MODEL_NAME}-predictor-.*'} or num_request_max{namespace='${NAMESPACE}', pod=~'${MODEL_NAME}-predictor-.*'}"
 					}
 				]
 			},
@@ -392,11 +395,11 @@ const (
 				"queries": [
 					{
 						"title": "Total prompts token",
-						"query":  "round(rate(prompt_tokens_total{namespace='${NAMESPACE}', pod=~'${MODEL_NAME}-predictor-.*'}[${RATE_INTERVAL}]))"
+						"query":  "round(rate(vllm:prompt_tokens_total{namespace='${NAMESPACE}', pod=~'${MODEL_NAME}-predictor-.*'}[${RATE_INTERVAL}])) or round(rate(prompt_tokens_total{namespace='${NAMESPACE}', pod=~'${MODEL_NAME}-predictor-.*'}[${RATE_INTERVAL}]))"
 					},
 					{
 						"title": "Total generation token",
-						"query":  "round(rate(generation_tokens_total{namespace='${NAMESPACE}', pod=~'${MODEL_NAME}-predictor-.*'}[${RATE_INTERVAL}]))"
+						"query":  "round(rate(vllm:generation_tokens_total{namespace='${NAMESPACE}', pod=~'${MODEL_NAME}-predictor-.*'}[${RATE_INTERVAL}])) or round(rate(generation_tokens_total{namespace='${NAMESPACE}', pod=~'${MODEL_NAME}-predictor-.*'}[${RATE_INTERVAL}]))"
 					}
 				]
 			},
@@ -406,7 +409,7 @@ const (
 				"queries": [
 					{
 						"title": "Time to first token",
-						"query": "rate(time_to_first_token_seconds_sum{namespace='${NAMESPACE}', pod=~'${MODEL_NAME}-predictor-.*'}[${RATE_INTERVAL}])"
+						"query": "sum(sum by (namespace, pod) (rate(vllm:time_to_first_token_seconds_sum{namespace='${NAMESPACE}', pod=~'${MODEL_NAME}-predictor-.*'}[${RATE_INTERVAL}])) or sum by (namespace, pod) (rate(time_to_first_token_seconds_sum{namespace='${NAMESPACE}', pod=~'${MODEL_NAME}-predictor-.*'}[${RATE_INTERVAL}]))) / sum(sum by (namespace, pod) (rate(vllm:time_to_first_token_seconds_count{namespace='${NAMESPACE}', pod=~'${MODEL_NAME}-predictor-.*'}[${RATE_INTERVAL}])) or sum by (namespace, pod) (rate(time_to_first_token_seconds_count{namespace='${NAMESPACE}', pod=~'${MODEL_NAME}-predictor-.*'}[${RATE_INTERVAL}])))"
 					}
 				]
 			},
@@ -416,7 +419,7 @@ const (
 				"queries": [
 					{
 						"title": "Time per output token",
-						"query": "rate(time_per_output_token_seconds_sum{namespace='${NAMESPACE}', pod=~'${MODEL_NAME}-predictor-.*'}[${RATE_INTERVAL}])"
+						"query": "sum(sum by (namespace, pod) (rate(vllm:request_time_per_output_token_seconds_sum{namespace='${NAMESPACE}', pod=~'${MODEL_NAME}-predictor-.*'}[${RATE_INTERVAL}])) or sum by (namespace, pod) (rate(time_per_output_token_seconds_sum{namespace='${NAMESPACE}', pod=~'${MODEL_NAME}-predictor-.*'}[${RATE_INTERVAL}]))) / sum(sum by (namespace, pod) (rate(vllm:request_time_per_output_token_seconds_count{namespace='${NAMESPACE}', pod=~'${MODEL_NAME}-predictor-.*'}[${RATE_INTERVAL}])) or sum by (namespace, pod) (rate(time_per_output_token_seconds_count{namespace='${NAMESPACE}', pod=~'${MODEL_NAME}-predictor-.*'}[${RATE_INTERVAL}])))"
 					}
 				]
 			},
@@ -426,11 +429,11 @@ const (
 				"queries": [
 					{
 						"title": "Number of successful incoming requests",
-						"query": "round(sum(increase(request_success_total{namespace='${NAMESPACE}', pod=~'${MODEL_NAME}-predictor-.*'}[${REQUEST_RATE_INTERVAL}])))"
+						"query": "round(sum(sum by (namespace, pod) (increase(vllm:request_success_total{namespace='${NAMESPACE}', pod=~'${MODEL_NAME}-predictor-.*', finished_reason!~'error|abort'}[${REQUEST_RATE_INTERVAL}])) or sum by (namespace, pod) (increase(request_success_total{namespace='${NAMESPACE}', pod=~'${MODEL_NAME}-predictor-.*'}[${REQUEST_RATE_INTERVAL}]))))"
 					},
 					{
 						"title": "Number of failed incoming requests",
-						"query": "round(sum(increase(request_failure_total{namespace='${NAMESPACE}', pod=~'${MODEL_NAME}-predictor-.*'}[${REQUEST_RATE_INTERVAL}])))"
+						"query": "round(sum(sum by (namespace, pod) (increase(vllm:request_success_total{namespace='${NAMESPACE}', pod=~'${MODEL_NAME}-predictor-.*', finished_reason=~'error|abort'}[${REQUEST_RATE_INTERVAL}])) or sum by (namespace, pod) (increase(request_failure_total{namespace='${NAMESPACE}', pod=~'${MODEL_NAME}-predictor-.*'}[${REQUEST_RATE_INTERVAL}]))))"
 					}
 				]
 			}
