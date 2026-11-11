@@ -108,6 +108,56 @@ var _ = Describe("KserveMetricsDashboardReconciler", func() {
 				Expect(configMap.Data["metrics"]).To(Equal(finaldata))
 				Expect(configMap.Data["metrics"]).To(ContainSubstring("nim-model"))
 				Expect(configMap.Data["metrics"]).To(ContainSubstring("test-namespace"))
+
+				var cfg metricsConfig
+				Expect(json.Unmarshal([]byte(configMap.Data["metrics"]), &cfg)).To(Succeed())
+				expected := map[string][]string{
+					"REQUEST_COUNT":          {"vllm:request_success_total", "vllm:request_success_total"},
+					"MEAN_LATENCY":           {"vllm:e2e_request_latency_seconds_sum"},
+					"KV_CACHE":               {"vllm:kv_cache_usage_perc"},
+					"CURRENT_REQUESTS":       {"vllm:num_requests_waiting", "vllm:num_requests_running", "num_request_max"},
+					"TOKENS_COUNT":           {"vllm:prompt_tokens_total", "vllm:generation_tokens_total"},
+					"TIME_TO_FIRST_TOKEN":    {"vllm:time_to_first_token_seconds_sum"},
+					"TIME_PER_OUTPUT_TOKEN": {"vllm:request_time_per_output_token_seconds_sum"},
+					"REQUEST_OUTCOMES":       {"vllm:request_success_total", "vllm:request_success_total"},
+					"CPU_USAGE":              {"pod:container_cpu_usage:sum"},
+					"MEMORY_USAGE":           {"container_memory_working_set_bytes"},
+				}
+				queriesByType := make(map[string][]metricsQuery, len(cfg.Config))
+				for _, section := range cfg.Config {
+					metrics, ok := expected[section.Type]
+					Expect(ok).To(BeTrue(), section.Type)
+					Expect(section.Queries).To(HaveLen(len(metrics)), section.Type)
+					for i, q := range section.Queries {
+						Expect(q.Query).To(ContainSubstring(metrics[i]), section.Type)
+					}
+					queriesByType[section.Type] = section.Queries
+					delete(expected, section.Type)
+				}
+				Expect(expected).To(BeEmpty())
+				Expect(configMap.Data["metrics"]).To(ContainSubstring("or num_requests_waiting{"), "older NIM metrics must remain queryable")
+
+				cacheQuery := queriesByType["KV_CACHE"][0].Query
+				Expect(cacheQuery).To(HavePrefix("vllm:kv_cache_usage_perc{"))
+				Expect(cacheQuery).To(ContainSubstring(" or gpu_cache_usage_perc{"))
+				Expect(cacheQuery).NotTo(ContainSubstring("sum_over_time"), "cache utilization must remain a gauge")
+
+				for _, latency := range []struct {
+					panel  string
+					native string
+					legacy string
+				}{
+					{"TIME_TO_FIRST_TOKEN", "vllm:time_to_first_token_seconds", "time_to_first_token_seconds"},
+					{"TIME_PER_OUTPUT_TOKEN", "vllm:request_time_per_output_token_seconds", "time_per_output_token_seconds"},
+				} {
+					branches := strings.Split(queriesByType[latency.panel][0].Query, " or ")
+					Expect(branches).To(HaveLen(2), latency.panel)
+					for i, metric := range []string{latency.native, latency.legacy} {
+						Expect(branches[i]).To(HavePrefix("sum(rate("+metric+"_sum{"), latency.panel)
+						Expect(branches[i]).To(ContainSubstring(" / sum(rate("+metric+"_count{"), latency.panel)
+						Expect(strings.Count(branches[i], "sum(rate(")).To(Equal(2), latency.panel)
+					}
+				}
 			})
 		})
 
