@@ -1,0 +1,146 @@
+name: Sync manifests to KServe
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - config/**
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: sync-manifests-to-kserve-release-v0.17
+  cancel-in-progress: false
+
+env:
+  TARGET_REPOSITORY: opendatahub-io/kserve
+  TARGET_BRANCH: release-v0.17
+  SYNC_BRANCH: manifests-sync/odh-model-controller-main
+
+jobs:
+  sync:
+    name: Sync manifests to KServe
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout ODH Model Controller
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+        with:
+          ref: ${{ github.event_name == 'push' && github.sha || 'main' }}
+          path: odh-model-controller
+
+      - name: Resolve source revision
+        id: source
+        working-directory: odh-model-controller
+        run: echo "revision=$(git rev-parse HEAD)" >> "${GITHUB_OUTPUT}"
+
+      - name: Generate GitHub App token
+        id: app-token
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        with:
+          app-id: ${{ secrets.ODH_RELEASE_BOT_APP_ID }}
+          private-key: ${{ secrets.ODH_RELEASE_BOT_PRIVATE_KEY }}
+          owner: opendatahub-io
+          repositories: kserve
+
+      - name: Checkout KServe
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+        with:
+          repository: ${{ env.TARGET_REPOSITORY }}
+          ref: ${{ env.TARGET_BRANCH }}
+          token: ${{ steps.app-token.outputs.token }}
+          path: kserve
+
+      - name: Sync manifests
+        env:
+          SOURCE_REVISION: ${{ steps.source.outputs.revision }}
+        run: |
+          bash odh-model-controller/hack/sync-manifests-to-kserve.sh \
+            odh-model-controller/config \
+            kserve/kserve-module/prefetched-manifests-odh/modelcontroller \
+            https://github.com/opendatahub-io/odh-model-controller \
+            main \
+            "${SOURCE_REVISION}"
+
+      - name: Detect changes
+        id: changes
+        working-directory: kserve
+        run: |
+          if [[ -n "$(git status --porcelain -- kserve-module/prefetched-manifests-odh/modelcontroller)" ]]; then
+            echo "changed=true" >> "${GITHUB_OUTPUT}"
+          else
+            echo "changed=false" >> "${GITHUB_OUTPUT}"
+            echo "KServe already contains these manifests."
+          fi
+
+      - name: Push sync branch
+        if: steps.changes.outputs.changed == 'true'
+        env:
+          SOURCE_REVISION: ${{ steps.source.outputs.revision }}
+        working-directory: kserve
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git checkout -b "${SYNC_BRANCH}"
+          git add --all kserve-module/prefetched-manifests-odh/modelcontroller
+          git commit -m "chore: sync ODH-MC manifests from ${SOURCE_REVISION:0:8}"
+
+          if git fetch origin "${SYNC_BRANCH}"; then
+            remote_revision=$(git rev-parse FETCH_HEAD)
+            git push \
+              --force-with-lease="refs/heads/${SYNC_BRANCH}:${remote_revision}" \
+              origin "HEAD:refs/heads/${SYNC_BRANCH}"
+          else
+            git push origin "HEAD:refs/heads/${SYNC_BRANCH}"
+          fi
+
+      - name: Open or update sync pull request
+        if: steps.changes.outputs.changed == 'true'
+        env:
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+          SOURCE_REVISION: ${{ steps.source.outputs.revision }}
+        run: |
+          pr_body=$(cat <<'EOF'
+          **What this PR does / why we need it**:
+
+          Syncs the ODH Model Controller manifests from [SOURCE_REVISION_PLACEHOLDER](https://github.com/opendatahub-io/odh-model-controller/commit/SOURCE_REVISION_PLACEHOLDER). The KServe module image uses this committed snapshot instead of fetching a moving branch during its build.
+
+          The sync branch is generated. Make source fixes in ODH Model Controller because a later sync replaces manual branch changes.
+
+          **Feature/Issue validation/testing**:
+
+          KServe pull request checks validate the manifests and build the candidate module image.
+
+          **Release note**:
+
+          ```release-note
+          NONE
+          ```
+          EOF
+          )
+          pr_body=${pr_body//SOURCE_REVISION_PLACEHOLDER/${SOURCE_REVISION}}
+
+          existing_pr=$(gh pr list \
+            --repo "${TARGET_REPOSITORY}" \
+            --base "${TARGET_BRANCH}" \
+            --head "opendatahub-io:${SYNC_BRANCH}" \
+            --state open \
+            --json url \
+            --jq '.[0].url // ""')
+
+          if [[ -n "${existing_pr}" ]]; then
+            gh pr edit "${existing_pr}" \
+              --title "chore(kserve-module): sync ODH-MC manifests" \
+              --body "${pr_body}"
+            echo "Updated ${existing_pr}"
+            exit 0
+          fi
+
+          gh pr create \
+            --repo "${TARGET_REPOSITORY}" \
+            --base "${TARGET_BRANCH}" \
+            --head "${SYNC_BRANCH}" \
+            --title "chore(kserve-module): sync ODH-MC manifests" \
+            --body "${pr_body}"
