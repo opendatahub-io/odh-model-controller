@@ -108,6 +108,80 @@ var _ = Describe("KserveMetricsDashboardReconciler", func() {
 				Expect(configMap.Data["metrics"]).To(Equal(finaldata))
 				Expect(configMap.Data["metrics"]).To(ContainSubstring("nim-model"))
 				Expect(configMap.Data["metrics"]).To(ContainSubstring("test-namespace"))
+
+				var cfg metricsConfig
+				Expect(json.Unmarshal([]byte(configMap.Data["metrics"]), &cfg)).To(Succeed())
+				expected := map[string][]string{
+					"REQUEST_COUNT":         {"vllm:request_success_total", "vllm:request_success_total"},
+					"MEAN_LATENCY":          {"vllm:e2e_request_latency_seconds_sum"},
+					"KV_CACHE":              {"vllm:kv_cache_usage_perc"},
+					"CURRENT_REQUESTS":      {"vllm:num_requests_waiting", "vllm:num_requests_running", "num_request_max"},
+					"TOKENS_COUNT":          {"vllm:prompt_tokens_total", "vllm:generation_tokens_total"},
+					"TIME_TO_FIRST_TOKEN":   {"vllm:time_to_first_token_seconds_sum"},
+					"TIME_PER_OUTPUT_TOKEN": {"vllm:request_time_per_output_token_seconds_sum"},
+					"REQUEST_OUTCOMES":      {"vllm:request_success_total", "vllm:request_success_total"},
+					"CPU_USAGE":             {"pod:container_cpu_usage:sum"},
+					"MEMORY_USAGE":          {"container_memory_working_set_bytes"},
+				}
+				queriesByType := make(map[string][]metricsQuery, len(cfg.Config))
+				for _, section := range cfg.Config {
+					metrics, ok := expected[section.Type]
+					Expect(ok).To(BeTrue(), section.Type)
+					Expect(section.Queries).To(HaveLen(len(metrics)), section.Type)
+					for i, q := range section.Queries {
+						Expect(q.Query).To(ContainSubstring(metrics[i]), section.Type)
+					}
+					queriesByType[section.Type] = section.Queries
+					delete(expected, section.Type)
+				}
+				Expect(expected).To(BeEmpty())
+				Expect(configMap.Data["metrics"]).To(ContainSubstring("or num_requests_waiting{"), "older NIM metrics must remain queryable")
+				Expect(configMap.Data["metrics"]).To(ContainSubstring("or num_request_max{"), "older NIM max-requests metric must remain queryable")
+
+				// The native/legacy selection must happen per pod, before aggregation,
+				// so mixed-version fleets neither drop legacy-only pods nor
+				// double-count pods that expose both metric families.
+				for _, section := range []string{"REQUEST_COUNT", "REQUEST_OUTCOMES"} {
+					for _, q := range queriesByType[section] {
+						Expect(q.Query).To(HavePrefix("round(sum(sum by (namespace, pod) (increase("), section)
+						Expect(strings.Count(q.Query, "sum by (namespace, pod) (increase(")).To(Equal(2), section)
+					}
+				}
+
+				cacheQuery := queriesByType["KV_CACHE"][0].Query
+				Expect(cacheQuery).To(HavePrefix("vllm:kv_cache_usage_perc{"))
+				Expect(cacheQuery).To(ContainSubstring(" or vllm:gpu_cache_usage_perc{"), "vLLM exposes both KV cache gauge names")
+				Expect(cacheQuery).To(ContainSubstring(" or gpu_cache_usage_perc{"))
+				Expect(cacheQuery).NotTo(ContainSubstring("sum_over_time"), "cache utilization must remain a gauge")
+
+				// Latency panels: per-pod family selection on both the numerator (sum)
+				// and denominator (count), then a fleet-wide ratio. MEAN_LATENCY converts
+				// to milliseconds once, after the ratio, so a two-second response renders
+				// as 2000 in both the native and the legacy branch.
+				for _, latency := range []struct {
+					panel  string
+					native string
+					legacy string
+					inMS   bool
+				}{
+					{"MEAN_LATENCY", "vllm:e2e_request_latency_seconds", "e2e_request_latency_seconds", true},
+					{"TIME_TO_FIRST_TOKEN", "vllm:time_to_first_token_seconds", "time_to_first_token_seconds", false},
+					{"TIME_PER_OUTPUT_TOKEN", "vllm:request_time_per_output_token_seconds", "time_per_output_token_seconds", false},
+				} {
+					query := queriesByType[latency.panel][0].Query
+					Expect(query).To(HavePrefix("sum(sum by (namespace, pod) (rate("+latency.native+"_sum{"), latency.panel)
+					Expect(query).To(ContainSubstring(") / sum(sum by (namespace, pod) (rate("+latency.native+"_count{"), latency.panel)
+					for _, suffix := range []string{"_sum", "_count"} {
+						Expect(query).To(ContainSubstring("or sum by (namespace, pod) (rate("+latency.legacy+suffix+"{"), latency.panel)
+					}
+					Expect(strings.Count(query, "sum by (namespace, pod) (rate(")).To(Equal(4), latency.panel)
+					if latency.inMS {
+						Expect(strings.Count(query, "* 1000")).To(Equal(1), latency.panel+" must convert to ms exactly once")
+						Expect(query).To(HaveSuffix("* 1000"), latency.panel+" conversion must apply to the final ratio")
+					} else {
+						Expect(query).NotTo(ContainSubstring("* 1000"), latency.panel+" is reported in seconds")
+					}
+				}
 			})
 		})
 
@@ -421,6 +495,52 @@ var _ = Describe("KserveMetricsDashboardReconciler", func() {
 					Expect(substituted).To(ContainSubstring("test-model"))
 				})
 			}
+		})
+
+		When("NIM metrics template classifies request outcomes", func() {
+			// finished_reason domain in vLLM: stop, length, abort, error, repetition
+			// (repetition = scheduler loop detection). Only stop|length are clean
+			// completions; the failure selector must be the exact complement so that
+			// repetition and any future unknown finish reasons are counted as failures.
+			It("should classify only stop|length as successful in REQUEST_COUNT and REQUEST_OUTCOMES", func() {
+				var cfg metricsConfig
+				Expect(json.Unmarshal([]byte(constants.NIMMetricsData), &cfg)).To(Succeed())
+
+				for _, sectionType := range []string{"REQUEST_COUNT", "REQUEST_OUTCOMES"} {
+					var section *metricsSection
+					for i := range cfg.Config {
+						if cfg.Config[i].Type == sectionType {
+							section = &cfg.Config[i]
+							break
+						}
+					}
+					Expect(section).NotTo(BeNil(), "NIM must define a "+sectionType+" section")
+					Expect(section.Queries).To(HaveLen(2))
+
+					success := section.Queries[0].Query
+					failure := section.Queries[1].Query
+
+					// Success: stop|length whitelist on both the native and the
+					// legacy metric family, so abort/error/repetition never inflate
+					// the success count.
+					Expect(success).To(ContainSubstring(
+						"vllm:request_success_total{namespace='${NAMESPACE}', pod=~'${MODEL_NAME}-predictor-.*', finished_reason=~'stop|length'}"),
+						sectionType+" native success query must whitelist stop|length")
+					Expect(success).To(ContainSubstring(
+						"increase(request_success_total{namespace='${NAMESPACE}', pod=~'${MODEL_NAME}-predictor-.*', finished_reason=~'stop|length'}"),
+						sectionType+" legacy success query must whitelist stop|length")
+					Expect(success).NotTo(ContainSubstring("finished_reason!~'error|abort'"),
+						sectionType+" success query must not use the legacy error|abort blacklist")
+
+					// Failure: exact complement of the whitelist on the native family.
+					// The legacy family keeps its dedicated request_failure_total metric.
+					Expect(failure).To(ContainSubstring(
+						"vllm:request_success_total{namespace='${NAMESPACE}', pod=~'${MODEL_NAME}-predictor-.*', finished_reason!~'stop|length'}"),
+						sectionType+" native failure query must complement the stop|length whitelist")
+					Expect(failure).NotTo(ContainSubstring("finished_reason=~'error|abort'"),
+						sectionType+" failure query must not use the legacy error|abort blacklist")
+				}
+			})
 		})
 
 		When("AutoGluon metrics template has valid JSON structure", func() {
