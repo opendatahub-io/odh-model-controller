@@ -497,6 +497,52 @@ var _ = Describe("KserveMetricsDashboardReconciler", func() {
 			}
 		})
 
+		When("NIM metrics template classifies request outcomes", func() {
+			// finished_reason domain in vLLM: stop, length, abort, error, repetition
+			// (repetition = scheduler loop detection). Only stop|length are clean
+			// completions; the failure selector must be the exact complement so that
+			// repetition and any future unknown finish reasons are counted as failures.
+			It("should classify only stop|length as successful in REQUEST_COUNT and REQUEST_OUTCOMES", func() {
+				var cfg metricsConfig
+				Expect(json.Unmarshal([]byte(constants.NIMMetricsData), &cfg)).To(Succeed())
+
+				for _, sectionType := range []string{"REQUEST_COUNT", "REQUEST_OUTCOMES"} {
+					var section *metricsSection
+					for i := range cfg.Config {
+						if cfg.Config[i].Type == sectionType {
+							section = &cfg.Config[i]
+							break
+						}
+					}
+					Expect(section).NotTo(BeNil(), "NIM must define a "+sectionType+" section")
+					Expect(section.Queries).To(HaveLen(2))
+
+					success := section.Queries[0].Query
+					failure := section.Queries[1].Query
+
+					// Success: stop|length whitelist on both the native and the
+					// legacy metric family, so abort/error/repetition never inflate
+					// the success count.
+					Expect(success).To(ContainSubstring(
+						"vllm:request_success_total{namespace='${NAMESPACE}', pod=~'${MODEL_NAME}-predictor-.*', finished_reason=~'stop|length'}"),
+						sectionType+" native success query must whitelist stop|length")
+					Expect(success).To(ContainSubstring(
+						"increase(request_success_total{namespace='${NAMESPACE}', pod=~'${MODEL_NAME}-predictor-.*', finished_reason=~'stop|length'}"),
+						sectionType+" legacy success query must whitelist stop|length")
+					Expect(success).NotTo(ContainSubstring("finished_reason!~'error|abort'"),
+						sectionType+" success query must not use the legacy error|abort blacklist")
+
+					// Failure: exact complement of the whitelist on the native family.
+					// The legacy family keeps its dedicated request_failure_total metric.
+					Expect(failure).To(ContainSubstring(
+						"vllm:request_success_total{namespace='${NAMESPACE}', pod=~'${MODEL_NAME}-predictor-.*', finished_reason!~'stop|length'}"),
+						sectionType+" native failure query must complement the stop|length whitelist")
+					Expect(failure).NotTo(ContainSubstring("finished_reason=~'error|abort'"),
+						sectionType+" failure query must not use the legacy error|abort blacklist")
+				}
+			})
+		})
+
 		When("AutoGluon metrics template has valid JSON structure", func() {
 			It("should parse as valid JSON and contain all required section types", func() {
 				var cfg metricsConfig

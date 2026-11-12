@@ -315,6 +315,9 @@ const (
 	// The native/legacy selection happens per pod, before aggregation, so fleets with
 	// mixed NIM versions are counted without double-counting pods that expose both
 	// metric families (NIM >= 1.12.0 < 2.0.0) and without dropping legacy-only pods.
+	// Successful requests are classified as clean completions only
+	// (finished_reason stop|length); abort, error, repetition (vLLM loop detection)
+	// and any future unknown finish reasons count as failures.
 	NIMMetricsData = `{
         "config": [
 			{
@@ -323,11 +326,11 @@ const (
 				"queries": [
 					{
 						"title": "Number of successful incoming requests",
-						"query": "round(sum(sum by (namespace, pod) (increase(vllm:request_success_total{namespace='${NAMESPACE}', pod=~'${MODEL_NAME}-predictor-.*', finished_reason!~'error|abort'}[${REQUEST_RATE_INTERVAL}])) or sum by (namespace, pod) (increase(request_success_total{namespace='${NAMESPACE}', pod=~'${MODEL_NAME}-predictor-.*'}[${REQUEST_RATE_INTERVAL}]))))"
+						"query": "round(sum(sum by (namespace, pod) (increase(vllm:request_success_total{namespace='${NAMESPACE}', pod=~'${MODEL_NAME}-predictor-.*', finished_reason=~'stop|length'}[${REQUEST_RATE_INTERVAL}])) or sum by (namespace, pod) (increase(request_success_total{namespace='${NAMESPACE}', pod=~'${MODEL_NAME}-predictor-.*', finished_reason=~'stop|length'}[${REQUEST_RATE_INTERVAL}]))))"
 					},
 					{
 						"title": "Number of failed incoming requests",
-						"query": "round(sum(sum by (namespace, pod) (increase(vllm:request_success_total{namespace='${NAMESPACE}', pod=~'${MODEL_NAME}-predictor-.*', finished_reason=~'error|abort'}[${REQUEST_RATE_INTERVAL}])) or sum by (namespace, pod) (increase(request_failure_total{namespace='${NAMESPACE}', pod=~'${MODEL_NAME}-predictor-.*'}[${REQUEST_RATE_INTERVAL}]))))"
+						"query": "round(sum(sum by (namespace, pod) (increase(vllm:request_success_total{namespace='${NAMESPACE}', pod=~'${MODEL_NAME}-predictor-.*', finished_reason!~'stop|length'}[${REQUEST_RATE_INTERVAL}])) or sum by (namespace, pod) (increase(request_failure_total{namespace='${NAMESPACE}', pod=~'${MODEL_NAME}-predictor-.*'}[${REQUEST_RATE_INTERVAL}]))))"
 					}
 				]
 			},
@@ -429,11 +432,11 @@ const (
 				"queries": [
 					{
 						"title": "Number of successful incoming requests",
-						"query": "round(sum(sum by (namespace, pod) (increase(vllm:request_success_total{namespace='${NAMESPACE}', pod=~'${MODEL_NAME}-predictor-.*', finished_reason!~'error|abort'}[${REQUEST_RATE_INTERVAL}])) or sum by (namespace, pod) (increase(request_success_total{namespace='${NAMESPACE}', pod=~'${MODEL_NAME}-predictor-.*'}[${REQUEST_RATE_INTERVAL}]))))"
+						"query": "round(sum(sum by (namespace, pod) (increase(vllm:request_success_total{namespace='${NAMESPACE}', pod=~'${MODEL_NAME}-predictor-.*', finished_reason=~'stop|length'}[${REQUEST_RATE_INTERVAL}])) or sum by (namespace, pod) (increase(request_success_total{namespace='${NAMESPACE}', pod=~'${MODEL_NAME}-predictor-.*', finished_reason=~'stop|length'}[${REQUEST_RATE_INTERVAL}]))))"
 					},
 					{
 						"title": "Number of failed incoming requests",
-						"query": "round(sum(sum by (namespace, pod) (increase(vllm:request_success_total{namespace='${NAMESPACE}', pod=~'${MODEL_NAME}-predictor-.*', finished_reason=~'error|abort'}[${REQUEST_RATE_INTERVAL}])) or sum by (namespace, pod) (increase(request_failure_total{namespace='${NAMESPACE}', pod=~'${MODEL_NAME}-predictor-.*'}[${REQUEST_RATE_INTERVAL}]))))"
+						"query": "round(sum(sum by (namespace, pod) (increase(vllm:request_success_total{namespace='${NAMESPACE}', pod=~'${MODEL_NAME}-predictor-.*', finished_reason!~'stop|length'}[${REQUEST_RATE_INTERVAL}])) or sum by (namespace, pod) (increase(request_failure_total{namespace='${NAMESPACE}', pod=~'${MODEL_NAME}-predictor-.*'}[${REQUEST_RATE_INTERVAL}]))))"
 					}
 				]
 			}
