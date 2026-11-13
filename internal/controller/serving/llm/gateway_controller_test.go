@@ -18,8 +18,10 @@ package llm_test
 
 import (
 	"context"
+	"encoding/json"
 
 	kservev1alpha2 "github.com/kserve/kserve/pkg/apis/serving/v1alpha2"
+	authorinov1beta3 "github.com/kuadrant/authorino/api/v1beta3"
 	kuadrantv1 "github.com/kuadrant/kuadrant-operator/api/v1"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
@@ -112,6 +114,56 @@ var _ = Describe("Gateway Controller", func() {
 				g.Expect(envTest.Get(ctx, client.ObjectKeyFromObject(policy), policy)).To(Succeed())
 				for _, name := range []string{"fairness", "objective"} {
 					g.Expect(string(policy.Spec.AuthScheme.Authentication["kubernetes-user"].Overrides[name].Expression)).NotTo(ContainSubstring("system:serviceaccount:"))
+				}
+			}).Should(Succeed())
+		})
+
+		It("binds the Grid certificate rules to the listener's port and removes them with the field", func(ctx SpecContext) {
+			allowGridGatewayNamespaces(testNs)
+			gatewayName := pkgtest.GenerateUniqueTestName("grid-cert-gateway")
+			serving := `{"networkName":"grid-test","namespace":"grid-test-identity","serviceAccount":"grid-client","tokenSecret":"grid-token"`
+			tls := &gatewayapiv1.GatewayTLSConfig{CertificateRefs: []gatewayapiv1.SecretObjectReference{{Name: "serving-tls"}}}
+			gateway := createGateway(ctx, gatewayName,
+				fixture.WithListeners(
+					gatewayapiv1.Listener{Name: "https", Protocol: gatewayapiv1.HTTPSProtocolType, Port: 443, TLS: tls},
+					gatewayapiv1.Listener{Name: "grid", Protocol: gatewayapiv1.HTTPSProtocolType, Port: 8443, TLS: tls}),
+				fixture.WithGatewayAnnotations(map[string]string{
+					"grid.opendatahub.io/serving": serving + `,"clientCertificate":{"listener":"grid","siteName":"site-a"}}`,
+				}))
+			createLLMServiceForGateway(ctx, gatewayName)
+			policy := &kuadrantv1.AuthPolicy{}
+			key := types.NamespacedName{Namespace: testNs, Name: constants.GetAuthPolicyName(gatewayName)}
+			predicates := func(conditions []authorinov1beta3.PatternExpressionOrRef) []string {
+				out := make([]string, 0, len(conditions))
+				for _, condition := range conditions {
+					out = append(out, condition.Predicate)
+				}
+				return out
+			}
+			Eventually(func(g Gomega) {
+				g.Expect(envTest.Get(ctx, key, policy)).To(Succeed())
+				g.Expect(policy.Spec.AuthScheme.Authentication).To(HaveKey("grid-site"))
+			}).Should(Succeed())
+			scheme := policy.Spec.AuthScheme
+			Expect(predicates(scheme.Authentication["grid-site"].Conditions)).To(ContainElement("destination.port == 8443"))
+			for _, name := range []string{"grid-local-site", "grid-publisher-path-only", "grid-model-access"} {
+				Expect(predicates(scheme.Authorization[name].Conditions)).To(ContainElement("destination.port == 8443"), name)
+			}
+			Expect(predicates(scheme.Authentication["kubernetes-user"].Conditions)).To(
+				ContainElement("!('x-forwarded-client-cert' in request.headers && destination.port == 8443)"))
+
+			Expect(envTest.Get(ctx, client.ObjectKeyFromObject(gateway), gateway)).To(Succeed())
+			gateway.Annotations["grid.opendatahub.io/serving"] = serving + "}"
+			Expect(envTest.Update(ctx, gateway)).To(Succeed())
+			Eventually(func(g Gomega) {
+				g.Expect(envTest.Get(ctx, key, policy)).To(Succeed())
+				raw, err := json.Marshal(policy.Spec)
+				g.Expect(err).NotTo(HaveOccurred())
+				g.Expect(string(raw)).NotTo(ContainSubstring("x-forwarded-client-cert"))
+				g.Expect(string(raw)).NotTo(ContainSubstring("destination.port"))
+				g.Expect(policy.Spec.AuthScheme.Authentication).NotTo(HaveKey("grid-site"))
+				for name := range policy.Spec.AuthScheme.Authorization {
+					g.Expect(name).NotTo(HavePrefix("grid-"))
 				}
 			}).Should(Succeed())
 		})

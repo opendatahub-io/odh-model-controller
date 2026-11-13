@@ -27,6 +27,32 @@ func GetAuthPolicyComparator() ResourceComparator {
 		desiredAP := desired.(*kuadrantv1.AuthPolicy)
 
 		return equality.Semantic.DeepDerivative(desiredAP.Spec, currentAP.Spec) &&
+			sameAuthRules(desiredAP.Spec.AuthScheme, currentAP.Spec.AuthScheme) &&
 			equality.Semantic.DeepDerivative(desiredAP.GetLabels(), currentAP.GetLabels())
 	}
+}
+
+// sameAuthRules reports whether current has no rule or condition that desired lacks, which
+// DeepDerivative accepts. Without it a rule the controller stops rendering stays in force.
+func sameAuthRules(desired, current *kuadrantv1.AuthSchemeSpec) bool {
+	if desired == nil {
+		desired = &kuadrantv1.AuthSchemeSpec{}
+	}
+	if current == nil {
+		current = &kuadrantv1.AuthSchemeSpec{}
+	}
+	if len(desired.Authentication) != len(current.Authentication) || len(desired.Authorization) != len(current.Authorization) {
+		return false
+	}
+	for name, rule := range current.Authentication {
+		if len(desired.Authentication[name].Conditions) != len(rule.Conditions) {
+			return false
+		}
+	}
+	for name, rule := range current.Authorization {
+		if len(desired.Authorization[name].Conditions) != len(rule.Conditions) {
+			return false
+		}
+	}
+	return true
 }
