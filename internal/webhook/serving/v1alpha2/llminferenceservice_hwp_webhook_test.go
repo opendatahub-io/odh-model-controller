@@ -338,6 +338,38 @@ var _ = Describe("LLMInferenceService HardwareProfile Webhook", func() {
 			Expect(newLLM.Labels).NotTo(HaveKey(hardwareprofile.KueueQueueNameLabel))
 		})
 
+		It("LLM-23: same profile, resource-version changed — scheduling replaced", func() {
+			hwp := hwptestutil.NewHardwareProfile(llmHWPName, llmHWPNS, hwptestutil.NodeSpec(
+				map[string]interface{}{"repro/tier": "v2"},
+				[]interface{}{map[string]interface{}{
+					"key": "repro/taint", "operator": "Equal", "value": "v2", "effect": "NoSchedule",
+				}},
+			))
+			d := newLLMDefaulter(newLLMFakeClient(hwp))
+			oldAnn := hwptestutil.HWPAnnotationsWithNS(llmHWPName, llmHWPNS)
+			oldAnn[hardwareprofile.HardwareProfileAnnotationResourceVersion] = "2530010"
+			newAnn := hwptestutil.HWPAnnotationsWithNS(llmHWPName, llmHWPNS)
+			newAnn[hardwareprofile.HardwareProfileAnnotationResourceVersion] = "2583577"
+			oldLLM := buildLLMISVCHWP(oldAnn, nil)
+			oldLLM.Spec.Template = &corev1.PodSpec{
+				NodeSelector: map[string]string{"repro/pool": "v1"},
+				Tolerations: []corev1.Toleration{{
+					Key: "repro/taint", Operator: corev1.TolerationOpEqual, Value: "v1", Effect: corev1.TaintEffectNoSchedule,
+				}},
+			}
+			newLLM := buildLLMISVCHWP(newAnn, nil)
+			newLLM.Spec.Template = &corev1.PodSpec{
+				NodeSelector: map[string]string{"repro/pool": "v1"},
+				Tolerations: []corev1.Toleration{{
+					Key: "repro/taint", Operator: corev1.TolerationOpEqual, Value: "v1", Effect: corev1.TaintEffectNoSchedule,
+				}},
+			}
+			Expect(d.Default(llmHWPUpdateCtx(newLLM, oldLLM), newLLM)).To(Succeed())
+			Expect(newLLM.Spec.Template.NodeSelector).To(Equal(map[string]string{"repro/tier": "v2"}))
+			Expect(newLLM.Spec.Template.Tolerations).To(Equal([]corev1.Toleration{{
+				Key: "repro/taint", Operator: corev1.TolerationOpEqual, Value: "v2", Effect: corev1.TaintEffectNoSchedule,
+			}}))
+		})
 		It("LLM-12: annotation removed on UPDATE — HWP stanzas surgically removed in spec.template", func() {
 			hwpA := hwptestutil.NewHardwareProfile("hwp-a", llmHWPNS,
 				hwptestutil.NodeSpec(
