@@ -32,7 +32,11 @@ on:
         required: true
         type: choice
         options:
-          - workload-variant-autoscaler
+          - llm-d-router
+          - batch-gateway
+          - llm-d-async
+          - llm-d-batch-gateway-operator
+          - rhaii-cluster-validation
           - llm-d-kv-cache
           - llm-d-inference-scheduler
           - kserve
