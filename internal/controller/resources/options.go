@@ -17,6 +17,7 @@ limitations under the License.
 package resources
 
 import (
+	_ "embed"
 	"encoding/json"
 	"fmt"
 
@@ -24,7 +25,23 @@ import (
 	kuadrantv1 "github.com/kuadrant/kuadrant-operator/api/v1"
 	k8sruntime "k8s.io/apimachinery/pkg/runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/yaml"
 )
+
+//go:embed template/authpolicy_grid_client_certificate.yaml
+var authPolicyGridClientCertificate []byte
+
+// gridClientCertificateRules is the embedded fragment, parsed once so a bad one fails at start.
+var gridClientCertificateRules = func() *kuadrantv1.AuthSchemeSpec {
+	rules := &kuadrantv1.AuthSchemeSpec{}
+	if err := yaml.UnmarshalStrict(authPolicyGridClientCertificate, rules); err != nil {
+		panic(fmt.Sprintf("invalid Grid client certificate rules: %v", err))
+	}
+	return rules
+}()
+
+// gridClientCertificateAbsent keeps a rule off requests authenticated by the Grid client certificate.
+const gridClientCertificateAbsent = "!('x-forwarded-client-cert' in request.headers)"
 
 // ObjectOption is a functional option for modifying Kubernetes objects.
 type ObjectOption func(client.Object)
@@ -122,6 +139,72 @@ func WithGridFlowControlHeaders(namespace, serviceAccount string) ObjectOption {
 				auth.Overrides[name] = override
 			}
 			ap.Spec.AuthScheme.Authentication[key] = auth
+		}
+	}
+}
+
+// WithGridClientCertificate authorizes the named site's Grid certificate, which the Gateway
+// verifies and reports in x-forwarded-client-cert, as the Grid service account. Token rules
+// stop applying to such a request. Apply before WithGridFlowControlHeaders, so the fairness
+// default is read before that option rewrites it.
+func WithGridClientCertificate(namespace, serviceAccount, siteName string) ObjectOption {
+	return func(obj client.Object) {
+		ap, ok := obj.(*kuadrantv1.AuthPolicy)
+		if !ok || ap.Spec.AuthScheme == nil || namespace == "" || serviceAccount == "" || siteName == "" {
+			return
+		}
+		user, err := json.Marshal("system:serviceaccount:" + namespace + ":" + serviceAccount)
+		if err != nil {
+			return
+		}
+		fairness := fmt.Sprintf("%q", namespace)
+		if override, exists := ap.Spec.AuthScheme.Authentication["kubernetes-user"].Overrides["fairness"]; exists {
+			if override.Expression != "" {
+				fairness = string(override.Expression)
+			} else if len(override.Value.Raw) > 0 {
+				fairness = string(override.Value.Raw)
+			}
+		}
+		header := func(name, fallback string) authorinov1beta3.ValueOrSelector {
+			return authorinov1beta3.ValueOrSelector{Expression: authorinov1beta3.CelExpression(
+				fmt.Sprintf("%q in request.headers ? request.headers[%q] : (%s)", name, name, fallback))}
+		}
+		rules := gridClientCertificateRules.DeepCopy()
+		site := rules.Authentication["grid-site"]
+		site.Overrides = authorinov1beta3.ExtendedProperties{
+			"fairness":  header("x-gateway-inference-fairness-id", fairness),
+			"objective": header("x-gateway-inference-objective", fmt.Sprintf("%q", namespace)),
+		}
+		rules.Authentication["grid-site"] = site
+		// The mesh appends the element it verified, so the site is read from the end of the
+		// header and one element may name one URI. siteName is a DNS label, so it adds nothing
+		// to the pattern but its own letters.
+		rules.Authorization["grid-local-site"].PatternMatching.Patterns[0].Predicate = fmt.Sprintf(
+			`request.headers['x-forwarded-client-cert'].matches(';URI=spiffe://grid\\.internal/site/%s(;DNS=[^;,"]*)*$')`+
+				` && !request.headers['x-forwarded-client-cert'].matches(';URI=[^,]*;URI=')`, siteName)
+		rules.Authorization["grid-model-access"].KubernetesSubjectAccessReview.User = &authorinov1beta3.ValueOrSelector{
+			Value: k8sruntime.RawExtension{Raw: user},
+		}
+
+		absent := authorinov1beta3.PatternExpressionOrRef{CelPredicate: authorinov1beta3.CelPredicate{Predicate: gridClientCertificateAbsent}}
+		for key, auth := range ap.Spec.AuthScheme.Authentication {
+			auth.Conditions = append(auth.Conditions, absent)
+			ap.Spec.AuthScheme.Authentication[key] = auth
+		}
+		// A rule that reads the token identity would fail closed anyway; this one would
+		// also spend a SubjectAccessReview on every Grid request.
+		if rule, exists := ap.Spec.AuthScheme.Authorization["model-access-path"]; exists {
+			rule.Conditions = append(rule.Conditions, absent)
+			ap.Spec.AuthScheme.Authorization["model-access-path"] = rule
+		}
+		for key, auth := range rules.Authentication {
+			ap.Spec.AuthScheme.Authentication[key] = auth
+		}
+		if ap.Spec.AuthScheme.Authorization == nil {
+			ap.Spec.AuthScheme.Authorization = map[string]kuadrantv1.MergeableAuthorizationSpec{}
+		}
+		for key, rule := range rules.Authorization {
+			ap.Spec.AuthScheme.Authorization[key] = rule
 		}
 	}
 }

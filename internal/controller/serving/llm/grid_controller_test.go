@@ -285,6 +285,27 @@ var _ = Describe("Grid provider reconciliation", Ordered, func() {
 		Expect(binding.Subjects).To(Equal([]rbacv1.Subject{{Kind: "ServiceAccount", Name: "grid-client", Namespace: "grid-test-identity"}}))
 	})
 
+	It("publishes a certificate-authenticated provider on the named listener, with no token Secret", func(ctx SpecContext) {
+		Expect(envTest.Get(ctx, client.ObjectKeyFromObject(ns), ns)).To(Succeed())
+		ns.Labels = map[string]string{llmcontroller.GridAllowedLabel: "true"}
+		Expect(envTest.Update(ctx, ns)).To(Succeed())
+		Expect(envTest.Get(ctx, client.ObjectKeyFromObject(gateway), gateway)).To(Succeed())
+		gateway.Spec.Listeners = append(gateway.Spec.Listeners, gatewayv1.Listener{Name: "grid", Protocol: gatewayv1.HTTPSProtocolType, Port: 8443,
+			TLS: &gatewayv1.GatewayTLSConfig{CertificateRefs: []gatewayv1.SecretObjectReference{{Name: "serving-tls"}}}})
+		// The third service account has no token Secret, which the certificate makes unnecessary.
+		Expect(client.IgnoreAlreadyExists(envTest.Create(ctx, &corev1.ServiceAccount{ObjectMeta: metav1.ObjectMeta{Name: "grid-client-cert", Namespace: "grid-test-identity"}}))).To(Succeed())
+		gateway.Annotations = map[string]string{llmcontroller.GridServingAnnotation: `{"networkName":"grid-test","namespace":"grid-test-identity","serviceAccount":"grid-client-cert","clientCertificate":{"listener":"grid","siteName":"site-a"}}`}
+		Expect(envTest.Update(ctx, gateway)).To(Succeed())
+		provider := waitProvider(ctx)
+		Expect(provider.Object["spec"]).To(HaveKeyWithValue("endpoint", fmt.Sprintf("https://%s:8443/%s/%s", internalHost, ns.Name, svc.Name)))
+		auth, _, err := unstructured.NestedMap(provider.Object, "spec", "auth")
+		Expect(err).NotTo(HaveOccurred())
+		Expect(auth).To(Equal(map[string]interface{}{"strategy": "mtls_only", "manual": false}))
+		binding := &rbacv1.RoleBinding{}
+		Expect(envTest.Get(ctx, client.ObjectKey{Namespace: ns.Name, Name: provider.GetName()}, binding)).To(Succeed())
+		Expect(binding.Subjects).To(Equal([]rbacv1.Subject{{Kind: "ServiceAccount", Name: "grid-client-cert", Namespace: "grid-test-identity"}}))
+	})
+
 	It("emits a Warning on the source when provider creation fails", func(ctx SpecContext) {
 		optIn(ctx)
 		waitProvider(ctx)

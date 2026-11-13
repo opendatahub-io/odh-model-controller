@@ -74,7 +74,8 @@ The annotation value is a JSON object. Unknown fields are rejected.
 | `networkName` | yes | GridNetwork the provider joins |
 | `namespace` | yes | Namespace of the service account and token Secret |
 | `serviceAccount` | yes | Grid identity granted access to the model |
-| `tokenSecret` | yes | `kubernetes.io/service-account-token` Secret for that account |
+| `tokenSecret` | yes, unless `clientCertificate` is set | `kubernetes.io/service-account-token` Secret for that account |
+| `clientCertificate` | no | Authenticate Grid by its site certificate instead of the token. See [Client certificate](#client-certificate) |
 | `siteLabels` | no | Comma-separated `key=value` GridSite selector. Empty matches every site |
 | `publishMetrics` | no | Publish the EPP metrics endpoint. Default `false` |
 | `metricsAllowPlaintext` | no | Allow Grid to scrape an `http` metrics endpoint with its token. Default `false` |
@@ -84,6 +85,50 @@ may configure Grid. To change the list, set the controller environment variable
 `GRID_GATEWAY_NAMESPACES` to a comma-separated list and restart the controller. An
 empty value allows no namespace. Limit write access to Gateways in these
 namespaces to administrators who may grant Grid access.
+
+## Client certificate
+
+With `clientCertificate`, Grid presents its site certificate to the Gateway and
+sends no token:
+
+```json
+{"networkName":"grid-local","namespace":"grid-system","serviceAccount":"grid-model-client","clientCertificate":{"listener":"grid","siteName":"site-a"}}
+```
+
+| Key | Meaning |
+| --- | --- |
+| `listener` | Name of an HTTPS listener on this Gateway that requires a client certificate signed by the Grid CA |
+| `siteName` | This site's Grid name. Only its certificate is authorized |
+
+The controller then publishes each provider with `auth.strategy: mtls_only` and
+the endpoint moved to that listener's port. The Gateway AuthPolicy gains rules
+that apply only to a request the Gateway verified a client certificate for:
+
+- The certificate must carry the SPIFFE name of `siteName`. Every site's
+  certificate chains to the Grid CA, so the CA alone does not authorize.
+- The model is authorized as `serviceAccount`, with the same
+  SubjectAccessReview the token path runs, cached for 60 seconds per model. The
+  per-model RoleBinding stays the record of what is published, and no token is
+  reviewed.
+- Only publisher paths are reachable.
+
+The service account needs no token Secret in this mode. The token rules keep
+working for every other caller.
+
+The administrator owns the listener, its client CA, and the order of the
+change. Grid must run a gateway and operator that support `mtls_only` on a local
+endpoint before the field is set. An older Grid dials the new endpoint without a
+certificate and the Gateway refuses the handshake.
+
+The rules read the `x-forwarded-client-cert` header, which the mesh sets after
+it verifies a client certificate and removes from any request that presented
+none. Two things are the administrator's to keep true, because the controller
+cannot check them:
+
+- The Gateway must keep the mesh default for that header. A Gateway set to
+  forward the header from its callers lets a caller name its own identity.
+- The listener's client CA must be the Grid CA and nothing wider. The rules
+  check the name in the certificate, not who signed it.
 
 ## Turn it off
 
@@ -102,7 +147,7 @@ finalizer on the LLMInferenceService holds its deletion until all of them are go
 | The controller manages | The administrator owns |
 | --- | --- |
 | Provider `endpoint`, `models`, `siteSelector`, `auth`, `gridNetworkRef`, `providerKind`, `backendKind` | Grid, its CRDs, and the GridNetwork |
-| Per-pair Role, RoleBinding, and metrics NetworkPolicy | The service account and token Secret |
+| Per-pair Role, RoleBinding, and metrics NetworkPolicy | The service account and token Secret, or the client certificate listener and its CA |
 | `metricsConfig` while it carries the generated endpoint | Provider `trafficPolicy`, `healthCheck`, `cost`, `gatewayRef`, `routingClusterRef` |
 | | Backend TLS trust for HTTPS Gateways |
 

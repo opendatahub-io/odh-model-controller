@@ -327,6 +327,10 @@ func (r *GridInferenceProviderReconciler) checkIdentity(ctx context.Context, cfg
 	if err := r.APIReader.Get(ctx, client.ObjectKey{Namespace: cfg.Namespace, Name: cfg.ServiceAccount}, sa); err != nil {
 		return fmt.Errorf("get Grid service account: %w", err)
 	}
+	if cfg.ClientCertificate != nil {
+		// The service account stays the RBAC subject; no token is issued for it.
+		return nil
+	}
 	secret := &corev1.Secret{}
 	if err := r.APIReader.Get(ctx, client.ObjectKey{Namespace: cfg.Namespace, Name: cfg.TokenSecret}, secret); err != nil {
 		return fmt.Errorf("get Grid credential Secret: %w", err)
@@ -468,6 +472,14 @@ func (r *GridInferenceProviderReconciler) deleteOwned(ctx context.Context, svc *
 func (r *GridInferenceProviderReconciler) reconcileProvider(ctx context.Context, svc *kservev1alpha2.LLMInferenceService, publication gridPublication) error {
 	cfg := publication.config
 	endpoint := publication.attachment.Endpoint
+	auth := map[string]interface{}{"strategy": "bearer_token", "manual": false, "secretRef": map[string]interface{}{"name": cfg.TokenSecret, "namespace": cfg.Namespace, "key": "token"}}
+	if cert := cfg.ClientCertificate; cert != nil {
+		var err error
+		if endpoint, err = gridClientCertificateEndpoint(publication.gateway, cert.Listener, endpoint); err != nil {
+			return err
+		}
+		auth = map[string]interface{}{"strategy": "mtls_only", "manual": false}
+	}
 	var metricsEndpoint string
 	var metricsSecure bool
 	if cfg.PublishMetrics {
@@ -523,13 +535,31 @@ func (r *GridInferenceProviderReconciler) reconcileProvider(ctx context.Context,
 			"endpoint":     endpoint,
 			"models":       []interface{}{map[string]interface{}{"name": model, "capabilities": []interface{}{"text_generation"}}},
 			"siteSelector": map[string]interface{}{"matchLabels": siteLabels},
-			"auth":         map[string]interface{}{"strategy": "bearer_token", "manual": false, "secretRef": map[string]interface{}{"name": cfg.TokenSecret, "namespace": cfg.Namespace, "key": "token"}},
+			"auth":         auth,
 		} {
 			spec[key] = value
 		}
 		return unstructured.SetNestedMap(provider.Object, spec, "spec")
 	})
 	return err
+}
+
+// gridClientCertificateEndpoint moves endpoint to the listener that requires the Grid client certificate.
+func gridClientCertificateEndpoint(gateway *gatewayv1.Gateway, listener, endpoint string) (string, error) {
+	port, err := gridClientCertificatePort(gateway, listener)
+	if err != nil {
+		return "", err
+	}
+	parsed, err := url.Parse(endpoint)
+	if err != nil {
+		return "", fmt.Errorf("parse Grid endpoint: %w", err)
+	}
+	if parsed.Hostname() == "" {
+		return "", fmt.Errorf("Grid endpoint %q has no host", endpoint)
+	}
+	parsed.Scheme = schemeHTTPS
+	parsed.Host = net.JoinHostPort(parsed.Hostname(), strconv.Itoa(int(port)))
+	return parsed.String(), nil
 }
 
 // eppMetricsService returns the reported EPP Service and its metrics port, or nil when there is none.

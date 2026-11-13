@@ -242,6 +242,9 @@ func (r *GatewayReconciler) reconcileAuthPolicy(ctx context.Context, logger logr
 		// Rebuild without the exception before reporting invalid configuration.
 		logger.Error(gridConfigErr, "Invalid Gateway Grid configuration")
 	} else if gridConfig != nil {
+		if cert := gridConfig.ClientCertificate; cert != nil {
+			gridOptions = append(gridOptions, resources.WithGridClientCertificate(gridConfig.Namespace, gridConfig.ServiceAccount, cert.SiteName))
+		}
 		gridOptions = append(gridOptions, resources.WithGridFlowControlHeaders(gridConfig.Namespace, gridConfig.ServiceAccount))
 	}
 	desired, err := r.authPolicyLoader.Load(ctx, resources.AuthPolicyTarget{
