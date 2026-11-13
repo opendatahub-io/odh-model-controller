@@ -125,8 +125,11 @@ func GridConfigFromGateway(gateway *gatewayv1.Gateway) (*GridConfig, error) {
 	return cfg, nil
 }
 
-// gridClientCertificatePort returns the port of the named HTTPS listener.
+// gridClientCertificatePort returns the port of the named HTTPS listener. The certificate rules
+// know a listener only by its port, so no other listener may share it: one with another
+// hostname could trust another CA.
 func gridClientCertificatePort(gateway *gatewayv1.Gateway, name string) (gatewayv1.PortNumber, error) {
+	var port gatewayv1.PortNumber
 	for _, listener := range gateway.Spec.Listeners {
 		if string(listener.Name) != name {
 			continue
@@ -134,7 +137,15 @@ func gridClientCertificatePort(gateway *gatewayv1.Gateway, name string) (gateway
 		if listener.Protocol != gatewayv1.HTTPSProtocolType {
 			return 0, fmt.Errorf("listener %q is %s, not HTTPS", name, listener.Protocol)
 		}
-		return listener.Port, nil
+		port = listener.Port
 	}
-	return 0, fmt.Errorf("listener %q is not on the Gateway", name)
+	if port == 0 {
+		return 0, fmt.Errorf("listener %q is not on the Gateway", name)
+	}
+	for _, listener := range gateway.Spec.Listeners {
+		if string(listener.Name) != name && listener.Port == port {
+			return 0, fmt.Errorf("listener %q shares port %d with listener %q", name, port, listener.Name)
+		}
+	}
+	return port, nil
 }

@@ -134,6 +134,13 @@ func TestGridClientCertificate(t *testing.T) {
 		})
 	}
 
+	// Two HTTPS listeners may share a port under different hostnames, each with its own client CA.
+	shared := gateway(base + cert)
+	other := gatewayv1.Hostname("other.example.com")
+	shared.Spec.Listeners = append(shared.Spec.Listeners, gatewayv1.Listener{Name: "other", Protocol: gatewayv1.HTTPSProtocolType, Port: 8443, Hostname: &other})
+	_, err = GridConfigFromGateway(shared)
+	require.ErrorContains(t, err, `listener "grid" shares port 8443 with listener "other"`)
+
 	for endpoint, expected := range map[string]string{
 		"http://gw.openshift-ingress.svc.cluster.local/publishers/ns/models/m":       "https://gw.openshift-ingress.svc.cluster.local:8443/publishers/ns/models/m",
 		"https://gw.openshift-ingress.svc.cluster.local/publishers/ns/models/m":      "https://gw.openshift-ingress.svc.cluster.local:8443/publishers/ns/models/m",

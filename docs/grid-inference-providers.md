@@ -97,7 +97,7 @@ sends no token, so `tokenSecret` is not needed:
 
 | Key | Meaning |
 | --- | --- |
-| `listener` | HTTPS listener on this Gateway that requires a client certificate signed by the Grid CA |
+| `listener` | HTTPS listener on this Gateway that requires a client certificate signed by the Grid CA. No other listener may share its port |
 | `siteName` | This site's Grid name. Only its certificate is authorized |
 
 The provider is published with `auth.strategy: mtls_only` on that listener's

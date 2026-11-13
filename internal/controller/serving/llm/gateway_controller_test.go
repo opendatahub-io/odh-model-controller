@@ -168,6 +168,29 @@ var _ = Describe("Gateway Controller", func() {
 			}).Should(Succeed())
 		})
 
+		It("adds no Grid certificate rules when another listener shares the Grid listener's port", func(ctx SpecContext) {
+			allowGridGatewayNamespaces(testNs)
+			gatewayName := pkgtest.GenerateUniqueTestName("grid-shared-port-gateway")
+			tls := &gatewayapiv1.GatewayTLSConfig{CertificateRefs: []gatewayapiv1.SecretObjectReference{{Name: "serving-tls"}}}
+			grid, other := gatewayapiv1.Hostname("grid.example.com"), gatewayapiv1.Hostname("other.example.com")
+			createGateway(ctx, gatewayName,
+				fixture.WithListeners(
+					gatewayapiv1.Listener{Name: "grid", Protocol: gatewayapiv1.HTTPSProtocolType, Port: 8443, Hostname: &grid, TLS: tls},
+					gatewayapiv1.Listener{Name: "other", Protocol: gatewayapiv1.HTTPSProtocolType, Port: 8443, Hostname: &other, TLS: tls}),
+				fixture.WithGatewayAnnotations(map[string]string{
+					"grid.opendatahub.io/serving": `{"networkName":"grid-test","namespace":"grid-test-identity","serviceAccount":"grid-client","clientCertificate":{"listener":"grid","siteName":"site-a"}}`,
+				}))
+			createLLMServiceForGateway(ctx, gatewayName)
+			policy := &kuadrantv1.AuthPolicy{}
+			key := types.NamespacedName{Namespace: testNs, Name: constants.GetAuthPolicyName(gatewayName)}
+			Eventually(func() error { return envTest.Get(ctx, key, policy) }).Should(Succeed())
+			// The policy is written once, so its first content is its only content.
+			raw, err := json.Marshal(policy.Spec)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(string(raw)).NotTo(ContainSubstring("x-forwarded-client-cert"))
+			Expect(policy.Spec.AuthScheme.Authentication).To(HaveKey("kubernetes-user"))
+		})
+
 		It("should create EnvoyFilter and AuthPolicy with correct owner references", func(ctx SpecContext) {
 			gatewayName := setupReferencedGateway(ctx)
 
