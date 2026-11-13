@@ -110,8 +110,12 @@ Before setting the field:
 - Grid must already support `mtls_only` on a local endpoint. An older Grid
   fails the handshake.
 - The listener's client CA must be the Grid CA and nothing wider.
-- The Gateway must keep the mesh default that removes `x-forwarded-client-cert`
-  from callers.
+- The Gateway must keep the mesh default for `x-forwarded-client-cert`, which
+  Istio calls `SANITIZE_SET`: the mesh replaces the header with the certificate
+  it verified and removes it from a request that presented none. The controller
+  reads the identity from that header and cannot check the setting. Under a
+  mode that forwards the caller's header, the holder of any Grid certificate
+  could name another site.
 
 ## Turn it off
 
