@@ -296,6 +296,11 @@ func (r *GridInferenceProviderReconciler) desiredPublications(ctx context.Contex
 					plan.credentialErrors = append(plan.credentialErrors, fmt.Errorf("Gateway %s: %w", attachment.Gateway, err))
 					continue
 				}
+				// The certificate rules admit only publisher paths, so any other endpoint would be unusable.
+				if cfg.ClientCertificate != nil && gridPublisherModel(svc, attachment.Endpoint) == "" {
+					r.providerWarning(svc, gateway, fmt.Errorf("client certificate authentication needs a publisher path endpoint, got %s", attachment.Endpoint))
+					continue
+				}
 				plan.publications = append(plan.publications, gridPublication{gateway: gateway, config: cfg, attachment: attachment})
 			}
 		}
@@ -326,6 +331,10 @@ func (r *GridInferenceProviderReconciler) checkIdentity(ctx context.Context, cfg
 	sa := &corev1.ServiceAccount{}
 	if err := r.APIReader.Get(ctx, client.ObjectKey{Namespace: cfg.Namespace, Name: cfg.ServiceAccount}, sa); err != nil {
 		return fmt.Errorf("get Grid service account: %w", err)
+	}
+	if cfg.ClientCertificate != nil {
+		// The service account stays the RBAC subject; no token is issued for it.
+		return nil
 	}
 	secret := &corev1.Secret{}
 	if err := r.APIReader.Get(ctx, client.ObjectKey{Namespace: cfg.Namespace, Name: cfg.TokenSecret}, secret); err != nil {
@@ -366,7 +375,7 @@ func (r *GridInferenceProviderReconciler) reconcileAccess(ctx context.Context, s
 			}
 			switch resource := obj.(type) {
 			case *rbacv1.Role:
-				resource.Rules = gridAccessRules(svc, publication.attachment.Endpoint)
+				resource.Rules = gridAccessRules(svc, publication.attachment.Endpoint, cfg.ClientCertificate != nil)
 			case *rbacv1.RoleBinding:
 				resource.RoleRef = rbacv1.RoleRef{APIGroup: rbacv1.GroupName, Kind: "Role", Name: role.Name}
 				resource.Subjects = []rbacv1.Subject{{Kind: "ServiceAccount", Name: cfg.ServiceAccount, Namespace: cfg.Namespace}}
@@ -384,9 +393,13 @@ func (r *GridInferenceProviderReconciler) reconcileAccess(ctx context.Context, s
 // KServe's per-service policy admits only the monitoring namespaces and the Gateway there.
 // gridAccessRules grants what the serving gateway's AuthPolicy reviews for the endpoint:
 // get on the LLMInferenceService for a participant path, and post on the model for a
-// publisher path, named as the policy derives it from the request path.
-func gridAccessRules(svc *kservev1alpha2.LLMInferenceService, endpoint string) []rbacv1.PolicyRule {
-	rules := []rbacv1.PolicyRule{{APIGroups: []string{"serving.kserve.io"}, Resources: []string{"llminferenceservices"}, ResourceNames: []string{svc.Name}, Verbs: []string{"get"}}}
+// publisher path, named as the policy derives it from the request path. The certificate
+// rules review only the publisher path, so certificate drops the get.
+func gridAccessRules(svc *kservev1alpha2.LLMInferenceService, endpoint string, certificate bool) []rbacv1.PolicyRule {
+	var rules []rbacv1.PolicyRule
+	if !certificate {
+		rules = append(rules, rbacv1.PolicyRule{APIGroups: []string{"serving.kserve.io"}, Resources: []string{"llminferenceservices"}, ResourceNames: []string{svc.Name}, Verbs: []string{"get"}})
+	}
 	if model := gridPublisherModel(svc, endpoint); model != "" {
 		rules = append(rules, rbacv1.PolicyRule{APIGroups: []string{"serving.opendatahub.io"}, Resources: []string{"models"}, ResourceNames: []string{model}, Verbs: []string{"post"}})
 	}
@@ -468,6 +481,14 @@ func (r *GridInferenceProviderReconciler) deleteOwned(ctx context.Context, svc *
 func (r *GridInferenceProviderReconciler) reconcileProvider(ctx context.Context, svc *kservev1alpha2.LLMInferenceService, publication gridPublication) error {
 	cfg := publication.config
 	endpoint := publication.attachment.Endpoint
+	auth := map[string]interface{}{"strategy": "bearer_token", "manual": false, "secretRef": map[string]interface{}{"name": cfg.TokenSecret, "namespace": cfg.Namespace, "key": "token"}}
+	if cert := cfg.ClientCertificate; cert != nil {
+		var err error
+		if endpoint, err = gridClientCertificateEndpoint(publication.gateway, cert.Listener, endpoint); err != nil {
+			return err
+		}
+		auth = map[string]interface{}{"strategy": "mtls_only", "manual": false}
+	}
 	var metricsEndpoint string
 	var metricsSecure bool
 	if cfg.PublishMetrics {
@@ -523,13 +544,31 @@ func (r *GridInferenceProviderReconciler) reconcileProvider(ctx context.Context,
 			"endpoint":     endpoint,
 			"models":       []interface{}{map[string]interface{}{"name": model, "capabilities": []interface{}{"text_generation"}}},
 			"siteSelector": map[string]interface{}{"matchLabels": siteLabels},
-			"auth":         map[string]interface{}{"strategy": "bearer_token", "manual": false, "secretRef": map[string]interface{}{"name": cfg.TokenSecret, "namespace": cfg.Namespace, "key": "token"}},
+			"auth":         auth,
 		} {
 			spec[key] = value
 		}
 		return unstructured.SetNestedMap(provider.Object, spec, "spec")
 	})
 	return err
+}
+
+// gridClientCertificateEndpoint moves endpoint to the listener that requires the Grid client certificate.
+func gridClientCertificateEndpoint(gateway *gatewayv1.Gateway, listener, endpoint string) (string, error) {
+	port, err := gridClientCertificatePort(gateway, listener)
+	if err != nil {
+		return "", err
+	}
+	parsed, err := url.Parse(endpoint)
+	if err != nil {
+		return "", fmt.Errorf("parse Grid endpoint: %w", err)
+	}
+	if parsed.Hostname() == "" {
+		return "", fmt.Errorf("Grid endpoint %q has no host", endpoint)
+	}
+	parsed.Scheme = schemeHTTPS
+	parsed.Host = net.JoinHostPort(parsed.Hostname(), strconv.Itoa(int(port)))
+	return parsed.String(), nil
 }
 
 // eppMetricsService returns the reported EPP Service and its metrics port, or nil when there is none.

@@ -17,14 +17,32 @@ limitations under the License.
 package resources
 
 import (
+	_ "embed"
 	"encoding/json"
 	"fmt"
+	"strings"
 
 	authorinov1beta3 "github.com/kuadrant/authorino/api/v1beta3"
 	kuadrantv1 "github.com/kuadrant/kuadrant-operator/api/v1"
 	k8sruntime "k8s.io/apimachinery/pkg/runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/yaml"
 )
+
+//go:embed template/authpolicy_grid_client_certificate.yaml
+var authPolicyGridClientCertificate []byte
+
+// gridClientCertificateRules is the embedded fragment, parsed once so a bad one fails at start.
+var gridClientCertificateRules = func() *kuadrantv1.AuthSchemeSpec {
+	rules := &kuadrantv1.AuthSchemeSpec{}
+	if err := yaml.UnmarshalStrict(authPolicyGridClientCertificate, rules); err != nil {
+		panic(fmt.Sprintf("invalid Grid client certificate rules: %v", err))
+	}
+	return rules
+}()
+
+// gridClientCertificatePresent matches a request the Gateway verified a client certificate for.
+const gridClientCertificatePresent = "'x-forwarded-client-cert' in request.headers"
 
 // ObjectOption is a functional option for modifying Kubernetes objects.
 type ObjectOption func(client.Object)
@@ -122,6 +140,97 @@ func WithGridFlowControlHeaders(namespace, serviceAccount string) ObjectOption {
 				auth.Overrides[name] = override
 			}
 			ap.Spec.AuthScheme.Authentication[key] = auth
+		}
+	}
+}
+
+// WithGridClientCertificate authorizes the named site's Grid certificate, which the Gateway
+// verifies on the listener at port and reports in x-forwarded-client-cert, as the Grid
+// service account. Token rules stop applying to such a request. Apply after
+// WithObjectiveExpression and before WithGridFlowControlHeaders, so the configured defaults
+// are read before that option rewrites them.
+func WithGridClientCertificate(namespace, serviceAccount, siteName string, port int32) ObjectOption {
+	return func(obj client.Object) {
+		ap, ok := obj.(*kuadrantv1.AuthPolicy)
+		if !ok || ap.Spec.AuthScheme == nil || namespace == "" || serviceAccount == "" || siteName == "" || port == 0 {
+			return
+		}
+		user, err := json.Marshal("system:serviceaccount:" + namespace + ":" + serviceAccount)
+		if err != nil {
+			return
+		}
+		// The token rule's defaults, including a Gateway's own objective expression, apply to
+		// the certificate too. That identity has no user, so the username such an expression
+		// reads is the service account's.
+		fallback := func(name string) string {
+			expression := fmt.Sprintf("%q", namespace)
+			if override, exists := ap.Spec.AuthScheme.Authentication["kubernetes-user"].Overrides[name]; exists {
+				if override.Expression != "" {
+					expression = string(override.Expression)
+				} else if len(override.Value.Raw) > 0 {
+					expression = string(override.Value.Raw)
+				}
+			}
+			expression = strings.ReplaceAll(expression, "auth.identity.user.username", string(user))
+			// Anything else read from the identity would fail to evaluate and refuse the request.
+			if strings.Contains(expression, "auth.identity") {
+				return fmt.Sprintf("%q", namespace)
+			}
+			return expression
+		}
+		header := func(name, fallback string) authorinov1beta3.ValueOrSelector {
+			return authorinov1beta3.ValueOrSelector{Expression: authorinov1beta3.CelExpression(
+				fmt.Sprintf("%q in request.headers ? request.headers[%q] : (%s)", name, name, fallback))}
+		}
+		rules := gridClientCertificateRules.DeepCopy()
+		site := rules.Authentication["grid-site"]
+		site.Overrides = authorinov1beta3.ExtendedProperties{
+			"fairness":  header("x-gateway-inference-fairness-id", fallback("fairness")),
+			"objective": header("x-gateway-inference-objective", fallback("objective")),
+		}
+		rules.Authentication["grid-site"] = site
+		// The mesh appends the element it verified, so the site is read from the end of the
+		// header and one element may name one URI. siteName is a DNS label, so it adds nothing
+		// to the pattern but its own letters.
+		rules.Authorization["grid-local-site"].PatternMatching.Patterns[0].Predicate = fmt.Sprintf(
+			`request.headers['x-forwarded-client-cert'].matches(';URI=spiffe://grid\\.internal/site/%s(;DNS=[^;,"]*)*$')`+
+				` && !request.headers['x-forwarded-client-cert'].matches(';URI=[^,]*;URI=')`, siteName)
+		rules.Authorization["grid-model-access"].KubernetesSubjectAccessReview.User = &authorinov1beta3.ValueOrSelector{
+			Value: k8sruntime.RawExtension{Raw: user},
+		}
+
+		// Another listener may trust another CA, so only the Grid listener's certificate counts.
+		listener := fmt.Sprintf("destination.port == %d", port)
+		predicate := func(expression string) authorinov1beta3.PatternExpressionOrRef {
+			return authorinov1beta3.PatternExpressionOrRef{CelPredicate: authorinov1beta3.CelPredicate{Predicate: expression}}
+		}
+		for key, auth := range rules.Authentication {
+			auth.Conditions = append(auth.Conditions, predicate(listener))
+			rules.Authentication[key] = auth
+		}
+		for key, rule := range rules.Authorization {
+			rule.Conditions = append(rule.Conditions, predicate(listener))
+			rules.Authorization[key] = rule
+		}
+		absent := predicate("!(" + gridClientCertificatePresent + " && " + listener + ")")
+		for key, auth := range ap.Spec.AuthScheme.Authentication {
+			auth.Conditions = append(auth.Conditions, absent)
+			ap.Spec.AuthScheme.Authentication[key] = auth
+		}
+		// A rule that reads the token identity would fail closed anyway; this one would
+		// also spend a SubjectAccessReview on every Grid request.
+		if rule, exists := ap.Spec.AuthScheme.Authorization["model-access-path"]; exists {
+			rule.Conditions = append(rule.Conditions, absent)
+			ap.Spec.AuthScheme.Authorization["model-access-path"] = rule
+		}
+		for key, auth := range rules.Authentication {
+			ap.Spec.AuthScheme.Authentication[key] = auth
+		}
+		if ap.Spec.AuthScheme.Authorization == nil {
+			ap.Spec.AuthScheme.Authorization = map[string]kuadrantv1.MergeableAuthorizationSpec{}
+		}
+		for key, rule := range rules.Authorization {
+			ap.Spec.AuthScheme.Authorization[key] = rule
 		}
 	}
 }

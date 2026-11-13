@@ -1,0 +1,57 @@
+# Rules added to the Gateway AuthPolicy when Grid authenticates with its site certificate.
+# The mesh verifies the certificate and reports it in x-forwarded-client-cert, which it
+# removes from any request that presented none. WithGridClientCertificate fills in the
+# site, the service account, the listener port and the flow-control overrides.
+authentication:
+  grid-site:
+    when:
+      - predicate: "'x-forwarded-client-cert' in request.headers"
+    anonymous: {}
+authorization:
+  # Every site's certificate chains to the Grid CA; only this site's is accepted.
+  grid-local-site:
+    when:
+      - predicate: "'x-forwarded-client-cert' in request.headers"
+    patternMatching:
+      patterns:
+        - predicate: "false"
+    priority: 0
+  grid-publisher-path-only:
+    when:
+      - predicate: "'x-forwarded-client-cert' in request.headers"
+      - predicate: "!request.path.matches('^/publishers/[^/]+/models/')"
+    patternMatching:
+      patterns:
+        - predicate: "false"
+    priority: 0
+  # The per-model RoleBinding of the Grid service account stays the record of publication.
+  grid-model-access:
+    when:
+      - predicate: "'x-forwarded-client-cert' in request.headers"
+      - patternRef: is-publisher-path
+    kubernetesSubjectAccessReview:
+      resourceAttributes:
+        group:
+          value: serving.opendatahub.io
+        resource:
+          value: models
+        namespace:
+          expression: "request.path.split('/')[2]"
+        name:
+          expression: >-
+            'publishers/'
+            + request.path.split('/')[2]
+            + '/models/'
+            + request.path.split('/models/')[1].split('/v1/')[0]
+        verb:
+          value: post
+    # The key is the reviewed resource, so an allow is never reused for another model.
+    cache:
+      key:
+        expression: >-
+          'publishers/'
+          + request.path.split('/')[2]
+          + '/models/'
+          + request.path.split('/models/')[1].split('/v1/')[0]
+      ttl: 60
+    priority: 1

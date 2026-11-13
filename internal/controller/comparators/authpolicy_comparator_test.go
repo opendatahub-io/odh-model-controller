@@ -18,6 +18,7 @@ package comparators_test
 import (
 	"testing"
 
+	authorinov1beta3 "github.com/kuadrant/authorino/api/v1beta3"
 	kuadrantv1 "github.com/kuadrant/kuadrant-operator/api/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	gwapiv1alpha2 "sigs.k8s.io/gateway-api/apis/v1alpha2"
@@ -135,5 +136,54 @@ func TestAuthPolicyComparator(t *testing.T) {
 				t.Errorf("comparator() = %v, expected %v", result, tt.expected)
 			}
 		})
+	}
+}
+
+// A rule or condition the controller stops rendering must be seen as a change, or it stays in force.
+func TestAuthPolicyComparatorSeesRemovedRules(t *testing.T) {
+	comparator := comparators.GetAuthPolicyComparator()
+	condition := func(predicate string) authorinov1beta3.PatternExpressionOrRef {
+		return authorinov1beta3.PatternExpressionOrRef{CelPredicate: authorinov1beta3.CelPredicate{Predicate: predicate}}
+	}
+	policy := func(edit func(*kuadrantv1.AuthSchemeSpec)) *kuadrantv1.AuthPolicy {
+		ap := createAuthPolicy("test")
+		ap.Spec.AuthScheme = &kuadrantv1.AuthSchemeSpec{
+			Authentication: map[string]kuadrantv1.MergeableAuthenticationSpec{"token": {}},
+			Authorization:  map[string]kuadrantv1.MergeableAuthorizationSpec{"access": {}},
+		}
+		if edit != nil {
+			edit(ap.Spec.AuthScheme)
+		}
+		return ap
+	}
+	for name, deployed := range map[string]*kuadrantv1.AuthPolicy{
+		"authentication rule": policy(func(scheme *kuadrantv1.AuthSchemeSpec) {
+			scheme.Authentication["certificate"] = kuadrantv1.MergeableAuthenticationSpec{}
+		}),
+		"authorization rule": policy(func(scheme *kuadrantv1.AuthSchemeSpec) {
+			scheme.Authorization["site"] = kuadrantv1.MergeableAuthorizationSpec{}
+		}),
+		"authentication condition": policy(func(scheme *kuadrantv1.AuthSchemeSpec) {
+			rule := scheme.Authentication["token"]
+			rule.Conditions = append(rule.Conditions, condition("false"))
+			scheme.Authentication["token"] = rule
+		}),
+		"authorization condition": policy(func(scheme *kuadrantv1.AuthSchemeSpec) {
+			rule := scheme.Authorization["access"]
+			rule.Conditions = append(rule.Conditions, condition("false"))
+			scheme.Authorization["access"] = rule
+		}),
+		"every rule": policy(nil),
+	} {
+		requested := policy(nil)
+		if name == "every rule" {
+			requested.Spec.AuthScheme = nil
+		}
+		if comparator(deployed, requested) {
+			t.Errorf("a deployed policy with an extra %s compared as unchanged", name)
+		}
+	}
+	if !comparator(policy(nil), policy(nil)) {
+		t.Error("identical rules compared as changed")
 	}
 }

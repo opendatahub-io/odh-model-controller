@@ -94,6 +94,67 @@ func TestGridConfigFromGateway(t *testing.T) {
 	require.Nil(t, cfg)
 }
 
+func TestGridClientCertificate(t *testing.T) {
+	t.Setenv(GridGatewayNamespacesEnv, "openshift-ingress")
+	gateway := func(annotation string) *gatewayv1.Gateway {
+		return &gatewayv1.Gateway{
+			ObjectMeta: metav1.ObjectMeta{Namespace: "openshift-ingress", Annotations: map[string]string{GridServingAnnotation: annotation}},
+			Spec: gatewayv1.GatewaySpec{Listeners: []gatewayv1.Listener{
+				{Name: "http", Protocol: gatewayv1.HTTPProtocolType, Port: 80},
+				{Name: "https", Protocol: gatewayv1.HTTPSProtocolType, Port: 443},
+				{Name: "grid", Protocol: gatewayv1.HTTPSProtocolType, Port: 8443},
+			}},
+		}
+	}
+	base := `{"networkName":"grid-local","namespace":"grid-system","serviceAccount":"grid-client"`
+	cert := `,"clientCertificate":{"listener":"grid","siteName":"site-a"}}`
+	cfg, err := GridConfigFromGateway(gateway(base + cert))
+	require.NoError(t, err, "the certificate replaces the token Secret")
+	require.Equal(t, &GridClientCertificate{Listener: "grid", SiteName: "site-a"}, cfg.ClientCertificate)
+	require.Empty(t, cfg.TokenSecret)
+	cfg, err = GridConfigFromGateway(gateway(base + `,"tokenSecret":"grid-token"` + cert))
+	require.NoError(t, err, "a token Secret may stay beside the certificate during a migration")
+	require.Equal(t, "grid-token", cfg.TokenSecret)
+	cfg, err = GridConfigFromGateway(gateway(base + `,"tokenSecret":"grid-token"}`))
+	require.NoError(t, err)
+	require.Nil(t, cfg.ClientCertificate, "token publication is unchanged without the field")
+	for name, annotation := range map[string]string{
+		"no token and no certificate":    base + `}`,
+		"invalid token beside it":        base + `,"tokenSecret":"invalid secret"` + cert,
+		"listener missing":               base + `,"clientCertificate":{"listener":"absent","siteName":"site-a"}}`,
+		"listener not HTTPS":             base + `,"clientCertificate":{"listener":"http","siteName":"site-a"}}`,
+		"empty site":                     base + `,"clientCertificate":{"listener":"grid","siteName":""}}`,
+		"site that would widen the rule": base + `,"clientCertificate":{"listener":"grid","siteName":"site-a|site-b"}}`,
+		"site with a regex wildcard":     base + `,"clientCertificate":{"listener":"grid","siteName":"site.a"}}`,
+		"unknown field":                  base + `,"clientCertificate":{"listener":"grid","siteName":"site-a","optional":true}}`,
+	} {
+		t.Run(name, func(t *testing.T) {
+			_, err := GridConfigFromGateway(gateway(annotation))
+			require.Error(t, err)
+		})
+	}
+
+	// Two HTTPS listeners may share a port under different hostnames, each with its own client CA.
+	shared := gateway(base + cert)
+	other := gatewayv1.Hostname("other.example.com")
+	shared.Spec.Listeners = append(shared.Spec.Listeners, gatewayv1.Listener{Name: "other", Protocol: gatewayv1.HTTPSProtocolType, Port: 8443, Hostname: &other})
+	_, err = GridConfigFromGateway(shared)
+	require.ErrorContains(t, err, `listener "grid" shares port 8443 with listener "other"`)
+
+	for endpoint, expected := range map[string]string{
+		"http://gw.openshift-ingress.svc.cluster.local/publishers/ns/models/m":       "https://gw.openshift-ingress.svc.cluster.local:8443/publishers/ns/models/m",
+		"https://gw.openshift-ingress.svc.cluster.local/publishers/ns/models/m":      "https://gw.openshift-ingress.svc.cluster.local:8443/publishers/ns/models/m",
+		"https://gw.openshift-ingress.svc.cluster.local:443/publishers/ns/models/m":  "https://gw.openshift-ingress.svc.cluster.local:8443/publishers/ns/models/m",
+		"https://gw.openshift-ingress.svc.cluster.local:8443/publishers/ns/models/m": "https://gw.openshift-ingress.svc.cluster.local:8443/publishers/ns/models/m",
+	} {
+		got, err := gridClientCertificateEndpoint(gateway(""), "grid", endpoint)
+		require.NoError(t, err)
+		require.Equal(t, expected, got)
+	}
+	_, err = gridClientCertificateEndpoint(gateway(""), "http", "http://gw.svc/x")
+	require.Error(t, err)
+}
+
 func TestGridResourceName(t *testing.T) {
 	for _, tc := range []struct {
 		name, namespace, serviceName string

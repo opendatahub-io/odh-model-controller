@@ -74,7 +74,8 @@ The annotation value is a JSON object. Unknown fields are rejected.
 | `networkName` | yes | GridNetwork the provider joins |
 | `namespace` | yes | Namespace of the service account and token Secret |
 | `serviceAccount` | yes | Grid identity granted access to the model |
-| `tokenSecret` | yes | `kubernetes.io/service-account-token` Secret for that account |
+| `tokenSecret` | yes, unless `clientCertificate` is set | `kubernetes.io/service-account-token` Secret for that account |
+| `clientCertificate` | no | Authenticate Grid by its site certificate instead of the token. See [Client certificate](#client-certificate) |
 | `siteLabels` | no | Comma-separated `key=value` GridSite selector. Empty matches every site |
 | `publishMetrics` | no | Publish the EPP metrics endpoint. Default `false` |
 | `metricsAllowPlaintext` | no | Allow Grid to scrape an `http` metrics endpoint with its token. Default `false` |
@@ -84,6 +85,37 @@ may configure Grid. To change the list, set the controller environment variable
 `GRID_GATEWAY_NAMESPACES` to a comma-separated list and restart the controller. An
 empty value allows no namespace. Limit write access to Gateways in these
 namespaces to administrators who may grant Grid access.
+
+## Client certificate
+
+With `clientCertificate`, Grid presents its site certificate to the Gateway and
+sends no token, so `tokenSecret` is not needed:
+
+```json
+{"networkName":"grid-local","namespace":"grid-system","serviceAccount":"grid-model-client","clientCertificate":{"listener":"grid","siteName":"site-a"}}
+```
+
+| Key | Meaning |
+| --- | --- |
+| `listener` | HTTPS listener on this Gateway that requires a client certificate signed by the Grid CA. No other listener may share its port |
+| `siteName` | This site's Grid name. Only its certificate is authorized |
+
+The provider is published with `auth.strategy: mtls_only` on that listener's
+port, and only for a publisher path endpoint. A certificate verified on that
+listener is authorized as `serviceAccount` for publisher paths. Token callers
+are unaffected.
+
+Before setting the field:
+
+- Grid must already support `mtls_only` on a local endpoint. An older Grid
+  fails the handshake.
+- The listener's client CA must be the Grid CA and nothing wider.
+- The Gateway must keep the mesh default for `x-forwarded-client-cert`, which
+  Istio calls `SANITIZE_SET`: the mesh replaces the header with the certificate
+  it verified and removes it from a request that presented none. The controller
+  reads the identity from that header and cannot check the setting. Under a
+  mode that forwards the caller's header, the holder of any Grid certificate
+  could name another site.
 
 ## Turn it off
 
@@ -102,7 +134,7 @@ finalizer on the LLMInferenceService holds its deletion until all of them are go
 | The controller manages | The administrator owns |
 | --- | --- |
 | Provider `endpoint`, `models`, `siteSelector`, `auth`, `gridNetworkRef`, `providerKind`, `backendKind` | Grid, its CRDs, and the GridNetwork |
-| Per-pair Role, RoleBinding, and metrics NetworkPolicy | The service account and token Secret |
+| Per-pair Role, RoleBinding, and metrics NetworkPolicy | The service account and token Secret, or the client certificate listener and its CA |
 | `metricsConfig` while it carries the generated endpoint | Provider `trafficPolicy`, `healthCheck`, `cost`, `gatewayRef`, `routingClusterRef` |
 | | Backend TLS trust for HTTPS Gateways |
 
