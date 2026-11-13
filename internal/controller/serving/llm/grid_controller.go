@@ -296,6 +296,11 @@ func (r *GridInferenceProviderReconciler) desiredPublications(ctx context.Contex
 					plan.credentialErrors = append(plan.credentialErrors, fmt.Errorf("Gateway %s: %w", attachment.Gateway, err))
 					continue
 				}
+				// The certificate rules admit only publisher paths, so any other endpoint would be unusable.
+				if cfg.ClientCertificate != nil && gridPublisherModel(svc, attachment.Endpoint) == "" {
+					r.providerWarning(svc, gateway, fmt.Errorf("client certificate authentication needs a publisher path endpoint, got %s", attachment.Endpoint))
+					continue
+				}
 				plan.publications = append(plan.publications, gridPublication{gateway: gateway, config: cfg, attachment: attachment})
 			}
 		}

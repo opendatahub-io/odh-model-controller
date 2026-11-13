@@ -89,7 +89,7 @@ namespaces to administrators who may grant Grid access.
 ## Client certificate
 
 With `clientCertificate`, Grid presents its site certificate to the Gateway and
-sends no token:
+sends no token, so `tokenSecret` is not needed:
 
 ```json
 {"networkName":"grid-local","namespace":"grid-system","serviceAccount":"grid-model-client","clientCertificate":{"listener":"grid","siteName":"site-a"}}
@@ -97,38 +97,21 @@ sends no token:
 
 | Key | Meaning |
 | --- | --- |
-| `listener` | Name of an HTTPS listener on this Gateway that requires a client certificate signed by the Grid CA |
+| `listener` | HTTPS listener on this Gateway that requires a client certificate signed by the Grid CA |
 | `siteName` | This site's Grid name. Only its certificate is authorized |
 
-The controller then publishes each provider with `auth.strategy: mtls_only` and
-the endpoint moved to that listener's port. The Gateway AuthPolicy gains rules
-that apply only to a request the Gateway verified a client certificate for:
+The provider is published with `auth.strategy: mtls_only` on that listener's
+port, and only for a publisher path endpoint. A certificate verified on that
+listener is authorized as `serviceAccount` for publisher paths. Token callers
+are unaffected.
 
-- The certificate must carry the SPIFFE name of `siteName`. Every site's
-  certificate chains to the Grid CA, so the CA alone does not authorize.
-- The model is authorized as `serviceAccount`, with the same
-  SubjectAccessReview the token path runs, cached for 60 seconds per model. The
-  per-model RoleBinding stays the record of what is published, and no token is
-  reviewed.
-- Only publisher paths are reachable.
+Before setting the field:
 
-The service account needs no token Secret in this mode. The token rules keep
-working for every other caller.
-
-The administrator owns the listener, its client CA, and the order of the
-change. Grid must run a gateway and operator that support `mtls_only` on a local
-endpoint before the field is set. An older Grid dials the new endpoint without a
-certificate and the Gateway refuses the handshake.
-
-The rules read the `x-forwarded-client-cert` header, which the mesh sets after
-it verifies a client certificate and removes from any request that presented
-none. Two things are the administrator's to keep true, because the controller
-cannot check them:
-
-- The Gateway must keep the mesh default for that header. A Gateway set to
-  forward the header from its callers lets a caller name its own identity.
-- The listener's client CA must be the Grid CA and nothing wider. The rules
-  check the name in the certificate, not who signed it.
+- Grid must already support `mtls_only` on a local endpoint. An older Grid
+  fails the handshake.
+- The listener's client CA must be the Grid CA and nothing wider.
+- The Gateway must keep the mesh default that removes `x-forwarded-client-cert`
+  from callers.
 
 ## Turn it off
 

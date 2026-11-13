@@ -296,8 +296,22 @@ var _ = Describe("Grid provider reconciliation", Ordered, func() {
 		Expect(client.IgnoreAlreadyExists(envTest.Create(ctx, &corev1.ServiceAccount{ObjectMeta: metav1.ObjectMeta{Name: "grid-client-cert", Namespace: "grid-test-identity"}}))).To(Succeed())
 		gateway.Annotations = map[string]string{llmcontroller.GridServingAnnotation: `{"networkName":"grid-test","namespace":"grid-test-identity","serviceAccount":"grid-client-cert","clientCertificate":{"listener":"grid","siteName":"site-a"}}`}
 		Expect(envTest.Update(ctx, gateway)).To(Succeed())
+		// The certificate rules admit only publisher paths, so the participant URL is not published.
+		Consistently(func() []unstructured.Unstructured { return providers(ctx) }, "500ms").Should(BeEmpty())
+		publisherURL, err := apis.ParseURL("http://" + internalHost + "/publishers/" + ns.Name + "/models/test/model")
+		Expect(err).NotTo(HaveOccurred())
+		Eventually(func() error {
+			if err := envTest.Get(ctx, client.ObjectKeyFromObject(svc), svc); err != nil {
+				return err
+			}
+			publisher := svc.Status.Addresses[0]
+			publisher.URL = publisherURL
+			publisher.Models = []kservev1alpha2.ModelSourcedAddressStatus{{Name: "test/model"}}
+			svc.Status.Addresses = append(svc.Status.Addresses, publisher)
+			return envTest.Status().Update(ctx, svc)
+		}).Should(Succeed())
 		provider := waitProvider(ctx)
-		Expect(provider.Object["spec"]).To(HaveKeyWithValue("endpoint", fmt.Sprintf("https://%s:8443/%s/%s", internalHost, ns.Name, svc.Name)))
+		Expect(provider.Object["spec"]).To(HaveKeyWithValue("endpoint", fmt.Sprintf("https://%s:8443/publishers/%s/models/test/model", internalHost, ns.Name)))
 		auth, _, err := unstructured.NestedMap(provider.Object, "spec", "auth")
 		Expect(err).NotTo(HaveOccurred())
 		Expect(auth).To(Equal(map[string]interface{}{"strategy": "mtls_only", "manual": false}))

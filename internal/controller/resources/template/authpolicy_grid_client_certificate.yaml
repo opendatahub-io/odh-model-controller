@@ -1,7 +1,7 @@
 # Rules added to the Gateway AuthPolicy when Grid authenticates with its site certificate.
 # The mesh verifies the certificate and reports it in x-forwarded-client-cert, which it
 # removes from any request that presented none. WithGridClientCertificate fills in the
-# site, the service account and the flow-control overrides.
+# site, the service account, the listener port and the flow-control overrides.
 authentication:
   grid-site:
     when:

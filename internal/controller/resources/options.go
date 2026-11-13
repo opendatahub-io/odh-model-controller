@@ -40,8 +40,8 @@ var gridClientCertificateRules = func() *kuadrantv1.AuthSchemeSpec {
 	return rules
 }()
 
-// gridClientCertificateAbsent keeps a rule off requests authenticated by the Grid client certificate.
-const gridClientCertificateAbsent = "!('x-forwarded-client-cert' in request.headers)"
+// gridClientCertificatePresent matches a request the Gateway verified a client certificate for.
+const gridClientCertificatePresent = "'x-forwarded-client-cert' in request.headers"
 
 // ObjectOption is a functional option for modifying Kubernetes objects.
 type ObjectOption func(client.Object)
@@ -144,13 +144,13 @@ func WithGridFlowControlHeaders(namespace, serviceAccount string) ObjectOption {
 }
 
 // WithGridClientCertificate authorizes the named site's Grid certificate, which the Gateway
-// verifies and reports in x-forwarded-client-cert, as the Grid service account. Token rules
-// stop applying to such a request. Apply before WithGridFlowControlHeaders, so the fairness
-// default is read before that option rewrites it.
-func WithGridClientCertificate(namespace, serviceAccount, siteName string) ObjectOption {
+// verifies on the listener at port and reports in x-forwarded-client-cert, as the Grid
+// service account. Token rules stop applying to such a request. Apply before
+// WithGridFlowControlHeaders, so the fairness default is read before that option rewrites it.
+func WithGridClientCertificate(namespace, serviceAccount, siteName string, port int32) ObjectOption {
 	return func(obj client.Object) {
 		ap, ok := obj.(*kuadrantv1.AuthPolicy)
-		if !ok || ap.Spec.AuthScheme == nil || namespace == "" || serviceAccount == "" || siteName == "" {
+		if !ok || ap.Spec.AuthScheme == nil || namespace == "" || serviceAccount == "" || siteName == "" || port == 0 {
 			return
 		}
 		user, err := json.Marshal("system:serviceaccount:" + namespace + ":" + serviceAccount)
@@ -186,7 +186,20 @@ func WithGridClientCertificate(namespace, serviceAccount, siteName string) Objec
 			Value: k8sruntime.RawExtension{Raw: user},
 		}
 
-		absent := authorinov1beta3.PatternExpressionOrRef{CelPredicate: authorinov1beta3.CelPredicate{Predicate: gridClientCertificateAbsent}}
+		// Another listener may trust another CA, so only the Grid listener's certificate counts.
+		listener := fmt.Sprintf("destination.port == %d", port)
+		predicate := func(expression string) authorinov1beta3.PatternExpressionOrRef {
+			return authorinov1beta3.PatternExpressionOrRef{CelPredicate: authorinov1beta3.CelPredicate{Predicate: expression}}
+		}
+		for key, auth := range rules.Authentication {
+			auth.Conditions = append(auth.Conditions, predicate(listener))
+			rules.Authentication[key] = auth
+		}
+		for key, rule := range rules.Authorization {
+			rule.Conditions = append(rule.Conditions, predicate(listener))
+			rules.Authorization[key] = rule
+		}
+		absent := predicate("!(" + gridClientCertificatePresent + " && " + listener + ")")
 		for key, auth := range ap.Spec.AuthScheme.Authentication {
 			auth.Conditions = append(auth.Conditions, absent)
 			ap.Spec.AuthScheme.Authentication[key] = auth

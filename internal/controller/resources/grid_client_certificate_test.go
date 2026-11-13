@@ -22,6 +22,7 @@ import (
 
 	"github.com/google/cel-go/cel"
 	"github.com/google/cel-go/ext"
+	authorinov1beta3 "github.com/kuadrant/authorino/api/v1beta3"
 	"github.com/stretchr/testify/require"
 
 	"github.com/opendatahub-io/odh-model-controller/internal/controller/constants"
@@ -39,24 +40,39 @@ func TestGridClientCertificate(t *testing.T) {
 	baseline, err := loader.Load(context.Background(), target, resources.WithAudiences([]string{issuer}))
 	require.NoError(t, err)
 	policy, err := loader.Load(context.Background(), target, resources.WithAudiences([]string{issuer}),
-		resources.WithGridClientCertificate("grid-system", "grid-client", "site-a"),
+		resources.WithGridClientCertificate("grid-system", "grid-client", "site-a", 8443),
 		resources.WithGridFlowControlHeaders("grid-system", "grid-client"))
 	require.NoError(t, err)
 	scheme := policy.Spec.AuthScheme
-	env, err := cel.NewEnv(cel.Variable("auth", cel.DynType), cel.Variable("request", cel.DynType), ext.Strings())
+	env, err := cel.NewEnv(cel.Variable("auth", cel.DynType), cel.Variable("request", cel.DynType), cel.Variable("destination", cel.DynType), ext.Strings())
 	require.NoError(t, err)
-	eval := func(t *testing.T, expression string, headers map[string]string, path string) interface{} {
+	evalAt := func(t *testing.T, port int, expression string, headers map[string]string, path string) interface{} {
 		t.Helper()
 		ast, issues := env.Compile(expression)
 		require.NoError(t, issues.Err(), expression)
 		program, err := env.Program(ast)
 		require.NoError(t, err)
 		value, _, err := program.Eval(map[string]interface{}{
-			"auth":    map[string]interface{}{"identity": map[string]interface{}{"anonymous": true}},
-			"request": map[string]interface{}{"headers": headers, "path": path},
+			"auth":        map[string]interface{}{"identity": map[string]interface{}{"anonymous": true}},
+			"request":     map[string]interface{}{"headers": headers, "path": path},
+			"destination": map[string]interface{}{"port": port},
 		})
 		require.NoError(t, err)
 		return value.Value()
+	}
+	eval := func(t *testing.T, expression string, headers map[string]string, path string) interface{} {
+		t.Helper()
+		return evalAt(t, 8443, expression, headers, path)
+	}
+	// all reports whether every condition holds for a certificate request to port.
+	all := func(t *testing.T, port int, conditions []string, path string) bool {
+		t.Helper()
+		for _, condition := range conditions {
+			if evalAt(t, port, condition, map[string]string{xfcc: certificate("site-a")}, path) != true {
+				return false
+			}
+		}
+		return true
 	}
 
 	t.Run("token rules are unchanged apart from standing aside for a certificate", func(t *testing.T) {
@@ -81,9 +97,34 @@ func TestGridClientCertificate(t *testing.T) {
 		grid := scheme.Authentication["grid-site"]
 		require.NotNil(t, grid.AnonymousAccess)
 		require.Nil(t, grid.KubernetesTokenReview)
-		require.Len(t, grid.Conditions, 1)
+		require.Len(t, grid.Conditions, 2)
 		require.Equal(t, true, eval(t, grid.Conditions[0].Predicate, map[string]string{xfcc: certificate("site-a")}, "/"))
 		require.Equal(t, false, eval(t, grid.Conditions[0].Predicate, map[string]string{}, "/"))
+	})
+
+	t.Run("a certificate another listener verified is not the Grid identity", func(t *testing.T) {
+		const path = "/publishers/ns/models/m/v1/chat/completions"
+		predicates := func(conditions []authorinov1beta3.PatternExpressionOrRef) []string {
+			var out []string
+			for _, condition := range conditions {
+				if condition.Predicate != "" {
+					out = append(out, condition.Predicate)
+				}
+			}
+			return out
+		}
+		for name, rule := range scheme.Authentication {
+			grid := name == "grid-site"
+			require.Equal(t, grid, all(t, 8443, predicates(rule.Conditions), path), name)
+			require.Equal(t, !grid, all(t, 9443, predicates(rule.Conditions), path), name)
+		}
+		for _, name := range []string{"grid-local-site", "grid-model-access"} {
+			conditions := predicates(scheme.Authorization[name].Conditions)
+			require.True(t, all(t, 8443, conditions, path), name)
+			require.False(t, all(t, 9443, conditions, path), name)
+		}
+		review := predicates(scheme.Authorization["model-access-path"].Conditions)
+		require.Equal(t, true, evalAt(t, 9443, review[len(review)-1], map[string]string{xfcc: certificate("site-a")}, path))
 	})
 
 	t.Run("only the local site is authorized", func(t *testing.T) {
@@ -167,8 +208,12 @@ func TestGridClientCertificate(t *testing.T) {
 
 	for _, identity := range [][3]string{{"", "grid-client", "site-a"}, {"grid-system", "", "site-a"}, {"grid-system", "grid-client", ""}} {
 		unchanged, err := loader.Load(context.Background(), target, resources.WithAudiences([]string{issuer}),
-			resources.WithGridClientCertificate(identity[0], identity[1], identity[2]))
+			resources.WithGridClientCertificate(identity[0], identity[1], identity[2], 8443))
 		require.NoError(t, err)
 		require.Equal(t, baseline, unchanged)
 	}
+	unchanged, err := loader.Load(context.Background(), target, resources.WithAudiences([]string{issuer}),
+		resources.WithGridClientCertificate("grid-system", "grid-client", "site-a", 0))
+	require.NoError(t, err)
+	require.Equal(t, baseline, unchanged)
 }

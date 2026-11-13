@@ -243,7 +243,9 @@ func (r *GatewayReconciler) reconcileAuthPolicy(ctx context.Context, logger logr
 		logger.Error(gridConfigErr, "Invalid Gateway Grid configuration")
 	} else if gridConfig != nil {
 		if cert := gridConfig.ClientCertificate; cert != nil {
-			gridOptions = append(gridOptions, resources.WithGridClientCertificate(gridConfig.Namespace, gridConfig.ServiceAccount, cert.SiteName))
+			// GridConfigFromGateway already resolved the listener, so the port is known.
+			port, _ := gridClientCertificatePort(gateway, cert.Listener)
+			gridOptions = append(gridOptions, resources.WithGridClientCertificate(gridConfig.Namespace, gridConfig.ServiceAccount, cert.SiteName, int32(port)))
 		}
 		gridOptions = append(gridOptions, resources.WithGridFlowControlHeaders(gridConfig.Namespace, gridConfig.ServiceAccount))
 	}
