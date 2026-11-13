@@ -20,6 +20,7 @@ import (
 	_ "embed"
 	"encoding/json"
 	"fmt"
+	"strings"
 
 	authorinov1beta3 "github.com/kuadrant/authorino/api/v1beta3"
 	kuadrantv1 "github.com/kuadrant/kuadrant-operator/api/v1"
@@ -145,8 +146,9 @@ func WithGridFlowControlHeaders(namespace, serviceAccount string) ObjectOption {
 
 // WithGridClientCertificate authorizes the named site's Grid certificate, which the Gateway
 // verifies on the listener at port and reports in x-forwarded-client-cert, as the Grid
-// service account. Token rules stop applying to such a request. Apply before
-// WithGridFlowControlHeaders, so the fairness default is read before that option rewrites it.
+// service account. Token rules stop applying to such a request. Apply after
+// WithObjectiveExpression and before WithGridFlowControlHeaders, so the configured defaults
+// are read before that option rewrites them.
 func WithGridClientCertificate(namespace, serviceAccount, siteName string, port int32) ObjectOption {
 	return func(obj client.Object) {
 		ap, ok := obj.(*kuadrantv1.AuthPolicy)
@@ -157,13 +159,19 @@ func WithGridClientCertificate(namespace, serviceAccount, siteName string, port 
 		if err != nil {
 			return
 		}
-		fairness := fmt.Sprintf("%q", namespace)
-		if override, exists := ap.Spec.AuthScheme.Authentication["kubernetes-user"].Overrides["fairness"]; exists {
-			if override.Expression != "" {
-				fairness = string(override.Expression)
-			} else if len(override.Value.Raw) > 0 {
-				fairness = string(override.Value.Raw)
+		// The token rule's defaults, including a Gateway's own objective expression, apply to
+		// the certificate too. That identity has no user, so the username such an expression
+		// reads is the service account's.
+		fallback := func(name string) string {
+			expression := fmt.Sprintf("%q", namespace)
+			if override, exists := ap.Spec.AuthScheme.Authentication["kubernetes-user"].Overrides[name]; exists {
+				if override.Expression != "" {
+					expression = string(override.Expression)
+				} else if len(override.Value.Raw) > 0 {
+					expression = string(override.Value.Raw)
+				}
 			}
+			return strings.ReplaceAll(expression, "auth.identity.user.username", string(user))
 		}
 		header := func(name, fallback string) authorinov1beta3.ValueOrSelector {
 			return authorinov1beta3.ValueOrSelector{Expression: authorinov1beta3.CelExpression(
@@ -172,8 +180,8 @@ func WithGridClientCertificate(namespace, serviceAccount, siteName string, port 
 		rules := gridClientCertificateRules.DeepCopy()
 		site := rules.Authentication["grid-site"]
 		site.Overrides = authorinov1beta3.ExtendedProperties{
-			"fairness":  header("x-gateway-inference-fairness-id", fairness),
-			"objective": header("x-gateway-inference-objective", fmt.Sprintf("%q", namespace)),
+			"fairness":  header("x-gateway-inference-fairness-id", fallback("fairness")),
+			"objective": header("x-gateway-inference-objective", fallback("objective")),
 		}
 		rules.Authentication["grid-site"] = site
 		// The mesh appends the element it verified, so the site is read from the end of the

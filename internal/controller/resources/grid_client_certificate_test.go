@@ -206,6 +206,23 @@ func TestGridClientCertificate(t *testing.T) {
 		}
 	})
 
+	t.Run("a Gateway's own objective expression is kept", func(t *testing.T) {
+		for expression, expected := range map[string]string{
+			"'custom-objective'":                        "custom-objective",
+			"auth.identity.user.username.split(':')[3]": "grid-client",
+			constants.DefaultObjectiveExpression:        "grid-system",
+		} {
+			custom, err := loader.Load(context.Background(), target, resources.WithAudiences([]string{issuer}),
+				resources.WithObjectiveExpression(expression),
+				resources.WithGridClientCertificate("grid-system", "grid-client", "site-a", 8443),
+				resources.WithGridFlowControlHeaders("grid-system", "grid-client"))
+			require.NoError(t, err)
+			objective := string(custom.Spec.AuthScheme.Authentication["grid-site"].Overrides["objective"].Expression)
+			require.Equal(t, expected, eval(t, objective, map[string]string{}, "/"), expression)
+			require.Equal(t, "tenant-a", eval(t, objective, map[string]string{"x-gateway-inference-objective": "tenant-a"}, "/"), expression)
+		}
+	})
+
 	for _, identity := range [][3]string{{"", "grid-client", "site-a"}, {"grid-system", "", "site-a"}, {"grid-system", "grid-client", ""}} {
 		unchanged, err := loader.Load(context.Background(), target, resources.WithAudiences([]string{issuer}),
 			resources.WithGridClientCertificate(identity[0], identity[1], identity[2], 8443))
