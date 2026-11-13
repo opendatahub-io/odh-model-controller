@@ -211,6 +211,8 @@ func TestGridClientCertificate(t *testing.T) {
 			"'custom-objective'":                        "custom-objective",
 			"auth.identity.user.username.split(':')[3]": "grid-client",
 			constants.DefaultObjectiveExpression:        "grid-system",
+			// The certificate identity has no groups, so this one falls back to the namespace.
+			"auth.identity.user.groups[0]": "grid-system",
 		} {
 			custom, err := loader.Load(context.Background(), target, resources.WithAudiences([]string{issuer}),
 				resources.WithObjectiveExpression(expression),

@@ -171,7 +171,12 @@ func WithGridClientCertificate(namespace, serviceAccount, siteName string, port 
 					expression = string(override.Value.Raw)
 				}
 			}
-			return strings.ReplaceAll(expression, "auth.identity.user.username", string(user))
+			expression = strings.ReplaceAll(expression, "auth.identity.user.username", string(user))
+			// Anything else read from the identity would fail to evaluate and refuse the request.
+			if strings.Contains(expression, "auth.identity") {
+				return fmt.Sprintf("%q", namespace)
+			}
+			return expression
 		}
 		header := func(name, fallback string) authorinov1beta3.ValueOrSelector {
 			return authorinov1beta3.ValueOrSelector{Expression: authorinov1beta3.CelExpression(
