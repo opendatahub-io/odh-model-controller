@@ -375,7 +375,7 @@ func (r *GridInferenceProviderReconciler) reconcileAccess(ctx context.Context, s
 			}
 			switch resource := obj.(type) {
 			case *rbacv1.Role:
-				resource.Rules = gridAccessRules(svc, publication.attachment.Endpoint)
+				resource.Rules = gridAccessRules(svc, publication.attachment.Endpoint, cfg.ClientCertificate != nil)
 			case *rbacv1.RoleBinding:
 				resource.RoleRef = rbacv1.RoleRef{APIGroup: rbacv1.GroupName, Kind: "Role", Name: role.Name}
 				resource.Subjects = []rbacv1.Subject{{Kind: "ServiceAccount", Name: cfg.ServiceAccount, Namespace: cfg.Namespace}}
@@ -393,9 +393,13 @@ func (r *GridInferenceProviderReconciler) reconcileAccess(ctx context.Context, s
 // KServe's per-service policy admits only the monitoring namespaces and the Gateway there.
 // gridAccessRules grants what the serving gateway's AuthPolicy reviews for the endpoint:
 // get on the LLMInferenceService for a participant path, and post on the model for a
-// publisher path, named as the policy derives it from the request path.
-func gridAccessRules(svc *kservev1alpha2.LLMInferenceService, endpoint string) []rbacv1.PolicyRule {
-	rules := []rbacv1.PolicyRule{{APIGroups: []string{"serving.kserve.io"}, Resources: []string{"llminferenceservices"}, ResourceNames: []string{svc.Name}, Verbs: []string{"get"}}}
+// publisher path, named as the policy derives it from the request path. The certificate
+// rules review only the publisher path, so certificate drops the get.
+func gridAccessRules(svc *kservev1alpha2.LLMInferenceService, endpoint string, certificate bool) []rbacv1.PolicyRule {
+	var rules []rbacv1.PolicyRule
+	if !certificate {
+		rules = append(rules, rbacv1.PolicyRule{APIGroups: []string{"serving.kserve.io"}, Resources: []string{"llminferenceservices"}, ResourceNames: []string{svc.Name}, Verbs: []string{"get"}})
+	}
 	if model := gridPublisherModel(svc, endpoint); model != "" {
 		rules = append(rules, rbacv1.PolicyRule{APIGroups: []string{"serving.opendatahub.io"}, Resources: []string{"models"}, ResourceNames: []string{model}, Verbs: []string{"post"}})
 	}

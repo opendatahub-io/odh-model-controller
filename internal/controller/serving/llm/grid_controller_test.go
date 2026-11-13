@@ -318,6 +318,10 @@ var _ = Describe("Grid provider reconciliation", Ordered, func() {
 		binding := &rbacv1.RoleBinding{}
 		Expect(envTest.Get(ctx, client.ObjectKey{Namespace: ns.Name, Name: provider.GetName()}, binding)).To(Succeed())
 		Expect(binding.Subjects).To(Equal([]rbacv1.Subject{{Kind: "ServiceAccount", Name: "grid-client-cert", Namespace: "grid-test-identity"}}))
+		// The certificate rules review only the model, so the role grants nothing on the service.
+		role := &rbacv1.Role{}
+		Expect(envTest.Get(ctx, client.ObjectKey{Namespace: ns.Name, Name: provider.GetName()}, role)).To(Succeed())
+		Expect(role.Rules).To(Equal([]rbacv1.PolicyRule{{APIGroups: []string{"serving.opendatahub.io"}, Resources: []string{"models"}, ResourceNames: []string{"publishers/" + ns.Name + "/models/test/model"}, Verbs: []string{"post"}}}))
 	})
 
 	It("emits a Warning on the source when provider creation fails", func(ctx SpecContext) {
