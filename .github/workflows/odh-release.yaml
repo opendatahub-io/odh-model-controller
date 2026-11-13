@@ -43,6 +43,10 @@ on:
         description: 'New release tag (e.g., odh-v2.35)'
         required: true
         type: string
+      previous_tag:
+        description: 'Previous tag to use as the release notes comparison base (optional; GitHub chooses if omitted)'
+        required: false
+        type: string
       target_branch:
         description: 'Target branch in the repository (e.g., main, incubating)'
         required: false
@@ -94,6 +98,7 @@ jobs:
       - name: Validate inputs and check tag
         env:
           TAG_NAME: ${{ github.event.inputs.tag_name }}
+          PREVIOUS_TAG: ${{ github.event.inputs.previous_tag }}
           REPOSITORY: ${{ github.event.inputs.repository }}
           ALLOW_EXISTING_TAG: ${{ github.event.inputs.allow_existing_tag }}
         run: |
@@ -103,6 +108,7 @@ jobs:
           import subprocess
           
           tag_name = os.environ["TAG_NAME"]
+          previous_tag = os.environ["PREVIOUS_TAG"]
           repository = os.environ["REPOSITORY"]
           
           # Expected format: odh-vX.Y or odh-vX.Y.Z with optional -ea1/-ea2 suffix
@@ -112,6 +118,10 @@ jobs:
           
           if not re.match(tag_pattern, tag_name):
             errors.append(f"Tag '{tag_name}' does not match expected format 'odh-vX.Y', 'odh-vX.Y.Z', or either format with an '-ea1'/'-ea2' suffix")
+          if previous_tag and not re.match(tag_pattern, previous_tag):
+            errors.append(f"Previous tag '{previous_tag}' does not match expected format 'odh-vX.Y', 'odh-vX.Y.Z', or either format with an '-ea1'/'-ea2' suffix")
+          if previous_tag == tag_name:
+            errors.append('Previous tag must differ from the new release tag')
           
           if errors:
             for error in errors:
@@ -130,10 +140,21 @@ jobs:
             else:
               print(f"::error::Tag '{tag_name}' already exists on remote.")
               sys.exit(1)
+
+          if previous_tag:
+            result = subprocess.run(
+              ['git', 'ls-remote', '--tags', 'origin', f'refs/tags/{previous_tag}'],
+              capture_output=True
+            )
+            if not result.stdout.decode().strip():
+              print(f"::error::Previous tag '{previous_tag}' does not exist on the target repository.")
+              sys.exit(1)
           
           print(f"✓ All validations passed")
           print(f"  Repository: {repository}")
           print(f"  Release tag: {tag_name}")
+          if previous_tag:
+            print(f"  Release notes range: {previous_tag} → {tag_name}")
         shell: python
       - name: Discover files to update
         id: discover
@@ -510,6 +531,7 @@ jobs:
           tag_name: ${{ github.event.inputs.tag_name }}
           name: ${{ github.event.inputs.tag_name }}
           generate_release_notes: true
+          previous_tag: ${{ github.event.inputs.previous_tag }}
           prerelease: false
           draft: false
 
@@ -524,6 +546,7 @@ jobs:
           DRY_RUN: ${{ github.event.inputs.dry_run }}
           REPO_NAME: ${{ needs.validate-and-check.outputs.repo_name }}
           TAG_NAME: ${{ github.event.inputs.tag_name }}
+          PREVIOUS_RELEASE_TAG: ${{ github.event.inputs.previous_tag }}
           HAS_PARAMS_ENV: ${{ needs.validate-and-check.outputs.has_params_env }}
           HAS_TEKTON: ${{ needs.validate-and-check.outputs.has_tekton }}
           VALIDATE_RESULT: ${{ needs.validate-and-check.result }}
@@ -537,6 +560,9 @@ jobs:
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "**Repository:** ${REPO_NAME}" >> $GITHUB_STEP_SUMMARY
           echo "**Release Tag:** ${TAG_NAME}" >> $GITHUB_STEP_SUMMARY
+          if [[ -n "${PREVIOUS_RELEASE_TAG}" ]]; then
+            echo "**Release Notes Range:** ${PREVIOUS_RELEASE_TAG} → ${TAG_NAME}" >> $GITHUB_STEP_SUMMARY
+          fi
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "## Discovered Files" >> $GITHUB_STEP_SUMMARY
           echo "- params.env files found: ${HAS_PARAMS_ENV}" >> $GITHUB_STEP_SUMMARY
