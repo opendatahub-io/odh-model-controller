@@ -4,6 +4,7 @@ resources:
   - vllm-cuda-template.yaml
   - vllm-rocm-template.yaml
   - vllm-gaudi-template.yaml
+  - vllm-rbln-template.yaml
   - vllm-spyre-s390x-template.yaml
   - vllm-spyre-x86-template.yaml
   - vllm-spyre-ppc64le-template.yaml
@@ -13,6 +14,7 @@ resources:
   - csr-kserve-vllm-cuda.yaml
   - csr-kserve-vllm-rocm.yaml
   - csr-kserve-vllm-gaudi.yaml
+  - csr-kserve-vllm-rbln.yaml
   - csr-kserve-vllm-cpu.yaml
   - csr-kserve-vllm-cpu-x86.yaml
   - csr-kserve-vllm-spyre-x86.yaml
