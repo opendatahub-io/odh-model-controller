@@ -406,6 +406,38 @@ var _ = Describe("InferenceService HardwareProfile Webhook", func() {
 			Expect(newISVC.Labels).NotTo(HaveKey(hardwareprofile.KueueQueueNameLabel))
 		})
 
+		It("isvc-30: same profile, resource-version changed — scheduling replaced", func() {
+			hwp := hwptestutil.NewHardwareProfile(hwpTestName, hwpTestNS, hwptestutil.NodeSpec(
+				map[string]interface{}{"repro/tier": "v2"},
+				[]interface{}{map[string]interface{}{
+					"key": "repro/taint", "operator": "Equal", "value": "v2", "effect": "NoSchedule",
+				}},
+			))
+			d := newISVCDefaulter(newDefaulterFakeClient(hwp))
+
+			oldAnn := hwptestutil.HWPAnnotationsWithNS(hwpTestName, hwpTestNS)
+			oldAnn[hardwareprofile.HardwareProfileAnnotationResourceVersion] = "2530010"
+			newAnn := hwptestutil.HWPAnnotationsWithNS(hwpTestName, hwpTestNS)
+			newAnn[hardwareprofile.HardwareProfileAnnotationResourceVersion] = "2583577"
+
+			oldISVC := buildISVCForHWP(oldAnn, nil)
+			oldISVC.Spec.Predictor.NodeSelector = map[string]string{"repro/pool": "v1"}
+			oldISVC.Spec.Predictor.Tolerations = []corev1.Toleration{{
+				Key: "repro/taint", Operator: corev1.TolerationOpEqual, Value: "v1", Effect: corev1.TaintEffectNoSchedule,
+			}}
+			newISVC := buildISVCForHWP(newAnn, nil)
+			newISVC.Spec.Predictor.NodeSelector = map[string]string{"repro/pool": "v1"}
+			newISVC.Spec.Predictor.Tolerations = []corev1.Toleration{{
+				Key: "repro/taint", Operator: corev1.TolerationOpEqual, Value: "v1", Effect: corev1.TaintEffectNoSchedule,
+			}}
+
+			Expect(d.Default(isvcUpdateCtx(newISVC, oldISVC), newISVC)).To(Succeed())
+			Expect(newISVC.Spec.Predictor.NodeSelector).To(Equal(map[string]string{"repro/tier": "v2"}))
+			Expect(newISVC.Spec.Predictor.Tolerations).To(Equal([]corev1.Toleration{{
+				Key: "repro/taint", Operator: corev1.TolerationOpEqual, Value: "v2", Effect: corev1.TaintEffectNoSchedule,
+			}}))
+		})
+
 		It("isvc-12: different profile on UPDATE — ALL stanzas cleared before new profile applied", func() {
 			hwpA := hwptestutil.NewHardwareProfile("hwp-a", hwpTestNS,
 				hwptestutil.NodeSpec(
