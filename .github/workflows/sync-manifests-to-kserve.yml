@@ -125,7 +125,7 @@ jobs:
           existing_pr=$(gh pr list \
             --repo "${TARGET_REPOSITORY}" \
             --base "${TARGET_BRANCH}" \
-            --head "opendatahub-io:${SYNC_BRANCH}" \
+            --head "${SYNC_BRANCH}" \
             --state open \
             --json url \
             --jq '.[0].url // ""')
