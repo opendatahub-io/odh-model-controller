@@ -164,11 +164,14 @@ operator-crds-update: ## Refresh the DSC and DSCI CRDs from the pinned Open Data
 	done; \
 	echo "Operator CRDs updated from revision $(OPERATOR_CRD_REVISION)."
 
-.PHONY: test
-test: manifests generate fmt vet envtest validate-samples ## Run tests.
+.PHONY: test test-manifest-sync
+test: manifests generate fmt vet envtest validate-samples test-manifest-sync ## Run tests.
 	@go tool covdata >/dev/null 2>&1 || true
 	KUBEBUILDER_ASSETS="$(shell $(ENVTEST) use $(ENVTEST_K8S_VERSION) --bin-dir $(LOCALBIN) -p path)" POD_NAMESPACE=default \
 		go test $$(go list ./... | grep -v /e2e) -coverprofile cover.out -coverpkg=./...
+
+test-manifest-sync:
+	bash hack/sync-manifests-to-kserve_test.sh
 
 # TODO(user): To use a different cluster than Kind for e2e tests, modify the setup under 'tests/e2e'.
 # The default setup assumes Kind is pre-installed and builds/loads the Manager Docker image locally.
