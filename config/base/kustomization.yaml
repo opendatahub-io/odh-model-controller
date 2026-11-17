@@ -13,6 +13,19 @@ generatorOptions:
 
 replacements:
   - source:
+      kind: Service
+      name: model-serving-api
+      fieldPath: metadata.namespace
+    targets:
+      - select:
+          kind: ServiceMonitor
+          name: model-serving-api-metrics
+        fieldPaths:
+          - spec.endpoints.0.tlsConfig.serverName
+        options:
+          delimiter: "."
+          index: 1
+  - source:
       kind: ConfigMap
       version: v1
       name: odh-model-controller-parameters

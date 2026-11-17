@@ -377,6 +377,21 @@ deploy-server: kustomize ## Deploy model-serving-api to the K8s cluster specifie
 	$(KUSTOMIZE) edit add resource ../../config/server && \
 	$(KUSTOMIZE) edit set namespace '$(NAMESPACE)' && \
 	$(KUSTOMIZE) edit set image "controller=$$SERVER_IMG_REF" && \
+	printf '%s\n' \
+		'replacements:' \
+		'  - source:' \
+		'      kind: Service' \
+		'      name: model-serving-api' \
+		'      fieldPath: metadata.namespace' \
+		'    targets:' \
+		'      - select:' \
+		'          kind: ServiceMonitor' \
+		'          name: model-serving-api-metrics' \
+		'        fieldPaths:' \
+		'          - spec.endpoints.0.tlsConfig.serverName' \
+		'        options:' \
+		'          delimiter: "."' \
+		'          index: 1' >> kustomization.yaml && \
 	$(KUSTOMIZE) build . > server-bundle.yaml && \
 	$(KUBECTL) apply -f server-bundle.yaml
 	$(KUBECTL) rollout status deployment/model-serving-api -n '$(NAMESPACE)' --timeout=120s
