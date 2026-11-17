@@ -1,0 +1,85 @@
+# Cross-repo trigger: a push to odh-model-controller@main rebuilds the
+# kserve-module operator image from opendatahub-io/kserve@release-v0.17.
+#
+# Modeled on odh-model-controller-push.yaml in this directory. All PaC
+# template variables ({{revision}}, {{source_url}}, {{target_branch}},
+# {{ git_auth_secret }}) resolve from odh-model-controller events, because
+# that is the repo this template lives in.
+apiVersion: tekton.dev/v1
+kind: PipelineRun
+metadata:
+  annotations:
+    build.appstudio.openshift.io/repo: https://github.com/opendatahub-io/odh-model-controller?rev={{revision}}
+    build.appstudio.redhat.com/commit_sha: '{{revision}}'
+    build.appstudio.redhat.com/target_branch: '{{target_branch}}'
+    # The standard annotations above name the *trigger* (this repo). The
+    # actual build source is recorded here:
+    odh.opendatahub.io/build-repository: https://github.com/opendatahub-io/kserve
+    odh.opendatahub.io/build-revision: release-v0.17
+    odh.opendatahub.io/trigger-revision: '{{revision}}'
+    pipelinesascode.tekton.dev/cancel-in-progress: "false"
+    pipelinesascode.tekton.dev/max-keep-runs: "3"
+    pipelinesascode.tekton.dev/on-cel-expression: event == "push" && target_branch == "main"
+  creationTimestamp: null
+  labels:
+    appstudio.openshift.io/application: opendatahub-builds
+    appstudio.openshift.io/component: odh-kserve-module-operator-ci
+    pipelines.appstudio.openshift.io/type: build
+  name: odh-kserve-module-operator-on-odh-mc-push
+  namespace: open-data-hub-tenant
+spec:
+  params:
+  # Deliberately NOT {{source_url}}/{{revision}}: those would template to
+  # odh-model-controller values. The build source is kserve.
+  - name: git-url
+    value: https://github.com/opendatahub-io/kserve
+  - name: revision
+    value: release-v0.17
+  - name: output-image
+    value: quay.io/opendatahub/odh-kserve-module-operator:omc-{{revision}}
+  # odh-stable is the moving tag nightly consumers are assumed to track
+  # (same tag the kserve push template publishes); omc-{{revision}} names
+  # the trigger. NOTE: the shared pipeline always adds rhoai-init's
+  # mandatory tag, derived from the PaC event sha — an unprefixed odh-mc
+  # sha tag will also land on the image. additional-tags cannot suppress
+  # it; fixing it requires the shared pipeline to derive the tag from the
+  # resolved clone commit instead. Nothing consumes the stray tag, so it
+  # is accepted as clutter for now.
+  # Caveat: odh-stable now has two writers (this trigger and the kserve
+  # push template). Last-writer-wins; out-of-order builds can regress it.
+  - name: additional-tags
+    value:
+    - 'odh-stable'
+    - 'omc-{{revision}}'
+  - name: dockerfile
+    value: kserve-module-controller.Dockerfile
+  - name: path-context
+    value: .
+  pipelineRef:
+    resolver: git
+    params:
+    - name: url
+      value: https://github.com/opendatahub-io/odh-konflux-central.git
+    - name: revision
+      value: main
+    - name: pathInRepo
+      value: pipeline/multi-arch-container-build.yaml
+  taskRunSpecs:
+    - pipelineTaskName: sast-shell-check
+      computeResources:
+        requests:
+          cpu: '2'
+          memory: 16Gi
+        limits:
+          cpu: '2'
+          memory: 16Gi
+  taskRunTemplate:
+    serviceAccountName: build-pipeline-odh-kserve-module-operator-ci
+  workspaces:
+  - name: git-auth
+    secret:
+      # This secret is generated for the odh-model-controller repository.
+      # The kserve clone works because kserve is public; if kserve ever
+      # goes private this breaks silently.
+      secretName: '{{ git_auth_secret }}'
+status: {}
