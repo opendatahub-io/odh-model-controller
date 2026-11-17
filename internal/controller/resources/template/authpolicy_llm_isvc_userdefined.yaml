@@ -165,6 +165,20 @@ spec:
         priority: 1
     response:
       success:
+        # RHCL injects the Kuadrant wasm filter without copying Authorino's
+        # identity into the wasm CEL context. Publish it here so later filters
+        # can read auth.identity. Without this object the shim fails closed
+        # with CelError NoSuchKey("identity") and the gateway returns HTTP 500.
+        filters:
+          identity:
+            metrics: false
+            priority: 0
+            json:
+              properties:
+                userid:
+                  expression: auth.identity.user.username
+                user:
+                  expression: auth.identity.user
         headers:
           x-gateway-inference-fairness-id:
             metrics: false
