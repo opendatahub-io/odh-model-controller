@@ -482,16 +482,6 @@ func GetEnvOr(key, defaultValue string) string {
 	return defaultValue
 }
 
-// GetAuthAudience returns the authentication audience from environment variable or default
-func GetAuthAudience(defaultAudience string) []string {
-	aud := GetEnvOr("AUTH_AUDIENCE", defaultAudience)
-	audiences := strings.Split(aud, ",")
-	for i := range audiences {
-		audiences[i] = strings.TrimSpace(audiences[i])
-	}
-	return audiences
-}
-
 // GetInferenceServiceConfigMap retrieves the KServe inference service configuration ConfigMap
 func GetInferenceServiceConfigMap(ctx context.Context, cli client.Client) (*corev1.ConfigMap, error) {
 	controllerNs := os.Getenv("POD_NAMESPACE")
@@ -504,25 +494,4 @@ func GetInferenceServiceConfigMap(ctx context.Context, cli client.Client) (*core
 		return nil, fmt.Errorf("error getting configmap 'inferenceservice-config'. %w", err)
 	}
 	return inferenceServiceConfigMap, nil
-}
-
-// GetGatewayInfoFromConfigMap parses the gateway namespace and name from the inference service ConfigMap
-func GetGatewayInfoFromConfigMap(ctx context.Context, cli client.Client) (namespace, name string, err error) {
-	configMap, err := GetInferenceServiceConfigMap(ctx, cli)
-	if err != nil {
-		return "", "", err
-	}
-
-	if ingressData := configMap.Data["ingress"]; ingressData != "" {
-		var config map[string]any
-		if json.Unmarshal([]byte(ingressData), &config) == nil {
-			if gateway, ok := config["kserveIngressGateway"].(string); ok {
-				if parts := strings.Split(gateway, "/"); len(parts) == 2 {
-					return parts[0], parts[1], nil
-				}
-			}
-		}
-	}
-
-	return "", "", fmt.Errorf("failed to parse gateway info from configmap")
 }
