@@ -337,6 +337,21 @@ var _ = Describe("KserveMetricsDashboardReconciler", func() {
 				Expect(configMap.Data["metrics"]).To(ContainSubstring("vllm:omni_"))
 				Expect(configMap.Data["metrics"]).To(ContainSubstring("vllm-omni-cuda-model"))
 				Expect(configMap.Data["metrics"]).To(ContainSubstring("test-namespace"))
+
+				// vLLM-Omni wraps the upstream vLLM stat logger, which exposes the
+				// KV cache gauge only as vllm:kv_cache_usage_perc since vLLM 0.12.
+				var cfg metricsConfig
+				Expect(json.Unmarshal([]byte(configMap.Data["metrics"]), &cfg)).To(Succeed())
+				var cacheQueries []metricsQuery
+				for _, section := range cfg.Config {
+					if section.Type == "KV_CACHE" {
+						cacheQueries = section.Queries
+					}
+				}
+				Expect(cacheQueries).To(HaveLen(1))
+				Expect(cacheQueries[0].Query).To(HavePrefix("sum(vllm:kv_cache_usage_perc{"))
+				Expect(cacheQueries[0].Query).To(HaveSuffix("}) by (stage)"))
+				Expect(cacheQueries[0].Query).NotTo(ContainSubstring("gpu_cache_usage_perc"))
 			})
 		})
 
