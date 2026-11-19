@@ -284,7 +284,7 @@ const (
 				"queries": [
 					{
 						"title": "KV cache usage per stage",
-						"query": "sum(vllm:kv_cache_usage_perc{namespace='${NAMESPACE}', pod=~'${MODEL_NAME}-predictor-.*'}) by (stage)"
+						"query": "max(vllm:kv_cache_usage_perc{namespace='${NAMESPACE}', pod=~'${MODEL_NAME}-predictor-.*'}) by (stage)"
 					}
 				]
 			},

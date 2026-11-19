@@ -340,6 +340,8 @@ var _ = Describe("KserveMetricsDashboardReconciler", func() {
 
 				// vLLM-Omni wraps the upstream vLLM stat logger, which exposes the
 				// KV cache gauge only as vllm:kv_cache_usage_perc since vLLM 0.12.
+				// The gauge is a 0-1 ratio per engine, so the stage shows its
+				// busiest replica rather than a sum that can exceed 100%.
 				var cfg metricsConfig
 				Expect(json.Unmarshal([]byte(configMap.Data["metrics"]), &cfg)).To(Succeed())
 				var cacheQueries []metricsQuery
@@ -349,7 +351,7 @@ var _ = Describe("KserveMetricsDashboardReconciler", func() {
 					}
 				}
 				Expect(cacheQueries).To(HaveLen(1))
-				Expect(cacheQueries[0].Query).To(HavePrefix("sum(vllm:kv_cache_usage_perc{"))
+				Expect(cacheQueries[0].Query).To(HavePrefix("max(vllm:kv_cache_usage_perc{"))
 				Expect(cacheQueries[0].Query).To(HaveSuffix("}) by (stage)"))
 				Expect(cacheQueries[0].Query).NotTo(ContainSubstring("gpu_cache_usage_perc"))
 			})
