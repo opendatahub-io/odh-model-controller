@@ -11,7 +11,11 @@ spec:
       port: metrics
       scheme: https
       tlsConfig:
-        insecureSkipVerify: true
+        ca:
+          configMap:
+            name: openshift-service-ca.crt
+            key: service-ca.crt
+        serverName: model-serving-api.NAMESPACE.svc
   selector:
     matchLabels:
-      app: model-serving-api
+      app.kubernetes.io/name: model-serving-api

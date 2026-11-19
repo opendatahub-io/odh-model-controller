@@ -362,11 +362,11 @@ deploy: manifests kustomize ## Deploy controller to the K8s cluster specified in
 	cd config/manager && $(KUSTOMIZE) edit set image controller=${IMG}
 	$(KUSTOMIZE) build config/default | $(KUBECTL) apply -f -
 
-.PHONY: deploy-server
-deploy-server: kustomize ## Deploy model-serving-api to the K8s cluster specified in ~/.kube/config.
+.PHONY: render-server
+render-server: kustomize ## Render model-serving-api manifests for the selected namespace.
 	@SERVER_IMG_REF="$(SERVER_IMG)"; \
 	if command -v $(CONTAINER_TOOL) >/dev/null 2>&1; then \
-		digest="$$($(CONTAINER_TOOL) inspect --format='{{index .RepoDigests 0}}' '$(SERVER_IMG)' 2>/dev/null)"; \
+		digest="$$($(CONTAINER_TOOL) inspect --format='{{index .RepoDigests 0}}' '$(SERVER_IMG)' 2>/dev/null || true)"; \
 		if [ -n "$$digest" ]; then \
 			SERVER_IMG_REF="$$digest"; \
 		fi; \
@@ -377,8 +377,26 @@ deploy-server: kustomize ## Deploy model-serving-api to the K8s cluster specifie
 	$(KUSTOMIZE) edit add resource ../../config/server && \
 	$(KUSTOMIZE) edit set namespace '$(NAMESPACE)' && \
 	$(KUSTOMIZE) edit set image "controller=$$SERVER_IMG_REF" && \
-	$(KUSTOMIZE) build . > server-bundle.yaml && \
-	$(KUBECTL) apply -f server-bundle.yaml
+	printf '%s\n' \
+		'replacements:' \
+		'  - source:' \
+		'      kind: Service' \
+		'      name: model-serving-api' \
+		'      fieldPath: metadata.namespace' \
+		'    targets:' \
+		'      - select:' \
+		'          kind: ServiceMonitor' \
+		'          name: model-serving-api-metrics' \
+		'        fieldPaths:' \
+		'          - spec.endpoints.0.tlsConfig.serverName' \
+		'        options:' \
+		'          delimiter: "."' \
+		'          index: 1' >> kustomization.yaml && \
+	$(KUSTOMIZE) build . > server-bundle.yaml
+
+.PHONY: deploy-server
+deploy-server: render-server ## Deploy model-serving-api to the K8s cluster specified in ~/.kube/config.
+	$(KUBECTL) apply -f '$(LOCALBIN)/server-overlay/server-bundle.yaml'
 	$(KUBECTL) rollout status deployment/model-serving-api -n '$(NAMESPACE)' --timeout=120s
 
 .PHONY: undeploy
