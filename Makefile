@@ -366,7 +366,7 @@ deploy: manifests kustomize ## Deploy controller to the K8s cluster specified in
 render-server: kustomize ## Render model-serving-api manifests for the selected namespace.
 	@SERVER_IMG_REF="$(SERVER_IMG)"; \
 	if command -v $(CONTAINER_TOOL) >/dev/null 2>&1; then \
-		digest="$$($(CONTAINER_TOOL) inspect --format='{{index .RepoDigests 0}}' '$(SERVER_IMG)' 2>/dev/null)"; \
+		digest="$$($(CONTAINER_TOOL) inspect --format='{{index .RepoDigests 0}}' '$(SERVER_IMG)' 2>/dev/null || true)"; \
 		if [ -n "$$digest" ]; then \
 			SERVER_IMG_REF="$$digest"; \
 		fi; \

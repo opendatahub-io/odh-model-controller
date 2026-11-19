@@ -25,7 +25,12 @@ func TestRenderedServiceMonitorSelectsServiceAndVerifiesTLS(t *testing.T) {
 		t.Run(namespace, func(t *testing.T) {
 			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
 			defer cancel()
-			cmd := exec.CommandContext(ctx, "make", "-s", "render-server", "NAMESPACE="+namespace)
+			args := []string{"-s", "render-server", "NAMESPACE=" + namespace}
+			if namespace == "redhat-ods-applications" {
+				// Simulate an installed container tool with no local server image.
+				args = append(args, "CONTAINER_TOOL=false")
+			}
+			cmd := exec.CommandContext(ctx, "make", args...)
 			cmd.Dir = repoRoot
 			output, err := cmd.CombinedOutput()
 			require.NoError(t, err, "render model-serving-api manifests: %s", output)
