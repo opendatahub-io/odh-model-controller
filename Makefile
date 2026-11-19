@@ -362,8 +362,8 @@ deploy: manifests kustomize ## Deploy controller to the K8s cluster specified in
 	cd config/manager && $(KUSTOMIZE) edit set image controller=${IMG}
 	$(KUSTOMIZE) build config/default | $(KUBECTL) apply -f -
 
-.PHONY: deploy-server
-deploy-server: kustomize ## Deploy model-serving-api to the K8s cluster specified in ~/.kube/config.
+.PHONY: render-server
+render-server: kustomize ## Render model-serving-api manifests for the selected namespace.
 	@SERVER_IMG_REF="$(SERVER_IMG)"; \
 	if command -v $(CONTAINER_TOOL) >/dev/null 2>&1; then \
 		digest="$$($(CONTAINER_TOOL) inspect --format='{{index .RepoDigests 0}}' '$(SERVER_IMG)' 2>/dev/null)"; \
@@ -392,8 +392,11 @@ deploy-server: kustomize ## Deploy model-serving-api to the K8s cluster specifie
 		'        options:' \
 		'          delimiter: "."' \
 		'          index: 1' >> kustomization.yaml && \
-	$(KUSTOMIZE) build . > server-bundle.yaml && \
-	$(KUBECTL) apply -f server-bundle.yaml
+	$(KUSTOMIZE) build . > server-bundle.yaml
+
+.PHONY: deploy-server
+deploy-server: render-server ## Deploy model-serving-api to the K8s cluster specified in ~/.kube/config.
+	$(KUBECTL) apply -f '$(LOCALBIN)/server-overlay/server-bundle.yaml'
 	$(KUBECTL) rollout status deployment/model-serving-api -n '$(NAMESPACE)' --timeout=120s
 
 .PHONY: undeploy
