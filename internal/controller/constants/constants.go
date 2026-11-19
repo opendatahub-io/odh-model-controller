@@ -17,8 +17,6 @@ package constants
 
 import (
 	"time"
-
-	"knative.dev/pkg/kmeta"
 )
 
 type KServeDeploymentMode string
@@ -159,32 +157,3 @@ const (
 	UserDefined AuthType = "userdefined"
 	Anonymous   AuthType = "anonymous"
 )
-
-const (
-	AuthAudience            = "AUTH_AUDIENCE"
-	AuthorinoLabel          = "AUTHORINO_LABEL"
-	AuthPolicyNameSuffix    = "-authn"
-	AuthPolicyGroup         = "kuadrant.io"
-	AuthPolicyVersion       = "v1"
-	AuthPolicyKind          = "AuthPolicy"
-	HTTPRouteNameSuffix     = "-kserve-route"
-	KubernetesAudience      = "https://kubernetes.default.svc"
-	DefaultGatewayName      = "openshift-ai-inference"
-	DefaultGatewayNamespace = "openshift-ingress"
-)
-
-func GetAuthPolicyName(llmisvcName string) string {
-	return kmeta.ChildName(llmisvcName, AuthPolicyNameSuffix)
-}
-
-func GetGatewayAuthPolicyName(gatewayName string) string {
-	return kmeta.ChildName(gatewayName, AuthPolicyNameSuffix)
-}
-
-func GetHTTPRouteName(llmisvcName string) string {
-	return kmeta.ChildName(llmisvcName, HTTPRouteNameSuffix)
-}
-
-func GetAuthPolicyGroupVersion() string {
-	return AuthPolicyGroup + "/" + AuthPolicyVersion
-}

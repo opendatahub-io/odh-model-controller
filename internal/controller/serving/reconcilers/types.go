@@ -19,7 +19,6 @@ import (
 	"context"
 
 	"github.com/go-logr/logr"
-	kservev1alpha1 "github.com/kserve/kserve/pkg/apis/serving/v1alpha1"
 	kservev1beta1 "github.com/kserve/kserve/pkg/apis/serving/v1beta1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
@@ -29,7 +28,7 @@ type Reconciler interface {
 	Reconcile(ctx context.Context, log logr.Logger, isvc *kservev1beta1.InferenceService) error
 }
 
-// GenericSubResourceReconciler interface that can handle both InferenceService and LLMInferenceService
+// GenericSubResourceReconciler handles sub-resources of a serving object.
 type GenericSubResourceReconciler[T client.Object] interface {
 	Reconcile(ctx context.Context, log logr.Logger, obj T) error
 	Delete(ctx context.Context, log logr.Logger, obj T) error
@@ -38,9 +37,6 @@ type GenericSubResourceReconciler[T client.Object] interface {
 
 // SubResourceReconciler interface for InferenceService-specific reconcilers (backward compatibility)
 type SubResourceReconciler = GenericSubResourceReconciler[*kservev1beta1.InferenceService]
-
-// LLMSubResourceReconciler interface for LLMInferenceService-specific reconcilers
-type LLMSubResourceReconciler = GenericSubResourceReconciler[*kservev1alpha1.LLMInferenceService]
 
 type NoResourceRemoval struct{}
 
