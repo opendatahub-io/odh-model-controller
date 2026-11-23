@@ -6,14 +6,12 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd)"
 CLUSTER_NAME="${CLUSTER_NAME:-odh-model-controller-xks}"
 IMAGE="${IMAGE:-odh-model-controller:xks-smoke}"
+SERVER_IMAGE="${SERVER_IMAGE:-}"
 NAMESPACE="${NAMESPACE:-opendatahub}"
 KIND_CONFIG="${KIND_CONFIG:-${ROOT}/test/config/kind-xks-config.yaml}"
 CERT_MANAGER_VERSION="${CERT_MANAGER_VERSION:-v1.16.0}"
 KEEP_CLUSTER="${KEEP_CLUSTER:-false}"
-
-if [[ "${KEEP_CLUSTER}" != "true" ]]; then
-  trap 'kind delete cluster --name "${CLUSTER_NAME}" >/dev/null 2>&1 || true' EXIT
-fi
+SKIP_BUILD="${SKIP_BUILD:-false}"
 
 log() { printf '==> %s\n' "$*"; }
 fail() { printf 'ERROR: %s\n' "$*" >&2; exit 1; }
@@ -23,16 +21,45 @@ need kind
 need docker
 need kubectl
 
+if [[ "${SKIP_BUILD}" == "true" ]]; then
+  docker image inspect "${IMAGE}" >/dev/null 2>&1 \
+    || fail "prebuilt controller image ${IMAGE} does not exist (set SKIP_BUILD=false to build it)"
+  if [[ -n "${SERVER_IMAGE}" ]]; then
+    docker image inspect "${SERVER_IMAGE}" >/dev/null 2>&1 \
+      || fail "prebuilt model-serving-api image ${SERVER_IMAGE} does not exist (set SKIP_BUILD=false to build it)"
+  fi
+fi
+
+if [[ "${KEEP_CLUSTER}" != "true" ]]; then
+  trap 'kind delete cluster --name "${CLUSTER_NAME}" >/dev/null 2>&1 || true' EXIT
+fi
+
 log "Creating single-node Kind cluster ${CLUSTER_NAME}"
 kind delete cluster --name "${CLUSTER_NAME}" >/dev/null 2>&1 || true
 kind create cluster --name "${CLUSTER_NAME}" --config "${KIND_CONFIG}"
 kubectl wait --for=condition=Ready nodes --all --timeout=180s
 
-log "Building controller image ${IMAGE}"
-docker build -t "${IMAGE}" -f "${ROOT}/Containerfile" "${ROOT}"
+if [[ "${SKIP_BUILD}" == "true" ]]; then
+  log "Using prebuilt controller image ${IMAGE}"
+else
+  log "Building controller image ${IMAGE}"
+  docker build -t "${IMAGE}" -f "${ROOT}/Containerfile" "${ROOT}"
+fi
+
+if [[ -n "${SERVER_IMAGE}" ]]; then
+  if [[ "${SKIP_BUILD}" == "true" ]]; then
+    log "Using prebuilt model-serving-api image ${SERVER_IMAGE}"
+  else
+    log "Building model-serving-api image ${SERVER_IMAGE}"
+    docker build -t "${SERVER_IMAGE}" -f "${ROOT}/Containerfile.server" "${ROOT}"
+  fi
+fi
 
 log "Loading image into Kind"
 kind load docker-image "${IMAGE}" --name "${CLUSTER_NAME}"
+if [[ -n "${SERVER_IMAGE}" ]]; then
+  kind load docker-image "${SERVER_IMAGE}" --name "${CLUSTER_NAME}"
+fi
 
 log "Installing cert-manager ${CERT_MANAGER_VERSION}"
 kubectl create namespace cert-manager --dry-run=client -o yaml | kubectl apply -f -
@@ -59,6 +86,15 @@ kubectl kustomize "${ROOT}/config/overlays/xks" \
   | sed -E "s|(image: ).*odh-model-controller[^[:space:]]*|\\1${IMAGE}|" \
   | sed 's|imagePullPolicy: Always|imagePullPolicy: IfNotPresent|' \
   | kubectl apply -f -
+
+if [[ -n "${SERVER_IMAGE}" ]]; then
+  log "Replacing the model-serving-api via its Deployment and container names"
+  server_container="$(kubectl -n "${NAMESPACE}" get deployment model-serving-api \
+    -o jsonpath='{.spec.template.spec.containers[?(@.name=="server")].name}')"
+  [[ -n "${server_container}" ]] || fail "deployment/model-serving-api has no server container"
+  kubectl -n "${NAMESPACE}" set image deployment/model-serving-api \
+    "${server_container}=${SERVER_IMAGE}"
+fi
 
 kubectl patch deployment odh-model-controller -n "${NAMESPACE}" --type=json -p='[
   {"op":"replace","path":"/spec/template/spec/containers/0/args","value":["--health-probe-bind-address=:8081"]},

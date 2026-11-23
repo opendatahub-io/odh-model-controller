@@ -120,6 +120,9 @@ KServeReady, one LLMISVC Ready).
 
 // TODO(user): Add detailed information on how you would like others to contribute to this project
 
+For the Konflux build simulation, manifest contracts, and local validation
+commands, see [docs/pr-build-validation.md](docs/pr-build-validation.md).
+
 **NOTE:** Run `make help` for more information on all potential `make` targets
 
 More information can be found via the [Kubebuilder Documentation](https://book.kubebuilder.io/introduction.html)
