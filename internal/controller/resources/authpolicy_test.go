@@ -282,8 +282,11 @@ var _ = Describe("AuthPolicyTemplateLoader", func() {
 			identity, ok := authPolicy.Spec.AuthScheme.Response.Success.DynamicMetadata["identity"]
 			Expect(ok).To(BeTrue())
 			Expect(identity.Json).ToNot(BeNil())
-			Expect(string(identity.Json.Properties["user"].Expression)).To(Equal("auth.identity.user"))
+			Expect(identity.Json.Properties).ToNot(HaveKey("user"))
 			Expect(string(identity.Json.Properties["userid"].Expression)).To(Equal("auth.identity.user.username"))
+			Expect(string(identity.Json.Properties["groups"].Expression)).To(Equal("auth.identity.user.groups"))
+			Expect(identity.Conditions).To(HaveLen(1))
+			Expect(identity.Conditions[0].Predicate).To(Equal("has(auth.identity.user)"))
 		})
 
 		It("should have default objective value in Anonymous template", func(ctx SpecContext) {

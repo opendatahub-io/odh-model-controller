@@ -165,20 +165,21 @@ spec:
         priority: 1
     response:
       success:
-        # RHCL injects the Kuadrant wasm filter without copying Authorino's
-        # identity into the wasm CEL context. Publish it here so later filters
-        # can read auth.identity. Without this object the shim fails closed
-        # with CelError NoSuchKey("identity") and the gateway returns HTTP 500.
+        # Publish only the claims a Kuadrant wasm action can read. The shim
+        # sees auth.identity only when this filter sets it. Skip the filter
+        # when there is no user, which is the case for grid-site.
         filters:
           identity:
+            when:
+              - predicate: "has(auth.identity.user)"
             metrics: false
             priority: 0
             json:
               properties:
                 userid:
                   expression: auth.identity.user.username
-                user:
-                  expression: auth.identity.user
+                groups:
+                  expression: auth.identity.user.groups
         headers:
           x-gateway-inference-fairness-id:
             metrics: false
