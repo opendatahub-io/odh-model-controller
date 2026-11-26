@@ -1,0 +1,428 @@
+name: PR Build Validation
+
+# Simulates the two Konflux pull-request builds and the manifests the KServe
+# module renders in production:
+#   .tekton/odh-model-controller-pull-request.yaml
+#   .tekton/odh-model-serving-api-ci-on-pull-request.yaml
+#
+# Skip with "[skip konflux-sim]" in the PR title or the "skip-konflux-sim" label.
+
+on:
+  pull_request:
+    branches:
+      - incubating
+      - main
+      - 'stable-*'
+    types: [opened, synchronize, reopened, edited, labeled, unlabeled]
+  workflow_dispatch:
+
+concurrency:
+  group: pr-build-validation-${{ github.event.pull_request.number || github.run_id }}
+  # Label/title edits must re-evaluate the skip decision, but they must not
+  # cancel an in-flight build. Only a new commit supersedes a running run.
+  cancel-in-progress: ${{ github.event.action == 'synchronize' }}
+
+env:
+  SIM_KUSTOMIZE_VERSION: '5.7.1'
+  SIM_KUSTOMIZE_SHA256: 'ea375e7372f9aa029129d4b2d16c66b7750b7f1213c4f66f910d981c895818d8'
+  SIM_KUBECONFORM_VERSION: '0.7.0'
+  SIM_KUBECONFORM_SHA256: 'c31518ddd122663b3f3aa874cfe8178cb0988de944f29c74a0b9260920d115d3'
+  SIM_KUBERNETES_VERSION: '1.33.0'
+  CONTROLLER_IMAGE: quay.io/opendatahub/odh-model-controller:pr-${{ github.sha }}
+  SERVER_IMAGE: quay.io/opendatahub/odh-model-serving-api:pr-${{ github.sha }}
+
+jobs:
+  check-skip:
+    name: Check Skip Condition
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    outputs:
+      should-skip: ${{ steps.check.outputs.skip }}
+      reason: ${{ steps.check.outputs.reason }}
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Evaluate skip condition
+        id: check
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          PR_TITLE: ${{ github.event.pull_request.title }}
+          PR_LABELS: ${{ join(github.event.pull_request.labels.*.name, ',') }}
+          BASE_REF: ${{ github.base_ref }}
+        run: |
+          set -euo pipefail
+          RELEVANT='^(go\.(mod|sum)|go\.work|cmd/|api/|internal/|pkg/|server/|test/|Containerfile|Dockerfile|Makefile|\.dockerignore|config/|\.tekton/|hack/|scripts/validate-build\.sh|docs/pr-build-validation\.md|\.github/workflows/pr-build-validation\.yml)'
+
+          if [ "$EVENT_NAME" = "workflow_dispatch" ]; then
+            echo "skip=false" >> "$GITHUB_OUTPUT"
+            echo "reason=manual dispatch" >> "$GITHUB_OUTPUT"
+            echo "✅ Manual dispatch: validation will run"
+          elif [[ "$PR_TITLE" == *"[skip konflux-sim]"* ]]; then
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+            echo "reason=PR title contains [skip konflux-sim]" >> "$GITHUB_OUTPUT"
+            echo "ℹ️  Validation skipped: PR title contains [skip konflux-sim]"
+          elif [[ ",${PR_LABELS}," == *",skip-konflux-sim,"* ]]; then
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+            echo "reason=skip-konflux-sim label present" >> "$GITHUB_OUTPUT"
+            echo "ℹ️  Validation skipped: skip-konflux-sim label present"
+          else
+            # Capture the diff first. A pipeline ending in `grep -q` can die
+            # with SIGPIPE under pipefail, and the negation then reads that as
+            # "no relevant changes" and reports a false green.
+            changed_files="$RUNNER_TEMP/konflux-sim-changed-files"
+            git diff --no-renames --name-only -z "origin/${BASE_REF}...HEAD" > "$changed_files"
+            grep_status=0
+            grep -zEq "$RELEVANT" "$changed_files" || grep_status=$?
+            if [ "$grep_status" -eq 0 ]; then
+              echo "skip=false" >> "$GITHUB_OUTPUT"
+              echo "reason=relevant changes detected" >> "$GITHUB_OUTPUT"
+              echo "✅ Validation will run"
+            elif [ "$grep_status" -eq 1 ]; then
+              echo "skip=true" >> "$GITHUB_OUTPUT"
+              echo "reason=no Konflux-relevant files changed" >> "$GITHUB_OUTPUT"
+              echo "ℹ️  Validation out of scope: no Konflux-relevant files changed"
+            else
+              echo "❌ Could not inspect changed files (grep exit ${grep_status})" >&2
+              exit "$grep_status"
+            fi
+          fi
+
+  static-validation:
+    name: Static Validation Checks
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    needs: check-skip
+    if: needs.check-skip.outputs.should-skip != 'true'
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Resolve the builder Go version
+        id: go-version
+        run: |
+          set -euo pipefail
+          version=$(./scripts/validate-build.sh go-version)
+          printf 'version=%s\n' "$version" >> "$GITHUB_OUTPUT"
+
+      - name: Set up Go
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e  # v7.0.0
+        with:
+          go-version: ${{ steps.go-version.outputs.version }}
+          cache: true
+          cache-dependency-path: go.sum
+
+      - name: Validate build inputs and image contracts
+        run: |
+          set -euo pipefail
+          ./scripts/validate-build.sh static
+
+      - name: Verify Go modules
+        run: |
+          set -euo pipefail
+          ./scripts/validate-build.sh go-modules
+
+  hermetic-preflight:
+    name: Hermetic Build Preflight
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: read
+    needs: check-skip
+    if: needs.check-skip.outputs.should-skip != 'true'
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Resolve the builder Go version
+        id: go-version
+        run: |
+          set -euo pipefail
+          version=$(./scripts/validate-build.sh go-version)
+          printf 'version=%s\n' "$version" >> "$GITHUB_OUTPUT"
+
+      - name: Set up Go
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e  # v7.0.0
+        with:
+          go-version: ${{ steps.go-version.outputs.version }}
+          cache: false
+
+      - name: Prove the prefetched module set is sufficient
+        run: |
+          set -euo pipefail
+          ./scripts/validate-build.sh hermetic
+
+  generated-artifact-drift:
+    name: Generated Artifact Drift
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: read
+    needs: check-skip
+    if: needs.check-skip.outputs.should-skip != 'true'
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Resolve the builder Go version
+        id: go-version
+        run: |
+          set -euo pipefail
+          version=$(./scripts/validate-build.sh go-version)
+          printf 'version=%s\n' "$version" >> "$GITHUB_OUTPUT"
+
+      - name: Set up Go
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e  # v7.0.0
+        with:
+          go-version: ${{ steps.go-version.outputs.version }}
+          cache: true
+          cache-dependency-path: go.sum
+
+      - name: Install controller-gen
+        run: |
+          set -euo pipefail
+          GOBIN="$RUNNER_TEMP/bin" go install sigs.k8s.io/controller-tools/cmd/controller-gen@v0.16.4
+          "$RUNNER_TEMP/bin/controller-gen" --version
+
+      - name: Compare generated files on HEAD and the PR base
+        env:
+          BASE_REF: ${{ github.event.pull_request.base.sha || 'origin/incubating' }}
+          CONTROLLER_GEN: ${{ runner.temp }}/bin/controller-gen
+        run: |
+          set -euo pipefail
+          ./scripts/validate-build.sh generated-drift
+
+  manifest-validation:
+    name: Manifest Validation
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    needs: check-skip
+    if: needs.check-skip.outputs.should-skip != 'true'
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Install kustomize and kubeconform
+        run: |
+          set -euo pipefail
+          curl -fsSL -o /tmp/kustomize.tar.gz \
+            "https://github.com/kubernetes-sigs/kustomize/releases/download/kustomize%2Fv${SIM_KUSTOMIZE_VERSION}/kustomize_v${SIM_KUSTOMIZE_VERSION}_linux_amd64.tar.gz"
+          printf '%s  %s\n' "$SIM_KUSTOMIZE_SHA256" /tmp/kustomize.tar.gz | sha256sum --check --strict
+          tar -xzf /tmp/kustomize.tar.gz -C /tmp
+          sudo install -m 0755 /tmp/kustomize /usr/local/bin/kustomize
+
+          curl -fsSL -o /tmp/kubeconform.tar.gz \
+            "https://github.com/yannh/kubeconform/releases/download/v${SIM_KUBECONFORM_VERSION}/kubeconform-linux-amd64.tar.gz"
+          printf '%s  %s\n' "$SIM_KUBECONFORM_SHA256" /tmp/kubeconform.tar.gz | sha256sum --check --strict
+          tar -xzf /tmp/kubeconform.tar.gz -C /tmp
+          sudo install -m 0755 /tmp/kubeconform /usr/local/bin/kubeconform
+
+          kustomize version
+          kubeconform -v
+          jq --version
+
+      - name: Ensure the YAML parser is available
+        run: |
+          set -euo pipefail
+          if ! python3 -c 'import yaml' >/dev/null 2>&1; then
+            python3 -m pip install --disable-pip-version-check --no-input pyyaml==6.0.2
+          fi
+          python3 -c 'import yaml; print(yaml.__version__)'
+
+      - name: Validate rendered manifests, RBAC, ports, and flags
+        env:
+          KUBERNETES_VERSION: ${{ env.SIM_KUBERNETES_VERSION }}
+        run: |
+          set -euo pipefail
+          ./scripts/validate-build.sh manifests
+
+  controller-image:
+    name: Controller Image and KinD Runtime
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    permissions:
+      contents: read
+    needs:
+      - check-skip
+      - static-validation
+    if: needs.check-skip.outputs.should-skip != 'true'
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Build and inspect the controller image
+        run: |
+          set -euo pipefail
+          ./scripts/validate-build.sh controller
+
+      - name: Install KinD and kubectl
+        uses: helm/kind-action@ea822c7bf1874f08e5a491df991c228edffc3376  # v1.15.2
+        with:
+          install_only: true
+          version: v0.27.0
+          kubectl_version: v1.32.0
+
+      # Keep the cluster on failure so the collection step can read pods and
+      # controller logs. SKIP_BUILD makes the smoke test deploy the exact image
+      # built and inspected above.
+      - name: Deploy the PR image with the repository KinD smoke test
+        env:
+          KEEP_CLUSTER: 'true'
+        run: |
+          set -euo pipefail
+          ./scripts/validate-build.sh kind
+
+      - name: Collect controller diagnostics
+        if: failure()
+        run: |
+          set -euo pipefail
+          kubectl get pods -n opendatahub -o wide || true
+          kubectl get deployment -n opendatahub -o yaml || true
+          kubectl logs -n opendatahub deployment/odh-model-controller -c manager --tail=300 || true
+          kubectl logs -n opendatahub deployment/model-serving-api -c server --tail=200 || true
+          kubectl get mutatingwebhookconfiguration -o yaml || true
+          kubectl get validatingwebhookconfiguration -o yaml || true
+          kubectl get certificate -A -o yaml || true
+
+      - name: Delete the KinD cluster
+        if: always()
+        run: |
+          kind delete cluster --name odh-model-controller-xks || true
+
+  server-image:
+    name: Model Serving API Image
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    permissions:
+      contents: read
+    needs:
+      - check-skip
+      - static-validation
+    if: needs.check-skip.outputs.should-skip != 'true'
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Build and exercise the model-serving-api image
+        run: |
+          set -euo pipefail
+          ./scripts/validate-build.sh server
+
+  downstream-variant:
+    name: Downstream Variant Contract
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    needs: check-skip
+    if: needs.check-skip.outputs.should-skip != 'true'
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Validate the pinned downstream variant
+        run: |
+          set -euo pipefail
+          ./scripts/validate-build.sh downstream
+
+  summary:
+    name: Build Validation Summary
+    runs-on: ubuntu-latest
+    permissions: {}
+    needs:
+      - check-skip
+      - static-validation
+      - hermetic-preflight
+      - generated-artifact-drift
+      - manifest-validation
+      - controller-image
+      - server-image
+      - downstream-variant
+    if: always()
+    steps:
+      - name: Check results
+        env:
+          NEEDS: ${{ toJSON(needs) }}
+        run: |
+          set -euo pipefail
+          echo "## Konflux Build Simulation Results"
+          echo ""
+
+          check_skip_result=$(jq -r '."check-skip".result' <<< "$NEEDS")
+          if [ "$check_skip_result" != "success" ]; then
+            echo "❌ Skip evaluation failed (${check_skip_result:-no result}); refusing to report success."
+            exit 1
+          fi
+
+          skip=$(jq -r '."check-skip".outputs."should-skip"' <<< "$NEEDS")
+          reason=$(jq -r '."check-skip".outputs.reason' <<< "$NEEDS")
+          jobs=(
+            static-validation
+            hermetic-preflight
+            generated-artifact-drift
+            manifest-validation
+            controller-image
+            server-image
+            downstream-variant
+          )
+
+          echo "| Job | Result |"
+          echo "|-----|--------|"
+          for job in "${jobs[@]}"; do
+            echo "| $job | $(jq -r --arg job "$job" '.[$job].result' <<< "$NEEDS") |"
+          done
+          echo ""
+
+          if [ "$skip" = "true" ]; then
+            bad=""
+            for job in "${jobs[@]}"; do
+              result=$(jq -r --arg job "$job" '.[$job].result // "missing"' <<< "$NEEDS")
+              if [ "$result" != "skipped" ]; then
+                bad+="${job}=${result}"$'\n'
+              fi
+            done
+            if [ -n "$bad" ]; then
+              echo "❌ Jobs ran after an explicit skip:"
+              echo "$bad"
+              exit 1
+            fi
+            echo "✅ Validation not required: ${reason:-explicit skip}"
+            exit 0
+          fi
+
+          failed=false
+          for job in "${jobs[@]}"; do
+            result=$(jq -r --arg job "$job" '.[$job].result' <<< "$NEEDS")
+            if [ "$result" != "success" ]; then
+              failed=true
+            fi
+          done
+
+          if [ "$failed" = "true" ]; then
+            echo "❌ Some validations failed. Check the individual job logs above."
+            exit 1
+          fi
+          echo "✅ All validations passed."
