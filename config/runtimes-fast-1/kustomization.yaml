@@ -47,6 +47,11 @@ patches:
       - op: replace
         path: /objects/0/metadata/name
         value: vllm-gaudi-runtime-fast-1
+  - target: { kind: Template, name: vllm-rbln-runtime-template }
+    patch: |-
+      - op: replace
+        path: /objects/0/metadata/name
+        value: vllm-rbln-runtime-fast-1
   - target: { kind: Template, name: vllm-spyre-s390x-runtime-template }
     patch: |-
       - op: replace
