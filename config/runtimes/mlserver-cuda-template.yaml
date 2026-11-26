@@ -45,6 +45,8 @@ objects:
               value: /mnt/models
             - name: MLSERVER_EMPTY_REGISTRY_READINESS
               value: "false"
+            - name: CHECK_REPOSITORY_POPULATED
+              value: "true"
           startupProbe:
             initialDelaySeconds: 1
             periodSeconds: 1
@@ -54,7 +56,12 @@ objects:
                 - /bin/sh
                 - -c
                 - |
-                  [ -n "$(ls -A /mnt/models 2>/dev/null)" ]
+                  case "$CHECK_REPOSITORY_POPULATED" in
+                    [Tt][Rr][Uu][Ee]|1)
+                      [ -n "$(ls -A "$MLSERVER_MODELS_DIR" 2>/dev/null)" ]
+                      ;;
+                    *) exit 0 ;;
+                  esac
           readinessProbe:
             initialDelaySeconds: 5
             periodSeconds: 5
@@ -69,7 +76,7 @@ objects:
             failureThreshold: 10
             timeoutSeconds: 5
             httpGet:
-              path: /v2/health/ready
+              path: /v2/health/live
               port: 8080
           resources:
             requests:
