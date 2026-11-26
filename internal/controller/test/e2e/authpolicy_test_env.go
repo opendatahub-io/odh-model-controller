@@ -4,6 +4,7 @@ package e2e
 
 import (
 	"context"
+	"bytes"
 	"crypto/tls"
 	"fmt"
 	"io"
@@ -976,6 +977,80 @@ func (e *authPolicyTestEnv) gatewayGet(t *testing.T, path, token string, extraHe
 		t.Fatalf("GET %s failed after %d attempts: %v", e.gatewayURL+path, requestRetries, lastErr)
 	}
 	// All retries returned transient status codes — return the last response.
+	return lastResp, lastBody
+}
+
+// gatewayDoBody performs a single HTTP request with the given method and request
+// body through the gateway. It mirrors gatewayDo but supports a body and an
+// arbitrary method (POST), used to exercise the gateway EnvoyFilter that derives
+// the model-routing header from the request body. Returns the response, response
+// body, and any error.
+func (e *authPolicyTestEnv) gatewayDoBody(method, path, token string, body []byte, extraHeaders map[string]string) (*http.Response, []byte, error) {
+	url := e.gatewayURL + path
+	req, err := http.NewRequestWithContext(context.Background(), method, url, bytes.NewReader(body))
+	if err != nil {
+		return nil, nil, fmt.Errorf("create request: %w", err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+	if token != "" {
+		req.Header.Set("Authorization", "Bearer "+token)
+	}
+	for k, v := range extraHeaders {
+		req.Header.Set(k, v)
+	}
+
+	resp, err := e.httpClient.Do(req)
+	if err != nil {
+		return nil, nil, fmt.Errorf("%s %s: %w", method, url, err)
+	}
+
+	defer func() { _ = resp.Body.Close() }()
+	respBody, err := io.ReadAll(io.LimitReader(resp.Body, maxResponseBodyBytes+1))
+	if err != nil {
+		return nil, nil, fmt.Errorf("read response body: %w", err)
+	}
+	if len(respBody) > maxResponseBodyBytes {
+		return nil, nil, fmt.Errorf("response body exceeds %d bytes", maxResponseBodyBytes)
+	}
+	return resp, respBody, nil
+}
+
+// gatewayPost performs an HTTP POST with a request body through the gateway,
+// retrying on transient errors (502, 503, connection failures) up to
+// requestRetries times. Returns the response and body bytes.
+//
+// Note: the echo backend reflects the request body, so a POST that is authorized
+// (200) with a body larger than maxResponseBodyBytes will fail the response-size
+// guard in gatewayDoBody. Large-body tests should therefore assert on denied
+// (403) or rejected (413) requests, whose response bodies are small and which are
+// backend-independent (the request never reaches the echo server).
+func (e *authPolicyTestEnv) gatewayPost(t *testing.T, path, token string, body []byte, extraHeaders map[string]string) (*http.Response, []byte) {
+	t.Helper()
+
+	var lastResp *http.Response
+	var lastBody []byte
+	var lastErr error
+
+	for attempt := range requestRetries {
+		lastResp, lastBody, lastErr = e.gatewayDoBody(http.MethodPost, path, token, body, extraHeaders)
+		if lastErr != nil {
+			t.Logf("POST %s attempt %d/%d failed: %v", e.gatewayURL+path, attempt+1, requestRetries, lastErr)
+			time.Sleep(retryDelay)
+			continue
+		}
+
+		if lastResp.StatusCode == http.StatusBadGateway || lastResp.StatusCode == http.StatusServiceUnavailable {
+			t.Logf("POST %s attempt %d/%d returned %d, retrying", e.gatewayURL+path, attempt+1, requestRetries, lastResp.StatusCode)
+			time.Sleep(retryDelay)
+			continue
+		}
+
+		return lastResp, lastBody
+	}
+
+	if lastErr != nil {
+		t.Fatalf("POST %s failed after %d attempts: %v", e.gatewayURL+path, requestRetries, lastErr)
+	}
 	return lastResp, lastBody
 }
 
