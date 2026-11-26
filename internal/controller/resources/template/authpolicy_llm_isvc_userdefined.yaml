@@ -165,6 +165,21 @@ spec:
         priority: 1
     response:
       success:
+        # Publish only the claims a Kuadrant wasm action can read. The shim
+        # sees auth.identity only when this filter sets it. Skip the filter
+        # when there is no user, which is the case for grid-site.
+        filters:
+          identity:
+            when:
+              - predicate: "has(auth.identity.user)"
+            metrics: false
+            priority: 0
+            json:
+              properties:
+                userid:
+                  expression: auth.identity.user.username
+                groups:
+                  expression: auth.identity.user.groups
         headers:
           x-gateway-inference-fairness-id:
             metrics: false

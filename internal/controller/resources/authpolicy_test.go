@@ -268,6 +268,27 @@ var _ = Describe("AuthPolicyTemplateLoader", func() {
 			Expect(string(kubernetesUserAuth.Overrides["fairness"].Value.Raw)).To(Equal(`"https://kubernetes.default.svc"`))
 		})
 
+		It("should publish auth.identity for the Kuadrant wasm shim", func(ctx SpecContext) {
+			authPolicy, err := loader.Load(ctx, resources.AuthPolicyTarget{
+				Kind:      "Gateway",
+				Name:      "openshift-ai-inference",
+				Namespace: "openshift-ingress",
+				AuthType:  constants.UserDefined,
+			})
+
+			Expect(err).ToNot(HaveOccurred())
+			Expect(authPolicy.Spec.AuthScheme.Response).ToNot(BeNil())
+
+			identity, ok := authPolicy.Spec.AuthScheme.Response.Success.DynamicMetadata["identity"]
+			Expect(ok).To(BeTrue())
+			Expect(identity.Json).ToNot(BeNil())
+			Expect(identity.Json.Properties).ToNot(HaveKey("user"))
+			Expect(string(identity.Json.Properties["userid"].Expression)).To(Equal("auth.identity.user.username"))
+			Expect(string(identity.Json.Properties["groups"].Expression)).To(Equal("auth.identity.user.groups"))
+			Expect(identity.Conditions).To(HaveLen(1))
+			Expect(identity.Conditions[0].Predicate).To(Equal("has(auth.identity.user)"))
+		})
+
 		It("should have default objective value in Anonymous template", func(ctx SpecContext) {
 			authPolicy, err := loader.Load(ctx, resources.AuthPolicyTarget{
 				Kind:      "HTTPRoute",
