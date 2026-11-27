@@ -33,6 +33,8 @@ spec:
           value: "false"
         - name: CHECK_REPOSITORY_POPULATED
           value: "true"
+        - name: MLSERVER_PARALLEL_WORKERS
+          value: "1"
       startupProbe:
         initialDelaySeconds: 1
         periodSeconds: 1
